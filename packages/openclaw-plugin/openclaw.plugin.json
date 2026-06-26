@@ -1,0 +1,137 @@
+{
+  "id": "co-engram",
+  "kind": "memory",
+  "activation": {
+    "onStartup": true
+  },
+  "contracts": {
+    "tools": [
+      "memory_search",
+      "memory_get",
+      "engram_create",
+      "engram_get",
+      "engram_update",
+      "engram_delete",
+      "engram_search",
+      "engram_list",
+      "engram_reinforce",
+      "engram_report_failure",
+      "engram_archive",
+      "engram_restore",
+      "engram_forget",
+      "engram_recompute_importance",
+      "synapse_create",
+      "synapse_get",
+      "synapse_list",
+      "synapse_delete",
+      "skill_get",
+      "skill_invoke",
+      "close_learning_loop",
+      "contradiction_resolve",
+      "get_evolution_lineage",
+      "upgrade_verification",
+      "engram_list_proposals",
+      "engram_accept_proposal",
+      "engram_dismiss_proposal",
+      "engram_doctor",
+      "engram_list_paths"
+    ]
+  },
+  "name": "Co-Engram",
+  "description": "Team memory with neuroscience-inspired plasticity. Self-editing tools for engrams / synapses / skills. Acts as the primary memory plugin (kind=memory) — mutually exclusive with memory-core.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable or disable Co-Engram tool registration."
+      },
+      "dataRoot": {
+        "type": "string",
+        "description": "Absolute path to the team-memory repository (default: $HOME/team-memory)."
+      },
+      "defaultCreatedBy": {
+        "type": "string",
+        "description": "Default creator identifier when not specified on writes."
+      },
+      "language": {
+        "type": "string",
+        "enum": ["en", "zh"],
+        "default": "en",
+        "description": "Language for tool descriptions, viewer UI, and system prompts. Falls back to team-memory persisted config if unset."
+      },
+      "startMaintenance": {
+        "type": "boolean",
+        "default": true,
+        "description": "Start the auto-maintenance engine (light/deep/rem stages)."
+      },
+      "maintenanceConfig": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Maintenance engine config (lightIntervalMs / deepIntervalMs / remIntervalMs / learningRate / enabledStages)."
+      },
+      "auditEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable audit log (.co-engram/audit.jsonl)."
+      },
+      "effectivenessEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable effectiveness tracking (retrieve_hit → effective/inconclusive)."
+      },
+      "proposalEnabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable implicit memory proposal engine (on by default for low-friction onboarding)."
+      },
+      "proposalConfig": {
+        "type": "object",
+        "additionalProperties": true,
+        "description": "Proposal engine config (threshold / similarityThreshold / maxSamples / defaultDismissDays / minMessageLength)."
+      },
+      "startViewer": {
+        "type": "boolean",
+        "default": true,
+        "description": "Start the web viewer HTTP server on 127.0.0.1:18799 (requires @co-engram/claude-code installed)."
+      },
+      "viewerConfig": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "port": { "type": "number", "default": 18799 },
+          "token": { "type": "string" }
+        },
+        "description": "Viewer server config (port / token)."
+      }
+    }
+  },
+  "uiHints": {
+    "enabled": {
+      "label": "Enable Co-Engram",
+      "help": "Globally enable or disable Co-Engram tool registration."
+    },
+    "dataRoot": {
+      "label": "Data Root",
+      "help": "Path to the team-memory Git repository where engrams are stored."
+    },
+    "startMaintenance": {
+      "label": "Start Maintenance",
+      "help": "Start P4 auto-maintenance (signal extraction + RPE + metacognition)."
+    },
+    "proposalEnabled": {
+      "label": "Implicit Memory Proposals",
+      "help": "Watch conversations and propose engrams after a topic is seen multiple times."
+    },
+    "startViewer": {
+      "label": "Start Web Viewer",
+      "help": "Launch a local-only HTTP viewer on 127.0.0.1:18799 (requires @co-engram/claude-code)."
+    },
+    "language": {
+      "label": "Language",
+      "help": "Tool description / viewer / prompt language: en (default) or zh."
+    }
+  }
+}

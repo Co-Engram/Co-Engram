@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="co-engram">
+  <title>co-engram</title>
+  <defs>
+    <linearGradient id="favCurve" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#BEC7D2"/>
+      <stop offset="50%" stop-color="#BCBAA5"/>
+      <stop offset="100%" stop-color="#B8941D"/>
+    </linearGradient>
+    <linearGradient id="favCore" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#BEC7D2"/>
+      <stop offset="50%" stop-color="#BCBAA5"/>
+      <stop offset="100%" stop-color="#B8941D"/>
+    </linearGradient>
+  </defs>
+  <path d="M 14 32 C 15 22, 26 22, 32 32 C 38 42, 49 42, 50 32 C 49 22, 38 22, 32 32 C 26 42, 15 42, 14 32 Z"
+        fill="none"
+        stroke="url(#favCurve)"
+        stroke-width="3.2"
+        stroke-linecap="round"/>
+  <circle cx="14" cy="32" r="5.5" fill="#BEC7D2"/>
+  <circle cx="32" cy="32" r="5.5" fill="url(#favCore)"/>
+  <circle cx="50" cy="32" r="5.5" fill="#B8941D"/>
+</svg>

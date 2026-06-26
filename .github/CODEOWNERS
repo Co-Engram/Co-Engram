@@ -1,0 +1,18 @@
+# These owners will be automatically requested for review when their code is changed.
+# Update with your GitHub username(s).
+#
+# Format: <path-pattern> @<github-username> [@<another-username>]
+#
+# Default owner for everything
+* @yangyang20220519
+
+# Core memory engine — higher scrutiny
+/packages/core/ @yangyang20220519
+
+# Adapters — host integration
+/packages/claude-code-mcp/ @yangyang20220519
+/packages/openclaw-plugin/ @yangyang20220519
+
+# Documentation
+/docs/ @yangyang20220519
+/README.md @yangyang20220519

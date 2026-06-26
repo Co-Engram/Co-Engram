@@ -1,0 +1,12 @@
+Co-Engram
+Copyright (c) 2026 Yang Yang
+
+This product is licensed under the MIT License (see LICENSE).
+
+=======================================================================
+Third-party dependencies (transitive, used at runtime)
+=======================================================================
+
+- zod — MIT License — https://github.com/colinhacks/zod
+- yaml — ISC License — https://github.com/eemeli/yaml
+- @modelcontextprotocol/sdk — MIT License — https://github.com/modelcontextprotocol/modelcontextprotocol

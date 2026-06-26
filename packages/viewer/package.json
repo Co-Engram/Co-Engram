@@ -1,0 +1,61 @@
+{
+  "name": "@co-engram/viewer",
+  "version": "0.1.0",
+  "description": "Co-Engram host-agnostic viewer HTTP server. Inline SPA for browsing engrams, synapses, skills, audit, and effectiveness.",
+  "license": "MIT",
+  "author": "Yang Yang <yang.yang29@zte.com.cn>",
+  "homepage": "https://github.com/co-engram/co-engram#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/co-engram/co-engram.git",
+    "directory": "packages/viewer"
+  },
+  "bugs": {
+    "url": "https://github.com/co-engram/co-engram/issues"
+  },
+  "keywords": [
+    "co-engram",
+    "viewer",
+    "memory",
+    "ai-memory",
+    "agent-memory",
+    "engram",
+    "spa"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build:vendor": "node scripts/build-vendor.mjs",
+    "build:assets": "node scripts/build-assets.mjs",
+    "build": "pnpm build:vendor && pnpm build:assets && tsc -p tsconfig.json",
+    "test": "vitest run --reporter=verbose --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@co-engram/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "dompurify": "^3.2.0",
+    "marked": "^14.1.0",
+    "vis-network": "^10.1.0"
+  }
+}

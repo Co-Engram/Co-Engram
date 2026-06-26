@@ -1,0 +1,58 @@
+{
+  "name": "@co-engram/claude-code",
+  "version": "0.1.0",
+  "description": "Co-Engram adapter for Claude Code (MCP server).",
+  "license": "MIT",
+  "author": "Yang Yang <yang.yang29@zte.com.cn>",
+  "homepage": "https://github.com/co-engram/co-engram#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/co-engram/co-engram.git",
+    "directory": "packages/claude-code-mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/co-engram/co-engram/issues"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "model-context-protocol",
+    "memory",
+    "ai-memory",
+    "agent-memory",
+    "engram"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "co-engram-mcp": "./dist/mcp-server.js",
+    "co-engram": "./dist/cli.js"
+  },
+  "scripts": {
+    "build:hooks": "node scripts/copy-hooks.mjs",
+    "build": "tsc -p tsconfig.json && pnpm build:hooks",
+    "test": "vitest run --reporter=verbose --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@co-engram/core": "workspace:*",
+    "@co-engram/viewer": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  }
+}

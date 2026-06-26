@@ -1,0 +1,216 @@
+import { describe, it, expect } from "vitest";
+import { buildServerInstructions } from "../src/instructions.js";
+
+describe("buildServerInstructions", () => {
+  it("英文版本包含核心引导", () => {
+    const s = buildServerInstructions("en", "standard");
+    expect(s).toContain("engram_search");
+    expect(s).toContain("engram_create");
+    expect(s).toContain("close_learning_loop");
+    expect(s).toContain("When to retrieve");
+    expect(s).toContain("Standard profile");
+  });
+
+  it("中文版本包含核心引导", () => {
+    const s = buildServerInstructions("zh", "standard");
+    expect(s).toContain("engram_search");
+    expect(s).toContain("engram_create");
+    expect(s).toContain("close_learning_loop");
+    expect(s).toContain("何时召回");
+    expect(s).toContain("standard profile");
+  });
+
+  it("minimal profile 注入 minimal 说明", () => {
+    const en = buildServerInstructions("en", "minimal");
+    const zh = buildServerInstructions("zh", "minimal");
+    expect(en).toContain("Minimal profile");
+    expect(en).toMatch(/exposed/i);
+    expect(zh).toContain("minimal profile");
+    expect(zh).toMatch(/暴露/);
+  });
+
+  it("full profile 注入 full 说明", () => {
+    const en = buildServerInstructions("en", "full");
+    const zh = buildServerInstructions("zh", "full");
+    expect(en).toContain("Full profile");
+    expect(en).toContain("27 tools");
+    expect(zh).toContain("full profile");
+    expect(zh).toContain("27 个工具");
+  });
+
+  it("两种语言内容不同", () => {
+    const en = buildServerInstructions("en", "standard");
+    const zh = buildServerInstructions("zh", "standard");
+    expect(en).not.toBe(zh);
+  });
+
+  it("无 state 时长度在 2KB 以内(MCP 客户端友好)", () => {
+    for (const lang of ["en", "zh"] as const) {
+      for (const profile of ["minimal", "standard", "full"] as const) {
+        const s = buildServerInstructions(lang, profile);
+        expect(s.length, `${lang}/${profile}`).toBeLessThan(2048);
+      }
+    }
+  });
+
+  it("提及 CLAUDE.md 优先级(MCP host 大多是 Claude Code)", () => {
+    const en = buildServerInstructions("en", "standard");
+    const zh = buildServerInstructions("zh", "standard");
+    expect(en).toContain("CLAUDE.md");
+    expect(zh).toContain("CLAUDE.md");
+  });
+
+  it("提及 engram_report_failure 用于错误反馈", () => {
+    const en = buildServerInstructions("en", "standard");
+    const zh = buildServerInstructions("zh", "standard");
+    expect(en).toContain("engram_report_failure");
+    expect(zh).toContain("engram_report_failure");
+  });
+
+  it("minimal profile 文本列出全部 11 个工具(避免误导 agent 调用未暴露的工具)", () => {
+    const en = buildServerInstructions("en", "minimal");
+    const zh = buildServerInstructions("zh", "minimal");
+    // PROFILE_TOOL_SETS.minimal 的 11 个工具都必须出现在说明里
+    for (const name of [
+      "engram_search",
+      "engram_get",
+      "engram_create",
+      "engram_update",
+      "engram_list",
+      "synapse_create",
+      "engram_reinforce",
+      "engram_report_failure",
+      "engram_list_proposals",
+      "engram_accept_proposal",
+      "engram_dismiss_proposal",
+    ]) {
+      expect(en, `EN missing ${name}`).toContain(name);
+      expect(zh, `ZH missing ${name}`).toContain(name);
+    }
+  });
+
+  it("minimal profile body 不直接指挥 agent 调用 close_learning_loop(该工具未暴露)", () => {
+    const en = buildServerInstructions("en", "minimal");
+    const zh = buildServerInstructions("zh", "minimal");
+    expect(en).not.toMatch(/call `close_learning_loop`/);
+    expect(zh).not.toMatch(/调用 `close_learning_loop`/);
+  });
+});
+
+describe("buildServerInstructions / pendingProposals 与 profile 一致性", () => {
+  // proposal 三件套现在在所有 profile 下都暴露(minimal/standard/full),
+  // 维护引擎产生的待审核候选始终能闭环。
+  it("minimal profile + pendingProposals>0 时,正常指引 agent 调用 engram_list_proposals", () => {
+    const en = buildServerInstructions("en", "minimal", {
+      totalEngrams: 10,
+      pendingProposals: 2,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    const zh = buildServerInstructions("zh", "minimal", {
+      totalEngrams: 10,
+      pendingProposals: 2,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    expect(en).toContain("Pending proposals: **2**");
+    expect(zh).toContain("待审核候选: **2**");
+    expect(en).toMatch(/call `engram_list_proposals`/);
+    expect(zh).toMatch(/调用 `engram_list_proposals`/);
+  });
+
+  it("standard profile + pendingProposals>0 时保持原有行为(指引调用 engram_list_proposals)", () => {
+    const en = buildServerInstructions("en", "standard", {
+      totalEngrams: 10,
+      pendingProposals: 2,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    expect(en).toMatch(/call `engram_list_proposals`/);
+  });
+
+  it("full profile + pendingProposals>0 时同样指引", () => {
+    const en = buildServerInstructions("en", "full", {
+      totalEngrams: 10,
+      pendingProposals: 2,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    expect(en).toMatch(/call `engram_list_proposals`/);
+  });
+});
+
+describe("buildServerInstructions / 动态 session 段", () => {
+  it('提供 state 时英文版本含 "Current state" 段', () => {
+    const s = buildServerInstructions("en", "standard", {
+      totalEngrams: 42,
+      pendingProposals: 3,
+      topTags: ["typescript", "react"],
+      lowConfidenceTopics: ["auth-flow"],
+      missedTopics: [],
+    });
+    expect(s).toContain("## Current state (session-fresh)");
+    expect(s).toContain("Total memories: **42**");
+    expect(s).toContain("Pending proposals: **3**");
+    expect(s).toContain("`typescript`");
+    expect(s).toContain("`auth-flow`");
+  });
+
+  it('提供 state 时中文版本含"当前状态"段', () => {
+    const s = buildServerInstructions("zh", "standard", {
+      totalEngrams: 10,
+      pendingProposals: 0,
+      topTags: ["postgres"],
+      lowConfidenceTopics: [],
+      missedTopics: ["migration"],
+    });
+    expect(s).toContain("## 当前状态(会话级快照)");
+    expect(s).toContain("记忆总数: **10**");
+    expect(s).toContain("`postgres`");
+    expect(s).toContain("`migration`");
+    expect(s).not.toContain("待审核候选"); // pendingProposals=0 不显示该行
+  });
+
+  it("pendingProposals=0 时不显示 pending 行", () => {
+    const en = buildServerInstructions("en", "standard", {
+      totalEngrams: 5,
+      pendingProposals: 0,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    expect(en).not.toMatch(/Pending proposals/);
+  });
+
+  it("空 topTags / lowConfidenceTopics / missedTopics 时不显示对应行", () => {
+    const s = buildServerInstructions("en", "standard", {
+      totalEngrams: 0,
+      pendingProposals: 0,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+    });
+    expect(s).toContain("Total memories: **0**");
+    expect(s).not.toMatch(/Top tags|Low-confidence|Recently missed/);
+  });
+
+  it("动态段不突破 2KB 上限(即使全字段都填)", () => {
+    const s = buildServerInstructions("en", "standard", {
+      totalEngrams: 9999,
+      pendingProposals: 50,
+      topTags: ["a", "b", "c", "d", "e", "f", "g"],
+      lowConfidenceTopics: ["x", "y", "z", "w"],
+      missedTopics: ["m1", "m2", "m3", "m4"],
+    });
+    expect(s.length).toBeLessThan(2048);
+  });
+
+  it("undefined state → 不含动态段", () => {
+    const s = buildServerInstructions("en", "standard");
+    expect(s).not.toContain("## Current state");
+  });
+});

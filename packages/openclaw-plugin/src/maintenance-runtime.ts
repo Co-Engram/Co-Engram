@@ -1,0 +1,83 @@
+/**
+ * OpenClaw Plugin Maintenance Runtime（P4 D.2）
+ *
+ * 把 @co-engram/core 的 MaintenanceEngine 桥接到 OpenClaw 插件生命周期。
+ *
+ * 职责：
+ *   - 创建 DreamingScheduler + MaintenanceEngine（如果尚未提供）
+ *   - 启动 setInterval + unref 自托管调度（不依赖 OpenClaw 的 cron API）
+ *   - 把 MaintenanceConfig.trash 透传到 scheduler.deepOptions.trash
+ *   - 提供 stop() 供宿主在 shutdown 时清理
+ *
+ * 使用：
+ *   const { stop } = startMaintenanceRuntime({ repository, signalSink, dreamingScheduler })
+ *   // ... 应用运行期间自动维护
+ *   process.on('SIGTERM', () => stop())
+ *
+ * @module @co-engram/openclaw
+ */
+
+import {
+  MaintenanceEngine,
+  createDreamingScheduler,
+  type DreamingScheduleConfig,
+  type MaintenanceConfig,
+  type MaintenanceDeps,
+  type TrashMaintenanceConfig,
+  type TrashOptions,
+} from "@co-engram/core";
+
+function trashToDeepOptions(
+  trash: TrashMaintenanceConfig | undefined,
+): TrashOptions | undefined {
+  if (!trash?.enabled) return undefined;
+  return {
+    afterDays: trash.afterDays,
+    purgeAfterDays: trash.purgeAfterDays,
+  };
+}
+
+/**
+ * 启动维护运行时
+ *
+ * 如果 deps.dreamingScheduler 未提供,会自动创建一个,并应用 trash 透传。
+ *
+ * @returns stop 函数（停止所有定时器）
+ */
+export function startMaintenanceRuntime(
+  deps: MaintenanceDeps,
+  config: MaintenanceConfig = {},
+): { readonly engine: MaintenanceEngine; readonly stop: () => void } {
+  const schedulerConfig: DreamingScheduleConfig = {
+    lightIntervalMs: config.lightIntervalMs,
+    deepIntervalMs: config.deepIntervalMs,
+    remIntervalMs: config.remIntervalMs,
+    deepOptions: { trash: trashToDeepOptions(config.trash) },
+  };
+
+  const dreamingScheduler =
+    deps.dreamingScheduler ??
+    createDreamingScheduler(deps.repository, schedulerConfig);
+
+  const engine = new MaintenanceEngine(
+    {
+      repository: deps.repository,
+      signalSink: deps.signalSink,
+      dreamingScheduler,
+      ...(deps.effectivenessTracker
+        ? { effectivenessTracker: deps.effectivenessTracker }
+        : {}),
+      ...(deps.dataRoot ? { dataRoot: deps.dataRoot } : {}),
+    },
+    config,
+  );
+
+  engine.start();
+
+  return {
+    engine,
+    stop: () => {
+      engine.stop();
+    },
+  };
+}

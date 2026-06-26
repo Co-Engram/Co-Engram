@@ -1,0 +1,37 @@
+{
+  "name": "@co-engram/e2e",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Co-Engram dual-host E2E tests (OpenClaw + Claude Code MCP).",
+  "license": "MIT",
+  "author": "Yang Yang <yang.yang29@zte.com.cn>",
+  "homepage": "https://github.com/co-engram/co-engram#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/co-engram/co-engram.git",
+    "directory": "packages/e2e"
+  },
+  "bugs": {
+    "url": "https://github.com/co-engram/co-engram/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --reporter=verbose",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@co-engram/core": "workspace:*",
+    "@co-engram/openclaw": "workspace:*",
+    "@co-engram/claude-code": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

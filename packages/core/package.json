@@ -1,0 +1,70 @@
+{
+  "name": "@co-engram/core",
+  "version": "0.1.0",
+  "description": "Host-agnostic team memory engine with neuroscience-inspired plasticity.",
+  "license": "MIT",
+  "author": "Yang Yang <yang.yang29@zte.com.cn>",
+  "homepage": "https://github.com/co-engram/co-engram#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/co-engram/co-engram.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/co-engram/co-engram/issues"
+  },
+  "keywords": [
+    "memory",
+    "ai-memory",
+    "agent-memory",
+    "engram",
+    "synapse",
+    "knowledge-graph",
+    "rpe",
+    "reinforcement-learning",
+    "mcp",
+    "neuroscience"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./tools": {
+      "types": "./dist/tools/index.d.ts",
+      "import": "./dist/tools/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --reporter=verbose",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "ulid": "^3.0.2",
+    "yaml": "^2.5.0",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "typescript": ">=5.0.0"
+  }
+}

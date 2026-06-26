@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Test artifacts
+coverage/
+*.lcov
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Logs
+*.log
+
+# Co-Engram runtime caches (derived data)
+.co-engram/
+
+# Team memory data repository (data and code are kept separate)
+# Note: ~/team-memory/ is a separate Git repo and should not live inside co-engram/
+team-memory/
+
+# Claude Code session artifacts
+.claude/
+
+# Example build outputs
+examples/*/dist/
+examples/*/node_modules/
+

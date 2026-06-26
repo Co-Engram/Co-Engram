@@ -1,0 +1,21 @@
+{
+  "plugins": {
+    "entries": {
+      "co-engram": {
+        "enabled": true,
+        "config": {
+          "dataRoot": "/absolute/path/to/team-memory",
+          "defaultCreatedBy": "openclaw",
+          "startMaintenance": true,
+          "maintenanceConfig": {
+            "enabledStages": ["light", "deep", "rem"],
+            "lightIntervalMs": 300000,
+            "deepIntervalMs": 3600000,
+            "remIntervalMs": 604800000,
+            "learningRate": 0.1
+          }
+        }
+      }
+    }
+  }
+}

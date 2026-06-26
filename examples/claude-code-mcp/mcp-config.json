@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "co-engram": {
+      "command": "co-engram-mcp",
+      "env": {
+        "CO_ENGRAM_DATA_ROOT": "/absolute/path/to/team-memory",
+        "CO_ENGRAM_DEFAULT_CREATED_BY": "your-username",
+        "CO_ENGRAM_MAINTENANCE": "1",
+        "CO_ENGRAM_MAINTENANCE_ENABLED_STAGES": "light,deep,rem"
+      }
+    }
+  }
+}
