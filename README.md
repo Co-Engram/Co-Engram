@@ -59,69 +59,196 @@ For detailed configuration, see [docs/host-openclaw.md](./docs/host-openclaw.md)
 
 ## Using Co-Engram
 
-Once installed, Co-Engram works **through conversation** — there is no dashboard, no manual tagging, no configuration file to edit. You talk to your AI agent, and it decides when to capture, search, or update memories. Below are the patterns that emerge naturally.
+Co-Engram works **through conversation** — you talk to your AI agent, and it decides when to capture, search, or update memories. Every interaction below happens in natural language; the tool calls shown are what the agent executes transparently under the hood.
 
-### Typical scenarios
+### Install through conversation
 
-**"Remember this" — capture a decision or lesson**
+For new projects you don't need to leave the chat. Ask the agent:
 
-> You: "Remember that we decided to use PostgreSQL for the analytics pipeline because it handles JSONB queries better than the MySQL in the rest of the stack."
+> "Install co-engram from npm and wire it into this project."
+
+The agent runs `npm install -g @co-engram/claude-code` (or `openclaw plugins install @co-engram/openclaw`), initializes the data repo, and registers the MCP server or plugin — all in one conversation. See [Quickstart](#quickstart) for the explicit commands.
+
+### Dedup prevents knowledge noise
+
+When you capture overlapping content, Co-Engram doesn't create a duplicate — it **strengthens the original** and tells the agent what matched.
+
+> You: "We're using Zod v4 for runtime validation."
+> *Weeks later…*
+> You: "Remember: we standardized on Zod v4 for all input parsing."
 >
-> Agent calls `engram_create(title="Analytics pipeline: PostgreSQL over MySQL", kind="pattern", domainTags=["backend","analytics"])` → returns an engram ID.
+> Agent calls `engram_create` → returns `verdict: "DUPLICATE"`, targets the existing engram, and boosts its importance. No stale clones, no conflicting copies.
 
-**"What did we say about..." — recall later**
+Behind the scenes, `engram_create` hashes the content and compares it against existing engrams via cosine similarity (`dedupe: true` is on by default). A `DUPLICATE` outcome triggers a **reinforcement boost** on the original — this is the same RPE-driven plasticity that `close_learning_loop` uses. `engram_create` also returns `UPDATE` when new content meaningfully extends an existing engram (different enough to be worth merging, similar enough to belong together).
 
-> You: "What database did we pick for analytics?"
+### The system learns what matters to you
+
+You don't need to decide what's worth remembering. Co-Engram **watches your conversations** and notices when a topic keeps coming up without a saved memory.
+
+> Over three sessions, you keep discussing the same CI pipeline timeout issue. You never explicitly said "remember this."
 >
-> Agent calls `engram_search(query="analytics database")` → finds the engram and quotes it.
-
-**"Anything new I should know?" — browse recent context**
-
-> You: "List what we captured this week."
+> Co-Engram's proposal engine detects the repeated pattern and suggests a candidate engram. The agent tells you: "I noticed we've discussed the CI timeout issue several times. Should I save it?"
 >
-> Agent calls `engram_list(filter={freshness:["fresh"]})` or `engram_list_paths` → shows recent engrams grouped by domain.
+> You say yes → `engram_accept_proposal` → it becomes a permanent engram with `kind=pattern` and domain tags inferred from context.
 
-**Connecting ideas — the agent finds patterns**
+Behind this: a **two-layer filter** blocks noise. Layer 1 (zero-cost rules) rejects greetings, one-word answers, and mechanical repetition. Layer 2 (configurable: rule-based by default, optional LLM) checks "is this reusable knowledge, or just conversation filler?" Only proposals that pass both layers reach you.
 
-> When two engrams relate, the agent may call `synapse_create` to link them. Later searches traverse these links, so a query about "database choices" also surfaces the "migration strategy" engram that `extends` it.
+You can also browse pending candidates anytime: ask "any memory suggestions?" and the agent calls `engram_list_proposals`. Approve with `engram_accept_proposal`, dismiss with `engram_dismiss_proposal`.
 
-**Self-maintenance — no manual curation**
+### Synapse graph: one recall pulls in related context
 
-> If `CO_ENGRAM_MAINTENANCE=1` is set, the engine periodically:
-> - **Light**: reinforces frequently-used engrams (LTP), depresses stale ones (LTD)
-> - **Deep**: consolidates fragmented engrams, recalculates importance
-> - **REM**: upgrades verification status (`unverified` → `plausible` → `probable`) or marks contradicted engrams as `refuted`
+When the agent links two engrams with `synapse_create`, later `engram_search` **traverses those edges automatically** — so recalling one memory surfaces the others that extend, depend on, or contextualize it.
+
+> Agent calls `synapse_create(from="01J...PostgreSQL", to="01J...migration", kind="extends")`
+>
+> Later: "What do we know about the analytics database?"
+>
+> `engram_search("analytics database")` returns the PostgreSQL engram, and because the `extends` edge exists, the migration strategy engram appears nearby in the results — even though its content never mentioned "analytics."
+
+Twelve synapse kinds are available (see [Synapse Schema](#synapse-schema)). Searching also follows `consolidates` edges (for merged engrams) and suppresses `contradicts` neighbors (flagged for review). Edges are **deterministic** — the same `(from, to, kind)` triple always hashes to the same file, so re-creating it merges evidence rather than duplicating.
+
+### Tiered disclosure: pay only for what you need
+
+The LLM's context window is finite and expensive. Co-Engram's `tier` system lets the agent request the cheapest representation that answers the question, then deepen only when necessary.
+
+| Tier | Returns | Use when |
+|------|---------|----------|
+| `catalog` | `id`, `title`, `kind`, `domainTags` | Browsing a list, checking if a memory exists |
+| `digest` | catalog + `summary`, `importance`, `status` | Skimming search results, deciding which to open |
+| `content` | full frontmatter + Markdown body | Answering a detailed question with the original text |
+| `auto` | deepest tier that fits `contextBudget.totalTokens` | Agent doesn't know how large the memory is — let the system decide |
+
+> Agent calls `engram_get(id="01J...", tier="auto", contextBudget={totalTokens:800})` → the system measures the JSON size and picks the deepest tier that fits within budget.
+
+This is transparent to the user — the agent learns to use `tier=auto` by default and only switches to `content` when it needs the body.
+
+### Close the learning loop: feedback changes importance
+
+After using a memory, the agent reports whether it **helped** or **misled**.
+
+> Agent retrieves the "PostgreSQL JSONB migration" engram, applies the pattern, and confirms it worked.
+>
+> Calls `close_learning_loop(engramId="01J...", outcome="success", effectiveness=0.9)`.
+>
+> The engram's `importance` rises. Neighboring engrams connected by `extends` or `consolidates` edges get a **Hebbian boost** (weighted by edge strength). A `failure` outcome depresses weight and, after repeated failures (5 by default), suggests forgetting the engram.
+
+This is the **RPE loop** (reinforcement-prediction-error): `engram_search` return sets the prediction, `close_learning_loop` delivers the outcome, and the delta adjusts importance. Over time, frequently effective memories self-elevate; stale or wrong ones decay without anyone filing a ticket.
+
+### How memories strengthen and decay
+
+Co-Engram models memory plasticity after the brain — not as a static store, but as a **living system** where every interaction nudges importance up or down. This is the core differentiator from key-value or vector memory: **memories that help you succeed grow stronger; memories that mislead or go unused fade away.**
+
+#### Strengthening: LTP (Long-Term Potentiation)
+
+Every successful use reinforces the engram along multiple pathways:
+
+| Trigger | Effect | Accumulates in field |
+|---------|--------|---------------------|
+| `engram_search` returns engram | Retrieval count +1; last score recorded | `retrievalCount`, `lastRetrievalScore` |
+| `engram_create` returns `DUPLICATE` | Original engram gets a reinforcement bump (same RPE math as `close_learning_loop`) | `reinforcementScore` |
+| `close_learning_loop(outcome="success")` | Importance rises by `Δ = learningRate × effectiveness × (1 - oldImportance)` | `importance`, `reinforcementScore`, `effectiveRetrievals` |
+| `synapse_create(kind="extends"\|"consolidates")` | Neighbors get Hebbian boost proportional to edge weight on each `close_learning_loop(success)` of the connected engram | `importance` on neighbor |
+| `engram_reinforce` (direct call) | Manual boost, same RPE math as success loop | `reinforcementScore` |
+
+The **RPE delta** is bounded: a single success moves importance by at most `learningRate` (default 0.1). This prevents wild swings from one interaction while letting sustained use compound: an engram returned 12 times and confirmed effective 9 of those times will reach a high importance plateau naturally.
+
+#### Decay: LTD (Long-Term Depression)
+
+The reverse side is equally important — **unlearning**:
+
+| Trigger | Effect | Threshold |
+|---------|--------|-----------|
+| `close_learning_loop(outcome="failure")` | Importance drops; `failedUses` counter increments | — |
+| `failedUses >= 3` | System suggests archiving: status → `archived`, excluded from default search results | 3 failures |
+| `failedUses >= 5` | System suggests forgetting: status → `forgotten`, moved to `.trash/` (if trash is enabled) after `CO_ENGRAM_TRASH_AFTER_DAYS` | 5 failures |
+| Ebbinghaus decay (Deep stage) | `importance *= e^(-Δt / halfLife)` — engrams that haven't been retrieved in `halfLife` days lose ~63% of their importance | `decayHalfLifeDays` (default varies by kind; `null` = never decays) |
+| `engram_report_failure` | Mark a specific retrieval as harmful; increments `failedUses` | — |
+
+The **forgetting pipeline** has two paths:
+
+```
+active ──(failedUses>=3)──→ archived ──(engram_restore)──→ active
+active ──(failedUses>=5)──→ forgotten ──(CO_ENGRAM_TRASH_AFTER_DAYS)──→ .trash/ ──(CO_ENGRAM_TRASH_PURGE_AFTER_DAYS)──→ deleted
+                    forgotten ──(engram_restore)──→ active
+```
+
+Archiving is soft removal (excluded from search by default, but keeps all data). Forgetting is hard removal (moves to trash, then purges after the configured window). Both are reversible via `engram_restore` before the purge deadline.
+
+#### Hebbian spread: "neurons that fire together, wire together"
+
+When `close_learning_loop(success)` fires on engram A, every engram B connected to A via `extends` or `consolidates` synapse gets a **proportional boost**:
+
+```
+boost(B) = edgeWeight(A→B) × Δ_importance(A) × hebbianDecay
+```
+
+where `hebbianDecay` (default ~0.5) prevents infinite propagation chains. This means a well-used pattern engram gradually elevates all the concrete examples linked to it — and vice versa. Over weeks of use, the synapse graph reflects not just what was stated, but **what was useful together**.
+
+#### Observing the cycle in the viewer
+
+Open the **Health** tab in the [web viewer](#access-the-web-viewer). You'll see:
+
+- **RPE score distribution** — histogram of `reinforcementScore` across all engrams; a healthy graph has most engrams in the 0.3–0.9 range
+- **Verification pie** — `verified` / `probable` / `plausible` / `unverified` / `refuted` proportions
+- **Maintenance stage reports** — what Light / Deep / REM did in their last run, and when the next run is scheduled
+
+### Is this memory trustworthy?
+
+Not all memories are equally reliable. Co-Engram gives every engram a **verification badge** that evolves with evidence:
+
+```
+unverified → plausible → probable → verified
+                                    ↘ refuted
+```
+
+New engrams start as `unverified` — "someone said this, we haven't checked." As the memory is used successfully, referenced by other engrams, and survives contradiction checks, the REM maintenance stage automatically upgrades it. A memory that is consistently contradicted moves to `refuted` — it stays in the repository (you may still want to know it was once believed), but is clearly marked as unreliable.
+
+At the **REM stage** (every 7 days by default), the system evaluates each engram across five dimensions:
+
+| Dimension | What it checks |
+|-----------|---------------|
+| **Consistency** | Does this agree or conflict with other engrams (via `contradicts` synapses)? |
+| **Longevity** | How long has this engram survived without being refuted? |
+| **Usage** | How often has it been retrieved and confirmed effective? |
+| **Source** | Was it firsthand experience, secondhand relay, or inference? |
+| **Executability** | (For procedures) Has anyone actually followed these steps and succeeded? |
+
+Each dimension contributes to a composite truth score. You don't need to track any of this — the system updates the badge automatically. When you ask "is that reliable?," the agent can check `engram_get(tier=digest)` and report the current `verificationStatus`.
+
+### Auto-maintenance: light → deep → REM
+
+No one has time to curate a knowledge base. If `CO_ENGRAM_MAINTENANCE=1` is set, Co-Engram runs three stages on background timers:
+
+| Stage | Interval (default) | What it does |
+|-------|--------------------|--------------|
+| **Light** | 5 min | Applies RPE to recently-returned engrams, boosts retrieval stats |
+| **Deep** | 1 hour | Merges fragmented engrams, recalculates composite importance, applies Ebbinghaus decay |
+| **REM** | 7 days | Runs metacognition: upgrades `verificationStatus` (`unverified`→`plausible`→`probable`→`verified`), detects contradictions across synapses, suggests engrams for archival or refutation |
+
+All three are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, Ebbinghaus forgetting curve, Hebbian plasticity), and writes back updated fields. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
 
 ### Access the web viewer
 
-Co-Engram ships a built-in SPA to browse engrams, inspect the synapse graph, check audit logs, and view maintenance health. Enable it with environment variables:
+Co-Engram ships a built-in SPA for visual exploration. Enable it when wiring:
 
 ```bash
-# Claude Code (MCP) — add these when wiring
--e CO_ENGRAM_VIEWER_ENABLED=1
--e CO_ENGRAM_VIEWER_PORT=18899
+# Claude Code (MCP)
+claude mcp add co-engram \
+  -e CO_ENGRAM_VIEWER_ENABLED=1 \
+  -e CO_ENGRAM_VIEWER_PORT=18899 \
+  ... -- co-engram-mcp
 ```
 
-For OpenClaw, set `startViewer: true` and `viewerConfig.port` in the plugin manifest (see [docs/host-openclaw.md](./docs/host-openclaw.md)).
+For OpenClaw, set `startViewer: true` and `viewerConfig.port` in the plugin manifest.
 
-Once enabled, open **http://127.0.0.1:18899** in your browser. The viewer shows:
+Open **http://127.0.0.1:18899** in your browser.
 
-| Tab        | What you see                                                 |
-| ---------- | ------------------------------------------------------------ |
-| **Engrams**  | Filterable table of all memories with tags, importance, status |
-| **Graph**    | Force-directed synapse graph — click a node to open its engram |
-| **Audit**    | Chronological log of every tool call (create/update/delete)   |
-| **Health**   | Maintenance stage reports, verification status distribution   |
-
-### What value does this give me?
-
-| Concern                 | Without Co-Engram                                        | With Co-Engram                                                       |
-| ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| **Reusing decisions**   | Re-litigate the same tradeoffs every sprint              | Agent retrieves the rationale and builds on it                       |
-| **Finding old context** | grep chat logs, hope the right person is online          | `engram_search` returns ranked results in milliseconds               |
-| **Knowledge drift**     | Outdated advice stays in docs until someone notices      | REM stage auto-upgrades or refutes engrams based on usage outcomes   |
-| **Connecting dots**     | Insights stay isolated in separate conversations         | Synapses link related engrams, creating a navigable knowledge graph  |
-| **Team onboarding**     | "Read the wiki" (which is 6 months stale)                | New agents query the team's active, verified memory                  |
+| Tab | What you see |
+|-----|-------------|
+| **Engrams** | Filterable table — sort by importance, filter by tags/status/verification, click to read full content |
+| **Graph** | Interactive force-directed synapse graph — nodes are engrams, edges are typed connections; click a node to jump to its content |
+| **Audit** | Chronological log of every `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` call — who, when, what changed |
+| **Health** | Per-stage maintenance reports, verification status pie chart, RPE score distribution |
 
 For a deeper walkthrough, see [docs/concepts.md](./docs/concepts.md) and [docs/tool-reference.md](./docs/tool-reference.md).
 

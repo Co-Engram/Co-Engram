@@ -59,69 +59,196 @@ openclaw gateway restart
 
 ## 使用 Co-Engram
 
-安装完成后,Co-Engram**通过对话使用**——没有仪表板、没有手动标注、没有配置文件要改。你只需和 AI agent 自然对话,agent 自行判断何时捕获、搜索或更新记忆。以下是自然涌现的典型使用模式。
+Co-Engram**通过对话工作**——你和 AI agent 自然交流,agent 自行判断何时捕获、搜索或更新记忆。以下所有交互都是自然语言;标注的工具调用是 agent 在底层透明执行的。
 
-### 典型场景
+### 通过对话完成安装
 
-**"记住这个"——捕获决策或经验教训**
+新项目不需要离开聊天窗口。直接告诉 agent:
 
-> 你:"记住,我们决定用 PostgreSQL 做分析管道,因为它在 JSONB 查询上比现有 MySQL 栈好得多。"
+> "帮我在这个项目里从 npm 安装 co-engram。"
+
+agent 会执行 `npm install -g @co-engram/claude-code`(或 `openclaw plugins install @co-engram/openclaw`)→ 初始化数据仓库 → 注册 MCP server 或插件,全部在一次对话中完成。显式命令见[快速开始](#快速开始)。
+
+### dedup 防止知识噪音
+
+当你捕获重叠内容时,Co-Engram**不会创建重复条目**,而是**强化原始记忆**并告诉 agent 匹配了什么。
+
+> 你:"我们用 Zod v4 做运行时校验。"
+> *几周后……*
+> 你:"记住:我们已统一用 Zod v4 处理所有输入解析。"
 >
-> agent 调用 `engram_create(title="分析管道选型:PostgreSQL 优于 MySQL", kind="pattern", domainTags=["后端","数据分析"])` → 返回 engram ID。
+> agent 调用 `engram_create` → 返回 `verdict: "DUPLICATE"`,指向已有 engram,并提升其重要性。没有僵尸副本,没有相互矛盾的多份记录。
 
-**"我们之前怎么说的……"——事后回顾**
+背后机制:`engram_create` 对内容做哈希后计算与现有 engram 的余弦相似度(`dedupe: true` 默认开启)。`DUPLICATE` 结果会触发对原始 engram 的**强化加成**——这和 `close_learning_loop` 使用的是同一套 RPE 驱动的可塑性机制。当新内容有意义地扩展了已有 engram 时(差异够大值得合并,相似度够高属于同一主题),`engram_create` 也会返回 `UPDATE`,将新信息合并进去。
 
-> 你:"我们分析那块选了哪个数据库?"
+### 系统发现你该记住什么
+
+你不需要自己判断什么值得记住。Co-Engram**会观察你的对话**,发现某个话题反复出现却没有对应记忆时自动提醒。
+
+> 连续三个会话中,你们反复讨论同一个 CI 流水线超时问题。你从来没有明确说过"记住这个"。
 >
-> agent 调用 `engram_search(query="分析 数据库 选型")` → 找到对应 engram 并直接引用。
-
-**"最近有什么值得关注的?"——浏览近期上下文**
-
-> 你:"列出我们这周捕获的东西。"
+> Co-Engram 的提案引擎检测到这个重复规律,建议一条候选 engram。agent 告诉你:"我注意到我们多次讨论了 CI 超时问题,要不要保存下来?"
 >
-> agent 调用 `engram_list(filter={freshness:["fresh"]})` 或 `engram_list_paths` → 按领域分组展示最近的 engram。
+> 你说"好" → `engram_accept_proposal` → 它变成一条永久 engram,`kind=pattern`,领域标签从上下文中推断。
 
-**关联想法——agent 自动发现规律**
+背后原理:**双层过滤器**阻挡噪音。Layer 1(零成本规则)拒绝问候语、单字回复、机械重复。Layer 2(可配置:默认规则版,可选 LLM)判断"这是可复用的知识,还是只是闲聊?"只有通过两层过滤的提案才会呈现给你。
 
-> 当两条 engram 之间存在关系时,agent 可能调用 `synapse_create` 建立连接。后续搜索会沿图遍历,所以查"数据库选型"时也会浮现那条 `extends` 了它的"迁移策略"engram。
+你可以随时查看待处理候选:"有什么记忆建议?"agent 调用 `engram_list_proposals`。用 `engram_accept_proposal` 批准,用 `engram_dismiss_proposal` 驳回。
 
-**自维护——无需人工清理**
+### Synapse 图:一次召回带出关联上下文
 
-> 如果设置了 `CO_ENGRAM_MAINTENANCE=1`,引擎会周期运行:
-> - **Light**:强化高频使用的 engram(LTP),抑制陈旧条目(LTD)
-> - **Deep**:合并碎片化的 engram,重新计算重要性
-> - **REM**:升级验证状态(`unverified`→`plausible`→`probable`),或将矛盾的 engram 标记为 `refuted`
+agent 用 `synapse_create` 连接两条 engram 后,后续的 `engram_search` 会**自动沿边遍历**——所以记起一条记忆时,扩展它、依赖它、为它提供情境的关联记忆也会浮现。
+
+> agent 调用 `synapse_create(from="01J...PostgreSQL", to="01J...迁移方案", kind="extends")`
+>
+> 之后:"我们对分析数据库了解多少?"
+>
+> `engram_search("分析数据库")` 返回 PostgreSQL engram,因为存在 `extends` 边,迁移方案 engram 也出现在附近结果中——尽管它的内容从未提到"分析"一词。
+
+共 12 种 synapse 类型(见 [Synapse Schema](#synapse-schema))。搜索时还会沿 `consolidates` 边遍历(合并后的 engram),并抑制 `contradicts` 邻居(标记待审查)。边是**确定性**的——同一个 `(from, to, kind)` 三元组始终哈希到同一个文件,再次创建会合并 evidence 而非重复。
+
+### 渐进披露:只为实际需要的内容付费
+
+LLM 的上下文窗口有限且昂贵。Co-Engram 的 `tier` 系统让 agent 先请求能回答问题的最廉价表示,只在必要时加深。
+
+| Tier | 返回内容 | 适用场景 |
+|------|---------|---------|
+| `catalog` | `id`, `title`, `kind`, `domainTags` | 浏览列表、确认某条记忆是否存在 |
+| `digest` | catalog + `summary`, `importance`, `status` | 略读搜索结果、决定打开哪一条 |
+| `content` | 完整 frontmatter + Markdown 正文 | 用原文回答细节问题 |
+| `auto` | 能装进 `contextBudget.totalTokens` 的最深 tier | agent 不确定记忆有多大——让系统决策 |
+
+> agent 调用 `engram_get(id="01J...", tier="auto", contextBudget={totalTokens:800})` → 系统测量 JSON 大小,自选能装进预算的最深 tier。
+
+这对用户完全透明——agent 学会默认用 `tier=auto`,只在真正需要正文时才切到 `content`。
+
+### 闭合学习回路:反馈改变重要性
+
+使用记忆后,agent 报告它是**帮助了**还是**误导了**。
+
+> agent 检索到 "PostgreSQL JSONB 迁移" engram,应用了该模式,确认有效。
+>
+> 调用 `close_learning_loop(engramId="01J...", outcome="success", effectiveness=0.9)`。
+>
+> 该 engram 的 `importance` 上升。通过 `extends` 或 `consolidates` 边连接的邻居 engram 获得**Hebbian 加成**(按边强度加权)。`failure` 结果会压低权重,重复失败(默认 5 次)后建议遗忘该 engram。
+
+这就是 **RPE 回路**(reinforcement-prediction-error):`engram_search` 的返回设定期望,`close_learning_loop` 交付实际结果,二者的差值调整重要性。随时间推移,频繁有效的记忆自我提升;陈旧或错误的记忆无需任何人提工单就自动衰减。
+
+### 记忆如何强化与遗忘
+
+Co-Engram 仿照大脑建模记忆可塑性——不是一个静态仓库,而是一个**活的系统**,其中每次交互都会推动重要性上升或下降。这是与键值或向量记忆的本质区别:**帮你的记忆会变强,误导你的或不再使用的记忆会自动消失。**
+
+#### 强化:LTP(长时程增强)
+
+每次成功使用都会沿多个路径强化 engram:
+
+| 触发条件 | 效果 | 累积字段 |
+|---------|------|---------|
+| `engram_search` 返回该 engram | 检索计数 +1;记录最近分数 | `retrievalCount`, `lastRetrievalScore` |
+| `engram_create` 返回 `DUPLICATE` | 原始 engram 获得强化加成(与 `close_learning_loop` 相同的 RPE 数学) | `reinforcementScore` |
+| `close_learning_loop(outcome="success")` | 重要性上升: `Δ = learningRate × effectiveness × (1 - oldImportance)` | `importance`, `reinforcementScore`, `effectiveRetrievals` |
+| `synapse_create(kind="extends"\|"consolidates")` | 连接 engram 每次 `close_learning_loop(success)` 时,邻居按边权重获得 Hebbian 加成 | 邻居的 `importance` |
+| `engram_reinforce`(直接调用) | 手动加成,与 success loop 相同的 RPE 数学 | `reinforcementScore` |
+
+**RPE 增量**受人约束:单次 success 对 importance 的提升最多为 `learningRate`(默认 0.1)。这避免了一次交互的剧烈摆动,同时让持续使用形成复利:被检索 12 次、其中 9 次确认为有效的 engram,会自然攀升到高重要性平台。
+
+#### 衰减:LTD(长时程抑制)
+
+反向机制同样重要——**去学习**:
+
+| 触发条件 | 效果 | 阈值 |
+|---------|------|------|
+| `close_learning_loop(outcome="failure")` | 重要性下降;`failedUses` 计数器 +1 | — |
+| `failedUses >= 3` | 系统建议归档:status → `archived`,默认搜索结果中排除 | 3 次失败 |
+| `failedUses >= 5` | 系统建议遗忘:status → `forgotten`,经过 `CO_ENGRAM_TRASH_AFTER_DAYS` 后移入 `.trash/` | 5 次失败 |
+| Ebbinghaus 衰减(Deep 阶段) | `importance *= e^(-Δt / halfLife)` — 超过 `halfLife` 天未被检索的 engram 失去约 63% 的重要性 | `decayHalfLifeDays`(默认按 kind 而异;`null` = 永衰减) |
+| `engram_report_failure` | 标记某次检索为有害;递增 `failedUses` | — |
+
+**遗忘管道**有两条路径:
+
+```
+active ──(failedUses>=3)──→ archived ──(engram_restore)──→ active
+active ──(failedUses>=5)──→ forgotten ──(CO_ENGRAM_TRASH_AFTER_DAYS)──→ .trash/ ──(CO_ENGRAM_TRASH_PURGE_AFTER_DAYS)──→ deleted
+                    forgotten ──(engram_restore)──→ active
+```
+
+归档(archive)是软删除(默认搜索结果中排除,但保留全部数据)。遗忘(forget)是硬删除(移入回收站,在配置的时间窗口后清除)。两者在清除截止时间前均可通过 `engram_restore` 恢复。
+
+#### Hebbian 扩散:"一起放电的神经元会连接在一起"
+
+当 `close_learning_loop(success)` 作用在 engram A 上时,每个通过 `extends` 或 `consolidates` synapse 与 A 相连的 engram B 获得**按比例加成**:
+
+```
+boost(B) = edgeWeight(A→B) × Δ_importance(A) × hebbianDecay
+```
+
+其中 `hebbianDecay`(默认约 0.5)防止无限传播链。这意味着一个被频繁使用的模式 engram 会逐渐提升所有与之关联的具体实例——反之亦然。使用数周后,synapse 图反映的不只是"被说过什么",而是**什么和什么一起被证明有用**。
+
+#### 在查看器中观察这个循环
+
+打开 [Web 查看器](#访问-web-查看器)的 **Health** 标签页,你会看到:
+
+- **RPE 分数分布** — 所有 engram 的 `reinforcementScore` 直方图;健康的图谱中大多数 engram 处于 0.3–0.9 区间
+- **验证状态饼图** — `verified` / `probable` / `plausible` / `unverified` / `refuted` 的比例
+- **维护阶段报告** — Light / Deep / REM 上一次运行时做了什么,下次运行何时触发
+
+### 这项记忆可信吗?
+
+并非所有记忆都同样可靠。Co-Engram 给每条 engram 配备了一个**验证徽章**,随证据自动演进:
+
+```
+unverified → plausible → probable → verified
+                                    ↘ refuted
+```
+
+新 engram 起步于 `unverified`——"有人说过这个,还未核实"。随着记忆被成功使用、被其他 engram 引用、以及通过矛盾检测,REM 维护阶段会自动升级它。被持续矛盾的记忆则走向 `refuted`——它仍留在仓库中(你可能还想知道它曾经被相信过),但被明确标记为不可靠。
+
+**REM 阶段**(默认每 7 天)对每条 engram 从五个维度做评估:
+
+| 维度 | 检查内容 |
+|------|---------|
+| **一致性** | 与其他 engram 是否一致(通过 `contradicts` synapse 检测) |
+| **存续时间** | 这条 engram 存活了多久而未被反驳 |
+| **使用情况** | 被检索并确认有效的频率 |
+| **来源** | 是一手经历、二手转述还是推理 |
+| **可执行性** | (仅 procedure)是否有人确实按这些步骤操作并成功了 |
+
+每个维度贡献到综合真值评分。你不需要跟踪任何这些——系统自动更新徽章。当你想问"那个可靠吗?",agent 可以调用 `engram_get(tier=digest)` 报告当前的 `verificationStatus`。
+
+### 自动维护:light → deep → REM
+
+没人有时间为知识库做人工管理。设置 `CO_ENGRAM_MAINTENANCE=1` 后,Co-Engram 在后台定时运行三个阶段:
+
+| 阶段 | 间隔(默认) | 做什么 |
+|------|-----------|--------|
+| **Light** | 5 分钟 | 对最近返回的 engram 施加 RPE,更新检索统计 |
+| **Deep** | 1 小时 | 合并碎片化 engram,重算综合重要性,施加 Ebbinghaus 遗忘衰减 |
+| **REM** | 7 天 | 运行元认知:升级 `verificationStatus`(`unverified`→`plausible`→`probable`→`verified`),检测跨 synapse 的矛盾,建议归档或反驳某些 engram |
+
+三阶段全部**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、Ebbinghaus 遗忘曲线、Hebbian 可塑性),写回更新后的字段。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 
 ### 访问 Web 查看器
 
-Co-Engram 内置了一个单页应用,用于浏览 engram、查看 synapse 关系图、审计日志和维护健康状态。通过环境变量启用:
+Co-Engram 内置了单页应用用于可视化探索。wiring 时启用:
 
 ```bash
-# Claude Code (MCP) — 在 wiring 时添加
--e CO_ENGRAM_VIEWER_ENABLED=1
--e CO_ENGRAM_VIEWER_PORT=18899
+# Claude Code (MCP)
+claude mcp add co-engram \
+  -e CO_ENGRAM_VIEWER_ENABLED=1 \
+  -e CO_ENGRAM_VIEWER_PORT=18899 \
+  ... -- co-engram-mcp
 ```
 
-OpenClaw 在插件 manifest 中设置 `startViewer: true` 和 `viewerConfig.port`(详见 [docs/host-openclaw.md](./docs/host-openclaw.md))。
+OpenClaw 在插件 manifest 中设置 `startViewer: true` 和 `viewerConfig.port`。
 
-启用后在浏览器打开 **http://127.0.0.1:18899**。查看器各标签页说明:
+浏览器打开 **http://127.0.0.1:18899**。
 
-| 标签       | 内容                                                       |
-| ---------- | ---------------------------------------------------------- |
-| **Engrams**  | 可筛选的记忆列表,展示标签、重要性、状态                     |
-| **Graph**    | 力导向 synapse 关系图——点击节点打开对应 engram               |
-| **Audit**    | 每次工具调用(创建/更新/删除)的时间线记录                    |
-| **Health**   | 维护阶段报告,验证状态分布                                  |
-
-### 这给我什么价值?
-
-| 痛点                   | 没有 Co-Engram 时                                   | 有 Co-Engram 后                                            |
-| ---------------------- | --------------------------------------------------- | ---------------------------------------------------------- |
-| **决策复用**           | 每个迭代争论相同的 tradeoff                          | agent 检索历史理由,在此基础上推进                           |
-| **找回历史上下文**     | grep 聊天记录,祈祷当事人还在线                       | `engram_search` 毫秒级返回排序结果                          |
-| **知识腐化**           | 过时建议一直躺在文档里直到有人发现                    | REM 阶段基于使用反馈自动升级或反驳 engram                    |
-| **连接碎片洞察**       | 洞察困在独立对话里,互不相通                          | Synapse 将相关 engram 连接为可导航的知识图谱                |
-| **团队上手**           | "去看 wiki"(半年前的内容)                            | 新 agent 查询团队活跃的、经过验证的记忆                     |
+| 标签 | 内容 |
+|------|------|
+| **Engrams** | 可筛选的记忆表格——按重要性排序、按标签/状态/验证级别过滤,点击查看全文 |
+| **Graph** | 交互式力导向 synapse 图——节点为 engram,边为有类型连接;点击节点跳转内容 |
+| **Audit** | 每次 `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` 调用的时间线——谁、何时、改了什么 |
+| **Health** | 各阶段维护报告、验证状态饼图、RPE 分数分布 |
 
 更详细的使用指南见 [docs/concepts.zh-CN.md](./docs/concepts.zh-CN.md) 和 [docs/tool-reference.zh-CN.md](./docs/tool-reference.zh-CN.md)。
 
