@@ -65,9 +65,9 @@ Co-Engram**通过对话工作**——你和 AI agent 自然交流,agent 自行�
 
 新项目不需要离开聊天窗口。直接告诉 agent:
 
-> "帮我在这个项目里从 npm 安装 co-engram。"
+> "帮我在 home 目录下全局安装 co-engram，数据仓库放 ~/team-memory。"
 
-agent 会执行 `npm install -g @co-engram/claude-code`(或 `openclaw plugins install @co-engram/openclaw`)→ 初始化数据仓库 → 注册 MCP server 或插件,全部在一次对话中完成。显式命令见[快速开始](#快速开始)。
+agent 依次执行:`npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `claude mcp add co-engram -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory --scope user -- co-engram-mcp`。OpenClaw 用户:`openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`。全部在一次对话中完成,无需手动操作。显式命令见[快速开始](#快速开始)。
 
 ### dedup 防止知识噪音
 

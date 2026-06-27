@@ -65,9 +65,9 @@ Co-Engram works **through conversation** — you talk to your AI agent, and it d
 
 For new projects you don't need to leave the chat. Ask the agent:
 
-> "Install co-engram from npm and wire it into this project."
+> "Globally install co-engram from npm and set up the memory store under my home directory."
 
-The agent runs `npm install -g @co-engram/claude-code` (or `openclaw plugins install @co-engram/openclaw`), initializes the data repo, and registers the MCP server or plugin — all in one conversation. See [Quickstart](#quickstart) for the explicit commands.
+Agent responds by running: `npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `claude mcp add co-engram -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory --scope user -- co-engram-mcp`. For OpenClaw: `openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`. Everything is done in one conversation — no manual steps. See [Quickstart](#quickstart) for the explicit commands.
 
 ### Dedup prevents knowledge noise
 
