@@ -4,15 +4,15 @@
 # Format: <path-pattern> @<github-username> [@<another-username>]
 #
 # Default owner for everything
-* @yangyang20220519
+* @yangyang20220519 @jokemanfire
 
 # Core memory engine — higher scrutiny
-/packages/core/ @yangyang20220519
+/packages/core/ @yangyang20220519 @jokemanfire
 
 # Adapters — host integration
-/packages/claude-code-mcp/ @yangyang20220519
-/packages/openclaw-plugin/ @yangyang20220519
+/packages/claude-code-mcp/ @yangyang20220519 @jokemanfire
+/packages/openclaw-plugin/ @yangyang20220519 @jokemanfire
 
 # Documentation
-/docs/ @yangyang20220519
-/README.md @yangyang20220519
+/docs/ @yangyang20220519 @jokemanfire
+/README.md @yangyang20220519 @jokemanfire
