@@ -21,6 +21,16 @@ import {
   parseLanguage,
   detectGitAuthor,
   t,
+  installPostMergeHook,
+  uninstallPostMergeHook,
+  getPostMergeHookStatus,
+  runPostMergeCheck,
+  computeMergeStats,
+  formatMergeStatsAsText,
+  detectAnomalies,
+  formatAnomaliesAsText,
+  AuditLog,
+  findDataRoot,
   type Language,
 } from "@co-engram/core";
 import { resolveDefaultCreatedBy } from "./mcp-server.js";
@@ -28,8 +38,11 @@ import { resolveDefaultCreatedBy } from "./mcp-server.js";
 interface CliArgs {
   readonly command: string;
   readonly path?: string;
+  readonly cwd?: string;
   readonly language?: Language;
   readonly createdBy?: string;
+  readonly windowDays?: number;
+  readonly json: boolean;
   readonly noGit: boolean;
   readonly force: boolean;
   readonly help: boolean;
@@ -40,8 +53,11 @@ function parseArgs(argv: readonly string[]): CliArgs {
   const command = args[0] ?? "help";
 
   let path: string | undefined;
+  let cwd: string | undefined;
   let language: Language | undefined;
   let createdBy: string | undefined;
+  let windowDays: number | undefined;
+  let json = false;
   let noGit = false;
   let force = false;
   let help = false;
@@ -58,11 +74,23 @@ function parseArgs(argv: readonly string[]): CliArgs {
       noGit = true;
     } else if (arg === "--force") {
       force = true;
+    } else if (arg === "--json") {
+      json = true;
     } else if (arg === "--path") {
       path = args[i + 1];
       i++;
     } else if (arg.startsWith("--path=")) {
       path = arg.slice("--path=".length);
+    } else if (arg === "--cwd") {
+      cwd = args[i + 1];
+      i++;
+    } else if (arg.startsWith("--cwd=")) {
+      cwd = arg.slice("--cwd=".length);
+    } else if (arg === "--window-days") {
+      windowDays = Number(args[i + 1]);
+      i++;
+    } else if (arg.startsWith("--window-days=")) {
+      windowDays = Number(arg.slice("--window-days=".length));
     } else if (arg === "--language") {
       language = parseLanguage(args[i + 1]);
       i++;
@@ -75,7 +103,18 @@ function parseArgs(argv: readonly string[]): CliArgs {
       createdBy = arg.slice("--created-by=".length);
     }
   }
-  return { command, path, language, createdBy, noGit, force, help };
+  return {
+    command,
+    path,
+    cwd,
+    language,
+    createdBy,
+    windowDays,
+    json,
+    noGit,
+    force,
+    help,
+  };
 }
 
 function showHelp(language: Language = "en"): void {
@@ -230,6 +269,135 @@ async function main(): Promise<void> {
         `co-engram init failed: ${err instanceof Error ? err.message : String(err)}\n`,
       );
       process.exit(1);
+    }
+    return;
+  }
+
+  if (args.command === "post-merge") {
+    try {
+      const result = await runPostMergeCheck({
+        cwd: args.cwd ?? process.cwd(),
+      });
+      if (!result.dataRoot) {
+        // 不在 team-memory 仓库内 — 静默退出
+        return;
+      }
+      if (result.error) {
+        process.stderr.write(
+          `[co-engram] post-merge check error: ${result.error}\n`,
+        );
+        return;
+      }
+      process.stdout.write(
+        `[co-engram] post-merge: ${result.inconsistencies} inconsistency(s)` +
+          ` (${result.autoFixed} auto-fixed, ${result.escalated} escalated)` +
+          ` in ${result.durationMs}ms\n`,
+      );
+    } catch (err) {
+      process.stderr.write(
+        `[co-engram] post-merge failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+    return;
+  }
+
+  if (args.command === "install-post-merge-hook") {
+    try {
+      const result = installPostMergeHook({
+        repoRoot: args.cwd ?? process.cwd(),
+      });
+      process.stdout.write(
+        `[co-engram] post-merge hook installed at ${result.hookPath}\n`,
+      );
+    } catch (err) {
+      process.stderr.write(
+        `[co-engram] install failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(1);
+    }
+    return;
+  }
+
+  if (args.command === "uninstall-post-merge-hook") {
+    const result = uninstallPostMergeHook({
+      repoRoot: args.cwd ?? process.cwd(),
+    });
+    if (result.removed) {
+      process.stdout.write(`[co-engram] post-merge hook removed\n`);
+    } else {
+      process.stdout.write(`[co-engram] no co-engram-managed hook to remove\n`);
+    }
+    return;
+  }
+
+  if (args.command === "hook-status") {
+    const status = getPostMergeHookStatus({
+      repoRoot: args.cwd ?? process.cwd(),
+    });
+    if (!status.installed) {
+      process.stdout.write(`[co-engram] post-merge hook: not installed\n`);
+    } else {
+      process.stdout.write(
+        `[co-engram] post-merge hook: installed` +
+          ` (${status.atPrimaryPath ? "primary" : "sidecar"} path)\n` +
+          `  ${status.hookPath}\n`,
+      );
+    }
+    return;
+  }
+
+  if (args.command === "stats") {
+    // co-engram stats [--window-days N] [--cwd PATH] [--json]
+    const cwd = args.cwd ?? process.cwd();
+    const dataRoot = findDataRoot(cwd);
+    if (!dataRoot) {
+      process.stderr.write(
+        `[co-engram] not inside a team-memory repository (no .co-engram marker up the tree)\n`,
+      );
+      process.exit(1);
+    }
+    const windowDays = args.windowDays ?? 7;
+    const auditLog = new AuditLog(dataRoot);
+    const stats = computeMergeStats({
+      auditLog,
+      windowMs: windowDays * 24 * 60 * 60 * 1000,
+    });
+    if (args.json) {
+      process.stdout.write(JSON.stringify(stats, null, 2) + "\n");
+    } else {
+      process.stdout.write(formatMergeStatsAsText(stats));
+    }
+    return;
+  }
+
+  if (args.command === "anomalies") {
+    // co-engram anomalies [--window-days N] [--cwd PATH] [--json]
+    const cwd = args.cwd ?? process.cwd();
+    const dataRoot = findDataRoot(cwd);
+    if (!dataRoot) {
+      process.stderr.write(
+        `[co-engram] not inside a team-memory repository (no .co-engram marker up the tree)\n`,
+      );
+      process.exit(1);
+    }
+    const windowDays = args.windowDays ?? 7;
+    const auditLog = new AuditLog(dataRoot);
+    const stats = computeMergeStats({
+      auditLog,
+      windowMs: windowDays * 24 * 60 * 60 * 1000,
+    });
+    const anomalies = detectAnomalies(stats);
+    if (args.json) {
+      process.stdout.write(
+        JSON.stringify({ anomalies, windowDays }, null, 2) + "\n",
+      );
+    } else {
+      process.stdout.write(formatAnomaliesAsText(anomalies) + "\n");
+      if (
+        anomalies.some((a: { severity: string }) => a.severity === "critical")
+      ) {
+        process.exit(1);
+      }
     }
     return;
   }

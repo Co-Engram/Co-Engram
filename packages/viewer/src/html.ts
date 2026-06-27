@@ -54,6 +54,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     ["engrams", t(language, "viewer.tab.engrams")],
     ["graph", t(language, "viewer.tab.graph")],
     ["proposals", t(language, "viewer.tab.proposals")],
+    ["merges", t(language, "viewer.tab.merges")],
     ["audit", t(language, "viewer.tab.audit")],
     ["trash", t(language, "viewer.tab.trash")],
     ["config", t(language, "viewer.tab.config")],
@@ -274,6 +275,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <!-- Proposals -->
     <section class="tab-panel" data-tab="proposals">
       <div id="proposals-content"></div>
+    </section>
+
+    <!-- Merges (P4.3) -->
+    <section class="tab-panel" data-tab="merges">
+      <div id="merges-content"></div>
     </section>
 
     <!-- Audit -->

@@ -9,6 +9,9 @@
  *               propose/accept/dismiss
  *   - 必要性拒绝: necessity_rejected(Layer 2 评估拒绝,需要审计便于调参)
  *   - 冲突标记: contradicted(供 EffectivenessTracker.effectiveness() 派生用)
+ *   - git merge driver 事件: merge_resolved(driver 自动解决冲突)/
+ *                           merge_backup_failed(输方备份落盘失败)/
+ *                           merge_conflict_escalated(driver 留 marker 升级人工)
  *
  * 不再写入的事件(避免淹没 audit.jsonl,详见 effectiveness-tracker.ts):
  *   - noise_filtered(Layer 1 入口拒绝,每条对话消息都会产生)
@@ -55,7 +58,15 @@ export type AuditAction =
   | "contradicted"
   // proposal engine 过滤(Layer 1 不再写 audit;Layer 2 必要性拒绝仍写)
   | "noise_filtered"
-  | "necessity_rejected";
+  | "necessity_rejected"
+  // git merge driver 事件(Phase 1 MVP 起)
+  | "merge_resolved"
+  | "merge_backup_failed"
+  | "merge_conflict_escalated"
+  // git merge driver LLM 仲裁事件(Phase 3 起,spec §5.5)
+  | "merge_llm_arbitrated"
+  | "merge_llm_arbitrated_escalated"
+  | "merge_llm_arbitrated_failed";
 
 /** 审计行为者 */
 export type AuditActor = "user" | "llm" | "system";

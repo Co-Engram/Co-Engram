@@ -115,6 +115,7 @@ export const zh = {
   "viewer.tab.trash": "记忆回收站",
   "viewer.tab.config": "配置",
   "viewer.tab.help": "帮助",
+  "viewer.tab.merges": "合并",
   "viewer.search.placeholder": "全文检索记忆印迹...",
   "viewer.search.button": "搜索",
   "viewer.search.clear": "清空",

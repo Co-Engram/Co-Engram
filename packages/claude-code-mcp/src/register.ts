@@ -19,6 +19,8 @@ import {
   localizeToolDescription,
   collectDigestLines,
   DEFAULT_LANGUAGE,
+  autoOnboardMergeDriver,
+  resolveMergeDriverBundle,
   type Language,
   type MaintenanceConfig,
   type ProposalEngineConfig,
@@ -27,6 +29,7 @@ import {
   type ToolContext,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import { startMaintenanceRuntime } from "./maintenance-runtime.js";
 import {
@@ -91,6 +94,15 @@ export interface CoEngramMcpServerConfig {
    * host 用此字段注入 LlmNecessityEvaluator 做语义必要性判断。
    */
   readonly necessityEvaluator?: NecessityEvaluator;
+  /**
+   * 是否在 MCP server 启动时自动 onboard git merge driver(默认 true)。
+   *
+   * 启用后,启动时会检测 dataRoot 所在 git repo,自动安装 merge driver
+   * bundle / .gitattributes / .git/config(全部幂等)。
+   *
+   * 默认开启,匹配零手动步骤的 low-friction-defaults 原则。
+   */
+  readonly autoOnboardMergeDriver?: boolean;
 }
 
 const DEFAULT_SERVER_NAME = "co-engram";
@@ -239,6 +251,33 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   ctx.repository.addInvalidateListener(() => {
     rebuildSearchIndex(searchOrchestrator, repository);
   });
+
+  // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
+  //
+  // MCP server 启动时同样检测 dataRoot 所在 git repo,自动装好 merge driver。
+  // 失败不阻塞 server —— 通过 stderr 输出诊断信息即可。
+  if (config.autoOnboardMergeDriver !== false) {
+    const bundleSource = findInstalledMergeDriverBundle();
+    if (bundleSource) {
+      const result = autoOnboardMergeDriver({
+        dataRoot: config.dataRoot,
+        bundleSourcePath: bundleSource,
+      });
+      if (result.attempted && result.error) {
+        process.stderr.write(
+          `[co-engram] Auto-onboard merge driver failed: ${result.error}\n`,
+        );
+      } else if (result.attempted && result.bundleUpgraded) {
+        process.stderr.write(
+          `[co-engram] Merge driver installed in ${result.repoRoot}\n`,
+        );
+      }
+    } else {
+      process.stderr.write(
+        `[co-engram] Auto-onboard skipped: merge-driver bundle not found\n`,
+      );
+    }
+  }
 
   return {
     server,
@@ -411,6 +450,30 @@ function readPromptSignalsSync(dataRoot: string):
 function toStringArray(value: unknown): readonly string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((v): v is string => typeof v === "string");
+}
+
+/**
+ * 自动定位已安装的 `@co-engram/core` 中的 merge-driver bundle。
+ *
+ * 通过 `createRequire` 解析 `@co-engram/core/types` 子路径,exports 字段已暴露。
+ * 该子路径只能 import 不能 require,所以显式传 `conditions: ['import','default']`。
+ *
+ * 失败(如 bundle 未构建 / 解析不到)返回 null,不抛错 —— auto-onboard 按跳过处理。
+ */
+function findInstalledMergeDriverBundle(): string | null {
+  try {
+    const require = createRequire(import.meta.url);
+    // @co-engram/core 的 exports 只声明 import 条件,默认 require.resolve 走 require 条件会失败。
+    // 显式传 conditions 让 resolver 接受 import-only 入口。
+    const opts = { conditions: ["import", "default"] } as unknown as Parameters<
+      typeof require.resolve
+    >[1];
+    const typesEntryPath = require.resolve("@co-engram/core/types", opts);
+    const coreDistDir = typesEntryPath.replace(/\/types\/[^/]+$/, "");
+    return resolveMergeDriverBundle(coreDistDir);
+  } catch {
+    return null;
+  }
 }
 
 /**

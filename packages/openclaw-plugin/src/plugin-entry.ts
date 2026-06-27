@@ -66,6 +66,10 @@ import {
   createOpenAiCompatibleLlmClient,
   loadOpenClawFallbackLlmConfig,
 } from "./llm-client.js";
+import {
+  autoOnboardMergeDriver,
+  findInstalledMergeDriverBundle,
+} from "./auto-onboard.js";
 
 /**
  * 构建 ToolContext（含 repository / searchOrchestrator / signalSink + 可选 observability）
@@ -374,6 +378,37 @@ export function registerCoEngramTools(
       config.maintenanceConfig ?? {},
     );
     stopMaintenance = runtime.stop;
+  }
+
+  // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
+  //
+  // 启动时检测 dataRoot 所在 git repo,自动装好 merge driver bundle /
+  // .gitattributes / .git/config。这样用户 clone 团队记忆仓库后第一次启动
+  // co-engram 就立刻具备结构化 merge 能力,不需要手动跑 `co-engram git enable`。
+  //
+  // 失败不阻塞 plugin —— 通过 stderr 输出诊断信息即可。
+  if (config.autoOnboardMergeDriver !== false) {
+    const bundleSource = findInstalledMergeDriverBundle();
+    if (bundleSource) {
+      const dataRoot = config.dataRoot ?? DEFAULT_CONFIG.dataRoot;
+      const result = autoOnboardMergeDriver({
+        dataRoot,
+        bundleSourcePath: bundleSource,
+      });
+      if (result.attempted && result.error) {
+        process.stderr.write(
+          `[co-engram] Auto-onboard merge driver failed: ${result.error}\n`,
+        );
+      } else if (result.attempted && result.bundleUpgraded) {
+        process.stderr.write(
+          `[co-engram] Merge driver installed in ${result.repoRoot}\n`,
+        );
+      }
+    } else {
+      process.stderr.write(
+        `[co-engram] Auto-onboard skipped: merge-driver bundle not found\n`,
+      );
+    }
   }
 
   // M3b: 可选 system prompt 注入（需 proposal engine + host 支持）

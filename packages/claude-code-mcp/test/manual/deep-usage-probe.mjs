@@ -6,8 +6,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
 const SERVER =
-  process.env.CO_ENGRAM_MCP_SERVER ??
-  new URL("../../dist/mcp-server.js", import.meta.url).pathname;
+  "/home/10192021@zte.intra/AIOS/co-engram/packages/claude-code-mcp/dist/mcp-server.js";
 const DATA_ROOT = process.argv[2] ?? "/tmp/co-engram-probe-data";
 
 const env = {

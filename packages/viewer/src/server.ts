@@ -53,6 +53,8 @@ import {
   loadAndSelfHealConfig,
   normalizeConfig,
   setDesiredDataRoot,
+  computeMergeStats,
+  detectAnomalies,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 
@@ -590,6 +592,47 @@ async function routeApi(
     }
     const report = ctx.effectivenessTracker.effectiveness(engramId);
     respondJson(res, 200, { enabled: true, engramId, report });
+    return;
+  }
+
+  // /api/merge-stats — P4.3 viewer "Merges" tab data source
+  if (path === "/api/merge-stats" && req.method === "GET") {
+    if (!ctx.auditLog) {
+      respondJson(res, 200, { enabled: false, stats: null });
+      return;
+    }
+    const rawDays = Number(url.searchParams.get("windowDays") ?? 7);
+    const safeWindowDays = Number.isFinite(rawDays)
+      ? Math.min(365, Math.max(1, Math.trunc(rawDays)))
+      : 7;
+    const stats = computeMergeStats({
+      auditLog: ctx.auditLog,
+      windowMs: safeWindowDays * 24 * 60 * 60 * 1000,
+    });
+    respondJson(res, 200, { enabled: true, stats, windowDays: safeWindowDays });
+    return;
+  }
+
+  // /api/merge-anomalies — P4.4 anomaly alerting(spec §13.2)
+  if (path === "/api/merge-anomalies" && req.method === "GET") {
+    if (!ctx.auditLog) {
+      respondJson(res, 200, { enabled: false, anomalies: [] });
+      return;
+    }
+    const rawDays = Number(url.searchParams.get("windowDays") ?? 7);
+    const safeWindowDays = Number.isFinite(rawDays)
+      ? Math.min(365, Math.max(1, Math.trunc(rawDays)))
+      : 7;
+    const stats = computeMergeStats({
+      auditLog: ctx.auditLog,
+      windowMs: safeWindowDays * 24 * 60 * 60 * 1000,
+    });
+    const anomalies = detectAnomalies(stats);
+    respondJson(res, 200, {
+      enabled: true,
+      anomalies,
+      windowDays: safeWindowDays,
+    });
     return;
   }
 

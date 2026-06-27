@@ -154,7 +154,7 @@ describe("renderSpaHtml", () => {
     expect(html).not.toContain("alpinejs");
     // 默认 language=zh,标题 + slogan 拆分为两段(brand name + slogan)
     expect(html).toContain("Co-Engram");
-    expect(html).toContain("自进化的团队记忆印迹");
+    expect(html).toContain("自进化的团队记忆");
   });
 
   it("tokenRequired 时显示 auth-bar div", () => {
@@ -170,7 +170,7 @@ describe("renderSpaHtml", () => {
 
   it("language=en 渲染英文 UI", () => {
     const html = renderSpaHtml({ language: "en" });
-    expect(html).toContain("Self-evolving team memory engrams");
+    expect(html).toContain("Self-evolving team memory");
     expect(html).toContain('data-tab="stats" class="tab">Stats<');
     expect(html).toContain('data-tab="engrams" class="tab">Engrams<');
     expect(html).toContain('data-tab="audit" class="tab">Audit<');
@@ -184,7 +184,7 @@ describe("renderSpaHtml", () => {
     const html = renderSpaHtml({ language: "zh" });
     // title + slogan 拆分为两段
     expect(html).toContain("Co-Engram");
-    expect(html).toContain("自进化的团队记忆印迹");
+    expect(html).toContain("自进化的团队记忆");
     expect(html).toContain("统计");
     expect(html).toContain("审计");
     expect(html).toContain("全文检索");
@@ -204,7 +204,7 @@ describe("renderSpaHtml", () => {
   it("默认 language 为 zh", () => {
     const html = renderSpaHtml();
     expect(html).toContain("Co-Engram");
-    expect(html).toContain("自进化的团队记忆印迹");
+    expect(html).toContain("自进化的团队记忆");
     expect(html).toContain("统计");
   });
 
@@ -272,7 +272,7 @@ describe("Viewer server 基础", () => {
       expect(res.body).toContain("<!DOCTYPE html>");
       // 默认 language=zh,标题 + slogan 拆分为两段
       expect(res.body).toContain("Co-Engram");
-      expect(res.body).toContain("自进化的团队记忆印迹");
+      expect(res.body).toContain("自进化的团队记忆");
     });
   });
 
@@ -282,7 +282,7 @@ describe("Viewer server 基础", () => {
       const res = await makeRequest(port, "/");
       expect(res.status).toBe(200);
       expect(res.body).toContain("Co-Engram");
-      expect(res.body).toContain("自进化的团队记忆印迹");
+      expect(res.body).toContain("自进化的团队记忆");
       expect(res.body).toContain("统计");
       expect(res.body).toContain("全文检索");
       expect(res.body).toContain('<html lang="zh">');
@@ -294,7 +294,7 @@ describe("Viewer server 基础", () => {
     await withViewer(ctx, { language: "en" }, async (port) => {
       const res = await makeRequest(port, "/");
       expect(res.status).toBe(200);
-      expect(res.body).toContain("Self-evolving team memory engrams");
+      expect(res.body).toContain("Self-evolving team memory");
       expect(res.body).toContain('data-tab="stats" class="tab">Stats<');
       expect(res.body).toContain("Full-text search engrams");
       expect(res.body).toContain('<html lang="en">');
@@ -877,6 +877,138 @@ describe("GET /api/effectiveness", () => {
       const res = await makeRequest(port, "/api/effectiveness");
       const data = JSON.parse(res.body);
       expect(data.report).toBeNull();
+    });
+  });
+});
+
+// ============================================================
+// /api/merge-stats
+// ============================================================
+
+describe("GET /api/merge-stats", () => {
+  it("返回空统计(无 merge 事件)", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-stats");
+      const data = JSON.parse(res.body);
+      expect(data.enabled).toBe(true);
+      expect(data.stats.totalMerges).toBe(0);
+      expect(data.stats.autoResolved).toBe(0);
+      expect(data.stats.escalatedToMarkers).toBe(0);
+      expect(data.stats.backupFailures).toBe(0);
+      expect(data.windowDays).toBe(7);
+    });
+  });
+
+  it("聚合 7 天内的 merge 事件", async () => {
+    const ctx = makeCtx(tmpDir);
+    ctx.auditLog.append({
+      actor: "merge-driver",
+      action: "merge_resolved",
+      engramId: "e1",
+    });
+    ctx.auditLog.append({
+      actor: "merge-driver",
+      action: "merge_resolved",
+      engramId: "e2",
+    });
+    ctx.auditLog.append({
+      actor: "merge-driver",
+      action: "merge_conflict_escalated",
+      engramId: "e3",
+    });
+    ctx.auditLog.append({
+      actor: "merge-driver",
+      action: "merge_llm_arbitrated",
+      engramId: "e4",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-stats");
+      const data = JSON.parse(res.body);
+      expect(data.stats.totalMerges).toBe(3);
+      expect(data.stats.autoResolved).toBe(2);
+      expect(data.stats.escalatedToMarkers).toBe(1);
+      expect(data.stats.llm.arbitrated).toBe(1);
+      expect(data.stats.llm.totalInvocations).toBe(1);
+    });
+  });
+
+  it("支持 windowDays 查询参数", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-stats?windowDays=30");
+      const data = JSON.parse(res.body);
+      expect(data.windowDays).toBe(30);
+    });
+  });
+
+  it("windowDays 钳制到 [1, 365]", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const tooLarge = await makeRequest(
+        port,
+        "/api/merge-stats?windowDays=9999",
+      );
+      expect(JSON.parse(tooLarge.body).windowDays).toBe(365);
+      const tooSmall = await makeRequest(port, "/api/merge-stats?windowDays=0");
+      expect(JSON.parse(tooSmall.body).windowDays).toBe(1);
+      const invalid = await makeRequest(
+        port,
+        "/api/merge-stats?windowDays=abc",
+      );
+      expect(JSON.parse(invalid.body).windowDays).toBe(7);
+    });
+  });
+});
+
+// ============================================================
+// /api/merge-anomalies
+// ============================================================
+
+describe("GET /api/merge-anomalies", () => {
+  it("健康状态返回空数组", async () => {
+    const ctx = makeCtx(tmpDir);
+    for (let i = 0; i < 20; i++) {
+      ctx.auditLog.append({
+        actor: "merge-driver",
+        action: "merge_resolved",
+        engramId: `e-${i}`,
+      });
+    }
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-anomalies");
+      const data = JSON.parse(res.body);
+      expect(data.enabled).toBe(true);
+      expect(Array.isArray(data.anomalies)).toBe(true);
+      expect(data.anomalies.length).toBe(0);
+    });
+  });
+
+  it("backup 失败触发 critical 异常", async () => {
+    const ctx = makeCtx(tmpDir);
+    ctx.auditLog.append({
+      actor: "merge-driver",
+      action: "merge_backup_failed",
+      engramId: "e1",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-anomalies");
+      const data = JSON.parse(res.body);
+      expect(data.anomalies.length).toBeGreaterThanOrEqual(1);
+      const crit = data.anomalies.find(
+        (a: { severity: string; kind: string }) =>
+          a.severity === "critical" && a.kind === "backup_failure",
+      );
+      expect(crit).toBeDefined();
+    });
+  });
+
+  it("支持 windowDays 参数", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/merge-anomalies?windowDays=14");
+      const data = JSON.parse(res.body);
+      expect(data.windowDays).toBe(14);
     });
   });
 });

@@ -115,6 +115,7 @@ export const en: TranslationDict = {
   "viewer.tab.trash": "Trash",
   "viewer.tab.config": "Config",
   "viewer.tab.help": "Help",
+  "viewer.tab.merges": "Merges",
   "viewer.search.placeholder": "Full-text search engrams...",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",

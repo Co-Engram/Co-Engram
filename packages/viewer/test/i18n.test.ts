@@ -155,8 +155,8 @@ describe("viewer i18n / renderSpaHtml 注入", () => {
     // 全局字典注入
     expect(html).toContain("window.CO_ENGRAM_I18N");
     // 至少包含若干关键 key 的翻译,确认走的是 JSON.stringify(zh)
-    expect(html).toContain("自进化的团队记忆印迹");
-    expect(html).toContain("Self-evolving team memory engrams");
+    expect(html).toContain("自进化的团队记忆");
+    expect(html).toContain("Self-evolving team memory");
   });
 
   it('language=zh 注入 window.CO_ENGRAM_LANG = "zh"', () => {

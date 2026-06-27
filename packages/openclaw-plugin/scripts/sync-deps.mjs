@@ -39,12 +39,6 @@ const __dirname = dirname(__filename);
 const PKG_ROOT = resolve(__dirname, "..");
 const NM = resolve(PKG_ROOT, "node_modules");
 
-/**
- * createRequire 实例,用于解析 transitive deps(如 yaml/zod/ulid)。
- * 以 PKG_ROOT/package.json 为基准,模拟 openclaw-plugin 实际 require 路径。
- */
-const pkgRequire = createRequire(join(PKG_ROOT, "package.json"));
-
 /** 需要实拷贝的运行时依赖(直接 + 传递) */
 const TARGETS = ["@co-engram/core", "@co-engram/viewer", "yaml", "zod", "ulid"];
 
@@ -99,55 +93,29 @@ ${TARGETS.map((t) => `  - ${t}`).join("\n")}
 /** 通过读 node_modules/<pkg>/package.json 找到包根目录(穿透 pnpm symlink) */
 function resolvePackageRoot(pkgName) {
   const directPath = join(NM, pkgName);
-  if (existsSync(directPath)) {
-    // 处理 symlink 情况:readlinksync 取 target
-    const stat = lstatSync(directPath);
-    let realPath;
-    if (stat.isSymbolicLink()) {
-      realPath = readlinkSync(directPath);
-      // 相对 symlink:相对于 symlink 父目录解析
-      if (!realPath.startsWith("/")) {
-        realPath = resolve(dirname(directPath), realPath);
-      }
-    } else {
-      // 已经是实拷贝,直接用
-      realPath = directPath;
-    }
+  if (!existsSync(directPath)) return null;
 
-    // 验证 realPath 下有 package.json 且 name 匹配
-    const pkgJsonPath = join(realPath, "package.json");
-    if (existsSync(pkgJsonPath)) {
-      try {
-        const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
-        if (pkg.name === pkgName) return realPath;
-      } catch {}
+  // 处理 symlink 情况:readlinksync 取 target
+  const stat = lstatSync(directPath);
+  let realPath;
+  if (stat.isSymbolicLink()) {
+    realPath = readlinkSync(directPath);
+    // 相对 symlink:相对于 symlink 父目录解析
+    if (!realPath.startsWith("/")) {
+      realPath = resolve(dirname(directPath), realPath);
     }
+  } else {
+    // 已经是实拷贝,直接用
+    realPath = directPath;
   }
 
-  // Fallback:transitive deps (yaml/zod/ulid) 在 pnpm workspace 下被 hoist 到
-  // 根 node_modules/.pnpm/<pkg>@x/node_modules/<pkg>,不会出现在插件 NM 里,
-  // 而且 createRequire 从 openclaw-plugin/package.json 视角也解析不到(因为
-  // 这些不在它的 dependencies 里)。直接扫 workspace 根的 .pnpm store。
-  const pnpmDir = resolve(PKG_ROOT, "../../node_modules/.pnpm");
-  if (existsSync(pnpmDir)) {
-    const prefix = `${pkgName}@`;
-    const candidates = readdirSync(pnpmDir)
-      .filter((name) => name.startsWith(prefix))
-      .map((name) => join(pnpmDir, name, "node_modules", pkgName))
-      .filter((p) => existsSync(join(p, "package.json")));
-    if (candidates.length > 0) {
-      // 多个版本时取最新(mtime 最新)
-      candidates.sort(
-        (a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs,
-      );
-      try {
-        const pkg = JSON.parse(
-          readFileSync(join(candidates[0], "package.json"), "utf8"),
-        );
-        if (pkg.name === pkgName) return candidates[0];
-      } catch {}
-    }
-  }
+  // 验证 realPath 下有 package.json 且 name 匹配
+  const pkgJsonPath = join(realPath, "package.json");
+  if (!existsSync(pkgJsonPath)) return null;
+  try {
+    const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+    if (pkg.name === pkgName) return realPath;
+  } catch {}
   return null;
 }
 

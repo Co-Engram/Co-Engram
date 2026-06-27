@@ -994,6 +994,126 @@ window.CO_ENGRAM_AUDIT = {
 };
 
 // ============================================================
+// Merges (P4.3) — git merge driver health dashboard
+// ============================================================
+CO_ENGRAM.on('merges', async function() {
+  const root = document.getElementById('merges-content');
+  if (!root) return;
+  if (CO_ENGRAM._mergesLoaded) return;
+  CO_ENGRAM._mergesLoaded = true;
+  await CO_ENGRAM_MERGES.render(root);
+});
+
+window.CO_ENGRAM_MERGES = {
+  async render(root) {
+    root.innerHTML = '<div class="loading">加载合并统计中</div>';
+    let payload;
+    try {
+      payload = await CO_ENGRAM.apiGet('/api/merge-stats?windowDays=7');
+    } catch (e) {
+      root.innerHTML = '<div class="empty">加载失败:' + CO_ENGRAM.escapeHtml(e.message) + '</div>';
+      return;
+    }
+    if (!payload.enabled || !payload.stats) {
+      root.innerHTML = '<div class="empty">audit log 未启用,无合并数据。</div>';
+      return;
+    }
+
+    // 异常告警横幅(spec §13.2)— 失败不阻塞主统计渲染
+    let banner = '';
+    try {
+      const anom = await CO_ENGRAM.apiGet('/api/merge-anomalies?windowDays=7');
+      if (anom.enabled && anom.anomalies && anom.anomalies.length > 0) {
+        const items = anom.anomalies.map(function(a) {
+          const cls = a.severity === 'critical' ? 'anom-critical' : (a.severity === 'warning' ? 'anom-warning' : 'anom-info');
+          const icon = a.severity === 'critical' ? '✗' : (a.severity === 'warning' ? '⚠' : 'ℹ');
+          return '<li class="' + cls + '"><span class="anom-icon">' + icon + '</span><strong>' + CO_ENGRAM.escapeHtml(a.kind) + '</strong>: ' + CO_ENGRAM.escapeHtml(a.message) + '</li>';
+        }).join('');
+        banner = '<div class="anomaly-banner"><h3>异常告警 · ' + anom.anomalies.length + ' 条</h3><ul>' + items + '</ul></div>';
+      }
+    } catch (_) { /* anomaly API 可选,失败静默 */ }
+
+    root.innerHTML = banner + CO_ENGRAM_MERGES.renderHtml(payload.stats, payload.windowDays);
+  },
+
+  renderHtml(s, windowDays) {
+    const pct = (r) => (r * 100).toFixed(1) + '%';
+
+    const kpi = (label, value, sub) =>
+      '<div class="kpi">' +
+      '<div class="kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
+      '<div class="kpi-value">' + CO_ENGRAM.escapeHtml(String(value)) + '</div>' +
+      (sub ? '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '') +
+      '</div>';
+
+    const bar = (label, count, max, color) =>
+      '<div class="bar-row">' +
+      '<div class="bar-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5eead4') + '"></div></div>' +
+      '<div class="bar-value">' + count + '</div>' +
+      '</div>';
+
+    let html = '<div class="panel">';
+    html += '<div class="panel-header"><h2>合并统计 · 最近 ' + windowDays + ' 天</h2></div>';
+    html += '<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:1.5rem">';
+    html += kpi('总合并', s.totalMerges);
+    html += kpi('自动解决', s.autoResolved, pct(s.autoResolveRate));
+    html += kpi('升级到冲突标记', s.escalatedToMarkers);
+    html += kpi('Backup 失败', s.backupFailures);
+    html += '</div>';
+
+    // LLM 段
+    html += '<h3 style="margin-top:1.5rem">LLM 仲裁</h3>';
+    html += '<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:1rem">';
+    html += kpi('总调用', s.llm.totalInvocations);
+    html += kpi('成功', s.llm.arbitrated);
+    html += kpi('升级', s.llm.escalated);
+    html += kpi('失败', s.llm.failed);
+    html += kpi('成功率', pct(s.llm.successRate));
+    html += '</div>';
+
+    // 按策略
+    const strategies = Object.entries(s.byStrategy || {}).sort((a, b) => b[1] - a[1]);
+    if (strategies.length > 0) {
+      const max = strategies[0][1];
+      html += '<h3 style="margin-top:1.5rem">解决策略分布(Top 8)</h3>';
+      html += '<div style="margin-bottom:1rem">';
+      for (const [name, count] of strategies.slice(0, 8)) {
+        html += bar(name, count, max, '#5eead4');
+      }
+      html += '</div>';
+    }
+
+    // Hot paths
+    const paths = Object.entries(s.byPath || {}).sort((a, b) => b[1] - a[1]);
+    if (paths.length > 0) {
+      const max = paths[0][1];
+      html += '<h3 style="margin-top:1.5rem">冲突热点路径(Top 8)</h3>';
+      html += '<div style="margin-bottom:1rem">';
+      for (const [p, count] of paths.slice(0, 8)) {
+        html += bar(p, count, max, '#fbbf24');
+      }
+      html += '</div>';
+    }
+
+    // 按天趋势
+    const days = Object.entries(s.byDay || {}).sort((a, b) => a[0].localeCompare(b[0]));
+    if (days.length > 0) {
+      const max = Math.max(...days.map((d) => d[1]));
+      html += '<h3 style="margin-top:1.5rem">每日合并量(趋势)</h3>';
+      html += '<div style="margin-bottom:1rem">';
+      for (const [day, count] of days) {
+        html += bar(day, count, max, '#60a5fa');
+      }
+      html += '</div>';
+    }
+
+    html += '</div>';
+    return html;
+  }
+};
+
+// ============================================================
 // Trash
 // ============================================================
 CO_ENGRAM.on('trash', async function() {

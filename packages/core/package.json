@@ -54,7 +54,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && pnpm build:merge-driver",
+    "build:merge-driver": "node scripts/build-merge-driver.mjs",
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -66,5 +67,8 @@
   },
   "peerDependencies": {
     "typescript": ">=5.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2"
   }
 }

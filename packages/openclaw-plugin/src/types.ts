@@ -224,6 +224,16 @@ export interface CoEngramPluginConfig {
   readonly startViewer?: boolean;
   /** viewer 配置（端口/token 等） */
   readonly viewerConfig?: ViewerConfig;
+  /**
+   * 是否在 plugin 启动时自动 onboard git merge driver(默认 true)。
+   *
+   * 启用后,启动时会检测 dataRoot 所在 git repo,自动安装 merge driver
+   * bundle / .gitattributes / .git/config(全部幂等)。
+   *
+   * 关闭后,用户需手动运行 `co-engram git enable`(P2.6 CLI)。
+   * 默认开启,匹配零手动步骤的 low-friction-defaults 原则。
+   */
+  readonly autoOnboardMergeDriver?: boolean;
   /** 预计算的 prompt signals（由 entry.ts 从 .co-engram/prompt-signals.json 读取并注入） */
   readonly promptSignals?: PromptSignalSnapshot;
 }
