@@ -463,6 +463,7 @@ retrievalWeight: 0.8
 | 包                                                     | 用途                                     | 安装                                 |
 | ------------------------------------------------------ | ---------------------------------------- | ------------------------------------ |
 | [`@co-engram/core`](./packages/core)                   | Host-agnostic 记忆引擎 + 工具 + 维护引擎 | `npm install @co-engram/core`        |
+| [`@co-engram/viewer`](./packages/viewer)               | 内置 Web 查看器(SPA),含 engram 表格、synapse 关系图、审计日志和健康仪表板 | `npm install @co-engram/viewer` |
 | [`@co-engram/claude-code`](./packages/claude-code-mcp) | Claude Code 的 MCP server 适配器         | `npm install @co-engram/claude-code` |
 | [`@co-engram/openclaw`](./packages/openclaw-plugin)    | OpenClaw 的插件 SDK 适配器               | `npm install @co-engram/openclaw`    |
 | [`@co-engram/e2e`](./packages/e2e)                     | 跨宿主端到端测试(私有,不发布)            | 仅 workspace                         |

@@ -463,6 +463,7 @@ retrievalWeight: 0.8
 | Package                                                | What it does                                             | Install                              |
 | ------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------ |
 | [`@co-engram/core`](./packages/core)                   | Host-agnostic memory engine + tools + maintenance engine | `npm install @co-engram/core`        |
+| [`@co-engram/viewer`](./packages/viewer)               | Built-in web viewer (SPA) with engram table, synapse graph, audit log, and health dashboard | `npm install @co-engram/viewer` |
 | [`@co-engram/claude-code`](./packages/claude-code-mcp) | MCP server adapter for Claude Code                       | `npm install @co-engram/claude-code` |
 | [`@co-engram/openclaw`](./packages/openclaw-plugin)    | Plugin SDK adapter for OpenClaw                          | `npm install @co-engram/openclaw`    |
 | [`@co-engram/e2e`](./packages/e2e)                     | Cross-host end-to-end tests (private, not published)     | workspace only                       |
