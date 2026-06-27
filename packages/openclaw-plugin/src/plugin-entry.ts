@@ -23,7 +23,8 @@
  * @module @co-engram/openclaw
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   EngramRepository,
   SearchOrchestrator,
@@ -95,6 +96,26 @@ export function createCoEngramContext(
       ? { defaultCreatedBy: userSpecifiedCreatedBy ?? gitAuthor }
       : {}),
   };
+
+  // 支持 desiredDataRoot redirect:读取 config.json 中的"下次启动 dataRoot 重定向"字段,
+  // 让 viewer Settings 页面修改的 dataRoot 在重启后生效(MCP server 有相同逻辑)。
+  const configJsonPath = join(fullConfig.dataRoot, ".co-engram", "config.json");
+  if (existsSync(configJsonPath)) {
+    try {
+      const raw = JSON.parse(readFileSync(configJsonPath, "utf8"));
+      const desired = raw?.desiredDataRoot?.trim();
+      if (desired && desired !== fullConfig.dataRoot) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[co-engram] using desiredDataRoot from config: ${desired} (was ${DEFAULT_CONFIG.dataRoot})`,
+        );
+        fullConfig.dataRoot = desired;
+      }
+    } catch {
+      // config.json 解析失败,忽略,继续使用默认 dataRoot
+    }
+  }
+
   if (!existsSync(fullConfig.dataRoot)) {
     mkdirSync(fullConfig.dataRoot, { recursive: true });
   }

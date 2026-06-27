@@ -32,6 +32,7 @@ import {
   AuditLog,
   findDataRoot,
   type Language,
+  DEFAULT_LANGUAGE,
 } from "@co-engram/core";
 import { resolveDefaultCreatedBy } from "./mcp-server.js";
 
@@ -142,8 +143,7 @@ async function ask(
 }
 
 async function initTeamMemory(args: CliArgs): Promise<void> {
-  // 启动时先用英文,完成语言选择后切换
-  let language: Language = args.language ?? "en";
+  let language: Language = args.language ?? DEFAULT_LANGUAGE;
 
   process.stdout.write(t(language, "cli.init.welcome") + "\n\n");
 

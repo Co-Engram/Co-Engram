@@ -1325,15 +1325,18 @@ window.CO_ENGRAM_CONFIG = {
     html += toggle(null, 'Web 查看器', '本页面所在 HTTP 服务(不可关闭,否则 UI 失联)', runtime.viewerEnabled, undefined, false);
     html += '</div>';
 
-    // 运行时元数据(只读)
+    // 运行时元数据:展示当前运行时实际生效的值,与上方"持久化配置"对比
+    const runtimeBadge = (label, runtimeVal, persistedVal) => {
+      if (persistedVal !== undefined && persistedVal !== null && persistedVal !== '' && persistedVal !== runtimeVal) {
+        return '<span class="chip" style="background:rgba(251,191,36,.12);color:var(--accent-warm);margin-left:.5rem">当前运行时: ' + CO_ENGRAM.escapeHtml(String(runtimeVal)) + ' (已保存: ' + CO_ENGRAM.escapeHtml(String(persistedVal)) + ', 重启后生效)</span>';
+      }
+      return '<span class="chip" style="background:rgba(100,100,100,.12);color:var(--text-muted);margin-left:.5rem">当前运行时: ' + CO_ENGRAM.escapeHtml(String(runtimeVal)) + '</span>';
+    };
     html += '<div class="config-section">';
-    html += '<h3>运行时元数据(只读)</h3>';
-    html += '<div class="config-row readonly"><div class="config-label">运行 Profile</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(runtime.profile || 'standard') + '" readonly></div></div>';
-    html += '<div class="config-row readonly"><div class="config-label">当前语言(运行时)</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(LANG_LABEL[runtime.language] || runtime.language || '') + '" readonly></div></div>';
-    html += '<div class="config-row readonly"><div class="config-label">运行时 createdBy</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(runtime.defaultCreatedBy || '(未设置)') + '" readonly></div></div>';
+    html += '<h3>运行时状态摘要</h3>';
+    html += '<div class="config-row"><div class="config-label">工具 Profile' + runtimeBadge('profile', runtime.profile || 'standard', persisted.toolsProfile) + '</div></div>';
+    html += '<div class="config-row"><div class="config-label">语言' + runtimeBadge('language', LANG_LABEL[runtime.language] || runtime.language || '', LANG_LABEL[persisted.language] || persisted.language || '') + '</div></div>';
+    html += '<div class="config-row"><div class="config-label">createdBy' + runtimeBadge('createdBy', runtime.defaultCreatedBy || '(未设置)', persisted.defaultCreatedBy || '') + '</div></div>';
     html += '</div>';
 
     // 元数据
