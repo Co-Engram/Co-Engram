@@ -40,7 +40,22 @@ Restart Claude Code, run `/mcp` in a new session, and you should see the `co-eng
 
 **Zero-install alternative** (skip step 1): replace `co-engram-mcp` in step 3 with `npx -y @co-engram/claude-code`.
 
-For OpenClaw integration, see [docs/host-openclaw.md](./docs/host-openclaw.md).
+### OpenClaw
+
+```bash
+# 1. Install the plugin from npm
+openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install
+
+# 2. Switch the memory slot to Co-Engram
+openclaw config set plugins.slots.memory co-engram
+
+# 3. Restart the gateway
+openclaw gateway restart
+```
+
+> The `--dangerously-force-unsafe-install` flag is required because `scripts/setup.mjs` uses `child_process` to auto-configure the merge driver. This is safe for this plugin. Once install is complete, the Co-Engram tools (memory_search, memory_get) are available to your agents.
+
+For detailed configuration, see [docs/host-openclaw.md](./docs/host-openclaw.md).
 
 ## Architecture
 

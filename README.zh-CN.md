@@ -40,7 +40,22 @@ claude mcp add co-engram \
 
 **零安装变体**(跳过步骤 1):把步骤 3 的 `co-engram-mcp` 换成 `npx -y @co-engram/claude-code`。
 
-OpenClaw 集成方式见 [docs/host-openclaw.md](./docs/host-openclaw.md)。
+### OpenClaw
+
+```bash
+# 1. 从 npm 安装插件
+openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install
+
+# 2. 将 memory slot 切换为 Co-Engram
+openclaw config set plugins.slots.memory co-engram
+
+# 3. 重启 gateway
+openclaw gateway restart
+```
+
+> `--dangerously-force-unsafe-install` 参数必填,因为 `scripts/setup.mjs` 使用 `child_process` 自动配置 git merge driver。对插件本身是安全的。安装完成后,Co-Engram 工具(memory_search、memory_get)即可被 agent 使用。
+
+详细配置参见 [docs/host-openclaw.md](./docs/host-openclaw.md)。
 
 ## 架构
 
