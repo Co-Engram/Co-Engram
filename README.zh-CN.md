@@ -57,6 +57,74 @@ openclaw gateway restart
 
 详细配置参见 [docs/host-openclaw.md](./docs/host-openclaw.md)。
 
+## 使用 Co-Engram
+
+安装完成后,Co-Engram**通过对话使用**——没有仪表板、没有手动标注、没有配置文件要改。你只需和 AI agent 自然对话,agent 自行判断何时捕获、搜索或更新记忆。以下是自然涌现的典型使用模式。
+
+### 典型场景
+
+**"记住这个"——捕获决策或经验教训**
+
+> 你:"记住,我们决定用 PostgreSQL 做分析管道,因为它在 JSONB 查询上比现有 MySQL 栈好得多。"
+>
+> agent 调用 `engram_create(title="分析管道选型:PostgreSQL 优于 MySQL", kind="pattern", domainTags=["后端","数据分析"])` → 返回 engram ID。
+
+**"我们之前怎么说的……"——事后回顾**
+
+> 你:"我们分析那块选了哪个数据库?"
+>
+> agent 调用 `engram_search(query="分析 数据库 选型")` → 找到对应 engram 并直接引用。
+
+**"最近有什么值得关注的?"——浏览近期上下文**
+
+> 你:"列出我们这周捕获的东西。"
+>
+> agent 调用 `engram_list(filter={freshness:["fresh"]})` 或 `engram_list_paths` → 按领域分组展示最近的 engram。
+
+**关联想法——agent 自动发现规律**
+
+> 当两条 engram 之间存在关系时,agent 可能调用 `synapse_create` 建立连接。后续搜索会沿图遍历,所以查"数据库选型"时也会浮现那条 `extends` 了它的"迁移策略"engram。
+
+**自维护——无需人工清理**
+
+> 如果设置了 `CO_ENGRAM_MAINTENANCE=1`,引擎会周期运行:
+> - **Light**:强化高频使用的 engram(LTP),抑制陈旧条目(LTD)
+> - **Deep**:合并碎片化的 engram,重新计算重要性
+> - **REM**:升级验证状态(`unverified`→`plausible`→`probable`),或将矛盾的 engram 标记为 `refuted`
+
+### 访问 Web 查看器
+
+Co-Engram 内置了一个单页应用,用于浏览 engram、查看 synapse 关系图、审计日志和维护健康状态。通过环境变量启用:
+
+```bash
+# Claude Code (MCP) — 在 wiring 时添加
+-e CO_ENGRAM_VIEWER_ENABLED=1
+-e CO_ENGRAM_VIEWER_PORT=18899
+```
+
+OpenClaw 在插件 manifest 中设置 `startViewer: true` 和 `viewerConfig.port`(详见 [docs/host-openclaw.md](./docs/host-openclaw.md))。
+
+启用后在浏览器打开 **http://127.0.0.1:18899**。查看器各标签页说明:
+
+| 标签       | 内容                                                       |
+| ---------- | ---------------------------------------------------------- |
+| **Engrams**  | 可筛选的记忆列表,展示标签、重要性、状态                     |
+| **Graph**    | 力导向 synapse 关系图——点击节点打开对应 engram               |
+| **Audit**    | 每次工具调用(创建/更新/删除)的时间线记录                    |
+| **Health**   | 维护阶段报告,验证状态分布                                  |
+
+### 这给我什么价值?
+
+| 痛点                   | 没有 Co-Engram 时                                   | 有 Co-Engram 后                                            |
+| ---------------------- | --------------------------------------------------- | ---------------------------------------------------------- |
+| **决策复用**           | 每个迭代争论相同的 tradeoff                          | agent 检索历史理由,在此基础上推进                           |
+| **找回历史上下文**     | grep 聊天记录,祈祷当事人还在线                       | `engram_search` 毫秒级返回排序结果                          |
+| **知识腐化**           | 过时建议一直躺在文档里直到有人发现                    | REM 阶段基于使用反馈自动升级或反驳 engram                    |
+| **连接碎片洞察**       | 洞察困在独立对话里,互不相通                          | Synapse 将相关 engram 连接为可导航的知识图谱                |
+| **团队上手**           | "去看 wiki"(半年前的内容)                            | 新 agent 查询团队活跃的、经过验证的记忆                     |
+
+更详细的使用指南见 [docs/concepts.zh-CN.md](./docs/concepts.zh-CN.md) 和 [docs/tool-reference.zh-CN.md](./docs/tool-reference.zh-CN.md)。
+
 ## 架构
 
 ```mermaid

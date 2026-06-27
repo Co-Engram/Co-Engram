@@ -57,6 +57,74 @@ openclaw gateway restart
 
 For detailed configuration, see [docs/host-openclaw.md](./docs/host-openclaw.md).
 
+## Using Co-Engram
+
+Once installed, Co-Engram works **through conversation** — there is no dashboard, no manual tagging, no configuration file to edit. You talk to your AI agent, and it decides when to capture, search, or update memories. Below are the patterns that emerge naturally.
+
+### Typical scenarios
+
+**"Remember this" — capture a decision or lesson**
+
+> You: "Remember that we decided to use PostgreSQL for the analytics pipeline because it handles JSONB queries better than the MySQL in the rest of the stack."
+>
+> Agent calls `engram_create(title="Analytics pipeline: PostgreSQL over MySQL", kind="pattern", domainTags=["backend","analytics"])` → returns an engram ID.
+
+**"What did we say about..." — recall later**
+
+> You: "What database did we pick for analytics?"
+>
+> Agent calls `engram_search(query="analytics database")` → finds the engram and quotes it.
+
+**"Anything new I should know?" — browse recent context**
+
+> You: "List what we captured this week."
+>
+> Agent calls `engram_list(filter={freshness:["fresh"]})` or `engram_list_paths` → shows recent engrams grouped by domain.
+
+**Connecting ideas — the agent finds patterns**
+
+> When two engrams relate, the agent may call `synapse_create` to link them. Later searches traverse these links, so a query about "database choices" also surfaces the "migration strategy" engram that `extends` it.
+
+**Self-maintenance — no manual curation**
+
+> If `CO_ENGRAM_MAINTENANCE=1` is set, the engine periodically:
+> - **Light**: reinforces frequently-used engrams (LTP), depresses stale ones (LTD)
+> - **Deep**: consolidates fragmented engrams, recalculates importance
+> - **REM**: upgrades verification status (`unverified` → `plausible` → `probable`) or marks contradicted engrams as `refuted`
+
+### Access the web viewer
+
+Co-Engram ships a built-in SPA to browse engrams, inspect the synapse graph, check audit logs, and view maintenance health. Enable it with environment variables:
+
+```bash
+# Claude Code (MCP) — add these when wiring
+-e CO_ENGRAM_VIEWER_ENABLED=1
+-e CO_ENGRAM_VIEWER_PORT=18899
+```
+
+For OpenClaw, set `startViewer: true` and `viewerConfig.port` in the plugin manifest (see [docs/host-openclaw.md](./docs/host-openclaw.md)).
+
+Once enabled, open **http://127.0.0.1:18899** in your browser. The viewer shows:
+
+| Tab        | What you see                                                 |
+| ---------- | ------------------------------------------------------------ |
+| **Engrams**  | Filterable table of all memories with tags, importance, status |
+| **Graph**    | Force-directed synapse graph — click a node to open its engram |
+| **Audit**    | Chronological log of every tool call (create/update/delete)   |
+| **Health**   | Maintenance stage reports, verification status distribution   |
+
+### What value does this give me?
+
+| Concern                 | Without Co-Engram                                        | With Co-Engram                                                       |
+| ----------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Reusing decisions**   | Re-litigate the same tradeoffs every sprint              | Agent retrieves the rationale and builds on it                       |
+| **Finding old context** | grep chat logs, hope the right person is online          | `engram_search` returns ranked results in milliseconds               |
+| **Knowledge drift**     | Outdated advice stays in docs until someone notices      | REM stage auto-upgrades or refutes engrams based on usage outcomes   |
+| **Connecting dots**     | Insights stay isolated in separate conversations         | Synapses link related engrams, creating a navigable knowledge graph  |
+| **Team onboarding**     | "Read the wiki" (which is 6 months stale)                | New agents query the team's active, verified memory                  |
+
+For a deeper walkthrough, see [docs/concepts.md](./docs/concepts.md) and [docs/tool-reference.md](./docs/tool-reference.md).
+
 ## Architecture
 
 ```mermaid
