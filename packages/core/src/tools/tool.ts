@@ -72,6 +72,13 @@ export interface ToolContext {
    * OpenClaw 适配器从 plugin config.defaultCreatedBy 读取。
    */
   readonly defaultCreatedBy?: string;
+  /**
+   * 标记仓库脏（记忆内容发生变化）。
+   *
+   * 写操作工具在成功执行后调用此回调。
+   * 宿主在会话结束后据此判断是否需要 git commit。
+   */
+  markDirty?: () => void;
 }
 
 /**

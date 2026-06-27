@@ -56,6 +56,8 @@
  * @module @co-engram/claude-code
  */
 
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createCoEngramMcpServer } from "./register.js";
 import { startViewerServer, type ViewerRuntime } from "@co-engram/viewer";
@@ -75,6 +77,7 @@ import {
   type Language,
 } from "@co-engram/core";
 import type { MaintenanceConfig, ProposalEngineConfig } from "@co-engram/core";
+import { commitFiles } from "@co-engram/core";
 
 /**
  * 解析默认 createdBy 的完整 fallback 链
@@ -293,6 +296,12 @@ async function main(): Promise<void> {
     ...(necessityEvaluator ? { necessityEvaluator } : {}),
   });
 
+  // 会话级 dirty flag:写工具调用后置位,shutdown 时据此判断是否 auto-commit
+  let sessionDirty = false;
+  ctx.markDirty = () => {
+    sessionDirty = true;
+  };
+
   // === 阶段 5:磁盘字段语言格式迁移 ===
   // 若 config.migratedToLanguage 与当前 language 不一致,重写所有 engram/synapse 文件。
   // 写回 config 时用 normalize 保护(避免迁移期间丢失嵌套字段)。
@@ -433,6 +442,25 @@ async function main(): Promise<void> {
     } catch {
       // ignore
     }
+    // auto-commit:会话结束后若记忆有变化,自动 git commit(不 push)
+    if (sessionDirty) {
+      try {
+        const result = commitFiles({
+          repoPath: dataRoot,
+          files: [],
+          message: "co-engram(auto): session changes",
+        });
+        if (result.commitHash) {
+          process.stderr.write(
+            `[co-engram] auto-commit: ${result.commitHash.slice(0, 7)} (${result.filesChanged} files)\n`,
+          );
+        }
+      } catch (err) {
+        process.stderr.write(
+          `[co-engram] auto-commit failed: ${err instanceof Error ? err.message : String(err)}\n`,
+        );
+      }
+    }
     process.exit(0);
   };
   process.on("SIGINT", () => void shutdown("SIGINT"));
@@ -442,7 +470,10 @@ async function main(): Promise<void> {
 // 仅当 mcp-server.js 作为入口时才启动 MCP server。
 // cli.js 会 import 本模块的工具函数(如 getDefaultCreatedByFromEnv),
 // 必须避免在那种情况下副作用启动 server。
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (
+  process.argv[1] &&
+  realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])
+) {
   main().catch((error) => {
     console.error("Co-Engram MCP server failed to start:", error);
     process.exit(1);

@@ -45,6 +45,25 @@ import {
 import { registerMcpPrompts } from "./prompts.js";
 import { registerMcpResources } from "./resources.js";
 
+/** 会变更仓库文件状态的工具名（写操作 → markDirty）。 */
+const WRITE_TOOL_NAMES = new Set([
+  "engram_create",
+  "engram_update",
+  "engram_delete",
+  "engram_forget",
+  "engram_archive",
+  "engram_restore",
+  "engram_reinforce",
+  "engram_report_failure",
+  "engram_upgrade_verification",
+  "synapse_create",
+  "synapse_delete",
+  "contradiction_resolve",
+  "close_learning_loop",
+  "engram_accept_proposal",
+  "engram_recompute_importance",
+]);
+
 /**
  * MCP Server 配置
  */
@@ -317,6 +336,9 @@ export function registerCoEngramTool(
     async (args: Record<string, unknown>) => {
       try {
         const result = await tool.execute(args, ctx);
+        if (WRITE_TOOL_NAMES.has(tool.name)) {
+          ctx.markDirty?.();
+        }
         return {
           content: [
             {
