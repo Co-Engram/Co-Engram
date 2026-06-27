@@ -57,6 +57,7 @@
  */
 
 import { realpathSync } from "node:fs";
+import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createCoEngramMcpServer } from "./register.js";
@@ -302,6 +303,30 @@ async function main(): Promise<void> {
     sessionDirty = true;
   };
 
+  // 启动时 git pull:拉取远端其他主机的变更,merge driver 自动解决冲突
+  try {
+    execSync("git pull --no-edit", {
+      cwd: dataRoot,
+      timeout: 30000,
+      stdio: "pipe",
+    });
+    process.stderr.write(`[co-engram] git pull: synced\n`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // 无远端配置 / 无网络 / 无追踪分支 → 静默,不是错误
+    if (
+      !msg.includes("no tracking information") &&
+      !msg.includes("No such remote") &&
+      !msg.includes("could not read Username") &&
+      !msg.includes("Could not resolve host") &&
+      !msg.includes("Network is unreachable") &&
+      !msg.includes("already up to date")
+    ) {
+      const short = msg.includes("\n") ? msg.split("\n")[0]! : msg;
+      process.stderr.write(`[co-engram] git pull: ${short}\n`);
+    }
+  }
+
   // === 阶段 5:磁盘字段语言格式迁移 ===
   // 若 config.migratedToLanguage 与当前 language 不一致,重写所有 engram/synapse 文件。
   // 写回 config 时用 normalize 保护(避免迁移期间丢失嵌套字段)。
@@ -420,8 +445,6 @@ async function main(): Promise<void> {
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
     shuttingDown = true;
-    const forceExit = setTimeout(() => process.exit(1), 5000);
-    forceExit.unref();
     try {
       await viewerRuntime?.stop();
     } catch {
@@ -442,8 +465,10 @@ async function main(): Promise<void> {
     } catch {
       // ignore
     }
-    // auto-commit:会话结束后若记忆有变化,自动 git commit(不 push)
+    // auto-commit:会话结束后若记忆有变化,自动 git commit + push
     if (sessionDirty) {
+      const forceExit = setTimeout(() => process.exit(0), 60000);
+      forceExit.unref();
       try {
         const result = commitFiles({
           repoPath: dataRoot,
@@ -460,6 +485,15 @@ async function main(): Promise<void> {
           `[co-engram] auto-commit failed: ${err instanceof Error ? err.message : String(err)}\n`,
         );
       }
+      try {
+        execSync("git push", { cwd: dataRoot, timeout: 30000, stdio: "pipe" });
+        process.stderr.write(`[co-engram] auto-push: ok\n`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        const short = msg.includes("\n") ? msg.split("\n")[0]! : msg;
+        process.stderr.write(`[co-engram] auto-push: ${short}\n`);
+      }
+      clearTimeout(forceExit);
     }
     process.exit(0);
   };
