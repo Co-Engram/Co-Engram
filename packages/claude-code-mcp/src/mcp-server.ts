@@ -44,13 +44,13 @@
  * Observability 相关环境变量（全部可选,M1 新增）：
  *   CO_ENGRAM_AUDIT_ENABLED=0                  关闭审计日志（默认开启）
  *   CO_ENGRAM_EFFECTIVENESS_ENABLED=0          关闭有效性追踪（默认开启）
- *   CO_ENGRAM_PROPOSALS_ENABLED=1              启用候选提案机制（默认关闭）
+ *   CO_ENGRAM_PROPOSALS_ENABLED=1              启用候选提案机制（默认开启）
  *   CO_ENGRAM_PROPOSALS_THRESHOLD=N            触发阈值（默认 3）
  *   CO_ENGRAM_PROPOSALS_SIMILARITY=0.X         余弦相似度阈值（默认 0.75）
  *
  * Viewer 相关环境变量（M2 新增）：
  *   CO_ENGRAM_VIEWER_ENABLED=0                 关闭 web viewer（默认跟随 proposal engine）
- *   CO_ENGRAM_VIEWER_PORT=N                    端口（默认 18799）
+ *   CO_ENGRAM_VIEWER_PORT=N                    端口(覆盖默认;Claude Code 默认 18799,OpenClaw 默认 18899)
  *   CO_ENGRAM_VIEWER_TOKEN=secret              可选 bearer token
  *
  * @module @co-engram/claude-code
@@ -74,6 +74,7 @@ import {
   loadAndSelfHealConfig,
   normalizeConfig,
   detectGitAuthor,
+  resolveBootstrapDataRoot,
   DEFAULT_LANGUAGE,
   type Language,
 } from "@co-engram/core";
@@ -149,26 +150,21 @@ export function buildLocalizedProposalPrompt(
 }
 
 async function main(): Promise<void> {
-  // === 阶段 1:bootstrap dataRoot 解析 ===
-  // 单一入口:env CO_ENGRAM_DATA_ROOT(无法自举,因为 config.json 自己在 dataRoot 里)
-  // fallback 到 $HOME/team-memory。
-  const envDataRoot = process.env.CO_ENGRAM_DATA_ROOT;
-  const bootstrapDataRoot =
-    envDataRoot ?? `${process.env.HOME ?? "/tmp"}/team-memory`;
-
-  // === 阶段 2:redirect hint(可选) ===
-  // 读 bootstrap config 的 desiredDataRoot 字段(viewer 写入的"下次启动 dataRoot redirect"),
-  // 仅作为 redirect hint。其他所有配置字段以 redirect 后的 dataRoot 内 config.json 为准。
-  const bootstrapConfig = await readTeamMemoryConfig(bootstrapDataRoot);
-  const desiredDataRoot = bootstrapConfig?.desiredDataRoot?.trim();
-  const dataRoot = desiredDataRoot || bootstrapDataRoot;
-  if (desiredDataRoot && desiredDataRoot !== bootstrapDataRoot) {
+  // === 阶段 1:bootstrap dataRoot 解析(单一权威入口) ===
+  // 从 ~/.co-engram/config.json 读取 dataRoot;文件不存在/损坏时 fallback 到默认。
+  // 不再支持 env CO_ENGRAM_DATA_ROOT / desiredDataRoot redirect(已废弃,统一由
+  // `co-engram config data-root <path>` CLI 命令修改)。
+  if (process.env.CO_ENGRAM_DATA_ROOT) {
     process.stderr.write(
-      `[co-engram] using desiredDataRoot from config: ${desiredDataRoot} (was ${bootstrapDataRoot})\n`,
+      `[co-engram] NOTE: env CO_ENGRAM_DATA_ROOT is deprecated and ignored. Use 'co-engram config data-root <path>' to change dataRoot.\n`,
     );
   }
+  const { dataRoot, warnings } = await resolveBootstrapDataRoot();
+  for (const w of warnings) {
+    process.stderr.write(`[co-engram] ${w}\n`);
+  }
 
-  // === 阶段 3:加载权威 config(自愈 + 迁移) ===
+  // === 阶段 2:加载权威 config(自愈 + 迁移) ===
   // 这之后完全以 persistedConfig 为权威,不再读 env(除 DATA_ROOT/VIEWER_TOKEN/DEFAULT_CREATED_BY)。
   const {
     config: persistedConfig,
@@ -189,13 +185,13 @@ async function main(): Promise<void> {
     );
   }
 
-  // === 阶段 4:从 config 解析运行时参数 ===
+  // === 阶段 3:从 config 解析运行时参数 ===
   // language 仍允许 env 覆盖(向后兼容 CO_ENGRAM_LANGUAGE),其他全部以 config 为准。
   const language = resolveLanguage(
     getLanguageFromEnvInternal(),
     persistedConfig,
   );
-  const maintenanceEnabled = persistedConfig.maintenance?.enabled ?? false;
+  const maintenanceEnabled = persistedConfig.maintenance?.enabled ?? true;
   const maintenanceConfig = maintenanceEnabled
     ? {
         ...(persistedConfig.maintenance?.enabledStages
@@ -221,7 +217,7 @@ async function main(): Promise<void> {
   // low-friction-defaults:默认 enabled=true,但尊重用户显式 false,只 stderr 提示一次
   if (maintenanceEnabled === false) {
     process.stderr.write(
-      `[co-engram] NOTE: maintenance disabled by config (default changed to enabled; edit config.json to re-enable)\n`,
+      `[co-engram] NOTE: maintenance disabled by config.json (default is enabled)\n`,
     );
   }
   if (
@@ -327,7 +323,7 @@ async function main(): Promise<void> {
     }
   }
 
-  // === 阶段 5:磁盘字段语言格式迁移 ===
+  // === 阶段 4:磁盘字段语言格式迁移 ===
   // 若 config.migratedToLanguage 与当前 language 不一致,重写所有 engram/synapse 文件。
   // 写回 config 时用 normalize 保护(避免迁移期间丢失嵌套字段)。
   if (persistedConfig.migratedToLanguage !== language) {
@@ -389,14 +385,14 @@ async function main(): Promise<void> {
   // 默认行为:跟随 proposal engine(proposal 开 → viewer 也开,因为 observe hook 需要 HTTP 通路)。
   // config.viewer?.enabled 可显式覆盖(true 强制开 / false 强制关)。
   // VIEWER_TOKEN 仍由 env 提供(敏感信息不进 config.json)。
+  // 端口:不再读 persistedConfig.viewer.port(已废弃,避免两宿主共享 persisted config 时冲突)。
+  // 由 viewer 内部按 hostType 决定默认(Claude Code=18799),或 env CO_ENGRAM_VIEWER_PORT 覆盖。
   const viewerEnabled = persistedConfig.viewer?.enabled ?? proposalEnabled;
-  const viewerPort = persistedConfig.viewer?.port;
   let viewerRuntime: ViewerRuntime | undefined;
   if (viewerEnabled) {
     try {
       viewerRuntime = await startViewerServer(ctx, {
         language,
-        ...(viewerPort ? { port: viewerPort } : {}),
         ...(getViewerTokenInternal()
           ? { token: getViewerTokenInternal() }
           : {}),

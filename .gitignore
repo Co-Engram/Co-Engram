@@ -39,6 +39,9 @@ team-memory/
 # Claude Code session artifacts
 .claude/
 
+# Codegraph local index
+.codegraph/
+
 # Example build outputs
 examples/*/dist/
 examples/*/node_modules/

@@ -52,15 +52,23 @@ import {
   writeTeamMemoryConfig,
   loadAndSelfHealConfig,
   normalizeConfig,
-  setDesiredDataRoot,
   computeMergeStats,
   detectAnomalies,
+  applyDataRootChange,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 
 /** Viewer 配置 */
 export interface ViewerServerConfig {
-  /** 端口(默认 18799) */
+  /**
+   * 端口(可选)
+   *
+   * 优先级:env `CO_ENGRAM_VIEWER_PORT` > `config.port` > host-specific 默认
+   * (Claude Code=18799,OpenClaw=18899)。
+   *
+   * @deprecated persisted `viewer.port` 已废弃(两宿主共享 persisted config 会冲突)。
+   * 显式传入仍有效,但建议用 env `CO_ENGRAM_VIEWER_PORT` 覆盖。
+   */
   readonly port?: number;
   /** 绑定 host(强制 127.0.0.1,不开放外网) */
   readonly host?: "127.0.0.1";
@@ -72,7 +80,6 @@ export interface ViewerServerConfig {
   readonly language?: Language;
   /**
    * team-memory 数据根目录。用于 GET/PUT /api/config 读写持久化配置。
-   * 若未传,尝试从 env CO_ENGRAM_DATA_ROOT 读取。
    */
   readonly dataRoot?: string;
   /**
@@ -94,11 +101,17 @@ export interface ViewerRuntime {
   readonly stop: () => Promise<void>;
 }
 
-const DEFAULT_PORT = 18799;
+const DEFAULT_PORT_CLAUDE_CODE = 18799;
+const DEFAULT_PORT_OPENCLAW = 18899;
 const DEFAULT_MAX_RETRIES = 5;
 
 /**
  * 启动 Viewer HTTP server
+ *
+ * 端口解析优先级:
+ *   1. env `CO_ENGRAM_VIEWER_PORT`(覆盖两宿主,高级用户/测试用)
+ *   2. `config.port`(显式传入)
+ *   3. host-specific 默认:Claude Code=18799,OpenClaw=18899
  *
  * 不抛——端口冲突时自动重试 maxRetries 次。
  */
@@ -106,12 +119,27 @@ export function startViewerServer(
   ctx: ToolContext,
   config: ViewerServerConfig = {},
 ): Promise<ViewerRuntime> {
-  const startPort = config.port ?? DEFAULT_PORT;
+  const hostType = config.hostType ?? detectHostType();
+  const defaultPort =
+    hostType === "openclaw-plugin"
+      ? DEFAULT_PORT_OPENCLAW
+      : DEFAULT_PORT_CLAUDE_CODE;
+  const envPortRaw = process.env.CO_ENGRAM_VIEWER_PORT;
+  const envPort = envPortRaw
+    ? Number.parseInt(envPortRaw, 10)
+    : undefined;
+  const envPortValid =
+    typeof envPort === "number" &&
+    Number.isFinite(envPort) &&
+    envPort > 0 &&
+    envPort < 65536;
+  const startPort = (envPortValid ? envPort : undefined) ??
+    config.port ??
+    defaultPort;
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const token = config.token;
   const language = config.language ?? DEFAULT_LANGUAGE;
-  const dataRoot = config.dataRoot ?? process.env.CO_ENGRAM_DATA_ROOT;
-  const hostType = config.hostType ?? detectHostType();
+  const dataRoot = config.dataRoot;
 
   return tryListen(
     ctx,
@@ -711,20 +739,13 @@ async function routeApi(
       respondJson(res, 200, {
         enabled: !!dataRoot,
         dataRoot: dataRoot || null,
+        // dataRoot 现可在 UI 编辑(写 ~/.co-engram/config.json bootstrap);
+        // UI 不支持 --force,拒绝非空非 co-engram 目录(走 CLI)
+        dataRootReadOnly: false,
         // hostType:当前 viewer 的宿主模式,UI 文字按此适配
-        //   'mcp-server' → 重启提示指 "MCP server",父进程是 Claude Code
-        //   'openclaw-plugin' → 重启提示指 "openclaw gateway",不支持自动重启
+        //   'mcp-server' → 重启提示指 "Claude Code",支持自动重启
+        //   'openclaw-plugin' → 重启提示指 "OpenClaw",需手动 `openclaw gateway restart`
         hostType,
-        // envSet:env CO_ENGRAM_DATA_ROOT 是否设置(仅信息性)
-        // envDataRoot:env 设置时的具体路径(用于 UI 提示,未设置时为 null)
-        // envDataRootOverride:env 设置 AND env 路径就是当前实际 dataRoot
-        //   (即 desiredDataRoot 没有覆盖 env)。true 表示用户在 viewer 改 desiredDataRoot
-        //   不会有任何效果——env 路径下没有 desiredDataRoot 覆盖,需提示用户。
-        envSet: !!process.env.CO_ENGRAM_DATA_ROOT,
-        envDataRoot: process.env.CO_ENGRAM_DATA_ROOT || null,
-        envDataRootOverride:
-          !!process.env.CO_ENGRAM_DATA_ROOT &&
-          process.env.CO_ENGRAM_DATA_ROOT === dataRoot,
         persisted: persisted ?? null,
         runtime: {
           auditEnabled: !!ctx.auditLog,
@@ -744,13 +765,42 @@ async function routeApi(
       return;
     }
     if (req.method === "PUT" || req.method === "POST") {
+      const body = (await readJsonBodyAs<Record<string, unknown>>(req)) ?? {};
+
+      // dataRoot 编辑:写 ~/.co-engram/config.json bootstrap config(单一权威源)
+      // 共享 applyDataRootChange 验证 + 初始化逻辑(与 CLI 同源)
+      // UI 不支持 --force:拒绝非空非 co-engram 目录,提示用户走 CLI
+      if (typeof body.dataRoot === "string" && body.dataRoot.trim()) {
+        const result = await applyDataRootChange(body.dataRoot, {
+          force: false,
+        });
+        if (!result.ok) {
+          respondJson(res, 400, {
+            ok: false,
+            error: result.error,
+            reason: result.reason,
+          });
+          return;
+        }
+        respondJson(res, 200, {
+          ok: true,
+          restartRequired: true,
+          dataRoot: result.dataRoot,
+          initialized: result.initialized,
+          message:
+            hostType === "openclaw-plugin"
+              ? "Data root updated. Run 'openclaw gateway restart' to apply."
+              : "Data root updated. Restart Claude Code (MCP server) to apply.",
+        });
+        return;
+      }
+
       if (!dataRoot) {
         respondJson(res, 503, {
           error: "Config persistence not available (dataRoot unknown)",
         });
         return;
       }
-      const body = (await readJsonBodyAs<Record<string, unknown>>(req)) ?? {};
       // 用 loadAndSelfHealConfig 取代手动 fallback,保证返回的字段齐全(已嵌套化)。
       // 写回时通过 normalizeConfig 保护,避免丢失嵌套字段。
       const { config: existing } = await loadAndSelfHealConfig(dataRoot);
@@ -795,48 +845,14 @@ async function routeApi(
         };
       }
 
-      // 数据根目录期望值(下次启动生效)。允许空字符串清空(回退到默认)。
-      let newDesiredDataRoot: string | undefined | null = null; // null = 不修改
-      if (
-        body.desiredDataRoot !== undefined &&
-        typeof body.desiredDataRoot === "string"
-      ) {
-        const trimmed = body.desiredDataRoot.trim();
-        newDesiredDataRoot = trimmed || undefined;
-        if (trimmed) {
-          next.desiredDataRoot = trimmed;
-        } else {
-          delete next.desiredDataRoot;
-        }
-      }
       next.updatedAt = new Date().toISOString();
       const normalized = normalizeConfig(
         next as Parameters<typeof normalizeConfig>[0],
       );
       await writeTeamMemoryConfig(dataRoot, normalized);
-      // 跨重启一致性:bootstrap 路径的 config.json 只承担"redirect hint"角色。
-      // 新语义下不再双写整份 config;仅当 desiredDataRoot 变更时,同步此单字段到 bootstrap。
-      // 这样 bootstrap config 保持最小化(不污染),其他字段以 runtime dataRoot 为权威。
-      const bootstrapDataRoot =
-        process.env.CO_ENGRAM_DATA_ROOT ??
-        `${process.env.HOME ?? "/tmp"}/team-memory`;
-      const bootstrapSyncWarning: string | undefined = undefined;
-      if (newDesiredDataRoot !== null && bootstrapDataRoot !== dataRoot) {
-        try {
-          await setDesiredDataRoot(bootstrapDataRoot, newDesiredDataRoot);
-        } catch {
-          respondJson(res, 200, {
-            ok: true,
-            persisted: normalized,
-            warning: `Config written to runtime (${dataRoot}) but failed to sync desiredDataRoot to bootstrap (${bootstrapDataRoot}). Next startup may not pick up the new dataRoot.`,
-          });
-          return;
-        }
-      }
       respondJson(res, 200, {
         ok: true,
         persisted: normalized,
-        ...(bootstrapSyncWarning ? { warning: bootstrapSyncWarning } : {}),
       });
       return;
     }

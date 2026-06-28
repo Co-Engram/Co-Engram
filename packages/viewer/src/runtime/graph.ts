@@ -18,13 +18,14 @@ CO_ENGRAM.on('graph', async function renderGraph() {
     await renderGraphInner(container);
   } catch (e) {
     console.error('[co-engram] graph render failed:', e);
-    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>渲染失败:' + CO_ENGRAM.escapeHtml(String(e && e.message || e)) + '</div>';
+    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>' + CO_ENGRAM_T.t('viewer.graph.renderFailed', { err: String((e && e.message) || e) }) + '</div>';
   }
 });
 
 async function renderGraphInner(container) {
+  const T = CO_ENGRAM_T;
   if (typeof vis === 'undefined' || !vis.Network) {
-    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>vis-network 加载失败</div>';
+    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>' + T.t('viewer.graph.visLoadFailed') + '</div>';
     return;
   }
   if (CO_ENGRAM._graphState && CO_ENGRAM._graphState.initialized) {
@@ -37,17 +38,14 @@ async function renderGraphInner(container) {
   try {
     graph = await CO_ENGRAM.apiGet('/api/graph');
   } catch (e) {
-    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>加载失败:' + CO_ENGRAM.escapeHtml(e.message) + '</div>';
+    container.innerHTML = '<div class="empty"><div class="icon">⚠️</div>' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>';
     return;
   }
 
   if (!graph.nodes || graph.nodes.length === 0) {
-    container.innerHTML = '<div class="empty"><div class="icon">🕳️</div>暂无记忆印迹</div>';
+    container.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + T.t('viewer.graph.empty') + '</div>';
     return;
   }
-
-  const L = CO_ENGRAM_LABELS;
-  const FAMILY_LABEL = { structural: '结构', causal: '因果', evidential: '证据', temporal: '时间', modulatory: '调节' };
 
   // === 状态:filter ===
   // showKinds: engram 类型(节点过滤);showSynapseKinds: synapse 类型(边过滤,与编辑器一致)
@@ -66,9 +64,9 @@ async function renderGraphInner(container) {
       .map(n => {
         const importance = (n.importance != null ? n.importance : 0.5);
         const size = 10 + importance * 18;
-        const kindLabel = L.kind[n.kind] || n.kind;
+        const kindLabel = T.enumLabel('kind', n.kind) || n.kind;
         const kindTip = (CO_ENGRAM.TOOLTIPS && CO_ENGRAM.TOOLTIPS.kind && CO_ENGRAM.TOOLTIPS.kind[n.kind]) || '';
-        const tipText = n.title + '\\n[' + kindLabel + ' / ' + n.kind + ']\\n标签:' + (n.domainTags || []).join(', ') + (kindTip ? '\\n\\n' + kindTip : '');
+        const tipText = n.title + '\\n[' + kindLabel + ' / ' + n.kind + ']\\n' + T.t('viewer.graph.tagsLabel') + (n.domainTags || []).join(', ') + (kindTip ? '\\n\\n' + kindTip : '');
         return {
           id: n.id,
           label: n.title.length > 32 ? n.title.slice(0, 30) + '…' : n.title,
@@ -96,12 +94,12 @@ async function renderGraphInner(container) {
 
       const isContra = e.kind === 'contradicts';
       const color = CO_ENGRAM.edgeColor(e.kind);
-      const kindLabel = L.synapse[e.kind] || e.kind;
+      const kindLabel = T.enumLabel('synapseKind', e.kind) || e.kind;
       const family = CO_ENGRAM.synapseFamily(e.kind);
-      const familyLabel = FAMILY_LABEL[family] || family;
+      const familyLabel = T.enumLabel('family', family) || family;
       const synTip = (CO_ENGRAM.TOOLTIPS && CO_ENGRAM.TOOLTIPS.synapse && CO_ENGRAM.TOOLTIPS.synapse[e.kind]) || '';
-      const resLabel = e.resolutionStatus ? ' · 裁决:' + (L.resolution[e.resolutionStatus] || e.resolutionStatus) : '';
-      const tipText = kindLabel + ' (' + e.kind + ') · ' + familyLabel + '族\\n权重 ' + (e.weight != null ? e.weight.toFixed(2) : '?') + ' · 证据 ' + (e.evidenceCount || 0) + resLabel + '\\n方向:' + (e.direction || 'directional') + (synTip ? '\\n\\n' + synTip : '') + '\\n\\n[点击编辑此突触]';
+      const resLabel = e.resolutionStatus ? ' · ' + T.t('viewer.graph.resolutionLabel') + (T.enumLabel('resolution', e.resolutionStatus) || e.resolutionStatus) : '';
+      const tipText = kindLabel + ' (' + e.kind + ') · ' + familyLabel + T.t('viewer.graph.familySuffix') + '\\n' + T.t('viewer.graph.weightLabel') + ' ' + (e.weight != null ? e.weight.toFixed(2) : '?') + ' · ' + T.t('viewer.graph.evidenceLabel') + ' ' + (e.evidenceCount || 0) + resLabel + '\\n' + T.t('viewer.graph.directionLabel') + (e.direction || 'directional') + (synTip ? '\\n\\n' + synTip : '') + '\\n\\n[' + T.t('viewer.graph.clickToEdit') + ']';
       out.push({
         id: e.id,
         from: e.from,
@@ -192,11 +190,12 @@ async function renderGraphInner(container) {
   }
 
   async function showNodeDetail(id) {
+    const T = CO_ENGRAM_T;
     let detail;
     try {
       detail = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id));
     } catch (e) {
-      CO_ENGRAM.openDrawer('<h2>' + CO_ENGRAM.escapeHtml(id) + '</h2><div class="empty">加载失败:' + CO_ENGRAM.escapeHtml(e.message) + '</div>');
+      CO_ENGRAM.openDrawer('<h2>' + CO_ENGRAM.escapeHtml(id) + '</h2><div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>');
       return;
     }
 
@@ -211,16 +210,16 @@ async function renderGraphInner(container) {
         const fam = CO_ENGRAM.synapseFamily(e.kind);
         (grouped[fam] = grouped[fam] || []).push(e);
       }
-      let html = '<h3>' + label + ' (' + list.length + ')</h3>';
+      let html = '<h3>' + CO_ENGRAM.escapeHtml(label) + ' (' + list.length + ')</h3>';
       for (const fam of Object.keys(grouped)) {
-        html += '<div class="field"><span class="chip dot" style="color:' + CO_ENGRAM.familyColor(fam) + '">' + (FAMILY_LABEL[fam] || fam) + '</span></div>';
+        html += '<div class="field"><span class="chip dot" style="color:' + CO_ENGRAM.familyColor(fam) + '">' + (T.enumLabel('family', fam) || fam) + '</span></div>';
         for (const e of grouped[fam]) {
           const other = e.from === id ? e.to : e.from;
-          const kindLabel = L.synapse[e.kind] || e.kind;
+          const kindLabel = T.enumLabel('synapseKind', e.kind) || e.kind;
           html += '<div class="field" style="padding-left:0.5rem">'
             + '<span class="chip synapse-link" data-synapse-id="' + CO_ENGRAM.escapeHtml(e.id) + '" style="background:' + CO_ENGRAM.edgeColor(e.kind) + '22;color:' + CO_ENGRAM.edgeColor(e.kind) + ';cursor:pointer">' + kindLabel + '</span> '
             + '<span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(other) + '">' + CO_ENGRAM.escapeHtml(other) + '</span>'
-            + (e.resolutionStatus ? ' <span class="chip" style="background:rgba(239,68,68,.15);color:#ef4444">' + (L.resolution[e.resolutionStatus] || e.resolutionStatus) + '</span>' : '')
+            + (e.resolutionStatus ? ' <span class="chip" style="background:rgba(239,68,68,.15);color:#ef4444">' + (T.enumLabel('resolution', e.resolutionStatus) || e.resolutionStatus) + '</span>' : '')
             + '</div>';
         }
       }
@@ -228,25 +227,25 @@ async function renderGraphInner(container) {
     };
 
     const body = [
-      '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">节点详情</strong>'
-      + '<button class="btn" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(()=>CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(detail.id) + '\\'),50)">在记忆印迹中编辑</button>'
+      '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + T.t('viewer.graph.nodeDetailTitle') + '</strong>'
+      + '<button class="btn" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(()=>CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(detail.id) + '\\'),50)">' + T.t('viewer.graph.editInEngrams') + '</button>'
       + '</div>',
       '<h2>' + CO_ENGRAM.escapeHtml(detail.title || detail.id) + '</h2>',
-      '<div class="field"><span class="chip kind-' + detail.kind + '">' + (L.kind[detail.kind] || detail.kind) + '</span> '
-      + CO_ENGRAM.importanceBar(detail.importance) + ' <span class="kpi-sub">重要性 ' + (detail.importance || 0).toFixed(2) + '</span></div>',
-      '<div class="field"><span class="field-label">ID:</span><code>' + CO_ENGRAM.escapeHtml(detail.id) + '</code></div>',
+      '<div class="field"><span class="chip kind-' + detail.kind + '">' + (T.enumLabel('kind', detail.kind) || detail.kind) + '</span> '
+      + CO_ENGRAM.importanceBar(detail.importance) + ' <span class="kpi-sub">' + T.t('viewer.graph.importanceShort') + ' ' + (detail.importance || 0).toFixed(2) + '</span></div>',
+      '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + CO_ENGRAM.escapeHtml(detail.id) + '</code></div>',
       (detail.domainTags && detail.domainTags.length
-        ? '<div class="field"><span class="field-label">领域标签:</span>' + detail.domainTags.map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ') + '</div>'
+        ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + ':</span>' + detail.domainTags.map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ') + '</div>'
         : ''),
-      (detail.summary ? '<h3>摘要</h3><div class="field">' + CO_ENGRAM.escapeHtml(detail.summary) + '</div>' : ''),
-      '<h3>统计</h3>',
-      '<div class="field"><span class="field-label">检索:</span>' + (detail.retrievalCount || 0)
-      + ' <span class="field-label">有效:</span>' + (detail.effectiveRetrievals || 0)
-      + ' <span class="field-label">失败:</span>' + (detail.failedUses || 0) + '</div>',
-      '<div class="field"><span class="field-label">创建者:</span>' + CO_ENGRAM.escapeHtml(detail.createdBy || '')
-      + ' <span class="field-label">时间:</span>' + CO_ENGRAM.escapeHtml(detail.createdAt || '') + '</div>',
-      familyGroup(outgoing, '发出突触'),
-      familyGroup(incoming, '接收突触')
+      (detail.summary ? '<h3>' + T.t('viewer.graph.summaryTitle') + '</h3><div class="field">' + CO_ENGRAM.escapeHtml(detail.summary) + '</div>' : ''),
+      '<h3>' + T.t('viewer.graph.statsTitle') + '</h3>',
+      '<div class="field"><span class="field-label">' + T.t('viewer.graph.retrievalLabel') + '</span>' + (detail.retrievalCount || 0)
+      + ' <span class="field-label">' + T.t('viewer.graph.effectiveLabel') + '</span>' + (detail.effectiveRetrievals || 0)
+      + ' <span class="field-label">' + T.t('viewer.graph.failedLabel') + '</span>' + (detail.failedUses || 0) + '</div>',
+      '<div class="field"><span class="field-label">' + T.t('viewer.synapses.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(detail.createdBy || '')
+      + ' <span class="field-label">' + T.t('viewer.synapses.timeField') + '</span>' + CO_ENGRAM.escapeHtml(detail.createdAt || '') + '</div>',
+      familyGroup(outgoing, T.t('viewer.graph.outgoingSynapses')),
+      familyGroup(incoming, T.t('viewer.graph.incomingSynapses'))
     ].join('\\n');
     CO_ENGRAM.openDrawer(body);
 

@@ -23,8 +23,7 @@
  * @module @co-engram/openclaw
  */
 
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
 import {
   EngramRepository,
   SearchOrchestrator,
@@ -44,6 +43,7 @@ import {
   readPromptSignals,
   detectGitAuthor,
   collectDigestLines,
+  resolveBootstrapDataRootSync,
   DEFAULT_LANGUAGE,
   type ToolContext,
   type SignalSink,
@@ -81,9 +81,19 @@ import {
 export function createCoEngramContext(
   config: CoEngramPluginConfig = {},
 ): ToolContext {
+  // dataRoot 解析优先级:
+  //   1. config.dataRoot 显式传入(测试 / 程序化注入用,正常运行不会走这里)
+  //   2. bootstrap resolver 读 ~/.co-engram/config.json(单一权威入口,由 CLI 管理)
+  // 不再支持 desiredDataRoot redirect(已废弃)。
+  const { dataRoot: resolvedDataRoot, warnings } =
+    resolveBootstrapDataRootSync();
+  for (const w of warnings) {
+    process.stderr.write(`[co-engram] ${w}\n`);
+  }
+
   // 当用户未在 plugin config 显式配置 defaultCreatedBy 时,尝试从本机 git 身份探测,
-  // 让默认作者绑定到当前 git 用户而非硬编码 'openclaw'。
-  // 解析链:plugin config.defaultCreatedBy(用户显式)> git user.name/email > DEFAULT_CONFIG.defaultCreatedBy('openclaw')
+  // 让默认作者绑定到当前 git 用户而非硬编码工具名。
+  // 解析链:plugin config.defaultCreatedBy(用户显式)> git user.name/email > undefined(由 core 工具层兜底 "unknown")
   const userSpecifiedCreatedBy =
     typeof config.defaultCreatedBy === "string"
       ? config.defaultCreatedBy
@@ -92,29 +102,11 @@ export function createCoEngramContext(
   const fullConfig = {
     ...DEFAULT_CONFIG,
     ...config,
+    dataRoot: config.dataRoot ?? resolvedDataRoot,
     ...((userSpecifiedCreatedBy ?? gitAuthor)
       ? { defaultCreatedBy: userSpecifiedCreatedBy ?? gitAuthor }
       : {}),
   };
-
-  // 支持 desiredDataRoot redirect:读取 config.json 中的"下次启动 dataRoot 重定向"字段,
-  // 让 viewer Settings 页面修改的 dataRoot 在重启后生效(MCP server 有相同逻辑)。
-  const configJsonPath = join(fullConfig.dataRoot, ".co-engram", "config.json");
-  if (existsSync(configJsonPath)) {
-    try {
-      const raw = JSON.parse(readFileSync(configJsonPath, "utf8"));
-      const desired = raw?.desiredDataRoot?.trim();
-      if (desired && desired !== fullConfig.dataRoot) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[co-engram] using desiredDataRoot from config: ${desired} (was ${DEFAULT_CONFIG.dataRoot})`,
-        );
-        fullConfig.dataRoot = desired;
-      }
-    } catch {
-      // config.json 解析失败,忽略,继续使用默认 dataRoot
-    }
-  }
 
   if (!existsSync(fullConfig.dataRoot)) {
     mkdirSync(fullConfig.dataRoot, { recursive: true });
@@ -383,9 +375,9 @@ export function registerCoEngramTools(
     });
   }
 
-  // P4 + M1: 可选启动 maintenance runtime（透传 effectivenessTracker + dataRoot）
+  // P4 + M1: 启动 maintenance runtime(默认开启,遵循 low-friction-defaults)
   let stopMaintenance: (() => void) | undefined;
-  if (config.startMaintenance === true && ctx.signalSink) {
+  if (config.startMaintenance !== false && ctx.signalSink) {
     const runtime = startMaintenanceRuntime(
       {
         repository: ctx.repository,
@@ -512,6 +504,9 @@ export function registerCoEngramTools(
     );
   });
 
+  // viewer 启动由调用方(entry.ts)通过 startCoEngramViewer 单独管理,
+  // 避免重复启动。这里不再自动拉起 viewer。
+
   return {
     ...ctx,
     stopMaintenance,
@@ -528,6 +523,11 @@ export function registerCoEngramTools(
  *
  * @returns stop 函数;viewer 未启动时返回 undefined
  */
+let viewerRuntime: {
+  readonly stopViewer?: () => Promise<void>;
+  readonly viewerPort?: number;
+} | null = null;
+
 export async function startCoEngramViewer(
   ctx: ToolContext & { readonly language?: Language },
   config: CoEngramPluginConfig = {},
@@ -536,6 +536,12 @@ export async function startCoEngramViewer(
   readonly viewerPort?: number;
 }> {
   if (config.startViewer !== true) return {};
+  if (viewerRuntime) {
+    process.stderr.write(
+      `[co-engram] Viewer already running on port ${viewerRuntime.viewerPort ?? "?"}, skipping duplicate startup\n`,
+    );
+    return viewerRuntime;
+  }
   try {
     const language = ctx.language ?? config.language ?? DEFAULT_LANGUAGE;
     // P3-fixup: 透传 dataRoot,让 viewer 能读取 persisted config
@@ -547,14 +553,20 @@ export async function startCoEngramViewer(
       ...config.viewerConfig,
       ...(dataRoot ? { dataRoot } : {}),
       language,
+      hostType: "openclaw-plugin",
     });
     process.stderr.write(
       `[co-engram] Viewer listening on http://127.0.0.1:${runtime.port}\n`,
     );
-    return {
-      stopViewer: () => runtime.stop(),
+    const result = {
+      stopViewer: async () => {
+        await runtime.stop();
+        viewerRuntime = null;
+      },
       viewerPort: runtime.port,
     };
+    viewerRuntime = result;
+    return result;
   } catch (err) {
     process.stderr.write(
       `[co-engram] Viewer failed to start: ${err instanceof Error ? err.message : String(err)}\n`,

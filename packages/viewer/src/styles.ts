@@ -1492,6 +1492,99 @@ footer.app-footer {
   color: var(--accent-warm);
   margin-bottom: 1rem;
 }
+.pending-banner {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(139, 92, 246, 0.04));
+  border-left: 3px solid rgba(99, 102, 241, 0.45);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.pending-banner-icon {
+  font-size: 1.05rem;
+  opacity: 0.65;
+}
+
+/* === Section-level banners (config tab 等) === */
+/* 中性信息提示:运行时开关说明、dataRoot 只读说明等 */
+.info-banner {
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.05), rgba(56, 189, 248, 0.04));
+  border-left: 3px solid rgba(56, 189, 248, 0.45);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+.info-banner code,
+.info-banner kbd {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--accent);
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-family: var(--font-mono, monospace);
+}
+
+/* 操作成功:保存成功提示 */
+.success-banner {
+  background: linear-gradient(135deg, rgba(52, 211, 153, 0.08), rgba(94, 234, 212, 0.06));
+  border-left: 3px solid rgba(52, 211, 153, 0.5);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--accent);
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* 柔和警告:真正需要注意的场景(synapse kind 变更、dataRoot 路径无效等) */
+.warn-banner {
+  background: linear-gradient(135deg, rgba(251, 146, 60, 0.08), rgba(251, 191, 36, 0.05));
+  border-left: 3px solid rgba(251, 146, 60, 0.5);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  color: #fbbf24;
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+/* pending-banner 在 config tab 作为"重启生效"提示时的变体 */
+.pending-banner.restart-banner {
+  margin-bottom: 1rem;
+}
+.pending-banner.restart-banner .restart-now-btn {
+  margin-left: auto;
+  font-size: 0.78rem;
+  padding: 0.3rem 0.7rem;
+}
+.pending-banner.restart-banner .restart-unavailable-hint {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* 单个 toggle 的"待重启生效"chip(柔和提示,与 .pending-banner 同色调) */
+.chip.restart-pending {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.72rem;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  vertical-align: middle;
+}
 .edit-actions {
   display: flex;
   gap: 0.5rem;

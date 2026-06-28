@@ -123,98 +123,63 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
       <div class="graph-container">
         <div class="graph-toolbar">
           <div class="toolbar-actions">
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.fit()" title="适应视图:自动缩放并居中,让所有节点都可见">适应视图</button>
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="物理引擎:开启时节点按弹簧/斥力模型自动布局(会消耗 CPU 直到稳定);关闭时冻结当前位置,适合大图稳定后浏览">物理引擎</button>
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.reset()" title="重置过滤:恢复所有类型/族勾选,并重新适应视图">重置过滤</button>
+            <button class="mini" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">${t(language, "viewer.graph.toolbar.fit")}</button>
+            <button class="mini" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">${t(language, "viewer.graph.toolbar.physics")}</button>
+            <button class="mini" onclick="CO_ENGRAM_GRAPH.reset()" title="${t(language, "viewer.graph.toolbar.resetTitle")}">${t(language, "viewer.graph.toolbar.reset")}</button>
           </div>
 
-          <div class="group-title">突触类型 · 按族分类</div>
+          <div class="group-title">${t(language, "viewer.graph.synapseKindsTitle")}</div>
           ${[
             {
               family: "structural",
               familyColor: "#3b82f6",
-              label: "结构族",
-              desc: "描述知识间的组成/扩展关系",
+              label: t(language, "viewer.graph.familyGroupStructural"),
+              desc: t(language, "viewer.graph.familyDesc.structural"),
               kinds: [
-                [
-                  "extends",
-                  "扩展",
-                  "#3b82f6",
-                  "A 在 B 基础上扩展,继承 B 的语义并新增维度",
-                ],
-                ["part_of", "部分", "#60a5fa", "A 是 B 的组成部分(B has-a A)"],
-                [
-                  "similar_to",
-                  "相似",
-                  "#1e40af",
-                  "A 与 B 语义相近,可互换或互援",
-                ],
+                ["extends", t(language, "enum.synapseKind.extends"), "#3b82f6", t(language, "viewer.graph.synapseDesc.extends")],
+                ["part_of", t(language, "enum.synapseKind.part_of"), "#60a5fa", t(language, "viewer.graph.synapseDesc.part_of")],
+                ["similar_to", t(language, "enum.synapseKind.similar_to"), "#1e40af", t(language, "viewer.graph.synapseDesc.similar_to")],
               ],
             },
             {
               family: "causal",
               familyColor: "#f97316",
-              label: "因果族",
-              desc: "描述触发/依赖关系",
+              label: t(language, "viewer.graph.familyGroupCausal"),
+              desc: t(language, "viewer.graph.familyDesc.causal"),
               kinds: [
-                [
-                  "depends_on",
-                  "依赖",
-                  "#f97316",
-                  "A 的成立依赖 B(B 是 A 的前置条件)",
-                ],
-                ["causes", "导致", "#fb923c", "A 触发或产生 B(正向因果)"],
-                [
-                  "follows",
-                  "顺承",
-                  "#c2410c",
-                  "A 在时间/逻辑上跟随 B(无强因果)",
-                ],
+                ["depends_on", t(language, "enum.synapseKind.depends_on"), "#f97316", t(language, "viewer.graph.synapseDesc.depends_on")],
+                ["causes", t(language, "enum.synapseKind.causes"), "#fb923c", t(language, "viewer.graph.synapseDesc.causes")],
+                ["follows", t(language, "enum.synapseKind.follows"), "#c2410c", t(language, "viewer.graph.synapseDesc.follows")],
               ],
             },
             {
               family: "evidential",
               familyColor: "#10b981",
-              label: "证据族",
-              desc: "描述来源/冲突关系",
+              label: t(language, "viewer.graph.familyGroupEvidential"),
+              desc: t(language, "viewer.graph.familyDesc.evidential"),
               kinds: [
-                [
-                  "derives_from",
-                  "派生",
-                  "#10b981",
-                  "A 从 B 推导而来(B 是依据)",
-                ],
-                ["exemplifies", "例证", "#6ee7b7", "A 是 B 的具体实例/样本"],
-                [
-                  "contradicts",
-                  "矛盾",
-                  "#ef4444",
-                  "A 与 B 相互冲突,进入裁决流程",
-                ],
+                ["derives_from", t(language, "enum.synapseKind.derives_from"), "#10b981", t(language, "viewer.graph.synapseDesc.derives_from")],
+                ["exemplifies", t(language, "enum.synapseKind.exemplifies"), "#6ee7b7", t(language, "viewer.graph.synapseDesc.exemplifies")],
+                ["contradicts", t(language, "enum.synapseKind.contradicts"), "#ef4444", t(language, "viewer.graph.synapseDesc.contradicts")],
               ],
             },
             {
               family: "temporal",
               familyColor: "#8b5cf6",
-              label: "时间族",
-              desc: "描述版本/演化关系",
+              label: t(language, "viewer.graph.familyGroupTemporal"),
+              desc: t(language, "viewer.graph.familyDesc.temporal"),
               kinds: [
-                ["supersedes", "取代", "#8b5cf6", "A 取代过时的 B(版本更迭)"],
-                ["consolidates", "整合", "#c4b5fd", "A 合并/精炼了 B 的内容"],
+                ["supersedes", t(language, "enum.synapseKind.supersedes"), "#8b5cf6", t(language, "viewer.graph.synapseDesc.supersedes")],
+                ["consolidates", t(language, "enum.synapseKind.consolidates"), "#c4b5fd", t(language, "viewer.graph.synapseDesc.consolidates")],
               ],
             },
             {
               family: "modulatory",
               familyColor: "#6b7280",
-              label: "调节族",
-              desc: "描述情境上下文关系",
+              label: t(language, "viewer.graph.familyGroupModulatory"),
+              desc: t(language, "viewer.graph.familyDesc.modulatory"),
               kinds: [
-                [
-                  "contextualizes",
-                  "上下文",
-                  "#6b7280",
-                  "A 为 B 提供情境背景(非因果、非证据)",
-                ],
+                ["contextualizes", t(language, "enum.synapseKind.contextualizes"), "#6b7280", t(language, "viewer.graph.synapseDesc.contextualizes")],
               ],
             },
           ]
@@ -235,29 +200,14 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
             )
             .join("")}
 
-          <div class="group-title">记忆印迹类型</div>
+          <div class="group-title">${t(language, "viewer.graph.engramKindsTitle")}</div>
           <div class="group kind-grid">
             ${[
-              ["fact", "事实", "#10b981", "被确认成立、可独立验证的客观陈述"],
-              [
-                "observation",
-                "观察",
-                "#3b82f6",
-                "一次性感知到的事实,可能尚未沉淀为稳定结论",
-              ],
-              [
-                "pattern",
-                "模式",
-                "#8b5cf6",
-                "从多次观察归纳出的规律,可预测未来行为",
-              ],
-              ["procedure", "流程", "#f97316", "步骤序列,执行后可复现某结果"],
-              [
-                "hypothesis",
-                "假设",
-                "#ef4444",
-                "待验证的猜测;在反例出现前可作工作假设",
-              ],
+              ["fact", t(language, "enum.kind.fact"), "#10b981", t(language, "viewer.graph.kindDesc.fact")],
+              ["observation", t(language, "enum.kind.observation"), "#3b82f6", t(language, "viewer.graph.kindDesc.observation")],
+              ["pattern", t(language, "enum.kind.pattern"), "#8b5cf6", t(language, "viewer.graph.kindDesc.pattern")],
+              ["procedure", t(language, "enum.kind.procedure"), "#f97316", t(language, "viewer.graph.kindDesc.procedure")],
+              ["hypothesis", t(language, "enum.kind.hypothesis"), "#ef4444", t(language, "viewer.graph.kindDesc.hypothesis")],
             ]
               .map(
                 ([k, label, color, desc]) =>
@@ -267,7 +217,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
           </div>
         </div>
         <div id="graph-canvas">
-          <div class="loading">加载图谱中...</div>
+          <div class="loading">${t(language, "viewer.loading.graph")}</div>
         </div>
       </div>
     </section>

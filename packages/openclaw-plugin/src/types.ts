@@ -183,9 +183,13 @@ export interface CoEngramPluginHostApi {
 
 /**
  * 插件配置（来自 openclaw.plugin.json 的 configSchema）
+ *
+ * 注意:`dataRoot` 字段已废弃 —— 统一用 `co-engram config data-root <path>` CLI
+ * 命令修改 dataRoot(写入 ~/.co-engram/config.json)。这里保留字段定义是为了
+ * 向后兼容(老代码可能仍传),但 createCoEngramContext 会忽略它并输出 deprecation 警告。
  */
 export interface CoEngramPluginConfig {
-  /** 数据仓库根路径（默认 ~/team-memory） */
+  /** @deprecated 用 'co-engram config data-root <path>' CLI 命令替代 */
   readonly dataRoot?: string;
   /** 是否启用 */
   readonly enabled?: boolean;
@@ -193,7 +197,12 @@ export interface CoEngramPluginConfig {
   readonly defaultCreatedBy?: string;
   /** 工具描述、查看器 UI、提示词所用语言(默认 'en') */
   readonly language?: Language;
-  /** 是否启动自动维护服务（默认 false，需宿主显式开启） */
+  /**
+   * 是否启动自动维护服务
+   *
+   * 默认 true(遵循 low-friction-defaults):light/deep/rem 三阶段自动跑,
+   * 让记忆强化/遗忘/巩固开箱即用。设 false 可关闭。
+   */
   readonly startMaintenance?: boolean;
   /** 维护服务配置（light/deep/rem 间隔、learningRate 等），透传给 MaintenanceEngine */
   readonly maintenanceConfig?: MaintenanceConfig;
@@ -271,26 +280,27 @@ export interface NecessityLlmConfig {
 /**
  * 默认配置
  *
- * - dataRoot / enabled / defaultCreatedBy 有固定默认值（必填）
- * - startMaintenance 显式默认 false
+ * - dataRoot / enabled / startMaintenance 有固定默认值（必填）
+ * - defaultCreatedBy 不设硬编码默认值:留空时由 plugin-entry.ts 走
+ *   `detectGitAuthor() ?? config.defaultCreatedBy ?? env` 回退链,
+ *   避免把工具名('openclaw')当作人类作者写入 engram/synapse。
  * - maintenanceConfig 默认 undefined（交给 MaintenanceEngine 内置默认值）
  * - audit/effectiveness/proposal 默认 true
  */
 export const DEFAULT_CONFIG: Required<
   Pick<
     CoEngramPluginConfig,
-    "dataRoot" | "enabled" | "defaultCreatedBy" | "startMaintenance"
+    "dataRoot" | "enabled" | "startMaintenance"
   >
 > &
-  Pick<CoEngramPluginConfig, "maintenanceConfig"> & {
+  Pick<CoEngramPluginConfig, "maintenanceConfig" | "defaultCreatedBy"> & {
     readonly auditEnabled: boolean;
     readonly effectivenessEnabled: boolean;
     readonly proposalEnabled: boolean;
   } = {
   dataRoot: `${process.env.HOME ?? "/tmp"}/team-memory`,
   enabled: true,
-  defaultCreatedBy: "openclaw",
-  startMaintenance: false,
+  startMaintenance: true,
   auditEnabled: true,
   effectivenessEnabled: true,
   proposalEnabled: true,

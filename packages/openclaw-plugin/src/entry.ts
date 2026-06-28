@@ -25,6 +25,7 @@ import { registerCoEngramTools, startCoEngramViewer } from "./plugin-entry.js";
 import {
   resolveLanguage,
   parseLanguage,
+  resolveBootstrapDataRootSync,
   type TeamMemoryConfig,
   type PromptSignalSnapshot,
 } from "@co-engram/core";
@@ -33,6 +34,10 @@ import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 /**
  * 从 api.pluginConfig（openclaw 配置文件 plugins.entries.co-engram.config）
  * 提取用户配置,转换成 CoEngramPluginConfig。
+ *
+ * 注意:`dataRoot` 已废弃,不再从这里读 —— 统一用 `co-engram config data-root <path>`
+ * CLI 命令修改(写入 ~/.co-engram/config.json)。如果用户仍在 openclaw.json 配置
+ * dataRoot,会在 createCoEngramContext 中输出 deprecation 警告。
  */
 function readUserConfig(
   pluginConfig: Record<string, unknown> | undefined,
@@ -41,6 +46,7 @@ function readUserConfig(
   const parts: CoEngramPluginConfig[] = [];
 
   if (typeof pluginConfig.dataRoot === "string") {
+    // 已废弃:仍接受但 createCoEngramContext 会 warning 并忽略
     parts.push({ dataRoot: pluginConfig.dataRoot });
   }
   if (typeof pluginConfig.enabled === "boolean") {
@@ -140,13 +146,14 @@ function readPromptSignalsSync(
 
 /**
  * 同步解析配置语言
+ *
+ * dataRoot 已不再从 userConfig 读 —— 统一从 bootstrap resolver 解析。
  */
 function resolveConfigLanguageSync(
   userConfig: CoEngramPluginConfig,
 ): CoEngramPluginConfig {
   if (userConfig.language) return userConfig;
-  const dataRoot =
-    userConfig.dataRoot ?? `${process.env.HOME ?? "/tmp"}/team-memory`;
+  const { dataRoot } = resolveBootstrapDataRootSync();
   const persisted = readTeamMemoryConfigSync(dataRoot);
   if (persisted?.language) {
     return { ...userConfig, language: resolveLanguage(undefined, persisted) };
@@ -171,7 +178,8 @@ const entry = {
       dataRoot: {
         type: "string",
         description:
-          "Absolute path to the team-memory repository (default: $HOME/team-memory).",
+          "[DEPRECATED] Use 'co-engram config data-root <path>' CLI command instead. This field is ignored.",
+        deprecated: true,
       },
       defaultCreatedBy: {
         type: "string",
@@ -180,9 +188,9 @@ const entry = {
       language: {
         type: "string",
         enum: ["en", "zh"],
-        default: "en",
+        default: "zh",
         description:
-          "Language for tool descriptions, viewer UI, and system prompts. Falls back to team-memory persisted config if unset.",
+          "Language for tool descriptions, viewer UI, and system prompts (default: zh). Falls back to team-memory persisted config if unset.",
       },
       startMaintenance: {
         type: "boolean",
@@ -252,15 +260,23 @@ const entry = {
       ...baseConfig,
     };
     const userConfig = resolveConfigLanguageSync(mergedConfig);
-    const dataRootForSignals =
-      userConfig.dataRoot ?? `${process.env.HOME ?? "/tmp"}/team-memory`;
-    const promptSignals = readPromptSignalsSync(dataRootForSignals);
+    // dataRoot 已统一从 bootstrap(~/.co-engram/config.json)解析,不再读 userConfig。
+    // 把解析结果透传给 registerCoEngramTools / startCoEngramViewer,让 ctx 与 viewer
+    // 都拿到正确的 dataRoot(否则 viewer 的 /api/config 会返回 null,持久化配置读不到)。
+    const { dataRoot: bootstrapDataRoot, warnings: bootstrapWarnings } =
+      resolveBootstrapDataRootSync();
+    for (const w of bootstrapWarnings) {
+      process.stderr.write(`[co-engram] ${w}\n`);
+    }
+    const promptSignals = readPromptSignalsSync(bootstrapDataRoot);
+    const resolvedDataRoot = userConfig.dataRoot ?? bootstrapDataRoot;
     const ctx = registerCoEngramTools(api, {
       ...userConfig,
+      dataRoot: resolvedDataRoot,
       ...(promptSignals ? { promptSignals } : {}),
     });
     if (userConfig.startViewer === true) {
-      void startCoEngramViewer(ctx, userConfig);
+      void startCoEngramViewer(ctx, { ...userConfig, dataRoot: resolvedDataRoot });
     }
   },
 };

@@ -228,4 +228,63 @@ describe("i18n / dictionary completeness", () => {
       expect(v, `zh.${k} should not be empty`).toBeTruthy();
     }
   });
+
+  it("所有 value 都是 string 类型", () => {
+    for (const [k, v] of Object.entries(en)) {
+      expect(typeof v, `en.${k} must be string`).toBe("string");
+    }
+    for (const [k, v] of Object.entries(zh)) {
+      expect(typeof v, `zh.${k} must be string`).toBe("string");
+    }
+  });
+});
+
+describe("i18n / zh.ts 源码防回归 (Finding 141)", () => {
+  it("zh.ts 源码无未转义双引号导致 tsc 编译失败", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const zhSrc = readFileSync(
+      join(__dirname, "../src/i18n/zh.ts"),
+      "utf8",
+    );
+    const lines = zhSrc.split("\n");
+    const offenders: string[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('"')) continue;
+      const colonIdx = trimmed.indexOf('":');
+      if (colonIdx < 0) continue;
+      const valueStart = trimmed.slice(colonIdx + 2).trimStart();
+      if (!valueStart.startsWith('"')) continue;
+      const valueBody = valueStart.slice(1);
+      const closingIdx = valueBody.indexOf('"');
+      if (closingIdx < 0) continue;
+      const inner = valueBody.slice(0, closingIdx);
+      const hasUnescapedDoubleQuote = /(?<!\\)"/.test(inner);
+      if (hasUnescapedDoubleQuote) {
+        offenders.push(`L${i + 1}: ${trimmed.slice(0, 80)}`);
+      }
+    }
+    expect(
+      offenders,
+      `zh.ts 有未转义双引号,会导致 dist/i18n/zh.js 语法错误:\n${offenders.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("dist/i18n/zh.js ESM 加载不抛 SyntaxError", async () => {
+    const { pathToFileURL } = await import("node:url");
+    const { join } = await import("node:path");
+    const distPath = join(__dirname, "../dist/i18n/zh.js");
+    let mod: unknown;
+    try {
+      mod = await import(pathToFileURL(distPath).href);
+    } catch (e) {
+      throw new Error(
+        `dist/i18n/zh.js 加载失败 (Finding 141 回归): ${(e as Error).message}`,
+      );
+    }
+    expect(mod).toBeTruthy();
+    expect(typeof (mod as Record<string, unknown>).zh).toBe("object");
+  });
 });

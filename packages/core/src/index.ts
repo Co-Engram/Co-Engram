@@ -35,4 +35,5 @@ export * from "./tools/index.js";
 export * from "./i18n/index.js";
 export * from "./config/index.js";
 export * from "./host/index.js";
+export * from "./bootstrap/index.js";
 export * from "./merge/index.js";

@@ -1067,92 +1067,10 @@ describe("Token 认证", () => {
 });
 
 // ============================================================
-// PUT /api/config — desiredDataRoot 跨重启持久化
+// PUT /api/config — desiredDataRoot 字段已移除(改由 CLI co-engram config data-root 管理)
+// 旧的 desiredDataRoot 同步测试随之移除。dataRoot 改为只读字段,
+// 由 ~/.co-engram/config.json 引导配置 + co-engram config data-root CLI 命令管理。
 // ============================================================
-
-describe("PUT /api/config desiredDataRoot 跨重启持久化", () => {
-  const prevEnv = process.env.CO_ENGRAM_DATA_ROOT;
-  const prevHome = process.env.HOME;
-
-  afterEach(() => {
-    if (prevEnv === undefined) delete process.env.CO_ENGRAM_DATA_ROOT;
-    else process.env.CO_ENGRAM_DATA_ROOT = prevEnv;
-    if (prevHome !== undefined) process.env.HOME = prevHome;
-  });
-
-  it("runtime dataRoot == bootstrap(env)时,写入单路径即可", async () => {
-    const bootstrapDir = mkdtempSync(
-      join(tmpdir(), "co-engram-cfg-bootstrap-"),
-    );
-    process.env.CO_ENGRAM_DATA_ROOT = bootstrapDir;
-    const ctx = makeCtx(tmpDir);
-
-    await withViewer(ctx, { dataRoot: bootstrapDir }, async (port) => {
-      const res = await makeRequest(port, "/api/config", {
-        method: "PUT",
-        body: { desiredDataRoot: "/tmp/new-path-A" },
-      });
-      expect(res.status).toBe(200);
-
-      const persisted = await readConfig(bootstrapDir);
-      expect(persisted?.desiredDataRoot).toBe("/tmp/new-path-A");
-    });
-  });
-
-  it("runtime dataRoot ≠ bootstrap(env)时,必须同步写入 bootstrap 路径,否则下次启动读不到", async () => {
-    // 复现用户场景:
-    //   1. env=/tmp/A,启动 → runtime dataRoot=/tmp/A
-    //   2. 用户设 desiredDataRoot=/tmp/B → 写入 /tmp/A/.co-engram/config.json
-    //   3. 重启 → 读 bootstrap(/tmp/A) → 得到 desiredDataRoot=/tmp/B → runtime 切到 /tmp/B
-    //   4. 用户再次设 desiredDataRoot=/tmp/C → 当前 runtime 是 /tmp/B,但重启读 /tmp/A
-    //   5. 修复前:只写到 /tmp/B → /tmp/A 仍是旧值 → 重启后 dataRoot=/tmp/B(不是 /tmp/C)
-    //   修复后:同时写到 /tmp/A 和 /tmp/B → 重启读 /tmp/A → 得到 /tmp/C ✓
-    const bootstrapDir = mkdtempSync(join(tmpdir(), "co-engram-cfg-env-")); // simulates /tmp/A
-    const runtimeDir = mkdtempSync(join(tmpdir(), "co-engram-cfg-runtime-")); // simulates /tmp/B (after first switch)
-    process.env.CO_ENGRAM_DATA_ROOT = bootstrapDir;
-    const ctx = makeCtx(tmpDir);
-
-    await withViewer(ctx, { dataRoot: runtimeDir }, async (port) => {
-      const res = await makeRequest(port, "/api/config", {
-        method: "PUT",
-        body: { desiredDataRoot: "/tmp/new-path-C" },
-      });
-      expect(res.status).toBe(200);
-
-      // runtime 路径一定要写(供当前会话 GET 立即看到)
-      const runtimeConfig = await readConfig(runtimeDir);
-      expect(runtimeConfig?.desiredDataRoot).toBe("/tmp/new-path-C");
-
-      // 关键:bootstrap 路径也必须写(下次启动从这里读)
-      const bootstrapConfig = await readConfig(bootstrapDir);
-      expect(bootstrapConfig?.desiredDataRoot).toBe("/tmp/new-path-C");
-    });
-  });
-
-  it("env 未设置时,bootstrap 路径回退到 $HOME/team-memory,也需同步写入", async () => {
-    const fakeHome = mkdtempSync(join(tmpdir(), "co-engram-cfg-home-"));
-    process.env.HOME = fakeHome;
-    delete process.env.CO_ENGRAM_DATA_ROOT;
-    const expectedBootstrap = `${fakeHome}/team-memory`;
-    // 创建 $HOME/team-memory 目录以便 writeTeamMemoryConfig 可以写入
-    const { mkdirSync } = await import("node:fs");
-    mkdirSync(expectedBootstrap, { recursive: true });
-
-    const runtimeDir = mkdtempSync(join(tmpdir(), "co-engram-cfg-runtime2-"));
-    const ctx = makeCtx(tmpDir);
-
-    await withViewer(ctx, { dataRoot: runtimeDir }, async (port) => {
-      const res = await makeRequest(port, "/api/config", {
-        method: "PUT",
-        body: { desiredDataRoot: "/tmp/new-path-D" },
-      });
-      expect(res.status).toBe(200);
-
-      const homeConfig = await readConfig(expectedBootstrap);
-      expect(homeConfig?.desiredDataRoot).toBe("/tmp/new-path-D");
-    });
-  });
-});
 
 // ============================================================
 // POST /api/restart — 触发 MCP 服务优雅退出

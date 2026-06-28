@@ -70,12 +70,11 @@ export const DEFAULT_EFFECTIVENESS_CONFIG: Readonly<
   enabled: true,
 };
 
-/** Viewer 默认值 */
+/** Viewer 默认值(port 已废弃,默认值由 viewer 按 hostType 决定) */
 export const DEFAULT_VIEWER_CONFIG: Readonly<
-  Required<Omit<ViewerSectionConfig, "url">>
+  Required<Omit<ViewerSectionConfig, "url" | "port">>
 > = {
   enabled: true,
-  port: 18799,
 };
 
 /** Server 默认值 */

@@ -1,21 +1,27 @@
 #!/usr/bin/env node
 /**
- * Co-Engram CLI: `co-engram init`
+ * Co-Engram CLI
  *
- * 初始化 team-memory 仓库,让用户选择语言(中文/英文)并写入持久化配置。
- *
- * 用法:
- *   co-engram init                              # 交互式
- *   co-engram init --path ~/team-memory --language zh
- *   co-engram init --language en --created-by alice
- *   co-engram init --help
+ * 子命令:
+ *   co-engram init                              # 交互式初始化 team-memory
+ *   co-engram config data-root                  # 显示当前 dataRoot
+ *   co-engram config data-root <path>           # 设置 dataRoot(单一权威入口)
+ *   co-engram config data-root --reset          # 重置为默认 $HOME/team-memory
+ *   co-engram config data-root <path> --force   # 强制接管非空目录
+ *   co-engram post-merge                        # git post-merge 钩子(自动检测)
+ *   co-engram stats / anomalies                 # 统计/异常检测
+ *   co-engram install-post-merge-hook           # 安装 git hook
+ *   co-engram uninstall-post-merge-hook         # 卸载 git hook
+ *   co-engram hook-status                       # 查询 git hook 状态
  *
  * @module @co-engram/claude-code
  */
 
 import { createInterface } from "node:readline";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import { execSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   writeTeamMemoryConfig,
   parseLanguage,
@@ -31,13 +37,21 @@ import {
   formatAnomaliesAsText,
   AuditLog,
   findDataRoot,
-  type Language,
+  resolveBootstrapDataRootSync,
+  readBootstrapDataRootSync,
+  writeBootstrapDataRoot,
+  getBootstrapConfigPath,
+  getDefaultDataRoot,
+  applyDataRootChange,
   DEFAULT_LANGUAGE,
+  type Language,
 } from "@co-engram/core";
 import { resolveDefaultCreatedBy } from "./mcp-server.js";
 
 interface CliArgs {
   readonly command: string;
+  readonly subcommand?: string;
+  readonly positional?: string;
   readonly path?: string;
   readonly cwd?: string;
   readonly language?: Language;
@@ -46,6 +60,7 @@ interface CliArgs {
   readonly json: boolean;
   readonly noGit: boolean;
   readonly force: boolean;
+  readonly reset: boolean;
   readonly help: boolean;
 }
 
@@ -53,6 +68,8 @@ function parseArgs(argv: readonly string[]): CliArgs {
   const args = argv.slice(2);
   const command = args[0] ?? "help";
 
+  let subcommand: string | undefined;
+  let positional: string | undefined;
   let path: string | undefined;
   let cwd: string | undefined;
   let language: Language | undefined;
@@ -61,6 +78,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
   let json = false;
   let noGit = false;
   let force = false;
+  let reset = false;
   let help = false;
 
   // 同时支持 `--flag VALUE` 与 `--flag=VALUE` 两种语法。
@@ -75,6 +93,8 @@ function parseArgs(argv: readonly string[]): CliArgs {
       noGit = true;
     } else if (arg === "--force") {
       force = true;
+    } else if (arg === "--reset") {
+      reset = true;
     } else if (arg === "--json") {
       json = true;
     } else if (arg === "--path") {
@@ -102,10 +122,20 @@ function parseArgs(argv: readonly string[]): CliArgs {
       i++;
     } else if (arg.startsWith("--created-by=")) {
       createdBy = arg.slice("--created-by=".length);
+    } else if (!arg.startsWith("-")) {
+      // 位置参数:第一个非 flag 是 subcommand,第二个是 positional
+      // 用于 `co-engram config data-root <path>`
+      if (!subcommand) {
+        subcommand = arg;
+      } else if (positional === undefined) {
+        positional = arg;
+      }
     }
   }
   return {
     command,
+    subcommand,
+    positional,
     path,
     cwd,
     language,
@@ -114,6 +144,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
     json,
     noGit,
     force,
+    reset,
     help,
   };
 }
@@ -253,11 +284,128 @@ async function initTeamMemory(args: CliArgs): Promise<void> {
   }
 }
 
+/**
+ * `co-engram config` 命令入口
+ *
+ * 子命令:
+ *   - `data-root`             显示当前 dataRoot
+ *   - `data-root <path>`      设置 dataRoot(写入 ~/.co-engram/config.json)
+ *   - `data-root --reset`     重置为默认 $HOME/team-memory
+ *   - `data-root <path> --force`  强制接管非空目录
+ */
+async function runConfigCommand(args: CliArgs): Promise<void> {
+  const sub = args.subcommand;
+  if (sub !== "data-root") {
+    process.stderr.write(
+      `Unknown 'config' subcommand: ${sub ?? "(none)"}\n` +
+        `Available: config data-root [path] [--reset] [--force]\n`,
+    );
+    process.exit(1);
+  }
+  await runConfigDataRoot(args);
+}
+
+/**
+ * `co-engram config data-root` 子命令实现
+ */
+async function runConfigDataRoot(args: CliArgs): Promise<void> {
+  const bootstrapPath = getBootstrapConfigPath();
+  const currentDataRoot = readBootstrapDataRootSync() ?? getDefaultDataRoot();
+
+  // --reset:清除持久化值,回退到默认
+  if (args.reset) {
+    await writeBootstrapDataRoot(getDefaultDataRoot());
+    process.stdout.write(
+      `[co-engram] data-root reset to default: ${getDefaultDataRoot()}\n` +
+        `  bootstrap config: ${bootstrapPath}\n` +
+        `  Restart co-engram (or run 'openclaw gateway restart') for the change to take effect.\n`,
+    );
+    return;
+  }
+
+  // 无 positional:显示当前值
+  if (args.positional === undefined) {
+    process.stdout.write(
+      `[co-engram] current data-root: ${currentDataRoot}\n` +
+        `  bootstrap config: ${bootstrapPath}\n` +
+        `  Change it with: co-engram config data-root <new-path>\n`,
+    );
+    return;
+  }
+
+  // 设置新值
+  const rawPath = args.positional;
+  // 解析为绝对路径(相对路径基于 cwd)
+  const newPath = isAbsolute(rawPath) ? rawPath : resolve(rawPath);
+
+  if (newPath === currentDataRoot) {
+    process.stdout.write(
+      `[co-engram] data-root unchanged: ${currentDataRoot}\n`,
+    );
+    return;
+  }
+
+  // 共享验证 + 初始化 + 写 bootstrap 逻辑(与 viewer UI 共用)
+  const result = await applyDataRootChange(rawPath, {
+    force: args.force,
+    createdBy: args.createdBy,
+    language: args.language,
+  });
+
+  if (!result.ok) {
+    if (result.reason === "non-engram") {
+      process.stderr.write(
+        `[co-engram] Refusing to set data-root to ${newPath}\n` +
+          `  Directory exists but is not a co-engram warehouse (no .co-engram/config.json).\n` +
+          `  It may contain unrelated user data.\n\n` +
+          `  Options:\n` +
+          `    1. Pick a different path\n` +
+          `    2. Backup/clear this directory first\n` +
+          `    3. Force takeover with: co-engram config data-root ${newPath} --force\n`,
+      );
+    } else {
+      process.stderr.write(`[co-engram] ${result.error}\n`);
+    }
+    process.exit(1);
+  }
+
+  if (result.initialized) {
+    process.stdout.write(
+      `[co-engram] Initialized new team-memory warehouse at ${result.dataRoot}\n`,
+    );
+  } else if (result.classification === "engram-warehouse") {
+    process.stdout.write(
+      `[co-engram] Existing warehouse detected at ${result.dataRoot}, switching data-root.\n`,
+    );
+  }
+
+  process.stdout.write(
+    `[co-engram] data-root set to: ${result.dataRoot}\n` +
+      `  bootstrap config: ${bootstrapPath}\n` +
+      `  Previous value:   ${currentDataRoot}\n\n` +
+      `  Restart co-engram for the change to take effect:\n` +
+      `    - Claude Code: restart Claude Code (MCP server will pick up new path)\n` +
+      `    - OpenClaw:    run 'openclaw gateway restart'\n`,
+  );
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
 
   if (args.help || args.command === "help" || args.command === "--help") {
     showHelp(args.language);
+    return;
+  }
+
+  if (args.command === "config") {
+    try {
+      await runConfigCommand(args);
+    } catch (err) {
+      process.stderr.write(
+        `co-engram config failed: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      process.exit(1);
+    }
     return;
   }
 
@@ -409,7 +557,7 @@ async function main(): Promise<void> {
 }
 
 // 仅当 cli.js 作为入口时才运行,避免被其他模块 import 时副作用执行。
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])) {
   main().catch((err) => {
     process.stderr.write(
       `co-engram CLI error: ${err instanceof Error ? err.message : String(err)}\n`,

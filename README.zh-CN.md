@@ -28,10 +28,11 @@ npm install -g @co-engram/claude-code
 # 2. 初始化数据仓库(独立 Git 仓库,不嵌入本项目)
 mkdir -p ~/team-memory && cd ~/team-memory && git init
 
-# 3. 接入 Claude Code
+# 3. 让 co-engram 指向该数据仓库(写入 ~/.co-engram/config.json)
+co-engram config data-root $HOME/team-memory
+
+# 4. 接入 Claude Code
 claude mcp add co-engram \
-  -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory \
-  -e CO_ENGRAM_MAINTENANCE=1 \
   --scope user \
   -- co-engram-mcp
 ```
@@ -67,7 +68,7 @@ Co-Engram**通过对话工作**——你和 AI agent 自然交流,agent 自行�
 
 > "帮我在 home 目录下全局安装 co-engram，数据仓库放 ~/team-memory。"
 
-agent 依次执行:`npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `claude mcp add co-engram -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory --scope user -- co-engram-mcp`。OpenClaw 用户:`openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`。全部在一次对话中完成,无需手动操作。显式命令见[快速开始](#快速开始)。
+agent 依次执行:`npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`。OpenClaw 用户:`openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`。全部在一次对话中完成,无需手动操作。显式命令见[快速开始](#快速开始)。
 
 ### dedup 防止知识噪音
 
@@ -232,16 +233,15 @@ unverified → plausible → probable → verified
 Co-Engram 内置了单页应用用于可视化探索。wiring 时启用:
 
 ```bash
-# Claude Code (MCP)
+# Claude Code (MCP) — viewer 默认 18799
 claude mcp add co-engram \
   -e CO_ENGRAM_VIEWER_ENABLED=1 \
-  -e CO_ENGRAM_VIEWER_PORT=18899 \
   ... -- co-engram-mcp
 ```
 
-OpenClaw 在插件 manifest 中设置 `startViewer: true` 和 `viewerConfig.port`。
+OpenClaw 在插件 manifest 中设置 `startViewer: true` —— viewer 默认 18899。
 
-浏览器打开 **http://127.0.0.1:18899**。
+浏览器打开 **http://127.0.0.1:18799**(Claude Code)或 **http://127.0.0.1:18899**(OpenClaw)。用 `CO_ENGRAM_VIEWER_PORT` 覆盖。
 
 | 标签 | 内容 |
 |------|------|
@@ -668,13 +668,40 @@ LLM 遇到可复用的洞察时会调用 `engram_create`。当 `dedupe: true`(�
 
 ## 配置
 
+### 数据根目录(单一权威入口)
+
+数据根目录是数据 Git 仓库的绝对路径,记忆文件都存于此。该路径从 `~/.co-engram/config.json`(数据根目录之外的 bootstrap 配置文件,切换 dataRoot 时不会被覆盖)读取。两种修改方式:
+
+**CLI**(支持 `--force` 强制接管非空非 co-engram 目录):
+
+```bash
+co-engram config data-root                     # 打印当前 dataRoot
+co-engram config data-root /path/to/repo       # 设置 dataRoot
+co-engram config data-root --reset             # 重置为 $HOME/team-memory
+co-engram config data-root /path --force       # 强制接管非空目录
+```
+
+**Viewer 网页**:打开 viewer(端口见下文),进入"配置"tab,编辑"数据根目录"字段并保存。网页 UI 拒绝非空非 co-engram 目录 —— 那种情况请用 CLI 加 `--force`。保存后需重启宿主(Claude Code 或 `openclaw gateway restart`)生效。
+
+若 `~/.co-engram/config.json` 缺失或 `dataRoot` 字段未设,co-engram 会回退到 `$HOME/team-memory` 并在 stderr 输出一次性提示。环境变量 `CO_ENGRAM_DATA_ROOT` 和旧的 `desiredDataRoot` 配置字段不再生效(若仍设置会打印 stderr 警告)。
+
+### Viewer 端口(按宿主分离)
+
+viewer 按宿主使用不同默认端口,Claude Code 与 OpenClaw 可在同一台机器上同时运行而不冲突:
+
+| 宿主             | 默认端口 |
+| ---------------- | -------- |
+| Claude Code MCP  | 18799    |
+| OpenClaw plugin  | 18899    |
+
+用环境变量 `CO_ENGRAM_VIEWER_PORT` 覆盖两宿主(例如 `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp`)。`~/team-memory/.co-engram/config.json` 里的 `viewer.port` 字段已废弃并被忽略 —— 两宿主共享同一份持久化配置,共用端口会冲突。
+
 ### 环境变量(Claude Code MCP server)
 
 全部可选。通过 `claude mcp add -e KEY=value` 或 shell 设置。
 
 | 变量                                      | 默认值              | 用途                                                                                                                    |
 | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `CO_ENGRAM_DATA_ROOT`                     | `$HOME/team-memory` | 数据 Git 仓库的绝对路径                                                                                                 |
 | `CO_ENGRAM_DEFAULT_CREATED_BY`            | `unknown`           | 新建 engram 的默认作者                                                                                                  |
 | `CO_ENGRAM_LANGUAGE`                      | `en`                | 工具描述 / 查看器 UI / 提示词的语言(`en` \| `zh`)。未设置时回退到 `~/team-memory/.co-engram/config.json` 中持久化的值。 |
 | `CO_ENGRAM_MAINTENANCE`                   | `0`                 | 设为 `1` 启动维护引擎                                                                                                   |

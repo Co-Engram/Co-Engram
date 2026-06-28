@@ -28,17 +28,18 @@ npm install -g @co-engram/claude-code
 # 2. Initialize the data repo (a separate Git repo, not inside this project)
 mkdir -p ~/team-memory && cd ~/team-memory && git init
 
-# 3. Wire into Claude Code
+# 3. Point co-engram at the data repo (writes ~/.co-engram/config.json)
+co-engram config data-root $HOME/team-memory
+
+# 4. Wire into Claude Code
 claude mcp add co-engram \
-  -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory \
-  -e CO_ENGRAM_MAINTENANCE=1 \
   --scope user \
   -- co-engram-mcp
 ```
 
 Restart Claude Code, run `/mcp` in a new session, and you should see the `co-engram` tools loaded.
 
-**Zero-install alternative** (skip step 1): replace `co-engram-mcp` in step 3 with `npx -y @co-engram/claude-code`.
+**Zero-install alternative** (skip step 1): replace `co-engram-mcp` in step 4 with `npx -y @co-engram/claude-code`.
 
 ### OpenClaw
 
@@ -67,7 +68,7 @@ For new projects you don't need to leave the chat. Ask the agent:
 
 > "Globally install co-engram from npm and set up the memory store under my home directory."
 
-Agent responds by running: `npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `claude mcp add co-engram -e CO_ENGRAM_DATA_ROOT=$HOME/team-memory --scope user -- co-engram-mcp`. For OpenClaw: `openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`. Everything is done in one conversation — no manual steps. See [Quickstart](#quickstart) for the explicit commands.
+Agent responds by running: `npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`. For OpenClaw: `openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`. Everything is done in one conversation — no manual steps. See [Quickstart](#quickstart) for the explicit commands.
 
 ### Dedup prevents knowledge noise
 
@@ -232,16 +233,15 @@ All three are **zero-intervention** — the engine reads usage statistics from t
 Co-Engram ships a built-in SPA for visual exploration. Enable it when wiring:
 
 ```bash
-# Claude Code (MCP)
+# Claude Code (MCP) — viewer defaults to 18799
 claude mcp add co-engram \
   -e CO_ENGRAM_VIEWER_ENABLED=1 \
-  -e CO_ENGRAM_VIEWER_PORT=18899 \
   ... -- co-engram-mcp
 ```
 
-For OpenClaw, set `startViewer: true` and `viewerConfig.port` in the plugin manifest.
+For OpenClaw, set `startViewer: true` in the plugin manifest — viewer defaults to 18899.
 
-Open **http://127.0.0.1:18899** in your browser.
+Open **http://127.0.0.1:18799** (Claude Code) or **http://127.0.0.1:18899** (OpenClaw) in your browser. Override per-process with `CO_ENGRAM_VIEWER_PORT`.
 
 | Tab | What you see |
 |-----|-------------|
@@ -668,13 +668,40 @@ After using an engram in a real task, the LLM (or your code) calls `close_learni
 
 ## Configuration
 
+### Data root (single source of truth)
+
+The data root is the absolute path to the data Git repo where memories live. It is read from `~/.co-engram/config.json` (a bootstrap config file outside the data root, so it survives data-root switches). Two ways to change it:
+
+**CLI**(supports `--force` for taking over non-empty non-co-engram directories):
+
+```bash
+co-engram config data-root                     # print current data root
+co-engram config data-root /path/to/repo       # set data root
+co-engram config data-root --reset             # reset to $HOME/team-memory
+co-engram config data-root /path --force       # take over a non-empty dir
+```
+
+**Viewer web UI**: open the viewer (see ports below), go to the Config tab, edit the "Data root" field, click Save. The web UI refuses non-empty non-co-engram directories — use the CLI with `--force` for that case. Restart the host (Claude Code or `openclaw gateway restart`) for the change to take effect.
+
+If `~/.co-engram/config.json` is missing or its `dataRoot` field is unset, co-engram falls back to `$HOME/team-memory` and prints a one-time stderr hint. The env var `CO_ENGRAM_DATA_ROOT` and the old `desiredDataRoot` config field are no longer honored (a stderr warning is printed if either is set).
+
+### Viewer ports (per host)
+
+The viewer runs on a host-specific default port so Claude Code and OpenClaw can run side-by-side on the same machine without port conflicts:
+
+| Host             | Default port |
+| ---------------- | ------------ |
+| Claude Code MCP  | 18799        |
+| OpenClaw plugin  | 18899        |
+
+Override both hosts with the `CO_ENGRAM_VIEWER_PORT` env var (e.g., `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp`). The persisted `viewer.port` field in `~/team-memory/.co-engram/config.json` is deprecated and ignored — both hosts share the same persisted config, so a shared port would conflict.
+
 ### Environment variables (Claude Code MCP server)
 
 All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 
 | Variable                                  | Default              | Purpose                                                                                                                             |
 | ----------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `CO_ENGRAM_DATA_ROOT`                     | `$HOME/team-memory`  | Absolute path to the data Git repo                                                                                                  |
 | `CO_ENGRAM_DEFAULT_CREATED_BY`            | `unknown`            | Default author for new engrams                                                                                                      |
 | `CO_ENGRAM_LANGUAGE`                      | `en`                 | Language for tool descriptions / viewer UI / prompts (`en` \| `zh`). Falls back to `~/team-memory/.co-engram/config.json` if unset. |
 | `CO_ENGRAM_MAINTENANCE`                   | `0`                  | Set to `1` to start the maintenance engine                                                                                          |

@@ -86,7 +86,16 @@ function fillDefaults(raw: Readonly<TeamMemoryConfig>): TeamMemoryConfig {
       ...DEFAULT_EFFECTIVENESS_CONFIG,
       ...(raw.effectiveness ?? {}),
     },
-    viewer: { ...DEFAULT_VIEWER_CONFIG, ...(raw.viewer ?? {}) },
+    viewer: (() => {
+      const rawViewer = raw.viewer ?? {};
+      // port 已废弃:丢弃用户在 persisted config 设置的 viewer.port
+      // (两宿主共享 persisted config 会导致端口冲突)
+      const { port: _droppedPort, ...viewerWithoutPort } = rawViewer as {
+        port?: unknown;
+      };
+      void _droppedPort;
+      return { ...DEFAULT_VIEWER_CONFIG, ...viewerWithoutPort };
+    })(),
     server: { ...DEFAULT_SERVER_CONFIG, ...(raw.server ?? {}) },
   };
 }

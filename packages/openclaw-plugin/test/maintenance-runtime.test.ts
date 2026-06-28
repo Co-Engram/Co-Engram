@@ -99,10 +99,22 @@ describe("startMaintenanceRuntime", () => {
 // ============================================================
 
 describe("registerCoEngramTools - maintenance 集成", () => {
-  it("startMaintenance 默认 false → 不返回 stopMaintenance", () => {
+  it("startMaintenance 默认 true(low-friction-defaults)→ 返回 stopMaintenance", () => {
     const host = createMemoryHost();
     const result = registerCoEngramTools(host, {
       dataRoot: tmpDir,
+    });
+
+    expect(typeof result.stopMaintenance).toBe("function");
+    expect(result.signalSink).toBeDefined();
+    result.stopMaintenance?.();
+  });
+
+  it("startMaintenance 显式 false → 不返回 stopMaintenance", () => {
+    const host = createMemoryHost();
+    const result = registerCoEngramTools(host, {
+      dataRoot: tmpDir,
+      startMaintenance: false,
     });
 
     expect(result.stopMaintenance).toBeUndefined();

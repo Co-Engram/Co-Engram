@@ -31,10 +31,12 @@ let tmpHome: string | undefined;
 let tmpRepo: string | undefined;
 let savedHome: string | undefined;
 let savedGitConfigGlobal: string | undefined;
+let savedCwd: string | undefined;
 
 beforeEach(() => {
   savedHome = process.env.HOME;
   savedGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL;
+  savedCwd = process.cwd();
 });
 
 afterEach(() => {
@@ -43,6 +45,14 @@ afterEach(() => {
   else process.env.HOME = savedHome;
   if (savedGitConfigGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL;
   else process.env.GIT_CONFIG_GLOBAL = savedGitConfigGlobal;
+  // 还原 cwd(测试可能 chdir 到 tmpRepo / tmpdir)
+  if (savedCwd !== undefined) {
+    try {
+      process.chdir(savedCwd);
+    } catch {
+      // 原目录可能已删,忽略
+    }
+  }
   // 清理临时目录(skip 时为 undefined)
   for (const dir of [tmpHome, tmpRepo]) {
     if (dir) {
@@ -64,6 +74,12 @@ function setupTmpEnv(): void {
   process.env.GIT_CONFIG_GLOBAL = join(tmpHome, ".gitconfig");
   // 初始化一个空仓库(虽然在仓库外调用也能读到 global,但这样更接近实际)
   execSync("git init", { cwd: tmpRepo, stdio: "ignore" });
+  // chdir 到 tmpRepo,避免宿主仓库的 local .git/config 干扰测试。
+  // detectGitAuthor() 用 `git config user.name`(无 --global)读取,
+  // 会合并 system + global + local(cwd 所在仓库的 .git/config)。
+  // 若不 chdir,vitest 的 cwd 是 packages/core(co-engram 仓库内),
+  // 该仓库 local 设了 user.name,会覆盖测试设的 global 值,导致 4 个正向测试失败。
+  process.chdir(tmpRepo);
 }
 
 describe("detectGitAuthor — 容错", () => {

@@ -28,6 +28,7 @@ export async function startViewerForOpenClaw(
   config: ViewerConfig & {
     readonly language?: Language;
     readonly dataRoot?: string;
+    readonly hostType?: "mcp-server" | "openclaw-plugin";
   } = {},
 ): Promise<ViewerRuntime> {
   const mod = await dynamicImportViewer();
@@ -58,6 +59,7 @@ async function dynamicImportViewer(): Promise<{
       readonly token?: string;
       readonly language?: Language;
       readonly dataRoot?: string;
+      readonly hostType?: "mcp-server" | "openclaw-plugin";
     },
   ) => Promise<ViewerRuntime>;
   readonly renderSpaHtml: (options: {
@@ -81,6 +83,7 @@ async function dynamicImportViewer(): Promise<{
           readonly token?: string;
           readonly language?: Language;
           readonly dataRoot?: string;
+          readonly hostType?: "mcp-server" | "openclaw-plugin";
         },
       ) => Promise<ViewerRuntime>;
       renderSpaHtml: (options: {

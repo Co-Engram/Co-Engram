@@ -59,8 +59,7 @@
       "language": {
         "type": "string",
         "enum": ["en", "zh"],
-        "default": "en",
-        "description": "Language for tool descriptions, viewer UI, and system prompts. Falls back to team-memory persisted config if unset."
+        "description": "Language for tool descriptions, viewer UI, and system prompts. If unset, falls back to team-memory persisted config, then DEFAULT_LANGUAGE (zh)."
       },
       "startMaintenance": {
         "type": "boolean",
@@ -101,10 +100,10 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "port": { "type": "number", "default": 18799 },
+          "port": { "type": "number" },
           "token": { "type": "string" }
         },
-        "description": "Viewer server config (port / token)."
+        "description": "Viewer server config (port / token). Default port 18899 for openclaw-plugin host (18799 for claude-code-mcp). Env CO_ENGRAM_VIEWER_PORT overrides both."
       }
     }
   },
@@ -131,7 +130,7 @@
     },
     "language": {
       "label": "Language",
-      "help": "Tool description / viewer / prompt language: en (default) or zh."
+      "help": "Tool description / viewer / prompt language: zh or en. If unset, falls back to team-memory persisted config."
     }
   }
 }

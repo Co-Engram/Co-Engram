@@ -69,7 +69,12 @@ export interface EffectivenessSectionConfig {
 export interface ViewerSectionConfig {
   /** 启用 web viewer(默认跟随 proposal engine) */
   readonly enabled?: boolean;
-  /** viewer 监听端口(默认 18799) */
+  /**
+   * @deprecated 已废弃。两宿主(Claude Code / OpenClaw)共享同一 persisted config,
+   * 若 viewer.port 在此设置会导致两宿主抢同一端口。改用 env `CO_ENGRAM_VIEWER_PORT`
+   * 覆盖,或接受 host-specific 默认(Claude Code=18799,OpenClaw=18899)。
+   * 此字段在 normalize 时会被丢弃。
+   */
   readonly port?: number;
   /** viewer 对外可达 URL */
   readonly url?: string;

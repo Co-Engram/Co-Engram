@@ -121,7 +121,7 @@ const searchFilterSchema: JsonSchemaObject = {
 export const engramCreateSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "content", "kind", "domainTags", "createdBy"],
+  required: ["title", "content", "kind", "domainTags"],
   properties: {
     title: stringField("标题（1-200 字符）", 200),
     content: stringField("正文（Markdown，非空）"),
@@ -145,7 +145,7 @@ export const engramCreateSchema: JsonSchemaObject = {
       description: "半衰期天数（null 表示永不衰退）",
       minimum: 1,
     },
-    createdBy: stringField("创建者标识"),
+    createdBy: stringField("创建者标识（留空自动用 git user.name；不要填 'claude-code' / 'openclaw' / 'assistant' / 'system' 等工具名）"),
     dedupe: {
       type: "boolean",
       description:
@@ -366,7 +366,7 @@ export const engramListSchema: JsonSchemaObject = {
 export const synapseCreateSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
-  required: ["from", "to", "kind", "createdBy"],
+  required: ["from", "to", "kind"],
   properties: {
     from: engramIdField,
     to: engramIdField,
@@ -390,7 +390,7 @@ export const synapseCreateSchema: JsonSchemaObject = {
         },
       },
     },
-    createdBy: stringField("创建者"),
+    createdBy: stringField("创建者（留空自动用 git user.name；不要填 'claude-code' / 'openclaw' 等工具名）"),
     sourceSemantic: optionalStringField("源语义标签"),
     targetSemantic: optionalStringField("目标语义标签"),
   },

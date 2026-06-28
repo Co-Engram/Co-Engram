@@ -115,6 +115,7 @@ describe("registerCoEngramTools M3b 候选提示注入", () => {
       dataRoot: tmpDir,
       enabled: true,
       proposalEnabled: true,
+      startMaintenance: false,
     });
 
     const sessionHook = host.hooks.find((h) => h.events === "session")!;

@@ -80,6 +80,26 @@ export function t(
 }
 
 /**
+ * 工具描述层级
+ *
+ * 三层拆分(Finding 107/111 的根因修复:jargon 与友好性的矛盾):
+ *
+ * - `user` — 面向终端用户(viewer 帮助栏、UI 工具列表)。plain language,无内部术语。
+ * - `agent` — 面向 LLM agent(MCP/OpenClaw 工具注册)。带 WHEN TO CALL/RETURNS 结构,
+ *   可含字段名/工具名,但避免实现术语(FTS/LTP/Hebbian/RPE)。
+ * - `technical` — 面向开发者/审计(技术文档、API 契约、debug)。完整契约:参数语义、
+ *   错误条件、副作用、不变量。允许实现术语。
+ *
+ * 字典 key 约定:
+ * - `tool.<name>` — user 层(legacy key,等价于 `tool.<name>.user`)
+ * - `tool.<name>.agent` — agent 层
+ * - `tool.<name>.technical` — technical 层
+ *
+ * 默认 `user` 向后兼容:旧 caller 不传 layer 时行为不变。
+ */
+export type DescriptionLayer = "user" | "agent" | "technical";
+
+/**
  * 本地化工具描述
  *
  * 在 i18n 字典里没有对应翻译时,fallback 到原始 description(向后兼容)。
@@ -87,13 +107,17 @@ export function t(
  * @param toolName snake_case 工具名,如 'engram_create'
  * @param language 目标语言
  * @param fallback 原始 description(host adapter 注入)
+ * @param layer 描述层级(默认 `user` 向后兼容)
  */
 export function localizeToolDescription(
   toolName: string,
   language: Language,
   fallback?: string,
+  layer: DescriptionLayer = "user",
 ): string {
-  const key = `tool.${toolName}` as StringKey;
+  // user 层用 legacy key `tool.<name>`(向后兼容);agent/technical 用 `tool.<name>.<layer>`
+  const key =
+    layer === "user" ? `tool.${toolName}` : `tool.${toolName}.${layer}`;
   const dict = DICTIONARIES[language] as Readonly<Record<string, string>>;
   const translated = dict[key];
   if (translated) return translated;
@@ -162,4 +186,4 @@ export function resolveLanguage(
 // 保留 unresolved re-export 以维持向后兼容的命名导入。
 
 export { en, zh };
-export type { Language, StringKey, TranslationDict };
+export type { Language, StringKey, TranslationDict, DescriptionLayer };

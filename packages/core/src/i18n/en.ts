@@ -77,6 +77,543 @@ export const en: TranslationDict = {
   "tool.memory_get":
     "Read full content of a single memory (engram) by ID. Returns content, metadata (importance, truthScore, reinforcementCount), and related memory IDs. Use after memory_search to dive into specifics.",
 
+  // ===== Tool descriptions: agent layer (LLM-facing, structured WHEN/RETURNS) =====
+  // Migrated from LLM_TOOL_DESCRIPTIONS + 13 new entries for previously-uncovered tools.
+  // Forbidden terms: FTS / LTP / Hebbian / RPE / reinforcementScore / effectiveRetrievals / failedUses.
+  // truthScore allowed only in engram_get (field name reference).
+  "tool.engram_search.agent": `Search team memory for past decisions, preferences, project context.
+
+WHEN TO CALL:
+- User references past work ("we decided", "previously", "last time we")
+- User mentions preferences ("I prefer", "I always use", "I hate when")
+- User asks about project history ("why does X exist", "who decided", "did we discuss")
+- Encountering a bug that may have been seen before
+- User explicitly says "remember" or "did we discuss"
+
+WHEN NOT TO CALL:
+- Pure code questions unrelated to team history
+- General programming knowledge (use web search)
+- Simple greetings or acknowledgments
+
+RETURNS: Top N engrams (title + summary + score + tags). Use engram_get for full content.`,
+  "tool.engram_get.agent": `Read full content of a single memory (engram) by ID.
+
+WHEN TO CALL:
+- After engram_search returned a hit you want to read in full
+- User explicitly asks for details on a specific engram ID
+- You need metadata (importance, tags, verification status) not shown in search summary
+
+WHEN NOT TO CALL:
+- You haven't called engram_search yet (search first)
+- The engram ID is from an outdated conversation (re-search to verify)
+
+RETURNS: Full content + metadata (createdAt, importance, truthScore, reinforcementCount) + related engram IDs (synapses).`,
+  "tool.engram_create.agent": `Create a new memory (engram) for important team knowledge.
+
+WHEN TO CALL:
+- User explicitly states a preference ("from now on, use arrow functions")
+- User makes a design decision with rationale ("we'll use PostgreSQL because X")
+- User shares a bug lesson ("this failed because Y, remember to check Z")
+- User corrects an outdated memory ("actually, we switched to X")
+
+WHEN NOT TO CALL:
+- For trivial / throwaway information ("the weather is nice")
+- For information already in CLAUDE.md or project README
+- For information the user is just asking about (use engram_search instead)
+
+RETURNS: Created engram ID + version. Existing duplicates auto-detected.`,
+  "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
+
+WHEN TO CALL:
+- Adding details to an existing engram ("the migration also needs to handle X")
+- Correcting a typo / imprecise wording in memory
+- The user clarifies a previous memory ("what I meant was...")
+
+WHEN NOT TO CALL:
+- The new info contradicts the old (use engram_create + contradiction_resolve instead)
+- The memory is fine as-is (don't update just to refresh timestamp)
+
+RETURNS: Updated engram + new version number.`,
+  "tool.engram_list.agent": `Browse all memories (paginated), newest first.
+
+WHEN TO CALL:
+- User wants an overview of stored memories ("what do you know about me")
+- You need to find a memory but don't have a precise search query
+- Reviewing what's been captured recently
+
+WHEN NOT TO CALL:
+- You have a specific query (use engram_search instead — faster and more relevant)
+- Just to check if a memory exists (search by content)
+
+RETURNS: List of engram summaries (title, tags, updatedAt) + total count. Use cursor/limit for pagination.`,
+  "tool.synapse_create.agent": `Create a typed connection between two memories (synapse).
+
+WHEN TO CALL:
+- A new memory extends / contradicts / relates to an existing one
+- User mentions causal or dependency relationship ("X happened because of Y")
+- Connecting a decision to its rationale, or a bug to its fix
+
+WHEN NOT TO CALL:
+- The two memories are unrelated
+- You're unsure of the relationship kind (use 'related_to' as default)
+
+RETURNS: Synapse ID + from/to engram IDs. Common kinds: extends, contradicts, related_to, caused_by.`,
+  "tool.engram_reinforce.agent": `Mark a memory as effectively used (positive reinforcement).
+
+WHEN TO CALL:
+- You cited an engram ID in your answer and the user accepted the result
+- A retrieved memory directly contributed to solving the task
+- After successfully completing a task that depended on a memory
+
+WHEN NOT TO CALL:
+- You didn't actually use the memory (just skimmed it)
+- The task failed or the memory was wrong (use engram_report_failure instead)
+
+RETURNS: Memory's strength score increased + effective-use count incremented.`,
+  "tool.engram_report_failure.agent": `Report a memory as wrong or outdated (negative reinforcement).
+
+WHEN TO CALL:
+- User says "that's not right" / "we changed that" / "outdated"
+- A retrieved memory led to a wrong answer
+- Code or reality contradicts the memory
+
+WHEN NOT TO CALL:
+- The memory is just incomplete (use engram_update)
+- You're not sure (ask the user first)
+
+RETURNS: Memory's failure count increased + strength score decreased. May trigger automatic refutation in a later maintenance cycle.`,
+  "tool.engram_delete.agent": `Permanently delete a memory (use with caution).
+
+WHEN TO CALL:
+- User explicitly asks to delete ("remove that memory about X")
+- Memory is duplicated and you're keeping only one
+- Memory contains sensitive info that should not persist
+
+WHEN NOT TO CALL:
+- Memory is just outdated (use engram_report_failure, let maintenance refute it)
+- User is ambiguous ("forget that" — confirm what they mean)
+- For bulk cleanup (use CLI instead)
+
+RETURNS: { deleted: true } or error if not found.`,
+  "tool.close_learning_loop.agent": `Close the verification loop on a memory after confirming its correctness.
+
+WHEN TO CALL:
+- You used a memory, verified it works, and want to mark it as confirmed
+- After positive feedback + user confirmation that the memory is accurate
+- Completing the "retrieve → use → verify → confirm" cycle
+
+WHEN NOT TO CALL:
+- You haven't actually verified yet (wait until confirmation is solid)
+- The memory turned out wrong (use engram_report_failure)
+
+RETURNS: Updated verification status + closed loop metadata.`,
+  "tool.contradiction_resolve.agent": `Resolve a contradiction between two memories (old vs new).
+
+WHEN TO CALL:
+- A new memory explicitly contradicts an older one
+- User confirms the old memory is wrong and should be refuted
+- You need to mark which side wins in a contradiction synapse
+
+WHEN NOT TO CALL:
+- The two memories are just different perspectives (use synapse kind 'related_to')
+- You're not sure which is right (ask the user)
+
+RETURNS: Resolution record + updated verification status on both engrams.`,
+  "tool.engram_list_proposals.agent": `List pending memory proposals (implicit capture candidates awaiting review).
+
+WHEN TO CALL:
+- System prompt shows "N memory candidates pending"
+- User asks "what proposals do you have" or "review pending memories"
+- Periodically to triage captured but unconfirmed memories
+
+WHEN NOT TO CALL:
+- No pending proposals (system prompt will show 0)
+- You just searched explicitly (use engram_search)
+
+RETURNS: List of proposals (title, similarity, sample message, proposal ID).`,
+  "tool.engram_accept_proposal.agent": `Accept a pending memory proposal (convert it to a real engram).
+
+WHEN TO CALL:
+- User confirms a proposal is valid ("yes, save that")
+- You reviewed a proposal and it captures a real preference/decision
+
+WHEN NOT TO CALL:
+- The proposal is wrong or low quality (use engram_dismiss_proposal)
+- You haven't reviewed it yet
+
+RETURNS: Created engram ID + proposal marked as accepted.`,
+  "tool.engram_dismiss_proposal.agent": `Dismiss a pending memory proposal (reject the capture).
+
+WHEN TO CALL:
+- User says "no, that's not worth saving"
+- Proposal is noisy / low quality / already covered
+- After review, you decide it shouldn't become a memory
+
+WHEN NOT TO CALL:
+- You haven't reviewed the proposal content
+- The proposal is borderline (accept + refine instead)
+
+RETURNS: Proposal marked as dismissed + removed from pending list.`,
+  "tool.engram_doctor.agent": `Run a self-healing scan over the memory repo and report findings.
+
+Auto-fixes: moved files (index re-points), renamed titles (re-slug + rename), stale index entries (cleared). Reports for manual review: dangling synapse references and orphan markdown.
+
+WHEN TO CALL:
+- User says "my memory looks wrong" or "search misses entries I expected"
+- User manually edited/renamed files under the data root
+- After a Git merge that touched the data repo
+- Periodic health check (once per session)
+
+WHEN NOT TO CALL:
+- No observed inconsistency
+- User wants a specific engram (use engram_get)
+
+RETURNS: started/finished timestamps, total counts, autoFixesApplied, pendingManualReview, and the full issues array (kind + path + message + autoFixed).`,
+  "tool.engram_list_paths.agent": `Show the physical directory tree of the memory repo so you can orient before searching.
+
+Each node carries engramCount (cumulative for that subtree). Use it to see where memory is concentrated (which domains, which projects) before deciding what to search for.
+
+WHEN TO CALL:
+- Start of a session, before any engram_search, to map the landscape
+- User asks "what do we have memories about" or "what areas does the team work on"
+- You want to pick a more specific domain tag before searching
+
+WHEN NOT TO CALL:
+- You already know the query — go straight to engram_search
+- User wants a specific engram (use engram_get)
+
+RETURNS: Nested { path, engramCount, children } tree rooted at '/'. Optional maxDepth (1-10, default 5).`,
+  // 13 new agent descriptions for previously-uncovered tools
+  "tool.engram_archive.agent": `Archive a memory (exclude from default retrieval, but preserve data).
+
+WHEN TO CALL:
+- Memory is no longer actively relevant but may be needed later
+- User asks to "shelve" / "park" / "set aside" a memory
+- Reducing noise in search results without losing history
+
+WHEN NOT TO CALL:
+- Memory is wrong (use engram_report_failure)
+- Memory should be permanently removed (use engram_delete or engram_forget)
+- You just want to refresh a memory (use engram_update)
+
+RETURNS: { archived: true } + new status. Search excludes archived by default; use a filter to include.`,
+  "tool.engram_restore.agent": `Restore an archived or forgotten memory to active state.
+
+WHEN TO CALL:
+- User asks to "bring back" / "unarchive" / "restore" a memory
+- A previously archived memory becomes relevant again
+- Recovering from the trash tab in the viewer
+
+WHEN NOT TO CALL:
+- The memory was permanently purged (only git history can recover it)
+- You haven't verified the memory is still accurate (consider engram_update first)
+
+RETURNS: { restored: true } + new status. Re-enters default retrieval immediately.`,
+  "tool.engram_forget.agent": `Actively forget a memory (retrieval-induced forgetting).
+
+Files remain (Git keeps history); the memory leaves all default retrieval immediately. A reason is required.
+
+WHEN TO CALL:
+- User explicitly says "forget this" / "stop remembering this"
+- Memory is misleading and should not surface in future searches
+- Soft removal before considering permanent deletion
+
+WHEN NOT TO CALL:
+- Memory is just outdated (use engram_report_failure, let maintenance handle it)
+- User is ambiguous (confirm what they want forgotten)
+- You want to keep the memory searchable (use engram_archive instead)
+
+RETURNS: { forgotten: true } + reason recorded. Default sweep pipeline: .trash/ after 30 days, physical delete after another 365 days.`,
+  "tool.engram_recompute_importance.agent": `Recompute a memory's multi-dimensional importance score.
+
+WHEN TO CALL:
+- After significant retrieval/use patterns changed (bulk reinforce or failure)
+- User asks to "re-rank" / "re-score" / "refresh importance" a memory
+- Debugging unexpected search ranking
+
+WHEN NOT TO CALL:
+- Just to refresh a timestamp (use engram_update)
+- As a routine operation (importance updates automatically on reinforce/failure)
+
+RETURNS: Recomputed importance vector (personal/team/project/network/temporal) + new composite score written back to engram.importance.`,
+  "tool.upgrade_verification.agent": `Upgrade a memory's verification status (unverified → plausible → probable → verified).
+
+WHEN TO CALL:
+- You verified a memory is accurate and want to mark it as confirmed
+- After cross-context evidence supports the memory
+- Following a successful close_learning_loop with strong evidence
+
+WHEN NOT TO CALL:
+- Without evidence (use close_learning_loop for the basic confirmation cycle first)
+- To downgrade (this tool only upgrades; refuted is a separate path)
+- Skipping levels without force=true (state machine validation will reject)
+
+RETURNS: New verification status + evidence record. force=true skips evidence checks but keeps state machine validation.`,
+  "tool.get_evolution_lineage.agent": `Trace how a memory evolved (ancestors and descendants).
+
+WHEN TO CALL:
+- User asks "where did this decision come from" / "how did this pattern emerge"
+- Understanding the derivation chain of a pattern or procedure
+- Reviewing whether an observation lineage supports a pattern's validity
+
+WHEN NOT TO CALL:
+- The memory has no evolution relationships (returns empty graph)
+- You just want related memories (use engram_get with synapses tier)
+
+RETURNS: DAG nodes and edges. Ancestors = sources (observations etc.), descendants = evolution results (patterns/procedures).`,
+  "tool.synapse_get.agent": `Read a single synapse (connection) between two memories.
+
+WHEN TO CALL:
+- Inspecting a specific connection's metadata (weight, direction, evidence)
+- Debugging why two memories are linked
+- After synapse_list returned a synapse ID you want details on
+
+WHEN NOT TO CALL:
+- To list all synapses of a memory (use synapse_list)
+- To check if a connection exists (use synapse_list with filters)
+
+RETURNS: Synapse record (id, from, to, kind, weight, direction, evidence, resolutionState).`,
+  "tool.synapse_delete.agent": `Delete a synapse (connection) between two memories.
+
+WHEN TO CALL:
+- User confirms a connection is wrong / no longer relevant
+- Cleaning up an incorrect contradiction or derives_from link
+- Resolving duplicates after a merge
+
+WHEN NOT TO CALL:
+- The connection is just weak (use synapse_create with lower weight instead)
+- The contradiction is resolved (use contradiction_resolve, not delete)
+- Without confirming the user wants the connection removed
+
+RETURNS: { deleted: true } + both engrams' caches updated.`,
+  "tool.synapse_list.agent": `List all synapses (connections) of a memory.
+
+WHEN TO CALL:
+- Reviewing what a memory connects to before deciding to update or delete
+- Understanding the relationship graph around a topic
+- Checking for contradictions or derivations
+
+WHEN NOT TO CALL:
+- You only need one specific synapse (use synapse_get)
+- You want the full graph view (use the viewer's Graph tab)
+
+RETURNS: List of synapses (outgoing / incoming / both) with kind, weight, direction.`,
+  "tool.skill_get.agent": `Read skill metadata (procedural memory).
+
+WHEN TO CALL:
+- Checking what a registered skill does before invoking it
+- Listing available skills (procedural templates)
+- Debugging skill registry issues
+
+WHEN NOT TO CALL:
+- To execute a skill (use skill_invoke)
+- For declarative memory (use engram_search / engram_get)
+
+RETURNS: Skill metadata (name, description, template kind, parameters).`,
+  "tool.skill_invoke.agent": `Invoke a skill (procedural memory) with parameters.
+
+WHEN TO CALL:
+- User asks to execute a known procedural template
+- Following a skill_get that identified the right skill
+- Running a tool-sequence or prompt-template skill
+
+WHEN NOT TO CALL:
+- For one-off tasks without a registered skill
+- Without first checking skill_get (you may not have the right skill)
+
+RETURNS: Skill execution result (template-specific).`,
+  "tool.memory_search.agent": `Search team memory using natural language. Returns relevant memory snippets with relevance scores.
+
+WHEN TO CALL:
+- User asks about past decisions, preferences, people, dates, or project context
+- User references prior work ("we decided", "previously", "last time")
+- You need team history that may not be in the current code or docs
+
+WHEN NOT TO CALL:
+- Pure code questions unrelated to team history
+- General programming knowledge (use web search)
+- When you already know the answer from this conversation
+
+RETURNS: Hits with id, title, content snippet, score, metadata. Use memory_get for full content.`,
+  "tool.memory_get.agent": `Read full content of a single memory by ID.
+
+WHEN TO CALL:
+- After memory_search returned a hit you want to read in full
+- User explicitly asks for details on a specific memory ID
+- You need metadata (importance, kind, tags) not shown in search summary
+
+WHEN NOT TO CALL:
+- You haven't called memory_search yet (search first)
+- To list all memories (use engram_list)
+
+RETURNS: Full content + metadata (importance, truthScore, reinforcementCount) + related memory IDs.`,
+
+  // ===== Tool descriptions: technical layer (developer/audit-facing, full contract) =====
+  // Allows implementation terms (FTS / LTP / Hebbian / RPE). Documents parameter semantics,
+  // error conditions, side effects, and invariants. Used in technical docs, API contracts, debug.
+  "tool.engram_search.technical": `FTS5 full-text search (Chinese bigram tokenizer + English word tokenizer).
+Input: { query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, emotionalValence?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
+Side effects: none (read-only). Does not update lastRetrievedAt (use engram_reinforce for that).
+Error conditions: empty query throws; limit clamped to [1, 100].
+Invariant: archived engrams excluded unless filter.status includes 'archived'.
+Index: reads digest.jsonl + FTS index; cold-start rebuilds if missing.`,
+  "tool.engram_get.technical": `Read engram by disclosure tier (progressive disclosure to control token cost).
+Input: { id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synapses' | 'auto'; contextBudget?: number }
+- catalog: id + title + kind + tags (smallest)
+- digest: + summary + importance + timestamps
+- content: + full body
+- meta: + frontmatter (all fields)
+- synapses: + outgoing/incoming edges
+- auto: picks tier based on contextBudget (default)
+Side effects: none. Does NOT update lastRetrievedAt (use engram_reinforce).
+Error conditions: not found throws; invalid tier throws.
+truthScore field exposed here (field-name reference allowed).`,
+  "tool.engram_create.technical": `Create new engram. Input: { title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, emotionalValence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+kind enum: observation | fact | pattern | procedure | hypothesis.
+Dedupe mode (default true): DUPLICATE reinforces existing (calls recordRetrievalSuccess); UPDATE merges content; NEW creates.
+Side effects: writes engrams/<slug>.md + .meta.json + .synapses.json; appends audit event; marks repo dirty.
+Error conditions: missing required fields throws; invalid kind throws.
+Invariant: slug uniqueness enforced; collision appends suffix.`,
+  "tool.engram_update.technical": `Update engram fields. Input: { id, title?, content?, summary?, importance?, domainTags?, contextTags?, emotionalValence?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+Optimistic lock: version field checked (Finding 231 — pending impl).
+Side effects: rewrites .md + .meta.json; appends audit; updates digest/graph index incrementally; marks dirty.
+Error conditions: not found throws; version mismatch throws (when implemented).
+Invariant: title change triggers re-slug + file rename.`,
+  "tool.engram_delete.technical": `Hard delete engram. Input: { id }
+Side effects: removes .md + .meta.json + .synapses.json; removes incoming synapses on other engrams; rebuilds digest/graph; appends audit.
+Error conditions: not found throws.
+Invariant: irreversible (vs engram_forget which keeps files). Git history is the only recovery.
+Warning: prefer engram_archive or engram_forget for soft removal.`,
+  "tool.engram_list.technical": `List engrams by filter (no query — pure metadata filter, reads latest state).
+Input: { filter?: same as engram_search; limit?, cursor? }
+Side effects: none.
+Pagination: cursor-based, opaque token.
+Invariant: reads engram-index.json (catalog); does not read full content. Faster than engram_search for listing.`,
+  "tool.engram_reinforce.technical": `Report effective retrieval (LTP). Input: { id, effectiveness: 0..1, note? }
+Updates: effectiveRetrievals += 1; reinforcementScore += effectiveness; importance += effectiveness × 0.02 (clamped [0,1]).
+Hebbian boost: neighbor engrams (via synapses) get 50% delta, except contradicts synapse kind.
+Side effects: writes .meta.json for target + neighbors; appends audit; appends effectiveness signal.
+Error conditions: not found throws; effectiveness out of range throws.
+Note: this path is distinct from maintenance applyRpeUpdate (Finding 124) — tool path grows importance, maintenance path does not.`,
+  "tool.engram_report_failure.technical": `Report failed use (LTD). Input: { id, reason, context? }
+Updates: failedUses += 1; retrievalCount += 1; importance -= 0.03 (×1.5 escalation after threshold).
+Auto-suggest: failedUses ≥ 3 → suggest archive; ≥ 5 → suggest forget.
+Side effects: writes .meta.json; appends audit; appends effectiveness signal (failure).
+Error conditions: not found throws; empty reason throws.`,
+  "tool.engram_archive.technical": `Archive engram. Input: { id, reason? }
+Status transition: active → archived.
+Side effects: writes .meta.json (status); rebuilds digest (excludes archived from default FTS).
+Error conditions: not found throws; already archived is idempotent.
+Invariant: data preserved; recoverable via engram_restore. Search excludes archived unless filter.status='archived'.`,
+  "tool.engram_restore.technical": `Restore from archived/forgotten. Input: { id }
+Status transition: archived|forgotten → active.
+If engram was swept to .trash/, moves files back first.
+Side effects: writes .meta.json; rebuilds digest; appends audit.
+Error conditions: not found throws; physically purged throws (irrecoverable).
+Invariant: re-enters default retrieval immediately.`,
+  "tool.engram_forget.technical": `RIF retrieval-induced forgetting. Input: { id, reason }
+Status: active|archived → forgotten.
+Files preserved (Git-tracked). Leaves all default retrieval immediately.
+Sweep pipeline (maintenance): forgotten → 30d → .trash/ (removed from main index) → 365d → physical rm.
+Side effects: writes .meta.json (status + forgottenAt); rebuilds digest; appends audit.
+Error conditions: not found throws; empty reason throws.
+Recovery: engram_restore anytime before physical purge; after purge, only git history.`,
+  "tool.engram_recompute_importance.technical": `Recompute multi-dimensional importance. Input: { id, overrides?: { personal?, team?, project? } }
+Dimensions: personal / team / project (user-settable); network (incomingSynapseCount-derived); temporal (Ebbinghaus decay).
+Composite = weighted sum (spec §8). Written back to engram.importance.
+Side effects: writes .meta.json (importance + importanceVector); appends audit.
+Error conditions: not found throws.
+Invariant: network + temporal are always system-derived; overrides only affect the other three.`,
+  "tool.contradiction_resolve.technical": `Resolve contradicts synapse. Input: { fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
+Updates: synapse.resolutionState = 'resolved'; appends to evidence[]; if verdict=archive, loser engram status → archived.
+Side effects: writes synapse file + .meta.json (if archive); appends audit.
+Error conditions: not found throws; non-contradicts synapse throws; already resolved throws.
+Spec ref: §3.9 phase 2 human intervention.`,
+  "tool.close_learning_loop.technical": `Close verification loop. Input: { engramId, outcome: 'success' | 'failure' | 'partial', effectiveness?, reportedBy }
+success/partial → LTP (engram_reinforce path) + Hebbian neighbor boost.
+failure → LTD (engram_report_failure path) + demotion threshold check (auto-archive if below).
+Triggers provenance reward/punishment circuit if configured.
+Side effects: writes .meta.json (importance + verification status); appends audit + effectiveness signal.
+Error conditions: not found throws; invalid outcome throws.`,
+  "tool.upgrade_verification.technical": `Upgrade verification status. Input: { id, evidenceDescription, verifier, force? }
+State machine: unverified → plausible → probable → verified (no skipping). refuted is separate path.
+3D evidence conditions: evidenceCount ≥ N + cross-context domainTags + temporal stability days.
+force=true: skip evidence condition checks but keep state machine validation.
+Side effects: writes .meta.json (verificationStatus + evidence[]); appends audit.
+Error conditions: not found throws; invalid transition throws; insufficient evidence throws (without force).
+Spec ref: §3.9 phase 1.`,
+  "tool.get_evolution_lineage.technical": `Trace evolution DAG. Input: { id, direction?: 'ancestors' | 'descendants' | 'both', maxDepth? }
+Follows synapse kinds: derives_from / consolidates / supersedes (bidirectional).
+Returns: { nodes: Engram[], edges: Synapse[] }.
+Side effects: none (read-only).
+Invariant: ancestors = sources (observation/hypothesis), descendants = evolution results (pattern/procedure).
+Spec ref: §4.6 acceptance, §12.7 scenario 6.`,
+  "tool.synapse_create.technical": `Create synapse. Input: { from, to, kind, weight?, direction?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
+kind enum: extends | part_of | similar_to | depends_on | causes | follows | derives_from | contradicts | exemplifies | supersedes | consolidates | contextualizes.
+direction: 'directional' | 'bidirectional' (default directional).
+Side effects: writes .synapses.json on both ends (outgoing + incoming caches); appends audit.
+Error conditions: from/to not found throw; self-loop throws; duplicate throws.
+Invariant: contradicts synapse creates a contradiction entry for resolution tracking.`,
+  "tool.synapse_get.technical": `Read single synapse. Input: { from, synapseId }
+Returns: full synapse record (id, from, to, kind, weight, direction, evidence, resolutionState, createdAt).
+Side effects: none.
+Error conditions: not found throws.`,
+  "tool.synapse_delete.technical": `Delete synapse. Input: { from, synapseId }
+Side effects: removes from .synapses.json on both ends; rebuilds graph index; appends audit.
+Error conditions: not found throws.
+Invariant: contradicts synapse deletion also clears contradiction entry (use contradiction_resolve for explicit verdict instead).`,
+  "tool.synapse_list.technical": `List synapses of an engram. Input: { from, direction?: 'outgoing' | 'incoming' | 'both' }
+Returns: array of synapse records.
+Side effects: none.
+Invariant: outgoing = engram as source; incoming = engram as target. Both reads from cached .synapses.json.`,
+  "tool.skill_get.technical": `Read skill metadata. Input: { name }
+P0: reads from in-memory registry (skills loaded at startup).
+Returns: { name, description, templateKind: 'tool-sequence' | 'prompt-template', parameters, version }.
+Side effects: none.
+Error conditions: not found throws.
+Note: P1 will add filesystem-backed skill loading.`,
+  "tool.skill_invoke.technical": `Invoke skill. Input: { name, parameters }
+P0: framework only — returns "skill invoked" without executing template.
+P1: tool-sequence executes parameterized tool chain; prompt-template renders and returns prompt.
+Side effects: depends on template (tool-sequence may write engrams).
+Error conditions: not found throws; parameter validation throws.
+Invariant: skill execution is logged for provenance.`,
+  "tool.engram_list_proposals.technical": `List pending proposals. Input: { includeAll?: boolean }
+Default: returns only pending. includeAll=true returns accepted/dismissed history.
+Proposal engine: topics mentioned ≥3 times in conversation without matching engram generate pending proposal.
+Side effects: none (read-only).
+Returns: array of { proposalId, title, similarity, sampleMessage, status, createdAt }.`,
+  "tool.engram_accept_proposal.technical": `Accept proposal. Input: { entityId, title?, content?, domainTags?, kind?, createdBy? }
+Side effects: creates engram (calls engram_create internally); marks proposal status=accepted; suppresses future duplicate proposals for same topic; appends audit.
+Error conditions: proposal not found throws; already accepted/dismissed throws.
+Invariant: default createdBy fallback chain: explicit > ctx.defaultCreatedBy > 'unknown'.`,
+  "tool.engram_dismiss_proposal.technical": `Dismiss proposal. Input: { entityId, reason?, dismissDays? }
+Default dismissDays=30. Reason recorded for meta-learning.
+Side effects: marks proposal status=dismissed; sets suppressedUntil timestamp; appends audit.
+Error conditions: proposal not found throws; already accepted throws.
+Invariant: after dismissDays, proposal may re-surface if topic mentioned again.`,
+  "tool.engram_doctor.technical": `Self-healing scan. Input: { incremental?: boolean }
+Auto-fixes: file moves (index re-points), title renames (re-slug + rename), stale index entries (cleared).
+Reports (manual review): dangling synapse references, orphan markdown files.
+Side effects: may rewrite .meta.json / .synapses.json / index files; appends audit log entry.
+Returns: { startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }.
+Incremental=true: only scan files changed since last mtime pass.`,
+  "tool.engram_list_paths.technical": `Directory tree with engramCount. Input: { maxDepth?: 1..10 (default 5) }
+Reads filesystem directly (not index). Each node: { path, engramCount, children }.
+Side effects: none.
+Use case: progressive disclosure — orient before searching.
+Invariant: engramCount is cumulative for subtree (includes children).`,
+  "tool.memory_search.technical": `OpenClaw-compatible alias of engram_search. Same FTS5 backend, simplified schema.
+Input: { query, maxResults?, minScore? }
+Side effects: none.
+Returns: { results: MemorySearchHit[], total }. MemorySearchHit hides internal fields (emotionalValence, freshness, sourceType).
+Invariant: maxResults clamped to [1, 50]; minScore clamped to [0, 1].`,
+  "tool.memory_get.technical": `OpenClaw-compatible alias of engram_get (content tier). Same backend.
+Input: { id }
+Side effects: none.
+Returns: { id, title, content, metadata: { importance, truthScore, reinforcementCount, tags, kind }, relatedIds }.
+Invariant: relatedIds derived from synapses (both directions).`,
+
   // ===== System prompts (buildProposalPrompt) =====
   "prompt.proposal_prompt":
     "[co-engram] ${count} memory candidate${plural} pending (topic${plural} seen ≥3 times but not recorded). Use `engram_list_proposals` to view, `engram_accept_proposal` to record, or `engram_dismiss_proposal` to ignore.",
@@ -92,7 +629,7 @@ export const en: TranslationDict = {
   "prompt.memory.reading_results":
     "Reading results: each memory has a truthScore (0-1). Treat memories with truthScore < 0.4 cautiously — consider calling close_learning_loop after verification. Cite memories by engram ID (e.g. [engram_abc123]) when the user benefits from verifying the source.",
   "prompt.memory.writing":
-    'When creating/updating memories (engram_create / engram_update): leave createdBy blank to let the system auto-resolve to git user.name or plugin config.defaultCreatedBy. **Do NOT fill in generic words like "AIOS" / "openclaw" / "assistant" / "system"** — these are not real authors and break audit log traceability. Only pass createdBy explicitly when the user requests a specific authorship tag (team name, external system name, etc.).',
+    'When creating/updating memories (engram_create / engram_update): leave createdBy blank to let the system auto-resolve to git user.name. **Do NOT fill in tool names or generic words like "claude-code" / "openclaw" / "AIOS" / "assistant" / "system"** — everyone on the team uses Claude Code, so tagging "claude-code" is no author at all and breaks audit log traceability. createdBy marks the *human*, not the *tool*. Only pass createdBy explicitly when the user requests a specific authorship tag (team name, external system name, etc.).',
   "prompt.memory.when_to_reinforce":
     "When to call engram_reinforce: use your **own judgment** — when a cited memory actually helped complete the task, was adopted into your answer, or successfully guided a decision, call engram_reinforce(id, effectiveness) on it. effectiveness: 1.0=fully useful, 0.7=mostly useful, 0.4=background reference only. Call engram_report_failure when the memory was wrong or stale. co-engram is a self-evolving system: your reinforcement signal is the primary input to importance scoring — call it proactively, do not wait for the user to prompt you. But **be honest**: do not give high scores for tangential references — over-reinforcing lets low-value memories drown out high-value ones.",
   "prompt.memory.proposal_reminder":
@@ -121,6 +658,9 @@ export const en: TranslationDict = {
   "viewer.search.clear": "Clear",
   "viewer.search.clear_title":
     "Clear search results and return to default stats view",
+  "viewer.search.searching": "Searching...",
+  "viewer.search.noResults": "No matching results",
+  "viewer.search.failed": "Search failed: ${err}",
   "viewer.auth.prompt": "This viewer requires a token.",
   "viewer.auth.placeholder": "Bearer token",
   "viewer.loading.stats": "Loading stats...",
@@ -286,4 +826,688 @@ export const en: TranslationDict = {
   "engrams.empty": "No matching memories",
   "engrams.retrievalsCount": "Retrievals ${n}",
   "engrams.untagged": "Untagged",
+
+  // ===== Extended enums (replacing viewer's CO_ENGRAM_LABELS) =====
+  "enum.status.dormant": "Dormant",
+  "enum.visibility.public": "Public",
+  "enum.visibility.team": "Team",
+  "enum.visibility.private": "Private",
+  "enum.visibility.restricted": "Restricted",
+  "enum.family.structural": "Structural",
+  "enum.family.causal": "Causal",
+  "enum.family.evidential": "Evidential",
+  "enum.family.temporal": "Temporal",
+  "enum.family.modulatory": "Modulatory",
+  "enum.synapseKind.extends": "extends",
+  "enum.synapseKind.part_of": "part of",
+  "enum.synapseKind.similar_to": "similar to",
+  "enum.synapseKind.depends_on": "depends on",
+  "enum.synapseKind.causes": "causes",
+  "enum.synapseKind.follows": "follows",
+  "enum.synapseKind.derives_from": "derives from",
+  "enum.synapseKind.contradicts": "contradicts",
+  "enum.synapseKind.exemplifies": "exemplifies",
+  "enum.synapseKind.supersedes": "supersedes",
+  "enum.synapseKind.consolidates": "consolidates",
+  "enum.synapseKind.contextualizes": "contextualizes",
+  "enum.synapseDirection.directional": "Directional",
+  "enum.synapseDirection.bidirectional": "Bidirectional",
+  "enum.resolution.pending": "Pending",
+  "enum.resolution.auto_resolved": "Auto-resolved",
+  "enum.resolution.escalated": "Escalated",
+  "enum.resolution.contested": "Contested",
+  "enum.resolution.resolved": "Resolved",
+
+  // ===== Stats panel (viewer.stats.*) =====
+  "viewer.stats.totalEngrams": "Total engrams",
+  "viewer.stats.totalSynapses": "Total synapses",
+  "viewer.stats.pendingProposals": "Pending proposals",
+  "viewer.stats.clickToViewAll": "Click to view all",
+  "viewer.stats.clickToViewGraph": "Click to view graph",
+  "viewer.stats.clickToHandle": "Click to handle",
+  "viewer.stats.kindDistribution": "Engrams · by kind",
+  "viewer.stats.statusDistribution": "Engrams · by status",
+  "viewer.stats.synapseKindDistribution": "Synapses · by kind",
+  "viewer.stats.contributorRanking":
+    "Contributor ranking · engrams + synapses",
+  "viewer.stats.topTags": "Top domain tags",
+  "viewer.stats.contributorCol": "Contributor",
+  "viewer.stats.engramCol": "Engrams",
+  "viewer.stats.synapseCol": "Synapses",
+  "viewer.stats.totalCol": "Total",
+  "viewer.stats.empty": "No data yet",
+  "viewer.stats.synapsesEmpty": "No synapses yet",
+
+  // ===== Proposals panel (viewer.proposals.*) =====
+  "viewer.proposals.disabledHint":
+    "Proposal engine is disabled. Turn it on in the config panel, or set proposals.enabled=true in config.json.",
+  "viewer.proposals.status.pending": "Pending",
+  "viewer.proposals.status.accepted": "Accepted",
+  "viewer.proposals.status.dismissed": "Dismissed",
+  "viewer.proposals.status.all": "All",
+  "viewer.proposals.empty": "No ${status} proposals",
+  "viewer.proposals.convertedTo": "Converted to",
+  "viewer.proposals.dismissedReason": "Dismissed",
+  "viewer.proposals.detailTitle": "Proposal detail",
+  "viewer.proposals.titleLabel": "Title",
+  "viewer.proposals.titleLabelReadonly": "Title (read-only)",
+  "viewer.proposals.kindLabel": "Kind",
+  "viewer.proposals.kindLabelReadonly": "Kind (read-only)",
+  "viewer.proposals.tagsLabel": "Domain tags (comma-separated)",
+  "viewer.proposals.tagsLabelReadonly":
+    "Domain tags (comma-separated, read-only)",
+  "viewer.proposals.tagsPlaceholder": "e.g. frontend, dark-mode, css",
+  "viewer.proposals.contentLabel": "Content (becomes engram body)",
+  "viewer.proposals.contentLabelReadonly": "Content (read-only)",
+  "viewer.proposals.samples": "Sample quotes (${n} cumulative)",
+  "viewer.proposals.noSamples": "(no samples)",
+  "viewer.proposals.firstSeen": "First seen:",
+  "viewer.proposals.lastSeen": "Last seen:",
+  "viewer.proposals.currentStatus": "Current proposal status:",
+  "viewer.proposals.createdEngram": "Created engram:",
+  "viewer.proposals.dismissedUntil": "Dismissed until:",
+  "viewer.proposals.dismissBtn": "Dismiss",
+  "viewer.proposals.acceptBtn": "Accept & save",
+  "viewer.proposals.notFound": "Proposal not found: ${id}",
+  "viewer.proposals.titleRequired": "Please fill in the title",
+  "viewer.proposals.contentRequired": "Please fill in the content",
+  "viewer.proposals.acceptedToast": "✓ Accepted",
+  "viewer.proposals.createdEngramToast": "Created engram: ${id}",
+  "viewer.proposals.acceptFailed": "Accept failed: ${err}",
+  "viewer.proposals.dismissReasonPrompt": "Dismiss reason (optional):",
+  "viewer.proposals.dismissDaysPrompt": "Dismiss N days (default 30):",
+  "viewer.proposals.dismissFailed": "Dismiss failed: ${err}",
+
+  // ===== Audit panel (viewer.audit.*) =====
+  "viewer.audit.filter.actor": "Actor",
+  "viewer.audit.filter.category": "Category",
+  "viewer.audit.filter.engramPlaceholder": "Filter by engram id...",
+  "viewer.audit.filter.actionChipTitle": "Click to clear action filter",
+  "viewer.audit.actorAll": "All",
+  "viewer.audit.actorUser": "User",
+  "viewer.audit.actorLlm": "LLM",
+  "viewer.audit.actorSystem": "System",
+  "viewer.audit.catAll": "All",
+  "viewer.audit.catState": "State changes",
+  "viewer.audit.catEffective": "Effectiveness",
+  "viewer.audit.catContradicted": "Contradictions",
+  "viewer.audit.catProposal": "Proposals",
+  "viewer.audit.empty": "No matching events",
+  "viewer.audit.disabledHint": "Audit log is disabled.",
+  "viewer.audit.kpi.total": "Total",
+  "viewer.audit.kpi.state": "State changes",
+  "viewer.audit.kpi.effective": "Effectiveness signals",
+  "viewer.audit.kpi.contradicted": "Contradictions",
+  "viewer.audit.kpi.proposal": "Proposals",
+  "viewer.audit.synapseChip": "synapse",
+  "viewer.audit.targetOpenEngram": "📄 Open engram",
+  "viewer.audit.targetOpenSourceEngram": "🌐 Open source engram",
+  "viewer.audit.targetGone": "Target no longer exists: ${id}",
+  "viewer.audit.targetDeleted": "(deleted)",
+  "viewer.audit.filterActionHint": " — click to show only this action",
+  "viewer.audit.metaEmpty": "—",
+  "viewer.audit.noFieldChanges": "(no fields actually changed)",
+  "viewer.audit.actorTip.user": "User: events triggered manually",
+  "viewer.audit.actorTip.llm":
+    "LLM: events triggered by a language-model agent",
+  "viewer.audit.actorTip.system":
+    "System: events triggered by background maintenance/self-healing",
+  "viewer.audit.actionTip.create": "create: create a new engram",
+  "viewer.audit.actionTip.update": "update: modify fields of an existing engram",
+  "viewer.audit.actionTip.update_lifecycle":
+    "update_lifecycle: lifecycle transition (archived/forgotten)",
+  "viewer.audit.actionTip.reinforce":
+    "reinforce: potentiation (LTP) — retrieval effective, loop succeeded",
+  "viewer.audit.actionTip.report_failure":
+    "report_failure: negative feedback (LTD) — retrieval inaccurate, loop failed",
+  "viewer.audit.actionTip.forget": "forget: marked as forgotten",
+  "viewer.audit.actionTip.restore":
+    "restore: restored from forgotten/archived back to active",
+  "viewer.audit.actionTip.sweep_to_trash":
+    "sweep_to_trash: forgotten after 30 days, file moved to .trash/",
+  "viewer.audit.actionTip.restore_from_trash":
+    "restore_from_trash: physically restored from .trash/",
+  "viewer.audit.actionTip.purge":
+    "purge: hard delete (content + meta + associated synapses)",
+  "viewer.audit.actionTip.retrieve_hit": "retrieve_hit: search hit",
+  "viewer.audit.actionTip.retrieve_effective":
+    "retrieve_effective: hit and actually adopted",
+  "viewer.audit.actionTip.retrieve_inconclusive":
+    "retrieve_inconclusive: hit but unsure if effective",
+  "viewer.audit.actionTip.contradicted":
+    "contradicted: conflict with other engrams detected, entering resolution",
+  "viewer.audit.actionTip.propose": "propose: candidate memory captured",
+  "viewer.audit.actionTip.accept":
+    "accept: candidate adopted, converted to a formal engram",
+  "viewer.audit.actionTip.dismiss": "dismiss: candidate rejected",
+
+  // ===== Trash panel (viewer.trash.*) =====
+  "viewer.trash.empty": "Trash is empty",
+  "viewer.trash.titleCount": "Trash · ${n} items",
+  "viewer.trash.partitionLabel": "Partition:",
+  "viewer.trash.all": "All",
+  "viewer.trash.purgeAllBtn": "Purge all permanently",
+  "viewer.trash.colId": "ID",
+  "viewer.trash.colPartition": "Partition",
+  "viewer.trash.colTrashedAt": "Trashed at",
+  "viewer.trash.previewBtn": "Preview",
+  "viewer.trash.restoreBtn": "Restore",
+  "viewer.trash.previewTitle": "Trash preview",
+  "viewer.trash.previewHint":
+    "This memory has been removed from the main index. \"Restore\" it first to edit or recall it again.",
+  "viewer.trash.partitionField": "Partition:",
+  "viewer.trash.trashedAtField": "Trashed at:",
+  "viewer.trash.creatorField": "Creator:",
+  "viewer.trash.contentSection": "Content",
+  "viewer.trash.restoreToMainBtn": "Restore to main index",
+  "viewer.trash.closeBtn": "Close",
+  "viewer.trash.restoreConfirm": "Restore ${id} to main index?",
+  "viewer.trash.restoreFailed": "Restore failed: ${err}",
+  "viewer.trash.purgeAllScopeAll": "all items (across all partitions)",
+  "viewer.trash.purgeAllScopePartition": "partition ${p}",
+  "viewer.trash.prescanFailed": "Pre-scan failed: ${err}",
+  "viewer.trash.purgeEmpty": "Nothing to purge in the current scope",
+  "viewer.trash.purgeConfirm1":
+    "About to permanently delete ${n} memories in ${scope}.\nThis is irreversible (physical unlink). Even with a git repo, recovery is only possible from historical commits.\n\nContinue?",
+  "viewer.trash.purgeConfirm2":
+    "Second confirmation: really purge all ${n} items in ${scope}?",
+  "viewer.trash.purgeDone": "Permanently deleted ${n} memories.",
+  "viewer.trash.purgeFailed": "Purge failed: ${err}",
+
+  // ===== Merges panel (viewer.merges.*) =====
+  "viewer.merges.loading": "Loading merge stats",
+  "viewer.merges.auditDisabledHint":
+    "Audit log is disabled; no merge data available.",
+  "viewer.merges.title": "Merge stats · last ${days} days",
+  "viewer.merges.kpi.totalMerges": "Total merges",
+  "viewer.merges.kpi.autoResolved": "Auto-resolved",
+  "viewer.merges.kpi.escalatedToMarkers": "Escalated to conflict markers",
+  "viewer.merges.kpi.backupFailures": "Backup failures",
+  "viewer.merges.llmSection": "LLM arbitration",
+  "viewer.merges.llm.totalInvocations": "Total invocations",
+  "viewer.merges.llm.arbitrated": "Arbitrated",
+  "viewer.merges.llm.escalated": "Escalated",
+  "viewer.merges.llm.failed": "Failed",
+  "viewer.merges.llm.successRate": "Success rate",
+  "viewer.merges.byStrategy": "Strategy distribution (Top 8)",
+  "viewer.merges.hotPaths": "Conflict hot paths (Top 8)",
+  "viewer.merges.byDay": "Daily merges (trend)",
+  "viewer.merges.anomalyBanner": "Anomalies · ${n} alerts",
+
+  // ===== Graph toolbar (viewer.graph.*) =====
+  "viewer.graph.loading": "Loading graph...",
+  "viewer.graph.reloading": "Reloading graph",
+  "viewer.graph.fitBtn": "Fit",
+  "viewer.graph.physicsBtn": "Physics",
+  "viewer.graph.resetBtn": "Reset filters",
+  "viewer.graph.fitTip":
+    "Fit view: auto-zoom and center so all nodes are visible",
+  "viewer.graph.physicsTip":
+    "Physics engine: when on, nodes auto-layout via spring/repulsion model (uses CPU until stable); when off, current positions are frozen — useful for browsing large graphs after they stabilize",
+  "viewer.graph.resetTip":
+    "Reset filters: restore all kind/family checkboxes and re-fit the view",
+  "viewer.graph.synapseGroupTitle": "Synapse kinds · by family",
+  "viewer.graph.engramsGroupTitle": "Engram kinds",
+  "viewer.graph.family.structural": "Structural",
+  "viewer.graph.family.causal": "Causal",
+  "viewer.graph.family.evidential": "Evidential",
+  "viewer.graph.family.temporal": "Temporal",
+  "viewer.graph.family.modulatory": "Modulatory",
+  "viewer.graph.familyDesc.structural":
+    "Composition / extension relationships",
+  "viewer.graph.familyDesc.causal": "Trigger / dependency relationships",
+  "viewer.graph.familyDesc.evidential": "Source / conflict relationships",
+  "viewer.graph.familyDesc.temporal": "Version / evolution relationships",
+  "viewer.graph.familyDesc.modulatory": "Contextual relationships",
+  "viewer.graph.kindDesc.fact":
+    "A confirmed, independently verifiable objective statement",
+  "viewer.graph.kindDesc.observation":
+    "A one-off perceived fact, not yet distilled into a stable conclusion",
+  "viewer.graph.kindDesc.pattern":
+    "A rule归纳duced from repeated observations; can predict future behavior",
+  "viewer.graph.kindDesc.procedure":
+    "A sequence of steps that reproduces a result when executed",
+  "viewer.graph.kindDesc.hypothesis":
+    "An unverified guess; usable as a working hypothesis until counter-examples appear",
+  "viewer.graph.synapseDesc.extends":
+    "A extends B: inherits B's semantics and adds new dimensions",
+  "viewer.graph.synapseDesc.part_of": "A is part of B (B has-a A)",
+  "viewer.graph.synapseDesc.similar_to":
+    "A is semantically close to B; interchangeable or mutually supportive",
+  "viewer.graph.synapseDesc.depends_on":
+    "A depends on B (B is a precondition of A)",
+  "viewer.graph.synapseDesc.causes":
+    "A triggers or produces B (positive causation)",
+  "viewer.graph.synapseDesc.follows":
+    "A follows B temporally/logically (no strong causation)",
+  "viewer.graph.synapseDesc.derives_from":
+    "A is derived from B (B is the basis)",
+  "viewer.graph.synapseDesc.contradicts":
+    "A conflicts with B; enters resolution flow",
+  "viewer.graph.synapseDesc.exemplifies":
+    "A is a concrete instance/sample of B",
+  "viewer.graph.synapseDesc.supersedes":
+    "A replaces outdated B (version transition)",
+  "viewer.graph.synapseDesc.consolidates":
+    "A merges/refines the content of B",
+  "viewer.graph.synapseDesc.contextualizes":
+    "A provides context for B (neither causal nor evidential)",
+
+  // ===== Detail panel / drawer (viewer.detail.*) =====
+  "viewer.detail.editModeHint":
+    "Edit mode · click \"Save\" to submit changes",
+  "viewer.detail.editEngramTitle": "Edit engram",
+  "viewer.detail.editSynapseTitle": "Edit synapse",
+  "viewer.detail.detailViewTitle": "Detail view",
+  "viewer.detail.synapseDetailTitle": "Synapse detail",
+  "viewer.detail.kindChangeHint":
+    "Note: changing \"kind\" or \"direction\" re-computes the synapse ID (ID derives from from+to+kind+direction). The old ID becomes invalid, but all metadata (weight / evidence / creator) migrates to the new ID.",
+  "viewer.detail.titleLabel": "Title",
+  "viewer.detail.kindLabel": "Kind",
+  "viewer.detail.importanceLabel": "Importance (0-1, drag the slider)",
+  "viewer.detail.confidenceLabel": "Confidence (0-1, drag the slider)",
+  "viewer.detail.tagsLabel": "Domain tags (comma-separated)",
+  "viewer.detail.ctxTagsLabel": "Context tags (comma-separated)",
+  "viewer.detail.visibilityLabel": "Visibility",
+  "viewer.detail.contentLabel": "Content (Markdown)",
+  "viewer.detail.weightLabel": "Weight (0-1, drag the slider)",
+  "viewer.detail.evidenceDescLabel":
+    "Add evidence description (optional, leave blank to skip)",
+  "viewer.detail.evidenceSourceLabel": "Evidence source (optional)",
+  "viewer.detail.evidenceDescPlaceholder": "e.g. verified via codegraph...",
+  "viewer.detail.evidenceSourcePlaceholder": "e.g. manual / ci / docs",
+  "viewer.detail.weightField": "Weight:",
+  "viewer.detail.directionField": "Direction:",
+  "viewer.detail.familyField": "Family:",
+  "viewer.detail.resolutionField": "Resolution:",
+  "viewer.detail.sourceToTargetField": "Source → Target:",
+  "viewer.detail.evidenceCount": "Evidence (${n})",
+  "viewer.detail.noEvidence": "No evidence",
+  "viewer.detail.confidenceEvidence": "confidence ${n}",
+  "viewer.detail.dim.personal": "Personal:",
+  "viewer.detail.dim.team": "Team:",
+  "viewer.detail.dim.project": "Project:",
+  "viewer.detail.dim.network": "Network:",
+  "viewer.detail.dim.temporal": "Temporal:",
+  "viewer.detail.dim.composite": "Composite:",
+  "viewer.detail.searching": "Searching...",
+  "viewer.detail.searchNoMatch": "No matches",
+  "viewer.detail.searchFailed": "Search failed: ${err}",
+
+  // ===== Config panel (viewer.config.*) =====
+  "viewer.config.sectionPersisted": "Configuration (restart required)",
+  "viewer.config.sectionRuntime": "Runtime toggles (next launch)",
+  "viewer.config.sectionMetadata": "Repository info",
+  "viewer.config.pendingBanner":
+    "↻ ${fields} saved — restart ${host} to take effect",
+  "viewer.config.runtimeHintPrefix": "(current: ",
+  "viewer.config.runtimeHintSuffix": ")",
+  "viewer.config.runtimeNotSet": "(not set)",
+  "viewer.config.field.language": "Language",
+  "viewer.config.field.language.desc":
+    "Language used for UI / tool descriptions / prompts",
+  "viewer.config.field.defaultCreatedBy": "Default creator",
+  "viewer.config.field.defaultCreatedBy.desc":
+    "Default createdBy for new engrams; falls back to git identity if empty",
+  "viewer.config.field.defaultCreatedBy.placeholder":
+    "(leave blank to use git author)",
+  "viewer.config.field.toolsProfile": "Tools profile",
+  "viewer.config.field.toolsProfile.desc":
+    "Tool count visible to the LLM: minimal / standard / full",
+  "viewer.config.field.dataRoot": "Data root",
+  "viewer.config.field.dataRoot.desc":
+    "On-disk location of engrams / synapses / audit. To change it, run <code>co-engram config data-root &lt;new-path&gt;</code> in a terminal.",
+  "viewer.config.field.configVersion": "Config version",
+  "viewer.config.field.createdAt": "Created at",
+  "viewer.config.field.updatedAt": "Last updated",
+  "viewer.config.runtimeSection.hint":
+    "These toggles persist the \"desired state at next launch\" to config.json. The currently running instance is unaffected — new values take effect only after restarting ${host}.",
+  "viewer.config.runtimeSection.openclawExtra":
+    " In OpenClaw mode, run <code>openclaw gateway restart</code> in a terminal.",
+  "viewer.config.runtime.audit": "Audit log",
+  "viewer.config.runtime.audit.desc":
+    "Records all API / tool invocation events",
+  "viewer.config.runtime.proposals": "Proposal engine",
+  "viewer.config.runtime.proposals.desc":
+    "Implicitly captures memory candidates for review",
+  "viewer.config.runtime.maintenance": "Maintenance engine",
+  "viewer.config.runtime.maintenance.desc":
+    "Background light/deep/rem three-stage maintenance",
+  "viewer.config.runtime.search": "Searcher",
+  "viewer.config.runtime.search.desc": "Semantic + keyword retrieval",
+  "viewer.config.runtime.viewer": "Web viewer",
+  "viewer.config.runtime.viewer.desc":
+    "HTTP server hosting this page (cannot be turned off, or this UI disconnects)",
+  "viewer.config.dataRootReadOnly":
+    "Data root is now a single CLI entry point: run <code>co-engram config data-root &lt;path&gt;</code> to change it.",
+  "viewer.config.dataRootSave": "Save",
+  "viewer.config.dataRootEditableHint":
+    "Changing the data root requires restarting the host to take effect. Alternatively run <code>co-engram config data-root &lt;path&gt;</code> in a terminal.",
+  "viewer.config.dataRootUpdatedRestartRequired":
+    "Data root updated. Restart {host} to apply.",
+  "viewer.config.dataRootUpdateFailed": "Update failed: {error}",
+  "viewer.config.dataRootRejectEmpty": "Path cannot be empty.",
+  "viewer.config.dataRootRejectNonEngram":
+    "Directory is non-empty and not a co-engram warehouse. Pick an empty dir or an existing co-engram warehouse; to force-takeover a non-empty dir, use CLI: <code>co-engram config data-root &lt;path&gt; --force</code>.",
+  "viewer.config.saveBar.reset": "Reset",
+  "viewer.config.saveBar.save": "Save config",
+  "viewer.config.saveSuccess": "✓ Configuration saved.",
+  "viewer.config.saveSuccessWithRestart":
+    "✓ Configuration saved. The following changes require restarting ${host} to take effect:",
+  "viewer.config.restartBtn": "Restart now",
+  "viewer.config.restartConfirmTitle": "Confirm restart of ${host}?",
+  "viewer.config.restartConfirmBody":
+    "  • Tools will briefly disconnect (auto-reconnect within seconds)\n  • Browser will lose connection; this page auto-refreshes when the service returns\n  • Saved configuration and engram data will not be lost",
+  "viewer.config.restartOpenclawHint":
+    "OpenClaw mode does not support auto-restart from the viewer. Run <code>openclaw gateway restart</code> in a terminal.",
+  "viewer.config.restartMask.title": "⟳ Restarting ${host}…",
+  "viewer.config.restartMask.body":
+    "The service is exiting and will be relaunched by ${parent}. This page will auto-refresh once it returns.",
+  "viewer.config.restartTimeout.title": "Restart timed out (30s)",
+  "viewer.config.restartTimeout.body":
+    "Please refresh the page manually; if ${host} is still down, check ${parent} status.",
+  "viewer.config.restartTimeout.refreshBtn": "Refresh manually",
+  "viewer.config.restartBtnTip":
+    "Click to gracefully exit ${host} (exit code 0); the parent process ${parent} will auto-restart it.\n\nImpact:\n  • Tools briefly disconnect (auto-reconnect in seconds, no impact on ongoing conversations)\n  • Browser disconnects; this page auto-refreshes when the service returns\n  • Background tasks (maintenance thread, proposal engine, etc.) restart with the new config\n\nNot lost:\n  • Saved configuration (just written to config.json)\n  • Existing engram / synapse data (persisted on disk)\n  • Current conversation history (held by ${parent}, independent of service restart)",
+  "viewer.config.pendingField.language": "Language",
+  "viewer.config.pendingField.toolsProfile": "Tools profile",
+  "viewer.config.pendingField.defaultCreatedBy": "Default creator",
+  "viewer.config.pendingField.audit": "Audit log",
+  "viewer.config.pendingField.proposals": "Proposal engine",
+  "viewer.config.pendingField.maintenance": "Maintenance engine",
+
+  // ===== Common strings (viewer.common.*) =====
+  "viewer.common.loading": "Loading...",
+  "viewer.common.loadFailed": "Load failed: ${err}",
+  "viewer.common.empty": "No data yet",
+  "viewer.common.save": "Save",
+  "viewer.common.cancel": "Cancel",
+  "viewer.common.edit": "Edit",
+  "viewer.common.delete": "Delete",
+  "viewer.common.close": "Close",
+  "viewer.common.reset": "Reset",
+  "viewer.common.preview": "Preview",
+  "viewer.common.previewMode": "Preview mode",
+  "viewer.common.editMode": "Edit mode",
+  "viewer.common.enabled": "On",
+  "viewer.common.disabled": "Off",
+  "viewer.common.enabledState": "Enabled",
+  "viewer.common.disabledState": "Disabled",
+  "viewer.common.restartToApply": "Applies after restart",
+  "viewer.common.confirmDeleteTitle": "Confirm delete?",
+  "viewer.common.confirmDeleteEngram":
+    "Delete \"${title}\"?\nThis action is irreversible.",
+  "viewer.common.confirmDeleteSynapse":
+    "Delete this synapse?\nThis action is irreversible.",
+  "viewer.common.saveFailed": "Save failed: ${err}",
+  "viewer.common.deleteFailed": "Delete failed: ${err}",
+  "viewer.common.unknown": "(unknown)",
+  "viewer.common.langZh": "中文",
+  "viewer.common.langEn": "English",
+
+  // ===== Help panel (viewer.help.*) =====
+  "viewer.help.title": "Co-Engram · Self-evolving team memory",
+  "viewer.help.intro":
+    "Co-Engram distills team conversations, decisions and lessons into <em>engrams</em> and links them with <em>synapses</em> into an evolvable knowledge network. Models recall relevant memories via <code>memory_search</code>, reinforce effective ones with <code>engram_reinforce</code>, and weaken broken ones with <code>engram_report_failure</code> — this closed loop lets high-value memories surface and stale ones decay automatically.",
+  "viewer.help.conceptsTitle": "Core concepts",
+  "viewer.help.conceptEngram":
+    "<strong>Engram</strong>",
+  "viewer.help.conceptEngramDesc":
+    "A structured memory entry with fields like title/content/kind/tags/importance/confidence. 5 kinds: <code>fact</code> <code>observation</code> <code>pattern</code> <code>procedure</code> <code>hypothesis</code>. Hover a field to see its description.",
+  "viewer.help.conceptSynapse":
+    "<strong>Synapse</strong>",
+  "viewer.help.conceptSynapseDesc":
+    "A directed edge between two engrams, grouped into 5 families: <code>structural</code> (extends/part_of/similar_to), <code>causal</code> (depends_on/causes/follows), <code>evidential</code> (derives_from/contradicts/exemplifies), <code>temporal</code> (supersedes/consolidates), <code>modulatory</code> (contextualizes). <code>contradicts</code> enters the resolution flow.",
+  "viewer.help.conceptImportance":
+    "<strong>Importance & confidence</strong>",
+  "viewer.help.conceptImportanceDesc":
+    "Two independent 0-1 numbers. Importance is derived from reinforcement signals + time decay and affects retrieval weight; confidence reflects how trustworthy the memory is (a metacognition score) and is decoupled from importance.",
+  "viewer.help.conceptVector":
+    "<strong>Importance vector (importanceVector)</strong>",
+  "viewer.help.conceptVectorDesc":
+    "Decomposes importance into 5 dimensions: personal/team/project/network/temporal for fine-grained control. If present, engram detail view shows a dedicated section.",
+  "viewer.help.conceptLifecycle":
+    "<strong>Lifecycle</strong>",
+  "viewer.help.conceptLifecycleDesc":
+    "<code>draft → active → archived → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
+  "viewer.help.tabsTitle": "Tabs",
+  "viewer.help.tabStats":
+    "<strong>Stats</strong> — overview dashboard: distribution by kind/status/family, contributors and top tags. Top search box does full-text retrieval.",
+  "viewer.help.tabEngrams":
+    "<strong>Engrams</strong> — card/list view of all engrams with tag/kind/status filters; click to open detail (edit/delete/show synapses).",
+  "viewer.help.tabGraph":
+    "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind. Opening an engram detail highlights its neighbors.",
+  "viewer.help.tabProposals":
+    "<strong>Proposals</strong> — candidate-memory approval queue. The system extracts candidates from conversations; humans/LLMs accept (engram_accept_proposal) or dismiss (engram_dismiss_proposal).",
+  "viewer.help.tabAudit":
+    "<strong>Audit</strong> — operation timeline recording create/update/reinforce/report_failure and every state change, for 'who changed what when' traceability.",
+  "viewer.help.tabTrash":
+    "<strong>Trash</strong> — staging for deleted engrams. Restore one, or purge all (filter by partition; dryRun count + double confirmation before permanent delete).",
+  "viewer.help.tabConfig":
+    "<strong>Config</strong> — data root, maintenance cycles, evolution parameters. Persisted edits take effect after restarting the host.",
+  "viewer.help.evolutionTitle": "How memories evolve",
+  "viewer.help.evo1":
+    "<strong>Retrieve</strong>: the agent calls <code>memory_search</code>; FTS + 3-factor scoring recall top-N.",
+  "viewer.help.evo2":
+    "<strong>Cite</strong>: the agent writes relevant memory content into its answer; the user decides accordingly.",
+  "viewer.help.evo3":
+    "<strong>Reinforce</strong>: the agent judges whether the citation was effective — <code>engram_reinforce</code> if effective, <code>engram_report_failure</code> if not.",
+  "viewer.help.evo4":
+    "<strong>Spread</strong>: reinforcement propagates through synapses to neighbors by Hebbian proportion (except contradicts).",
+  "viewer.help.evo5":
+    "<strong>Decay</strong>: every engram has <code>decayHalfLifeDays</code>; importance decays exponentially by lastEffectiveAt + half-life.",
+  "viewer.help.evo6":
+    "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'.",
+  "viewer.help.tipsTitle": "Tips",
+  "viewer.help.tip1":
+    "The <code>?</code> icon next to field names (hover) gives a short description of that field.",
+  "viewer.help.tip2":
+    "Detail-view sections like 'value assessment / importance vector / source context' appear only when the engram carries the corresponding fields.",
+  "viewer.help.tip3":
+    "Config-tab edits write to the persisted file by default and take effect after restarting the host. Edit the data root directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code> (the latter supports <code>--force</code> to take over a non-empty directory).",
+  "viewer.help.tip4":
+    "On repository inconsistency, call <code>engram_doctor</code> from the agent for a self-healing scan.",
+
+  // ===== Ports & data root =====
+  "viewer.help.opsTitle": "Ports & data root",
+  "viewer.help.opsPorts":
+    "<strong>Viewer port</strong>:Claude Code (MCP) defaults to <code>18799</code>,OpenClaw (plugin) defaults to <code>18899</code> — both hosts can run side-by-side without conflict. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides both. The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port).",
+  "viewer.help.opsDataRoot":
+    "<strong>Data root</strong>:edit directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code>. Both write the same <code>~/.co-engram/config.json</code> bootstrap config; restart the current host to apply. For safety, the UI only accepts empty dirs or existing co-engram warehouses; to take over a non-empty non-co-engram dir use the CLI with <code>--force</code>.",
+
+  // ===== Graph panel (viewer.graph.*) =====
+  "viewer.graph.renderFailed": "Render failed: ${err}",
+  "viewer.graph.visLoadFailed": "vis-network failed to load",
+  "viewer.graph.empty": "No engrams yet",
+  "viewer.graph.tagsLabel": "tags:",
+  "viewer.graph.familySuffix": " family",
+  "viewer.graph.weightLabel": "weight",
+  "viewer.graph.evidenceLabel": "evidence",
+  "viewer.graph.resolutionLabel": "resolution:",
+  "viewer.graph.directionLabel": "direction:",
+  "viewer.graph.clickToEdit": "click to edit this synapse",
+  "viewer.graph.nodeDetailTitle": "Node detail",
+  "viewer.graph.editInEngrams": "Edit in engrams",
+  "viewer.graph.importanceShort": "importance",
+  "viewer.graph.summaryTitle": "Summary",
+  "viewer.graph.statsTitle": "Stats",
+  "viewer.graph.retrievalLabel": "retrievals:",
+  "viewer.graph.effectiveLabel": "effective:",
+  "viewer.graph.failedLabel": "failed:",
+  "viewer.graph.outgoingSynapses": "Outgoing synapses",
+  "viewer.graph.incomingSynapses": "Incoming synapses",
+  "viewer.graph.familyGroupStructural": "Structural",
+  "viewer.graph.familyGroupCausal": "Causal",
+  "viewer.graph.familyGroupEvidential": "Evidential",
+  "viewer.graph.familyGroupTemporal": "Temporal",
+  "viewer.graph.familyGroupModulatory": "Modulatory",
+  "viewer.graph.toolbar.filters": "Filters",
+  "viewer.graph.toolbar.kinds": "Node kinds",
+  "viewer.graph.toolbar.synapseKinds": "Synapse kinds",
+  "viewer.graph.toolbar.reset": "Reset view",
+  "viewer.graph.toolbar.fit": "Fit to window",
+  "viewer.graph.toolbar.physics": "Physics",
+  "viewer.graph.toolbar.fitTitle":
+    "Fit view: auto-zoom and center so every node is visible",
+  "viewer.graph.toolbar.physicsTitle":
+    "Physics engine: when on, nodes auto-layout via spring/repulsion model (uses CPU until stable); off freezes positions — useful for browsing large graphs after they settle",
+  "viewer.graph.toolbar.resetTitle":
+    "Reset filters: restore every kind/family checkbox and re-fit the view",
+  "viewer.graph.synapseKindsTitle": "Synapse kinds · by family",
+  "viewer.graph.engramKindsTitle": "Engram kinds",
+
+  // ===== Synapses panel / synapse detail (viewer.synapses.*) =====
+  "viewer.synapses.kindChangeHint":
+    "Tip: changing 'kind' or 'direction' re-derives the synapse id (id is computed from from+to+kind+direction); the old id becomes invalid, but all metadata (weight/evidence/creator) migrates to the new id.",
+  "viewer.synapses.deleteConfirm":
+    "Delete this synapse?\\nThis action cannot be undone.",
+  "viewer.synapses.kindField": "Kind:",
+  "viewer.synapses.idField": "ID:",
+  "viewer.synapses.creatorField": "Created by:",
+  "viewer.synapses.timeField": "Time:",
+  "viewer.synapses.reloadingGraph": "Reloading graph...",
+  "viewer.synapses.directionDefault": "directional",
+
+  // ===== Host terminology (host.*) =====
+  "host.label.mcp": "Claude Code",
+  "host.label.openclaw": "OpenClaw",
+  "host.process.mcp": "Claude Code",
+  "host.process.openclaw": "OpenClaw",
+  "host.gateway.openclaw": "OpenClaw gateway",
+  "host.gateway.mcp": "MCP server",
+
+  // ===== Tooltip strings (tip.*) =====
+  "tip.kind.fact":
+    "Fact: a confirmed, independently verifiable objective statement. Example: \"The project uses PostgreSQL 14\".",
+  "tip.kind.observation":
+    "Observation: a one-off perceived fact, not yet distilled into a stable conclusion. Example: \"CI took 12 minutes today\".",
+  "tip.kind.pattern":
+    "Pattern: a rule归纳duced from repeated observations; can predict future behavior. Example: \"Build times get longer every Monday morning\".",
+  "tip.kind.procedure":
+    "Procedure: a sequence of steps that reproduces a result when executed. Example: \"Run pnpm check before release\".",
+  "tip.kind.hypothesis":
+    "Hypothesis: an unverified guess; usable as a working hypothesis until counter-examples appear. Example: \"Slow queries may stem from missing indexes\".",
+  "tip.status.active":
+    "Active: recently retrieved or reinforced; high weight in the recall pool.",
+  "tip.status.dormant":
+    "Dormant: long unretrieved; weight has decayed but not forgotten.",
+  "tip.status.forgotten":
+    "Forgotten: actively forgotten by maintenance; file remains but excluded from default recall.",
+  "tip.status.archived":
+    "Archived: cold-storage state; only for historical lookups.",
+  "tip.visibility.public": "Public: visible to everyone / every agent.",
+  "tip.visibility.team": "Team: visible only within the same team.",
+  "tip.visibility.private": "Private: visible only to the creator.",
+  "tip.visibility.restricted":
+    "Restricted: requires specific permissions to view.",
+  "tip.emotionalValence.positive":
+    "Positive: encoded with positive emotion (success / praise / resolution). Reinforcement weight is slightly higher.",
+  "tip.emotionalValence.negative":
+    "Negative: encoded with negative emotion (failure / warning / refutation). Used to flag future decisions.",
+  "tip.emotionalValence.neutral":
+    "Neutral: no clear emotional valence at encoding; purely declarative.",
+  "tip.sourceType.firsthand":
+    "Firsthand: directly experienced / observed; highest credibility.",
+  "tip.sourceType.secondhand":
+    "Secondhand: relayed / documented / others' experience; needs cross-validation.",
+  "tip.sourceType.inferred":
+    "Inferred: induced from other memories; no direct evidence.",
+  "tip.verification.unverified":
+    "Unverified: newly created; has not yet passed metacognitive scoring.",
+  "tip.verification.plausible":
+    "Plausible: overall ≥ 0.4; passes initial check but uncertainty remains.",
+  "tip.verification.probable":
+    "Probable: overall ≥ 0.6; retrieved multiple times with no counter-examples.",
+  "tip.verification.verified":
+    "Verified: overall ≥ 0.8 or human-confirmed; safe to use as a decision basis.",
+  "tip.verification.refuted":
+    "Refuted: strong counter-examples exist or metacognitive score is very low; do not rely on it.",
+  "tip.synapse.extends":
+    "extends (structural): A extends B, inheriting its semantics and adding new dimensions.",
+  "tip.synapse.part_of":
+    "part_of (structural): A is a component of B (B has-a A).",
+  "tip.synapse.similar_to":
+    "similar_to (structural): A is semantically close to B; interchangeable or mutually supportive.",
+  "tip.synapse.depends_on":
+    "depends_on (causal): A's validity depends on B (B is a precondition of A).",
+  "tip.synapse.causes":
+    "causes (causal): A triggers or produces B (positive causation).",
+  "tip.synapse.follows":
+    "follows (causal): A follows B temporally/logically (no strong causation).",
+  "tip.synapse.derives_from":
+    "derives_from (evidential): A is derived from B (B is the basis).",
+  "tip.synapse.contradicts":
+    "contradicts (evidential): A conflicts with B; enters resolution flow.",
+  "tip.synapse.exemplifies":
+    "exemplifies (evidential): A is a concrete instance/sample of B.",
+  "tip.synapse.supersedes":
+    "supersedes (temporal): A replaces an outdated B (version transition).",
+  "tip.synapse.consolidates":
+    "consolidates (temporal): A merges/refines the content of B.",
+  "tip.synapse.contextualizes":
+    "contextualizes (modulatory): A provides context for B (neither causal nor evidential).",
+  "tip.family.structural":
+    "Structural: composition / extension relationships. Blue.",
+  "tip.family.causal": "Causal: trigger / dependency relationships. Orange.",
+  "tip.family.evidential":
+    "Evidential: source / conflict relationships. Green (contradictions flagged red).",
+  "tip.family.temporal":
+    "Temporal: version / evolution relationships. Purple.",
+  "tip.family.modulatory":
+    "Modulatory: contextual relationships. Gray.",
+  "tip.synapseDirection.directional":
+    "Directional: A → B; the relation points only from source to target.",
+  "tip.synapseDirection.bidirectional":
+    "Bidirectional: A ↔ B; the relation applies symmetrically.",
+  "tip.resolution.pending":
+    "Pending: a contradiction has been detected, awaiting resolution.",
+  "tip.resolution.auto_resolved":
+    "Auto-resolved (phase 1): LLM produced an automatic verdict.",
+  "tip.resolution.escalated":
+    "Escalated (phase 2): escalated to the owner for resolution.",
+  "tip.resolution.contested":
+    "Contested (phase 3): no response within the timeout, with a warning attached.",
+  "tip.resolution.resolved":
+    "Resolved: closed, manually or automatically.",
+  "tip.importance":
+    "Importance: 0-1; higher values mean more weight in the recall pool. Derived from initial setting + reinforcement signals + decay.",
+  "tip.confidence":
+    "Confidence: 0-1; reflects how credible this memory is (independent of importance).",
+  "tip.retrievalCount":
+    "Retrieval count: total times this memory has been hit by search/recall.",
+  "tip.effectiveRetrievals":
+    "Effective retrievals: times the hit was actually adopted (not filtered out).",
+  "tip.failedUses":
+    "Failed uses: times the hit was reported as \"invalid/outdated\". Too many failures trigger forgetting.",
+  "tip.reinforcementScore":
+    "Reinforcement score: cumulative positive reinforcement signal.",
+  "tip.decayHalfLifeDays":
+    "Decay half-life (days): importance halves every N days. null means never decays.",
+  "tip.lastEffectiveAt":
+    "Last effective at: timestamp of the most recent successful adoption/reinforcement.",
+  "tip.evidenceCount":
+    "Evidence count: number of independent evidence entries (synapses + metadata) supporting this memory.",
+  "tip.encodingContext":
+    "Encoding context: background description when the memory was created; used for context-dependent recall.",
+  "tip.perspective":
+    "Perspective: observation viewpoint identifier (multi-perspective retention mechanism, spec §5.3).",
+  "tip.importanceVector":
+    "Multi-dim importance: splits importance into 5 independent dimensions for fine-grained control.",
+  "tip.importanceDim.personal":
+    "Personal: relevance to the current user's work.",
+  "tip.importanceDim.team": "Team: collaborative value for the whole team.",
+  "tip.importanceDim.project":
+    "Project: alignment with current project goals.",
+  "tip.importanceDim.network":
+    "Network: derived from synapse count; reflects knowledge-graph centrality.",
+  "tip.importanceDim.temporal":
+    "Temporal: derived from lastEffectiveAt + half-life; recently reinforced memories score higher.",
+  "tip.freshness.fresh":
+    "Fresh: ageDays ≤ halfLife; recently reinforced, top weight in the recall pool.",
+  "tip.freshness.aging":
+    "Aging: halfLife < ageDays ≤ halfLife×2; weight dropping, reinforce soon.",
+  "tip.freshness.stale":
+    "Stale: halfLife×2 < ageDays ≤ halfLife×4; long unreinforced, candidate for forgetting.",
+  "tip.freshness.forgotten":
+    "Forgotten: ageDays > halfLife×4; removed from default recall pool (file retained, recoverable via Git).",
 };
