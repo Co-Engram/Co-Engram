@@ -148,17 +148,16 @@ export function serializeEngramFile(
 ): string {
   const body = file.content.replace(/^\n+/, "").replace(/\n+$/, "");
 
-  // Obsidian alias:把 ULID 暴露为 frontmatter 顶层字段,让 wikilink [[ULID|...]]
-  // 能稳定解析到本文件(文件名可能因 title slug 漂移,ULID 不变)。
-  // aliases 是 Obsidian 保留字段名,中英文格式都不翻译。
-  const frontmatterWithAliases: Record<string, unknown> = {
-    ...file.frontmatter,
-    aliases: [file.frontmatter.id],
-  };
+  // Obsidian 派生段 wikilink 用文件名作 target(见 obsidian-links.ts),
+  // 不依赖 frontmatter aliases。中文模式 frontmatter 在文件底部,
+  // Obsidian 不识别底部 frontmatter,aliases 注入也无意义。
+  // 历史 engram 中残留的 aliases 字段会被显式剥离,doctor 重写后清干净。
+  const { aliases: _drop, ...frontmatter } = file.frontmatter;
+  void _drop;
 
   if (language === "zh") {
     const localized = localizeKeys(
-      frontmatterWithAliases,
+      frontmatter,
       "zh",
       ENGRAM_FIELD_MAP,
       {
@@ -170,7 +169,7 @@ export function serializeEngramFile(
     return `${body}\n\n<!-- co-engram-meta:zh -->\n${FRONTMATTER_DELIMITER}\n${yamlTrimmed}${FRONTMATTER_DELIMITER}\n`;
   }
 
-  const yamlStr = stringify(frontmatterWithAliases, { lineWidth: 0 });
+  const yamlStr = stringify(frontmatter, { lineWidth: 0 });
   const yamlTrimmed = yamlStr.endsWith("\n") ? yamlStr : yamlStr + "\n";
   return `${FRONTMATTER_DELIMITER}\n${yamlTrimmed}${FRONTMATTER_DELIMITER}\n\n${body}\n`;
 }

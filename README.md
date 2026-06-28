@@ -254,16 +254,20 @@ For a deeper walkthrough, see [docs/concepts.md](./docs/concepts.md) and [docs/t
 
 ### Obsidian integration (graph view via derived wikilinks)
 
-Co-Engram writes two Obsidian-friendly fields to every engram `.md`:
+Co-Engram appends a `## Synapses (derived)` section to the body of every engram whose synapses touch it. The section lists outgoing (`→`) and incoming (`←`) connections as wikilinks:
 
-- **`aliases: [ULID]`** in frontmatter — stabilizes wikilink targets across title/slug renames.
-- **`## Synapses (derived)`** section at end of body — lists outgoing (`→`) and incoming (`←`) connections as `[[ULID|kind]]` wikilinks. `contradicts` edges sort first as a visual warning.
+```
+- → [[co-engram-foo|Some Title · extends]]
+- ← [[co-engram-bar|Other Title · derives_from]]
+```
+
+The wikilink **target is the filename** (without `.md`), so Obsidian resolves it natively — no `aliases` field needed. The **display shows the target engram's title plus the synapse kind**, so you can read the network at a glance without leaving the file. `contradicts` edges sort first as a visual warning.
 
 Open the team memory directory in [Obsidian](https://obsidian.md/) (`Open vault → ~/AIOS/team-memory/team-memory/` or wherever your `dataRoot` points) and the **Graph View** renders the full memory network with backlinks, file shift-click navigation, and global structure at a glance. The YAML source of truth stays in `synapses/*.yaml`; the derived section is rebuilt on every synapse write, so manual edits to it are safe to revert.
 
-**Self-healing:** `engram_doctor` checks every engram for `aliases` or derived-section drift (e.g. you hand-edited the wikilinks, or a write was interrupted) and regenerates the stale view. Idempotent — running it on a clean repo reports zero fixes. Run it whenever the Obsidian graph looks wrong, or after bulk imports / Git merges.
+**Self-healing:** `engram_doctor` checks every engram's derived section against the authoritative synapse yaml (e.g. you hand-edited the wikilinks, a write was interrupted, or a file was renamed) and regenerates the stale view. Idempotent — running it on a clean repo reports zero fixes. Run it whenever the Obsidian graph looks wrong, or after bulk imports / Git merges.
 
-**Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info only appears in the wikilink display text (`[[...|extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
+**Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info survives in the wikilink display text (`[[...|Some Title · extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
 
 ## Architecture
 

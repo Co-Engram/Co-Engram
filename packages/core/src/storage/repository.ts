@@ -1304,9 +1304,9 @@ export class EngramRepository {
       }
     }
 
-    // 5. Obsidian 视图一致性(aliases + 派生段)
-    // 对每条 engram:checkObsidianView 检测 aliases 缺失或派生段 stale,
-    // 任一为真 → regenerateObsidianLinks 修复(writeEngramFile 会注入 aliases)。
+    // 5. Obsidian 视图一致性(派生段 wikilinks)
+    // 对每条 engram:checkObsidianView 检测派生段与权威源(synapse yaml)不一致,
+    // 不一致 → regenerateObsidianLinks 重写派生段(wikilink target=文件名)。
     for (const [id, entry] of freshIndex.entries) {
       const absPath = join(this.config.rootPath, entry.path);
       if (!existsSync(absPath)) continue;
@@ -1317,18 +1317,15 @@ export class EngramRepository {
         continue; // parse 错误由别处报告(或phan_markdown 路径)
       }
       const touching = listSynapsesForEngram(this.config.rootPath, id);
-      const status = checkObsidianView(file, touching);
-      if (!status.aliasesMissing && !status.derivedStale) continue;
+      const status = checkObsidianView(file, touching, freshIndex);
+      if (!status.stale) continue;
 
       regenerateObsidianLinks(this.config.rootPath, id, this.language);
-      const missingParts: string[] = [];
-      if (status.aliasesMissing) missingParts.push("aliases");
-      if (status.derivedStale) missingParts.push("derived-section");
       fixes.push({
         kind: "obsidian_view_stale",
         stableId: id as StableEngramId,
         path: entry.path,
-        message: `Obsidian view regenerated (missing: ${missingParts.join(", ")})`,
+        message: `Obsidian derived wikilinks regenerated (target=filename, display=title·kind)`,
         autoFixed: true,
       });
     }

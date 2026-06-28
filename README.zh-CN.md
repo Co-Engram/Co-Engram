@@ -254,16 +254,20 @@ OpenClaw 在插件 manifest 中设置 `startViewer: true` —— viewer 默认 1
 
 ### Obsidian 集成(通过派生 wikilinks 实现 graph view)
 
-Co-Engram 给每条 engram `.md` 写入两个 Obsidian 友好的字段:
+Co-Engram 在每条被 synapse 触及的 engram 正文末尾追加 `## Synapses (derived)` 段,列出出边(`→`)和入边(`←`),格式为:
 
-- **frontmatter 的 `aliases: [ULID]`** —— 让 wikilink 目标在 title / slug 改名后仍稳定解析。
-- **正文末尾的 `## Synapses (derived)` 段** —— 列出所有出边(`→`)和入边(`←`),格式为 `[[ULID|kind]]` wikilink。`contradicts` 边前置排序,作为视觉警告。
+```
+- → [[co-engram-foo|某标题 · extends]]
+- ← [[co-engram-bar|另一标题 · derives_from]]
+```
+
+wikilink 的 **target 是文件名**(去 `.md`),Obsidian 直接解析,**不依赖 frontmatter aliases**。**display 显示目标 engram 的标题 + 关系 kind**,在不跳转的情况下就能读懂网络结构。`contradicts` 边前置排序,作为视觉警告。
 
 用 [Obsidian](https://obsidian.md/) 打开团队记忆目录("Open vault → ~/AIOS/team-memory/team-memory/" 或 dataRoot 指向的路径),**Graph View** 就能渲染完整的记忆网络——反向链接、文件 shift-click 跳转、全局结构一目了然。YAML 权威源仍在 `synapses/*.yaml`;派生段每次 synapse 写入时重建,手动改了它也不要紧,下次写入会覆盖回来。
 
-**自愈:** `engram_doctor` 会逐条检查 engram 的 `aliases` 与派生段是否与权威源一致(比如你手改了 wikilink、或写入被中断),发现漂移就重建。幂等——干净仓库跑一次报 0 修复。Obsidian 图谱看起来不对、或大批量导入 / Git 合并之后跑一次即可。
+**自愈:** `engram_doctor` 会逐条比对派生段与权威 synapse yaml(比如你手改了 wikilink、写入被中断、文件被重命名),发现漂移就重建。幂等——干净仓库跑一次报 0 修复。Obsidian 图谱看起来不对、或大批量导入 / Git 合并之后跑一次即可。
 
-**已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息只能从 wikilink 显示文本(`[[...|extends]]`)看出。要按 kind 过滤,用网页内的 **Graph** 标签。
+**已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息保留在 wikilink 显示文本(`[[...|某标题 · extends]]`)里。要按 kind 过滤,用网页内的 **Graph** 标签。
 
 ## 架构
 

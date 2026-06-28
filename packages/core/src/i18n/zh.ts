@@ -1320,7 +1320,7 @@ incremental=true:只扫描自上次 mtime pass 以来变化的文件。`,
   // ===== Obsidian 集成 =====
   "viewer.help.obsidianTitle": "Obsidian 集成(graph view)",
   "viewer.help.obsidianBody":
-    "数据根目录可直接作为 <strong>Obsidian vault</strong> 打开。每条记忆印迹的 frontmatter 自动注入 <code>aliases: [ULID]</code>,突触(<code>extends</code> / <code>similar_to</code> / <code>contradicts</code> 等)产生或变更时,会在涉及的印迹正文末尾追加一段派生 wikilinks:<code>→ [[ULID|kind]]</code>(出边)与 <code>← [[ULID|kind]]</code>(入边)。借助 alias,即使文件名因标题 slug 漂移,wikilink 也能稳定解析到对应文件。Obsidian graph view 把这些 wikilink 当作无差别无向边可视化;<code>contradicts</code> 边在派生段内置顶。权威源仍是 <code>synapses/*.yaml</code>;派生段是 denormalized 视图,可随时从 yaml 重建。<strong>图谱看起来不对?</strong>跑一次 <code>engram_doctor</code>,它会逐条校验 <code>aliases</code> 与派生段是否与权威源一致,漂移就重建(幂等,干净仓库报 0 修复)。",
+    "数据根目录可直接作为 <strong>Obsidian vault</strong> 打开。突触(<code>extends</code> / <code>similar_to</code> / <code>contradicts</code> 等)产生或变更时,会在涉及的印迹正文末尾追加一段派生 wikilinks:<code>→ [[文件名|标题 · kind]]</code>(出边)与 <code>← [[文件名|标题 · kind]]</code>(入边)。wikilink target 用<strong>文件名</strong>(Obsidian 原生解析,不依赖 frontmatter aliases),display 含<strong>目标印迹标题 + kind</strong>,不跳转就能读懂关系。<code>contradicts</code> 边在派生段内置顶。权威源仍是 <code>synapses/*.yaml</code>;派生段是 denormalized 视图,可随时从 yaml 重建。<strong>图谱看起来不对?</strong>跑一次 <code>engram_doctor</code>,它会逐条校验派生段是否与权威源一致,漂移就重建(幂等,干净仓库报 0 修复)。",
 
   // ===== Graph 面板(viewer.graph.*) =====
   "viewer.graph.renderFailed": "渲染失败:${err}",
