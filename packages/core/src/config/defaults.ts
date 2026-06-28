@@ -6,6 +6,7 @@
 
 import type {
   AuditSectionConfig,
+  AutoMemorySyncSectionConfig,
   EffectivenessSectionConfig,
   MaintenanceSectionConfig,
   ProposalsSectionConfig,
@@ -81,6 +82,21 @@ export const DEFAULT_VIEWER_CONFIG: Readonly<
 export const DEFAULT_SERVER_CONFIG: Readonly<Required<ServerSectionConfig>> = {
   name: "co-engram",
   version: "0.0.0",
+};
+
+/**
+ * Auto-memory 同步默认值
+ *
+ * `enabled` 默认 true(遵循 low-friction-defaults):Claude Code 用户开箱即用,
+ * 不需要手动启用。`projectsRoot` 留空 → 由 claude-code-mcp 用 `~/.claude/projects`
+ * 解析(本字段允许 viewer / 用户显式 override)。`debounceMs` 500ms 足够吸收
+ * Claude Code 写 MEMORY.md 时连续多次 change 事件。
+ */
+export const DEFAULT_AUTO_MEMORY_SYNC_CONFIG: Readonly<
+  Required<Omit<AutoMemorySyncSectionConfig, "projectsRoot">>
+> = {
+  enabled: true,
+  debounceMs: 500,
 };
 
 /**

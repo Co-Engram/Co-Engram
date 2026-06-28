@@ -230,6 +230,30 @@ The LLM evaluator was called but failed, and fell back to the rule-based evaluat
 
 The rule-based fallback keeps the proposal engine always-available, but you lose the LLM's semantic judgment and `suggestedTitle` draft.
 
+### Q: My Claude Code auto-memory isn't syncing to co-engram
+
+The watcher should print this line at MCP startup:
+
+```
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+```
+
+If you don't see it, check in order:
+
+- **Disabled by env**: `CO_ENGRAM_AUTO_MEMORY_SYNC=0` overrides everything. Remove it from your MCP env block.
+- **Disabled by config**: `autoMemorySync.enabled: false` in `.co-engram/config.json`. Delete the line or set to `true`.
+- **`HOME` not set / non-standard projects root**: the watcher falls back to `$HOME/.claude/projects`. If `$HOME` is empty, set `CO_ENGRAM_CLAUDE_PROJECTS_ROOT=/home/you/.claude/projects` explicitly.
+- **Wrong host**: OpenClaw doesn't run this watcher. You must use `@co-engram/claude-code` (the MCP server) for the sync to happen.
+- **Watcher started but file not picked up**: the watcher debounces 500ms. If you wrote a file and immediately checked `engram_search`, give it a beat. The watcher also ignores `MEMORY.md` (the index) by design — individual `.md` files are what get mirrored.
+
+Synced memories carry `domainTag` `claude-code-auto-memory`, so you can filter:
+
+```
+engram_search({ query: "...", filter: { domainTags: ["claude-code-auto-memory"] } })
+```
+
+Each mirror also has `encodingContext` `claude-code-auto-memory:<slug>`. Editing the source memory in Claude Code updates the engram's content (stats preserved); deleting the source file does NOT currently delete the engram (use `engram_forget` if you want it gone from retrieval).
+
 ### Q: How do I completely reset?
 
 ```bash

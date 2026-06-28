@@ -151,6 +151,43 @@ or `engram_dismiss_proposal` to ignore.
 
 Claude Code 会在会话 banner 中显示此消息。随后 LLM 可借助三个候选工具进行分诊处理。
 
+### Auto-Memory 同步(Claude Code → Co-Engram)
+
+Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护它自己的 auto-memory(类型:`user` / `feedback` / `project` / `reference` / `pattern`)。Co-Engram 会监听这个目录,**把每条记忆镜像成团队仓库里的 engram**,这样宿主已经捕获的洞察不必再手动调 `engram_create` 重写一遍。
+
+**默认开启**(开箱即用)。关闭方式:
+
+```bash
+claude mcp add co-engram \
+  -e CO_ENGRAM_AUTO_MEMORY_SYNC=0 \
+  -- co-engram-mcp
+```
+
+或在 `~/.co-engram/config.json` 里:
+
+```json
+{ "autoMemorySync": { "enabled": false } }
+```
+
+工作原理:
+
+- 启动时扫 `~/.claude/projects/` 下每个项目的 `memory/` 子目录,批量同步已存在的文件
+- `fs.watch` 监听器实时捕获新写入/更新的 `.md` 文件(去抖 500ms)
+- 每条记忆变为一个 engram,带:
+  - `domainTag` `claude-code-auto-memory`(可在 `engram_search` 里过滤)
+  - `encodingContext` `claude-code-auto-memory:<slug>`(幂等键)
+- 类型映射:`pattern` → `pattern`、`feedback` / `user` → `observation`、`project` / `reference` → `fact`
+- 在 Claude Code 里改名或重写一条 memory → 对应 engram 的 `content` 被更新(保留强化/衰减等统计字段)
+- `MEMORY.md`(索引文件)有意跳过
+
+MCP 启动时如果看到这行日志,说明 watcher 正在跑:
+
+```
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+```
+
+OpenClaw 没有等价的 auto-memory 写入器,所以本子系统**仅 claude-code-mcp 启动** —— openclaw-plugin 不会启动它。
+
 ## 项目本地配置(`.mcp.json`)
 
 对于团队共享的 Co-Engram 配置,在项目根目录放置一个 `.mcp.json`:

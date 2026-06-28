@@ -724,6 +724,8 @@ viewer 按宿主使用不同默认端口,Claude Code 与 OpenClaw 可在同一�
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`                 | 设为 `1` 后,forgotten 的 engram 会移入 `.trash/` 而非直接删除                                                           |
 | `CO_ENGRAM_TRASH_AFTER_DAYS`              | `30`                | 进入 `forgotten` 状态多少天后才移入 `.trash/`                                                                           |
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`               | 在 `.trash/` 中多少天后物理删除(`0` = 永不)                                                                             |
+| `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                 | 仅 Claude Code。设为 `0` 关闭监听器 —— 该监听器把 `~/.claude/projects/*/memory/*.md` 镜像成 engram(详见 [host-claude-code.md](./docs/host-claude-code.zh-CN.md#auto-memory-同步claude-code--co-engram)) |
+| `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | 覆盖 auto-memory 项目根目录(仅 Claude Code)                                                                              |
 
 ### OpenClaw manifest 配置
 

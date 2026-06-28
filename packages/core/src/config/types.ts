@@ -91,6 +91,33 @@ export interface ServerSectionConfig {
 }
 
 /**
+ * Auto-memory 同步子系统配置(Claude Code MCP 专用)
+ *
+ * Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护一份
+ * 自动记忆,本子系统把这份记忆同步为 co-engram engram(幂等,domainTag 标识来源)。
+ *
+ * 默认 true(遵循 low-friction-defaults)。OpenClaw 没有等价的"自动记忆写入器",
+ * 该子系统在 OpenClaw host 下完全不启动(由 claude-code-mcp 在 main() 内决定)。
+ */
+export interface AutoMemorySyncSectionConfig {
+  /**
+   * 启用 auto-memory 同步(默认 true)
+   *
+   * 设为 false 完全禁用 watcher + 初始扫描,co-engram 不会读 Claude Code 的
+   * memory 目录。env `CO_ENGRAM_AUTO_MEMORY_SYNC=0` 优先于本字段。
+   */
+  readonly enabled?: boolean;
+  /**
+   * Claude Code projects 根目录(默认 ~/.claude/projects)
+   *
+   * 通常不需要改,但用户可能用 CO_ENGRAM_CLAUDE_PROJECTS_ROOT 自定义位置。
+   */
+  readonly projectsRoot?: string;
+  /** 文件变化去抖间隔(毫秒,默认 500) */
+  readonly debounceMs?: number;
+}
+
+/**
  * team-memory 持久化配置形状
  *
  * 由 `co-engram init` 或自愈机制写入,启动时以本文件为单一权威。
@@ -160,6 +187,8 @@ export interface TeamMemoryConfig {
   readonly viewer?: ViewerSectionConfig;
   /** MCP server 协议身份 */
   readonly server?: ServerSectionConfig;
+  /** Auto-memory 同步子系统配置(Claude Code MCP 专用,OpenClaw 忽略) */
+  readonly autoMemorySync?: AutoMemorySyncSectionConfig;
 }
 
 // Re-export 引擎用的子系统类型(供 main 等调用方使用)

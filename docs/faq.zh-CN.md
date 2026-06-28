@@ -230,6 +230,30 @@ grep '"necessity_rejected"' ~/team-memory/.co-engram/audit.jsonl | tail -10
 
 规则版兜底保证了 proposal engine 始终可用,但你失去了 LLM 的语义判断能力和 `suggestedTitle` 草稿。
 
+### 问:Claude Code 的 auto-memory 没有同步到 co-engram
+
+watcher 启动时会打印这一行日志:
+
+```
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+```
+
+如果看不到,按顺序排查:
+
+- **被 env 关闭**:`CO_ENGRAM_AUTO_MEMORY_SYNC=0` 优先级最高。从 MCP 的 env 块里删掉它。
+- **被 config 关闭**:`.co-engram/config.json` 里 `autoMemorySync.enabled: false`。删掉这行或改回 `true`。
+- **`HOME` 未设置 / projects 根目录非默认**:watcher 默认走 `$HOME/.claude/projects`。如果 `$HOME` 为空,显式设 `CO_ENGRAM_CLAUDE_PROJECTS_ROOT=/home/you/.claude/projects`。
+- **宿主不对**:OpenClaw 不启动这个 watcher。必须用 `@co-engram/claude-code`(MCP server)才能享受同步。
+- **watcher 启动了但单条文件没同步**:watcher 去抖 500ms。如果你刚写完文件立刻 `engram_search`,稍等一下再看。同时 `MEMORY.md`(索引文件)按设计就被忽略 —— 只同步单独的 `.md` 文件。
+
+同步过来的记忆都带 `domainTag` `claude-code-auto-memory`,可以过滤:
+
+```
+engram_search({ query: "...", filter: { domainTags: ["claude-code-auto-memory"] } })
+```
+
+每条镜像还有 `encodingContext` `claude-code-auto-memory:<slug>`。在 Claude Code 里编辑源 memory → engram 的 content 被更新(保留强化/衰减统计);**删除源文件目前不会删除 engram**(想从检索里清掉,显式调 `engram_forget`)。
+
 ### 问:如何完全重置?
 
 ```bash

@@ -441,6 +441,80 @@ async function main(): Promise<void> {
     }
   }
 
+  // Feature 3: Claude Code auto-memory → co-engram 同步
+  //
+  // Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 维护一份自动记忆
+  // (user/feedback/project/reference/pattern 类型)。本 watcher 把这份记忆同步为
+  // co-engram engram,让 co-engram 不必等用户手动调 engram_create 就能感知
+  // Claude Code 已捕获的偏好与决策。
+  //
+  // 设计说明:
+  //   - 默认 true(low-friction-defaults);config.autoMemorySync.enabled=false 或
+  //     env CO_ENGRAM_AUTO_MEMORY_SYNC=0 可关闭
+  //   - 幂等:domainTag `claude-code-auto-memory` + encodingContext
+  //     `claude-code-auto-memory:<slug>`,slug 重复时只 update
+  //   - **仅在 Claude Code MCP 启动**:OpenClaw 没有"自动记忆写入器"的等价物,
+  //     该 watcher 不在 openclaw-plugin 内启动(见 CLAUDE.md 双场景一致性规则)
+  //   - 失败不阻塞 MCP server 启动(projectsRoot 不存在时 enabled=false)
+  let stopAutoMemoryWatcher: (() => void) | undefined;
+  const autoMemorySyncConfig = persistedConfig.autoMemorySync;
+  const autoMemorySyncEnabled =
+    (process.env.CO_ENGRAM_AUTO_MEMORY_SYNC ??
+      (autoMemorySyncConfig?.enabled === false ? "0" : "1")) !== "0";
+  if (autoMemorySyncEnabled) {
+    try {
+      const { AutoMemoryWatcher, AutoMemorySyncEngine } = await import(
+        "./memory-sync/index.js"
+      );
+      const homeDir = process.env.HOME ?? "";
+      const projectsRoot =
+        autoMemorySyncConfig?.projectsRoot ||
+        process.env.CO_ENGRAM_CLAUDE_PROJECTS_ROOT ||
+        (homeDir ? `${homeDir}/.claude/projects` : "");
+      if (projectsRoot) {
+        const engine = new AutoMemorySyncEngine({
+          repository: ctx.repository,
+          defaultCreatedBy: defaultCreatedBy ?? "claude-code-auto-memory",
+          log: (msg) => process.stderr.write(`${msg}\n`),
+        });
+        const watcher = new AutoMemoryWatcher({
+          projectsRoot,
+          engine,
+          debounceMs: autoMemorySyncConfig?.debounceMs,
+          log: (msg) => process.stderr.write(`${msg}\n`),
+        });
+        const startResult = watcher.start();
+        if (startResult.enabled) {
+          const stats = startResult.initialSync;
+          process.stderr.write(
+            `[co-engram] auto-memory sync: watching ${projectsRoot}` +
+              (stats
+                ? ` (initial: ${stats.files} files, ${stats.created} created, ${stats.updated} updated)`
+                : "") +
+              `\n`,
+          );
+          stopAutoMemoryWatcher = () => watcher.stop();
+        } else {
+          process.stderr.write(
+            `[co-engram] auto-memory sync: disabled (${startResult.reason ?? "unknown reason"})\n`,
+          );
+        }
+      } else {
+        process.stderr.write(
+          `[co-engram] auto-memory sync: disabled (cannot resolve projectsRoot — set HOME or CO_ENGRAM_CLAUDE_PROJECTS_ROOT)\n`,
+        );
+      }
+    } catch (err) {
+      process.stderr.write(
+        `[co-engram] auto-memory sync: failed to start (${err instanceof Error ? err.message : String(err)})\n`,
+      );
+    }
+  } else {
+    process.stderr.write(
+      `[co-engram] auto-memory sync: disabled by config\n`,
+    );
+  }
+
   let shuttingDown = false;
   const shutdown = async (signal: NodeJS.Signals): Promise<void> => {
     if (shuttingDown) return;
@@ -454,6 +528,11 @@ async function main(): Promise<void> {
       stopMaintenance?.();
     } catch {
       // ignore — maintenance 清理失败不阻塞退出
+    }
+    try {
+      stopAutoMemoryWatcher?.();
+    } catch {
+      // ignore — auto-memory watcher 关闭失败不阻塞退出
     }
     try {
       stopIndexWatcher?.();

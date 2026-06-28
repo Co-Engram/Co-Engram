@@ -151,6 +151,43 @@ or `engram_dismiss_proposal` to ignore.
 
 Claude Code surfaces this in the session banner. The LLM can then triage with the three proposal tools.
 
+### Auto-Memory Sync (Claude Code → Co-Engram)
+
+Claude Code maintains its own auto-memory under `~/.claude/projects/<encoded-cwd>/memory/*.md` (typed: `user` / `feedback` / `project` / `reference` / `pattern`). Co-Engram watches this directory and **mirrors every memory into the team repo as an engram**, so insights the host already captured don't have to be re-typed via `engram_create`.
+
+**On by default** (low-friction). Disable with:
+
+```bash
+claude mcp add co-engram \
+  -e CO_ENGRAM_AUTO_MEMORY_SYNC=0 \
+  -- co-engram-mcp
+```
+
+Or in `~/.co-engram/config.json`:
+
+```json
+{ "autoMemorySync": { "enabled": false } }
+```
+
+How it works:
+
+- On startup, scans every project's `memory/` directory under `~/.claude/projects/` and bulk-syncs existing files
+- A `fs.watch` watcher picks up new/updated `.md` files in real time (debounced 500ms)
+- Each memory becomes an engram with:
+  - `domainTag` `claude-code-auto-memory` (filterable in `engram_search`)
+  - `encodingContext` `claude-code-auto-memory:<slug>` (idempotency key)
+- Type mapping: `pattern` → `pattern`, `feedback` / `user` → `observation`, `project` / `reference` → `fact`
+- Renaming or rewriting a memory in Claude Code → existing engram's `content` is updated (stats preserved)
+- `MEMORY.md` (the index file) is intentionally skipped
+
+Watch for this log line at MCP startup to confirm it's running:
+
+```
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+```
+
+OpenClaw doesn't have an equivalent auto-memory writer, so this subsystem is **claude-code-mcp only** — the openclaw-plugin does not start it.
+
 ## Project-Local Config (`.mcp.json`)
 
 For team-shared Co-Engram setups, drop a `.mcp.json` in the project root:

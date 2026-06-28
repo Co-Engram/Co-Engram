@@ -16,6 +16,7 @@
 import type { TeamMemoryConfig } from "./types.js";
 import {
   DEFAULT_AUDIT_CONFIG,
+  DEFAULT_AUTO_MEMORY_SYNC_CONFIG,
   DEFAULT_EFFECTIVENESS_CONFIG,
   DEFAULT_MAINTENANCE_CONFIG,
   DEFAULT_PROPOSALS_CONFIG,
@@ -32,6 +33,7 @@ export type {
   EffectivenessSectionConfig,
   ViewerSectionConfig,
   ServerSectionConfig,
+  AutoMemorySyncSectionConfig,
 } from "./types.js";
 export type {
   MaintenanceConfig,
@@ -61,6 +63,7 @@ export function createDefaultConfig(): TeamMemoryConfig {
     effectiveness: { ...DEFAULT_EFFECTIVENESS_CONFIG },
     viewer: { ...DEFAULT_VIEWER_CONFIG },
     server: { ...DEFAULT_SERVER_CONFIG },
+    autoMemorySync: { ...DEFAULT_AUTO_MEMORY_SYNC_CONFIG },
   };
 }
 
@@ -97,6 +100,21 @@ function fillDefaults(raw: Readonly<TeamMemoryConfig>): TeamMemoryConfig {
       return { ...DEFAULT_VIEWER_CONFIG, ...viewerWithoutPort };
     })(),
     server: { ...DEFAULT_SERVER_CONFIG, ...(raw.server ?? {}) },
+    autoMemorySync: (() => {
+      const rawSync = raw.autoMemorySync ?? {};
+      // projectsRoot 不强制默认值(留空时由 claude-code-mcp 用 ~/.claude/projects 解析)
+      const { projectsRoot: _keptRoot, ...rest } = rawSync as {
+        projectsRoot?: unknown;
+      };
+      void _keptRoot;
+      return {
+        ...DEFAULT_AUTO_MEMORY_SYNC_CONFIG,
+        ...(rest as object),
+        ...(typeof rawSync.projectsRoot === "string"
+          ? { projectsRoot: rawSync.projectsRoot }
+          : {}),
+      };
+    })(),
   };
 }
 
@@ -110,6 +128,7 @@ function needsNormalize(raw: Readonly<TeamMemoryConfig>): boolean {
   if (raw.effectiveness === undefined) return true;
   if (raw.viewer === undefined) return true;
   if (raw.server === undefined) return true;
+  if (raw.autoMemorySync === undefined) return true;
   if (raw.maintenance?.trash === undefined) return true;
   return false;
 }
