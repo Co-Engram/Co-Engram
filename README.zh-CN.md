@@ -261,6 +261,8 @@ Co-Engram 给每条 engram `.md` 写入两个 Obsidian 友好的字段:
 
 用 [Obsidian](https://obsidian.md/) 打开团队记忆目录("Open vault → ~/AIOS/team-memory/team-memory/" 或 dataRoot 指向的路径),**Graph View** 就能渲染完整的记忆网络——反向链接、文件 shift-click 跳转、全局结构一目了然。YAML 权威源仍在 `synapses/*.yaml`;派生段每次 synapse 写入时重建,手动改了它也不要紧,下次写入会覆盖回来。
 
+**自愈:** `engram_doctor` 会逐条检查 engram 的 `aliases` 与派生段是否与权威源一致(比如你手改了 wikilink、或写入被中断),发现漂移就重建。幂等——干净仓库跑一次报 0 修复。Obsidian 图谱看起来不对、或大批量导入 / Git 合并之后跑一次即可。
+
 **已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息只能从 wikilink 显示文本(`[[...|extends]]`)看出。要按 kind 过滤,用网页内的 **Graph** 标签。
 
 ## 架构

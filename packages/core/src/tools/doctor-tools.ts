@@ -47,7 +47,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
   {
     name: "engram_doctor",
     description:
-      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Returns a structured report.",
+      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), and Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Returns a structured report.",
     inputSchema: EngramDoctorInputSchema,
     execute(input, ctx) {
       const parsed = validateInput<EngramDoctorToolInput>(

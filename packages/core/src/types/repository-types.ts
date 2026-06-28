@@ -91,7 +91,8 @@ export interface DoctorIssue {
     | "orphan_markdown" // 无 frontmatter / id 的 markdown
     | "dangling_synapse" // synapse 引用不存在的 engram
     | "duplicate_id" // 两文件 id 重复
-    | "duplicate_engram"; // 相似度 > 0.95
+    | "duplicate_engram" // 相似度 > 0.95
+    | "obsidian_view_stale"; // frontmatter.aliases 缺失 或 派生段与 synapse 不一致
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;

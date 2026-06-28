@@ -261,6 +261,8 @@ Co-Engram writes two Obsidian-friendly fields to every engram `.md`:
 
 Open the team memory directory in [Obsidian](https://obsidian.md/) (`Open vault → ~/AIOS/team-memory/team-memory/` or wherever your `dataRoot` points) and the **Graph View** renders the full memory network with backlinks, file shift-click navigation, and global structure at a glance. The YAML source of truth stays in `synapses/*.yaml`; the derived section is rebuilt on every synapse write, so manual edits to it are safe to revert.
 
+**Self-healing:** `engram_doctor` checks every engram for `aliases` or derived-section drift (e.g. you hand-edited the wikilinks, or a write was interrupted) and regenerates the stale view. Idempotent — running it on a clean repo reports zero fixes. Run it whenever the Obsidian graph looks wrong, or after bulk imports / Git merges.
+
 **Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info only appears in the wikilink display text (`[[...|extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
 
 ## Architecture

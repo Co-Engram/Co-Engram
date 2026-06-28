@@ -35,12 +35,28 @@ export const DERIVED_SYNAPSES_MARKER = "<!-- co-engram-derived:synapses -->";
 const DERIVED_HEADING = "## Synapses (derived)";
 
 /**
- * 排序:contradicts 前置(警告性),其他按字母序。
+ * 排序:contradicts 前置(警告性),其他按 kind 字母序;
+ * 同 kind 内按 target ULID 字典序(确定性,不依赖 readdir 顺序)。
+ *
+ * @param aKind 第一条 synapse 的 kind
+ * @param bKind 第二条 synapse 的 kind
+ * @param aTarget 第一条 wikilink 的 target ULID(outgoing 用 .to / incoming 用 .from)
+ * @param bTarget 第二条 wikilink 的 target ULID
  */
-function sortKinds(a: SynapseKind, b: SynapseKind): number {
-  if (a === "contradicts" && b !== "contradicts") return -1;
-  if (b === "contradicts" && a !== "contradicts") return 1;
-  return a < b ? -1 : a > b ? 1 : 0;
+function sortEdges(
+  aKind: SynapseKind,
+  bKind: SynapseKind,
+  aTarget: string,
+  bTarget: string,
+): number {
+  if (aKind === "contradicts" && bKind !== "contradicts") return -1;
+  if (bKind === "contradicts" && aKind !== "contradicts") return 1;
+  if (aKind < bKind) return -1;
+  if (aKind > bKind) return 1;
+  // 同 kind:按 target ULID 字典序
+  if (aTarget < bTarget) return -1;
+  if (aTarget > bTarget) return 1;
+  return 0;
 }
 
 /**
@@ -67,21 +83,58 @@ function buildDerivedSection(
 
   const lines: string[] = [DERIVED_SYNAPSES_MARKER, DERIVED_HEADING, ""];
 
-  const outgoingSorted = [...outgoing].sort((a, b) => sortKinds(a.kind, b.kind));
+  const outgoingSorted = [...outgoing].sort((a, b) =>
+    sortEdges(a.kind, b.kind, a.to, b.to),
+  );
   for (const s of outgoingSorted) {
     lines.push(`- → [[${s.to}|${s.kind}]]`);
   }
 
-  const incomingSorted = [...incoming].sort((a, b) => sortKinds(a.kind, b.kind));
+  const incomingSorted = [...incoming].sort((a, b) =>
+    sortEdges(a.kind, b.kind, a.from, b.from),
+  );
   for (const s of incomingSorted) {
     lines.push(`- ← [[${s.from}|${s.kind}]]`);
   }
 
-  return lines.join("\n") + "\n";
+  return lines.join("\n");
 }
 
 /**
- * 重写一条 engram 的派生 synapse 段。
+ * 检查一条 engram 的 Obsidian 视图(aliases + 派生段)是否与权威源一致。
+ *
+ * 用于 doctor 自愈扫描:任一字段 stale 即需要 regenerate。
+ *
+ * - aliasesMissing:frontmatter.aliases 不存在或不含本 engram.id
+ *   (writeEngramFile 会自动注入,但只在写入路径触发)
+ * - derivedStale:派生段内容(基于当前 synapse 集合的预期)
+ *   与文件正文里的派生段不一致
+ *
+ * @param file 当前磁盘上的 engram 文件(已 parse)
+ * @param touching 当前 synapse 集合(outgoing + incoming)
+ */
+export function checkObsidianView(
+  file: EngramFile,
+  touching: {
+    readonly outgoing: readonly { readonly kind: SynapseKind; readonly to: string }[];
+    readonly incoming: readonly { readonly kind: SynapseKind; readonly from: string }[];
+  },
+): { readonly aliasesMissing: boolean; readonly derivedStale: boolean } {
+  const id = file.frontmatter.id;
+  const aliases = file.frontmatter.aliases;
+  const aliasesMissing =
+    !Array.isArray(aliases) || !aliases.includes(id);
+
+  const cleanBody = stripDerivedSection(file.content);
+  const expected = buildDerivedSection(touching.outgoing, touching.incoming);
+  const expectedContent = expected ? `${cleanBody}\n\n${expected}` : cleanBody;
+  const derivedStale = expectedContent !== file.content;
+
+  return { aliasesMissing, derivedStale };
+}
+
+/**
+ * 重写一条 engram 的派生 synapse 段 + 注入 aliases。
  *
  * 步骤:
  *   1. 解析 stableId → 相对路径(失败静默返回)
@@ -89,7 +142,9 @@ function buildDerivedSection(
  *   3. 剥离现有派生段(幂等)
  *   4. 读 outgoing + incoming synapses
  *   5. 构造新派生段(无 synapse 时 = 不写段)
- *   6. 内容变化才写盘
+ *   6. checkObsidianView 判定:aliases 缺失 OR 派生段 stale 才写盘
+ *
+ * 写盘时 writeEngramFile → serializeEngramFile 会自动注入 aliases: [id]。
  *
  * 永不抛 — 派生段是 denormalized view,失败不阻塞业务。
  *
@@ -111,13 +166,14 @@ export function regenerateObsidianLinks(
     if (!existsSync(absPath)) return;
 
     const file = readEngramFile(absPath);
-    const cleanBody = stripDerivedSection(file.content);
-
     const touching = listSynapsesForEngram(dataRoot, stableId);
-    const derived = buildDerivedSection(touching.outgoing, touching.incoming);
 
+    const status = checkObsidianView(file, touching);
+    if (!status.aliasesMissing && !status.derivedStale) return;
+
+    const cleanBody = stripDerivedSection(file.content);
+    const derived = buildDerivedSection(touching.outgoing, touching.incoming);
     const newContent = derived ? `${cleanBody}\n\n${derived}` : cleanBody;
-    if (newContent === file.content) return;
 
     const newFile: EngramFile = {
       frontmatter: file.frontmatter,
