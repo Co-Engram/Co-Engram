@@ -15,6 +15,7 @@ import { ALL_SKILL_TOOLS } from "./skill-tools.js";
 import { ALL_PROPOSAL_TOOLS } from "./proposal-tools.js";
 import { ALL_DOCTOR_TOOLS } from "./doctor-tools.js";
 import { ALL_SYNTHESIZE_TOOLS } from "./synthesize-tools.js";
+import { ALL_SYNC_TOOLS } from "./sync-tools.js";
 
 /**
  * 工具注册表
@@ -41,6 +42,7 @@ export function createToolRegistry(): ToolRegistry {
     ...ALL_PROPOSAL_TOOLS,
     ...ALL_DOCTOR_TOOLS,
     ...ALL_SYNTHESIZE_TOOLS,
+    ...ALL_SYNC_TOOLS,
   ];
   const map = new Map<string, Tool>(all.map((t) => [t.name, t]));
 

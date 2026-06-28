@@ -72,6 +72,8 @@ export const en: TranslationDict = {
     "Run a self-healing scan over the memory repo. Auto-fixes moved files, title renames, and stale index entries; reports dangling connections and orphan files for manual review.",
   "tool.engram_list_paths":
     "List the memory repo's directory tree with cumulative memory count per node, for orienting before searching.",
+  "tool.engram_sync":
+    "Manually trigger a full memory sync: pull (rebase) → commit → push. Gives the user explicit control over when memories are persisted to the remote, as opposed to the automatic dirty-marking. Conflicts are reported, not auto-resolved. Degrades to commit-only when no remote is configured. Compatible with any git host (GitHub / GitLab / Gerrit / internal).",
 
   // ===== OpenClaw-compatible memory tools (2) =====
   "tool.memory_search":
@@ -287,6 +289,21 @@ WHEN NOT TO CALL:
 - User wants a specific engram (use engram_get)
 
 RETURNS: started/finished timestamps, total counts, autoFixesApplied, pendingManualReview, and the full issues array (kind + path + message + autoFixed).`,
+  "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
+
+Flow: ① create .gitignore if missing (excludes .co-engram/ cache) → ② git fetch + compare with remote → ③ git pull --rebase --autostash (abort and report on conflict) → ④ git add -A + commit (skip if nothing to commit) → ⑤ git push (auto-degrades to commit-only when no remote).
+
+WHEN TO CALL:
+- User says "save my memories", "commit memories", "sync to remote", "push"
+- After a dense authoring session, user wants to explicitly persist
+- User suspects remote has updates and wants to merge first
+- dryRun=true: user wants to preview uncommitted changes
+
+WHEN NOT TO CALL:
+- User is fine with auto markDirty handling persistence later
+- Repo is not a git repo (tool throws with init guidance)
+
+RETURNS: { repoPath, gitignoreCreated, pulled: { ok, upToDate?, conflicts? }, committed: { ok, sha?, filesChanged, nothingToCommit? }, pushed: { ok, skipped?, reason? }, summary }. On conflict, pulled.ok=false + conflicts array; tool halts remaining phases.`,
   "tool.engram_list_paths.agent": `Show the physical directory tree of the memory repo so you can orient before searching.
 
 Each node carries engramCount (cumulative for that subtree). Use it to see where memory is concentrated (which domains, which projects) before deciding what to search for.
@@ -623,6 +640,13 @@ Reports (manual review): dangling synapse references, orphan markdown files.
 Side effects: may rewrite .meta.json / .synapses.json / index files; appends audit log entry.
 Returns: { startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }.
 Incremental=true: only scan files changed since last mtime pass.`,
+  "tool.engram_sync.technical": `Manual pull-commit-push. Input: { message?: string (default "co-engram sync: YYYY-MM-DD"), dryRun?: boolean (default false), pull?: boolean (default true), push?: boolean (default true) }
+Side effects: execSync('git ...', { cwd: dataRoot }) — invokes system git, inherits user SSH/credentials/proxy; no hardcoded host/URL/refspec; does not write Change-Id (ZTE/Gerrit commit-msg hook auto-adds if installed); respects user's .git/config push (Gerrit review via refs/for/* is user's choice).
+.gitignore fallback: created if missing; excludes entire .co-engram/ directory (derived data + behavioral cache, all regenerable).
+Conflicts: pullRepo detects rebase conflicts → git rebase --abort → returns conflicts array (paths relative to repo root) → tool halts, no auto-resolve.
+Push fallback: when hasRemote=false, push phase is skipped, no error (supports local-only repos).
+Idempotent: nothing to commit → committed.nothingToCommit=true (skip commit); pull when already up-to-date → pulled.upToDate=true.
+Returns: { repoPath, gitignoreCreated, changedFiles? (dryRun), pulled?, committed?, pushed?, summary }.`,
   "tool.engram_list_paths.technical": `Directory tree with engramCount. Input: { maxDepth?: 1..10 (default 5) }
 Reads filesystem directly (not index). Each node: { path, engramCount, children }.
 Side effects: none.
@@ -1365,6 +1389,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>Viewer port</strong>:Claude Code (MCP) defaults to <code>18799</code>,OpenClaw (plugin) defaults to <code>18899</code> — both hosts can run side-by-side without conflict. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides both. The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port).",
   "viewer.help.opsDataRoot":
     "<strong>Data root</strong>:edit directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code>. Both write the same <code>~/.co-engram/config.json</code> bootstrap config; restart the current host to apply. For safety, the UI only accepts empty dirs or existing co-engram warehouses; to take over a non-empty non-co-engram dir use the CLI with <code>--force</code>.",
+
+  // ===== Save & sync =====
+  "viewer.help.syncTitle": "Save and sync to remote",
+  "viewer.help.syncBody":
+    "Memories mark the repo dirty on write; the host commits at appropriate moments. <strong>Want explicit control?</strong> Have the agent invoke the <code>engram_sync</code> tool: it runs <code>git fetch</code> + <code>pull --rebase --autostash</code> to merge remote first, then <code>commit</code>s local changes, then <code>push</code>es (auto-degrades to commit-only when no remote is configured). Conflicts are reported, not auto-resolved — the tool lists conflicting files for you to decide. <strong>Works across corporate and public git hosts</strong>: invokes system <code>git</code> directly, inheriting your local SSH/credentials/proxy; no hardcoded host or URL; does not write Gerrit <code>Change-Id</code> (the commit-msg hook adds it automatically if installed); respects your <code>.git/config</code> push settings. A <code>.gitignore</code> excluding the <code>.co-engram/</code> cache directory is auto-created on first sync. Use <code>dryRun=true</code> to preview uncommitted changes.",
 
   // ===== Obsidian integration =====
   "viewer.help.obsidianTitle": "Obsidian integration (graph view)",

@@ -72,6 +72,8 @@ export const zh = {
     "对记忆仓库做一次自愈扫描。自动修复文件移动、标题重命名、过期索引项;报告悬空连接和孤儿文件供人工处理。",
   "tool.engram_list_paths":
     "列出记忆仓库的目录树,每节点带累计记忆数,用于搜索前先建立全局认知。",
+  "tool.engram_sync":
+    "手动触发记忆仓库的 pull → commit → push 全链路同步。让用户主动掌控提交时机(与系统自动标记脏数据相对)。冲突时不自动解决,清晰报告让用户决策。",
 
   // ===== OpenClaw 兼容 memory 工具(2 个) =====
   "tool.memory_search":
@@ -287,6 +289,21 @@ export const zh = {
 - 用户想看具体某条 engram(用 engram_get)
 
 返回:开始/结束时间戳、总计数、自动修复数、待审核数,以及完整 issues 列表。`,
+  "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 全链路同步。
+
+流程:① 缺失则创建 .gitignore(排除 .co-engram/ 缓存)→ ② git fetch + 比对远端 → ③ git pull --rebase --autostash(冲突则 abort 并报告清单)→ ④ git add -A + commit(无变更跳过)→ ⑤ git push(无 remote 自动降级为 commit-only)。
+
+何时调用:
+- 用户说"保存记忆"、"提交记忆"、"同步到远端"、"push 一下"
+- 用户在一段密集写入后想显式落盘
+- 用户怀疑远端有更新,想先合并
+- dryRun=true:用户想看当前有哪些未提交变更
+
+何时不调用:
+- 用户只想本地保存等自动 markDirty(无需主动 push)
+- 仓库不是 git(会抛错带初始化指引)
+
+返回:{ repoPath, gitignoreCreated, pulled: { ok, upToDate?, conflicts? }, committed: { ok, sha?, filesChanged, nothingToCommit? }, pushed: { ok, skipped?, reason? }, summary }。冲突时 pulled.ok=false + conflicts 数组,工具中止后续阶段。`,
   "tool.engram_list_paths.agent": `展示记忆仓库的物理目录树,让你在搜索前先建立全局认知。
 
 每节点带 engramCount(子树累计)。用它了解记忆集中在哪些领域、项目,再决定搜什么。
@@ -623,6 +640,13 @@ dryRun=true:只返回 draft,不写盘。
 副作用:可能重写 .meta.json / .synapses.json / 索引文件;append audit log。
 返回:{ startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }。
 incremental=true:只扫描自上次 mtime pass 以来变化的文件。`,
+  "tool.engram_sync.technical": `手动 pull-commit-push。输入:{ message?: string(默认 "co-engram sync: YYYY-MM-DD"), dryRun?: boolean(默认 false), pull?: boolean(默认 true), push?: boolean(默认 true) }
+副作用:execSync('git ...', { cwd: dataRoot }) —— 调用系统 git,继承用户 SSH/credentials/proxy;不硬编码任何主机/URL/refspec;不主动写 Change-Id(ZTE/Gerrit 的 commit-msg hook 若已装会自动加);尊重用户 .git/config 的 push 配置(Gerrit review 走 refs/for/* 由用户决定)。
+.gitignore 兜底:缺失则创建,排除整个 .co-engram/ 目录(派生数据 + 行为缓存,均可重新生成)。
+冲突:pullRepo 检测 rebase 冲突 → git rebase --abort → 返回 conflicts 数组(相对仓库根路径)→ 工具中止,不自动 resolve。
+push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓库)。
+幂等:无变更时 committed.nothingToCommit=true(跳过 commit);再次 pull 已是最新时 pulled.upToDate=true。
+返回:{ repoPath, gitignoreCreated, changedFiles?(dryRun), pulled?, committed?, pushed?, summary }。`,
   "tool.engram_list_paths.technical": `带 engramCount 的目录树。输入:{ maxDepth?: 1..10(默认 5) }
 直接读文件系统(非索引)。每节点:{ path, engramCount, children }。
 副作用:无。
@@ -1316,6 +1340,11 @@ incremental=true:只扫描自上次 mtime pass 以来变化的文件。`,
     "<strong>查看器端口</strong>:Claude Code(MCP)默认 <code>18799</code>,OpenClaw(plugin)默认 <code>18899</code>——两宿主同机运行不冲突。环境变量 <code>CO_ENGRAM_VIEWER_PORT</code> 可同时覆盖两宿主。持久化配置里的 <code>viewer.port</code> 已废弃(两宿主共享持久化文件会抢端口)。",
   "viewer.help.opsDataRoot":
     "<strong>数据根目录</strong>:在配置 tab 直接输入路径并保存,或用 CLI <code>co-engram config data-root &lt;path&gt;</code>。两者都写同一份 <code>~/.co-engram/config.json</code> bootstrap 配置,修改后需重启当前宿主生效。UI 出于安全只接受空目录或现有 co-engram 仓库;要接管非空非 co-engram 目录请走 CLI 加 <code>--force</code>。",
+
+  // ===== 保存与同步 =====
+  "viewer.help.syncTitle": "保存与同步到远端",
+  "viewer.help.syncBody":
+    "记忆在写入时会自动标记仓库为脏,宿主在合适时机会落盘提交。<strong>想主动掌控时机</strong>?让 agent 调用 <code>engram_sync</code> 工具:它会先 <code>git fetch</code> + <code>pull --rebase --autostash</code> 合并远端,再 <code>commit</code> 本地变更,最后 <code>push</code> 到远端(无 remote 时自动降级为仅提交)。冲突时不自动解决,会清晰列出冲突文件让你决策。<strong>公司内外部通用</strong>:直接调用系统 <code>git</code>,继承你本机的 SSH/credentials/proxy;不硬编码任何主机或 URL;不主动写 Gerrit <code>Change-Id</code>(若装了 commit-msg hook 会自动加);尊重 <code>.git/config</code> 的 push 配置。首次同步时会自动创建 <code>.gitignore</code> 排除 <code>.co-engram/</code> 缓存目录。可用 <code>dryRun=true</code> 预览未提交变更。",
 
   // ===== Obsidian 集成 =====
   "viewer.help.obsidianTitle": "Obsidian 集成(graph view)",

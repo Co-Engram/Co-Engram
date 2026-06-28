@@ -1801,6 +1801,9 @@ window.CO_ENGRAM_HELP = {
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsPorts') + '</p>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsDataRoot') + '</p>'
 
+      + '<h3>' + T.t('viewer.help.syncTitle') + '</h3>'
+      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.syncBody') + '</p>'
+
       + '<h3>' + T.t('viewer.help.obsidianTitle') + '</h3>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.obsidianBody') + '</p>'
 

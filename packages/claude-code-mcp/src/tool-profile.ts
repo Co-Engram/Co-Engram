@@ -51,6 +51,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_proposals",
     "engram_accept_proposal",
     "engram_dismiss_proposal",
+    // 手动 pull/commit/push(让所有 profile 都能主动掌控提交时机)
+    "engram_sync",
   ]),
   standard: new Set<string>([
     // minimal 11
@@ -74,6 +76,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_paths",
     // LLM 综合(手工触发 REM,需 llmClient 注入)
     "engram_synthesize",
+    // 手动 pull/commit/push(已在 minimal 暴露,这里冗余列出便于阅读)
+    "engram_sync",
   ]),
   full: new Set<string>([
     // 全部 28 个 native 工具(含自愈/路径树等高级工具)
@@ -107,6 +111,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_paths",
     // LLM 综合
     "engram_synthesize",
+    // 手动 pull/commit/push
+    "engram_sync",
   ]),
 };
 

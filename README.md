@@ -269,6 +269,33 @@ Open the team memory directory in [Obsidian](https://obsidian.md/) (`Open vault 
 
 **Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info survives in the wikilink display text (`[[...|Some Title · extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
 
+### Save and sync to remote (`engram_sync`)
+
+Memories mark the repo dirty on every write; the host commits at appropriate moments. When you want **explicit control over timing** — e.g. before closing a session, before switching machines, or to pull teammate updates first — invoke the `engram_sync` tool from the agent:
+
+```
+engram_sync({ message?: string, dryRun?: boolean, pull?: boolean, push?: boolean })
+```
+
+The tool runs a full **pull → commit → push** pipeline:
+
+1. `ensureGitignore` — creates `.gitignore` if missing (excludes the entire `.co-engram/` cache directory; only `*.md` + `synapses/*.yaml` get tracked).
+2. `git fetch` + compare with upstream — if remote has no new commits, the pull phase short-circuits to `upToDate: true`.
+3. `git pull --rebase --autostash` — keeps history linear; local uncommitted changes are auto-stashed and reapplied.
+4. `git add -A` + `git commit` — skipped automatically when there's nothing to commit (no empty commits).
+5. `git push` — **degrades to commit-only when no remote is configured** (no error).
+
+**Conflict policy:** rebase conflicts are *not* auto-resolved. The tool runs `git rebase --abort` to return to the pre-pull state and returns the list of conflicting files in `pulled.conflicts` for human review — rerun `engram_sync` once resolved.
+
+**Works across corporate and public git hosts** (GitHub / GitLab / Gerrit / internal):
+
+- Invokes system `git` directly, inheriting the user's SSH config, credentials, and HTTP proxy. No hostnames or URLs hardcoded.
+- Does **not** write `Change-Id` itself. If you've installed the Gerrit `commit-msg` hook (`gitdir/hooks/commit-msg`), it adds `Change-Id` automatically.
+- Respects the user's `.git/config` `push` refspec. If you configured `push = refs/heads/*:refs/for/*` for Gerrit review, pushes go to review; otherwise they go straight to the tracked branch.
+- Pure-local repos work fine — sync just stops at the commit phase.
+
+Use `dryRun: true` to preview which files `git status` reports before touching anything.
+
 ## Architecture
 
 ```mermaid

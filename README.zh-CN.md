@@ -269,6 +269,33 @@ wikilink 的 **target 是文件名**(去 `.md`),Obsidian 直接解析,**不依�
 
 **已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息保留在 wikilink 显示文本(`[[...|某标题 · extends]]`)里。要按 kind 过滤,用网页内的 **Graph** 标签。
 
+### 保存并同步到远端(`engram_sync`)
+
+记忆每次写入都会把仓库标记为脏,宿主会在合适时机自动落盘提交。当你**想主动掌控时机**——比如关会话前、切换机器前、或者想先拉取队友更新——可以让 agent 调用 `engram_sync` 工具:
+
+```
+engram_sync({ message?: string, dryRun?: boolean, pull?: boolean, push?: boolean })
+```
+
+工具跑一遍完整的 **pull → commit → push** 流水线:
+
+1. `ensureGitignore` —— 缺失则创建 `.gitignore`(排除整个 `.co-engram/` 缓存目录;只跟踪 `*.md` + `synapses/*.yaml`)。
+2. `git fetch` + 与上游比对 —— 远端无新提交时 pull 阶段短路返回 `upToDate: true`。
+3. `git pull --rebase --autostash` —— 保持线性历史;本地未提交变更自动暂存再重放。
+4. `git add -A` + `git commit` —— 无变更时自动跳过(不产生空提交)。
+5. `git push` —— **未配置 remote 时自动降级为仅提交**(不报错)。
+
+**冲突策略:** rebase 冲突**不自动解决**。工具会跑 `git rebase --abort` 回到 pull 前状态,把冲突文件清单放到 `pulled.conflicts` 数组里返回,交给人工裁决——解决后重新调一次 `engram_sync` 即可。
+
+**公司内外部通用**(GitHub / GitLab / Gerrit / 内网 git 服务器):
+
+- 直接调用系统 `git`,继承用户本机的 SSH 配置、凭据、HTTP proxy。**不硬编码任何主机名或 URL**。
+- **不主动写 `Change-Id`**。如果你装了 Gerrit 的 `commit-msg` hook(`gitdir/hooks/commit-msg`),它会自动加 `Change-Id`。
+- **尊重用户 `.git/config` 的 push refspec**。若你为 Gerrit review 配置了 `push = refs/heads/*:refs/for/*`,push 会走 review;否则直接推到 tracking 分支。
+- 纯本地仓库也能用——sync 在 commit 阶段自然停下。
+
+用 `dryRun: true` 可以预览 `git status` 会涉及哪些文件,不真改任何东西。
+
 ## 架构
 
 ```mermaid
