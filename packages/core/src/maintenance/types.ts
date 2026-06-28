@@ -19,6 +19,7 @@ import type { SignalSink } from "../signals/types.js";
 import type { SignalRule } from "../signals/extract.js";
 import type { DreamingScheduler } from "../dreaming/scheduler.js";
 import type { EffectivenessTracker } from "../observability/effectiveness-tracker.js";
+import type { LlmClient } from "../observability/necessity-evaluator.js";
 import { DEFAULT_RPE_LEARNING_RATE } from "../signals/rpe.js";
 
 /** 维护阶段名 */
@@ -48,6 +49,16 @@ export interface MaintenanceDeps {
    * promptBuilder 读取这份 snapshot 实现自进化提示词。
    */
   readonly dataRoot?: string;
+  /**
+   * LLM 客户端(可选,REM 阶段做语义模式抽象用)。
+   *
+   * 如果注入,REM Dreaming 会用 LlmPatternAbstraction 取代 LocalHeuristicPatternAbstraction,
+   * 让自动综合的 pattern 质量从"字面 token 频率"升级到"LLM 语义抽象"。
+   * LLM 调用失败时自动 fallback 到启发式,保证 REM 不挂。
+   *
+   * 与 ToolContext.llmClient(engram_synthesize 工具用)共享同一份配置,避免重复建连。
+   */
+  readonly llmClient?: LlmClient;
 }
 
 /** 默认配置常量 */

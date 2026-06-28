@@ -112,7 +112,7 @@ flowchart TB
 
 **流程:**
 
-1. 运行抽象梦境(目前是框架,未来将使用 LLM provider)
+1. 运行抽象梦境 —— 当配置了 LLM 客户端(通过插件配置中的 `necessityLlm`、Claude Code MCP 的 `ANTHROPIC_API_KEY`,或 OpenClaw 的 `~/.openclaw/openclaw.json`)时,cluster 由 `LlmPatternAbstraction` 进行语义综合(与 `engram_synthesize` 工具共享同一份 prompt);未配置 LLM 客户端时回退到 `LocalHeuristicPatternAbstraction`(基于 token 频率);LLM 调用失败也会回退到启发式,保证 REM 不会被阻塞。
 2. 对每个 engram 运行元认知打分(参见 [concepts.md → Metacognition](./concepts.zh-CN.md#metacognition))
 3. 应用决策:
    - `overall ≥ 0.85` + `ageDays ≥ 7` → 升级为 `verified`

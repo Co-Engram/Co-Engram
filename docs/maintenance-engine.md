@@ -112,7 +112,7 @@ The `updateLifecycle` call that transitions to `forgotten` does not bump `update
 
 **Flow:**
 
-1. Run abstraction dreaming (currently framework; will use LLM provider in future)
+1. Run abstraction dreaming — when an LLM client is configured (via `necessityLlm` in plugin config, `ANTHROPIC_API_KEY` for Claude Code MCP, or `~/.openclaw/openclaw.json` for OpenClaw), clusters are synthesized by `LlmPatternAbstraction` (semantic, shares the same prompt as the `engram_synthesize` tool). Without an LLM client it falls back to `LocalHeuristicPatternAbstraction` (token-frequency based); LLM call failures also fall back to the heuristic so REM never blocks.
 2. For each engram, run metacognition scoring (see [concepts.md → Metacognition](./concepts.md#metacognition))
 3. Apply decision:
    - `overall ≥ 0.85` + `ageDays ≥ 7` → upgrade to `verified`

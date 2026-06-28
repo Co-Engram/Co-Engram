@@ -190,7 +190,7 @@ git clone git@github.com:you/team-memory.git ~/team-memory
 
 - FTS 索引是基于 `digest.jsonl` 在内存中构建的倒排索引,每次搜索都会重建
 - LLM 必要性评估是**可选**的 —— 不配置 provider 时,proposal engine 走规则版评估器,零 LLM 调用
-- 由 LLM 驱动的其他功能(REM 抽象)也已规划,但同样可选 —— 未配置 provider 时引擎跳过
+- REM 抽象在配置了 LLM 客户端时使用 `LlmPatternAbstraction`(与 `engram_synthesize` 工具共享 prompt);未配置时回退到 `LocalHeuristicPatternAbstraction`(基于 token 频率的启发式,零 LLM 调用)
 
 ### 问:为什么我的对话没有生成 proposal?
 

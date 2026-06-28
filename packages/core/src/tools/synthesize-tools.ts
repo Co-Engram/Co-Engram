@@ -59,10 +59,10 @@ export interface EngramSynthesizeResult {
 }
 
 // ============================================================
-// Prompt 模板
+// Prompt 模板(共享:engram_synthesize 工具 + REM LlmPatternAbstraction)
 // ============================================================
 
-const SYNTHESIS_PROMPT = `You are synthesizing a team memory pattern from a set of related engrams.
+export const SYNTHESIS_PROMPT = `You are synthesizing a team memory pattern from a set of related engrams.
 
 A "pattern" is a higher-order insight that connects or abstracts multiple specific memories into a reusable lesson, principle, or design rationale. It should be more than a summary — it should reveal what these memories have in common at a level that will help future conversations.
 
@@ -100,7 +100,7 @@ Synthesize them into ONE pattern. Return STRICT JSON only (no markdown, no prose
  * 容忍 markdown fence / 前后 prose / 嵌套 JSON 等不规范输出。
  * 返回 null 表示无法解析,调用方 fallback / 抛错。
  */
-function parseSynthesisOutput(raw: string): SynthesisDraft | null {
+export function parseSynthesisOutput(raw: string): SynthesisDraft | null {
   let text = raw.trim();
 
   // 剥 markdown fence
@@ -214,8 +214,8 @@ function loadAndValidateSources(
   return { sources, missing };
 }
 
-/** 构造给 LLM 的样本块 */
-function buildSamplesBlock(sources: readonly SourceEngram[]): string {
+/** 构造给 LLM 的样本块(共享:engram_synthesize 工具 + REM LlmPatternAbstraction) */
+export function buildSamplesBlock(sources: readonly SourceEngram[]): string {
   return sources
     .map((s, i) => {
       const tags =

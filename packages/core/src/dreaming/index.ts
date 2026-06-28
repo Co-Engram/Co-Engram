@@ -10,3 +10,4 @@ export * from "./deep.js";
 export * from "./rem.js";
 export * from "./scheduler.js";
 export * from "./trash.js";
+export * from "./llm-pattern-abstraction.js";

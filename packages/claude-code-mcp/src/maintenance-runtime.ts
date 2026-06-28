@@ -58,6 +58,7 @@ export function startMaintenanceRuntime(
     deepIntervalMs: config.deepIntervalMs,
     remIntervalMs: config.remIntervalMs,
     deepOptions: { trash: trashToDeepOptions(config.trash) },
+    ...(deps.llmClient ? { llmClient: deps.llmClient } : {}),
   };
 
   const dreamingScheduler =
@@ -73,6 +74,7 @@ export function startMaintenanceRuntime(
         ? { effectivenessTracker: deps.effectivenessTracker }
         : {}),
       ...(deps.dataRoot ? { dataRoot: deps.dataRoot } : {}),
+      ...(deps.llmClient ? { llmClient: deps.llmClient } : {}),
     },
     config,
   );

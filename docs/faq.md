@@ -190,7 +190,7 @@ Yes. All operations are local:
 
 - FTS index is an in-memory inverted index built from `digest.jsonl` on every search
 - LLM necessity evaluation is **optional** — when no provider is configured, the proposal engine uses the rule-based evaluator (zero LLM calls)
-- Other LLM-driven features (REM abstraction) are planned but also optional — the engine skips them when no provider is configured
+- REM abstraction uses `LlmPatternAbstraction` when an LLM client is configured (shared with the `engram_synthesize` tool); without one it falls back to `LocalHeuristicPatternAbstraction` (token-frequency heuristic, zero LLM calls)
 
 ### Q: Why didn't my conversation generate a proposal?
 

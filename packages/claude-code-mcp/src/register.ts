@@ -264,6 +264,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         signalSink: ctx.signalSink,
         dataRoot: config.dataRoot,
         ...(effectivenessTracker ? { effectivenessTracker } : {}),
+        ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
       },
       config.maintenanceConfig ?? {},
     );

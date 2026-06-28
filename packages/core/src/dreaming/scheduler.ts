@@ -16,6 +16,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import type { LlmClient } from "../observability/necessity-evaluator.js";
 import {
   runLightDreaming,
   type LightDreamingOptions,
@@ -31,6 +32,7 @@ import {
   type RemDreamingOptions,
   type RemDreamingResult,
 } from "./rem.js";
+import { LlmPatternAbstraction } from "./llm-pattern-abstraction.js";
 
 export type DreamingStage = "light" | "deep" | "rem";
 
@@ -47,6 +49,13 @@ export interface DreamingScheduleConfig {
   readonly deepOptions?: DeepDreamingOptions;
   /** Rem Dreaming 选项。P4 新增。 */
   readonly remOptions?: RemDreamingOptions;
+  /**
+   * LLM 客户端(可选,REM 阶段语义模式抽象用)。
+   *
+   * 注入后,REM 自动用 LlmPatternAbstraction 取代 LocalHeuristicPatternAbstraction。
+   * 与 remOptions.abstractionProvider 互斥:显式传入的 abstractionProvider 优先级更高。
+   */
+  readonly llmClient?: LlmClient;
 }
 
 export interface DreamingRunRecord {
@@ -89,6 +98,11 @@ export interface DreamingScheduler {
 
 /**
  * 创建 Dreaming 调度器
+ *
+ * llmClient 注入行为(Feature 2):
+ *   - 调用方在 remOptions.abstractionProvider 显式传入 provider 时,优先用它
+ *   - 否则若 llmClient 存在,自动用 LlmPatternAbstraction(LLM 失败 fallback 启发式)
+ *   - 否则保持原行为(runRemDreaming 内部默认 LocalHeuristicPatternAbstraction)
  */
 export function createDreamingScheduler(
   repo: EngramRepository,
@@ -97,6 +111,14 @@ export function createDreamingScheduler(
   const lightIntervalMs = config.lightIntervalMs ?? 60 * 60 * 1000;
   const deepIntervalMs = config.deepIntervalMs ?? 24 * 60 * 60 * 1000;
   const remIntervalMs = config.remIntervalMs ?? 7 * 24 * 60 * 60 * 1000;
+
+  // 解析 REM abstractionProvider:显式 > llmClient 自动构造 > 默认(runRemDreaming 内部 LocalHeuristic)
+  const remOptions: RemDreamingOptions = config.remOptions
+    ? config.remOptions
+    : config.llmClient
+      ? { abstractionProvider: new LlmPatternAbstraction(config.llmClient) }
+      : {};
+
   const handlers: DreamingRunHandler[] = [];
   let lightTimer: ReturnType<typeof setInterval> | null = null;
   let deepTimer: ReturnType<typeof setInterval> | null = null;
@@ -124,7 +146,7 @@ export function createDreamingScheduler(
       return { stage, at, result };
     }
     // rem
-    const result = await runRemDreaming(repo, config.remOptions ?? {});
+    const result = await runRemDreaming(repo, remOptions);
     return { stage, at, result };
   };
 
@@ -194,7 +216,7 @@ export function createDreamingScheduler(
         skipped: [],
       };
       const record: DreamingRunRecord = { stage, at, result: placeholder };
-      runRemDreaming(repo, config.remOptions ?? {})
+      runRemDreaming(repo, remOptions)
         .then((realResult) => {
           emit({ stage, at, result: realResult });
         })
