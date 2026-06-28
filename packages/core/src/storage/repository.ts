@@ -102,6 +102,7 @@ import {
   writeEngramIndex,
   type EngramIndexMap,
 } from "./engram-index.js";
+import { regenerateObsidianLinks } from "./obsidian-links.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -645,13 +646,16 @@ export class EngramRepository {
 
   /**
    * 删除 Engram + 级联删除触及的 synapses + 清理 index
+   *
+   * 走 `this.deleteSynapsesTouching` 方法版而非模块函数,以触发
+   * 邻居派生段( Obsidian wikilinks)的 cascade refresh。
    */
   deleteEngram(stableId: string): void {
     const relativePath = this.resolvePath(stableId);
     if (!relativePath) return;
     const absolutePath = join(this.config.rootPath, relativePath);
     deleteEngramFile(absolutePath);
-    deleteSynapsesTouching(this.config.rootPath, stableId);
+    this.deleteSynapsesTouching(stableId);
     if (isStableEngramId(stableId)) {
       this.deleteIndexEntry(stableId as StableEngramId);
     }
@@ -788,9 +792,23 @@ export class EngramRepository {
     return readSynapseById(this.config.rootPath, synapseId);
   }
 
+  /**
+   * 触发 Obsidian 派生段重建(多条 engram 一次性刷新,去重)。
+   *
+   * 永不抛(regenerateObsidianLinks 内部已吞错)。调用方无需 try/catch。
+   */
+  private refreshObsidianLinks(...ids: readonly string[]): void {
+    const seen = new Set<string>();
+    for (const id of ids) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      regenerateObsidianLinks(this.config.rootPath, id, this.language);
+    }
+  }
+
   /** 创建 synapse(idempotent) */
   createSynapse(input: SynapseCreateInput): Synapse {
-    return upsertSynapse(this.config.rootPath, {
+    const result = upsertSynapse(this.config.rootPath, {
       from: input.from,
       to: input.to,
       kind: input.kind,
@@ -802,6 +820,8 @@ export class EngramRepository {
       targetSemantic: input.targetSemantic,
       language: this.language,
     });
+    this.refreshObsidianLinks(input.from, input.to);
+    return result;
   }
 
   /**
@@ -836,7 +856,7 @@ export class EngramRepository {
       deleteSynapseFile(oldPath);
     }
 
-    return upsertSynapse(this.config.rootPath, {
+    const result = upsertSynapse(this.config.rootPath, {
       from: target.from,
       to: target.to,
       kind: nextKind,
@@ -849,6 +869,8 @@ export class EngramRepository {
       resolutionState: target.resolutionState,
       language: this.language,
     });
+    this.refreshObsidianLinks(target.from, target.to);
+    return result;
   }
 
   /** 删除某条 synapse */
@@ -860,11 +882,24 @@ export class EngramRepository {
       synapseRelativePath(syn.id, syn.kind),
     );
     deleteSynapseFile(path);
+    this.refreshObsidianLinks(syn.from, syn.to);
   }
 
   /** 级联删除触及 engram 的所有 synapse */
   deleteSynapsesTouching(engramId: string): number {
-    return deleteSynapsesTouching(this.config.rootPath, engramId);
+    // 先抓所有邻居 endpoint — 删除后这些 synapse 就找不到了,
+    // 邻居 engram.md 的派生段还引用着 engramId,需要重建。
+    const touching = listSynapsesForEngram(this.config.rootPath, engramId);
+    const neighbors = new Set<string>();
+    for (const s of touching.outgoing) {
+      if (s.to !== engramId) neighbors.add(s.to);
+    }
+    for (const s of touching.incoming) {
+      if (s.from !== engramId) neighbors.add(s.from);
+    }
+    const count = deleteSynapsesTouching(this.config.rootPath, engramId);
+    if (neighbors.size > 0) this.refreshObsidianLinks(...neighbors);
+    return count;
   }
 
   /**
@@ -876,7 +911,7 @@ export class EngramRepository {
    * @returns 实际落盘的 synapse(其 id 是计算值)
    */
   addOutgoingSynapse(fromId: string, synapse: Synapse): Synapse {
-    return upsertSynapse(this.config.rootPath, {
+    const result = upsertSynapse(this.config.rootPath, {
       from: fromId,
       to: synapse.to,
       kind: synapse.kind,
@@ -894,6 +929,8 @@ export class EngramRepository {
       resolutionState: synapse.resolutionState,
       language: this.language,
     });
+    this.refreshObsidianLinks(fromId, synapse.to);
+    return result;
   }
 
   /**
@@ -912,6 +949,7 @@ export class EngramRepository {
       synapseRelativePath(target.id, target.kind),
     );
     deleteSynapseFile(path);
+    this.refreshObsidianLinks(target.from, target.to);
   }
 
   /**

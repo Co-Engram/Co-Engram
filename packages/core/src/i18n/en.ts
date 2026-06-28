@@ -1366,6 +1366,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.opsDataRoot":
     "<strong>Data root</strong>:edit directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code>. Both write the same <code>~/.co-engram/config.json</code> bootstrap config; restart the current host to apply. For safety, the UI only accepts empty dirs or existing co-engram warehouses; to take over a non-empty non-co-engram dir use the CLI with <code>--force</code>.",
 
+  // ===== Obsidian integration =====
+  "viewer.help.obsidianTitle": "Obsidian integration (graph view)",
+  "viewer.help.obsidianBody":
+    "Open the data root directly as an <strong>Obsidian vault</strong>. Each engram's frontmatter is auto-injected with <code>aliases: [ULID]</code>; whenever a synapse (<code>extends</code> / <code>similar_to</code> / <code>contradicts</code>, etc.) is created or changed, a derived wikilinks section is appended to the body of every touched engram: <code>→ [[ULID|kind]]</code> (outgoing) and <code>← [[ULID|kind]]</code> (incoming). The alias lets wikilinks resolve to the right file even when the filename drifts with the title slug. Obsidian's graph view renders these wikilinks as untyped undirected edges; <code>contradicts</code> edges are pinned to the top of the derived section. The authoritative source remains <code>synapses/*.yaml</code>; the derived section is a denormalized view that can always be rebuilt from yaml.",
+
   // ===== Graph panel (viewer.graph.*) =====
   "viewer.graph.renderFailed": "Render failed: ${err}",
   "viewer.graph.visLoadFailed": "vis-network failed to load",

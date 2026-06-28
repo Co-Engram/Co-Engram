@@ -252,6 +252,17 @@ Open **http://127.0.0.1:18799** (Claude Code) or **http://127.0.0.1:18899** (Ope
 
 For a deeper walkthrough, see [docs/concepts.md](./docs/concepts.md) and [docs/tool-reference.md](./docs/tool-reference.md).
 
+### Obsidian integration (graph view via derived wikilinks)
+
+Co-Engram writes two Obsidian-friendly fields to every engram `.md`:
+
+- **`aliases: [ULID]`** in frontmatter — stabilizes wikilink targets across title/slug renames.
+- **`## Synapses (derived)`** section at end of body — lists outgoing (`→`) and incoming (`←`) connections as `[[ULID|kind]]` wikilinks. `contradicts` edges sort first as a visual warning.
+
+Open the team memory directory in [Obsidian](https://obsidian.md/) (`Open vault → ~/AIOS/team-memory/team-memory/` or wherever your `dataRoot` points) and the **Graph View** renders the full memory network with backlinks, file shift-click navigation, and global structure at a glance. The YAML source of truth stays in `synapses/*.yaml`; the derived section is rebuilt on every synapse write, so manual edits to it are safe to revert.
+
+**Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info only appears in the wikilink display text (`[[...|extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
+
 ## Architecture
 
 ```mermaid

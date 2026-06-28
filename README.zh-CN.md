@@ -252,6 +252,17 @@ OpenClaw 在插件 manifest 中设置 `startViewer: true` —— viewer 默认 1
 
 更详细的使用指南见 [docs/concepts.zh-CN.md](./docs/concepts.zh-CN.md) 和 [docs/tool-reference.zh-CN.md](./docs/tool-reference.zh-CN.md)。
 
+### Obsidian 集成(通过派生 wikilinks 实现 graph view)
+
+Co-Engram 给每条 engram `.md` 写入两个 Obsidian 友好的字段:
+
+- **frontmatter 的 `aliases: [ULID]`** —— 让 wikilink 目标在 title / slug 改名后仍稳定解析。
+- **正文末尾的 `## Synapses (derived)` 段** —— 列出所有出边(`→`)和入边(`←`),格式为 `[[ULID|kind]]` wikilink。`contradicts` 边前置排序,作为视觉警告。
+
+用 [Obsidian](https://obsidian.md/) 打开团队记忆目录("Open vault → ~/AIOS/team-memory/team-memory/" 或 dataRoot 指向的路径),**Graph View** 就能渲染完整的记忆网络——反向链接、文件 shift-click 跳转、全局结构一目了然。YAML 权威源仍在 `synapses/*.yaml`;派生段每次 synapse 写入时重建,手动改了它也不要紧,下次写入会覆盖回来。
+
+**已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息只能从 wikilink 显示文本(`[[...|extends]]`)看出。要按 kind 过滤,用网页内的 **Graph** 标签。
+
 ## 架构
 
 ```mermaid
