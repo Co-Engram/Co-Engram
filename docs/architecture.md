@@ -21,7 +21,7 @@ flowchart TB
   end
 
   subgraph L3["3. Core Layer (host-agnostic)"]
-    Tools["Tools (27)<br/>engrams · synapses · skills · learning · doctor"]
+    Tools["Tools (28)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
     Retrieval["Retrieval<br/>FTS (bigram+word) · graph traversal"]
     Engine["Maintenance Engine<br/>light · deep · rem"]
     Signals["Signals<br/>event sink · extract · RPE"]
@@ -86,7 +86,7 @@ The heart of Co-Engram. Zero host dependencies — no `@modelcontextprotocol/sdk
 
 Five sub-modules:
 
-- **Tools** — 27 self-describing tools with Zod schemas, used by both MCP and plugin adapters
+- **Tools** — 28 self-describing tools with Zod schemas, used by both MCP and plugin adapters
 - **Retrieval** — in-memory inverted index over `digest.jsonl` (bigram tokenizer for CJK + word tokenizer for English), plus graph traversal via synapse edges
 - **Maintenance Engine** — runs `light` / `deep` / `rem` stages on intervals (see [maintenance-engine.md](./maintenance-engine.md))
 - **Signals** — collects `ToolCallEvent`s, extracts behavioral signals, computes RPE (prediction error)

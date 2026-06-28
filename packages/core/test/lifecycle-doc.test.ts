@@ -121,9 +121,9 @@ describe("docs/lifecycle §4.2 Proposal pipeline", () => {
   });
 });
 
-describe("docs/lifecycle §6 Tool → Lifecycle mapping (16 tools in standard profile)", () => {
-  it("standard profile 暴露 16 个工具", () => {
-    // 这里只列出与生命周期强相关的工具子集;完整 16 工具列表由 tool-profile 维护
+describe("docs/lifecycle §6 Tool → Lifecycle mapping (17 tools in standard profile)", () => {
+  it("standard profile 暴露 17 个工具", () => {
+    // 这里只列出与生命周期强相关的工具子集;完整 17 工具列表由 tool-profile 维护
     const lifecycleTools = [
       "engram_create",
       "engram_update",
@@ -139,9 +139,10 @@ describe("docs/lifecycle §6 Tool → Lifecycle mapping (16 tools in standard pr
       "close_learning_loop",
       "engram_doctor",
       "engram_list_paths",
+      "engram_synthesize",
     ] as const;
     expect(lifecycleTools.length).toBeGreaterThan(10);
-    expect(lifecycleTools.length).toBeLessThanOrEqual(16);
+    expect(lifecycleTools.length).toBeLessThanOrEqual(17);
   });
 });
 

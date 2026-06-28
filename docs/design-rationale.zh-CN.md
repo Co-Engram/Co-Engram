@@ -91,7 +91,7 @@ Claude Code 支持多种集成机制:MCP server、slash command、hook、CLAUDE.
 - **MCP 工具自带 schema 校验。** 输入/输出都按 JSON Schema 校验。我们内部已经用 Zod 校验;MCP 在协议边界又加了一层。
 - **MCP 是可发现的。** Claude Code 中的 `/mcp` 会列出所有工具。用户能准确看到 Co-Engram 暴露了什么,无需查阅文档。
 
-**权衡:** MCP 比直接函数调用开销更大。对于 session 范围的 server 中的 27 个工具来说可以忽略 — 但并非免费。
+**权衡:** MCP 比直接函数调用开销更大。对于 session 范围的 server 中的 28 个工具来说可以忽略 — 但并非免费。
 
 ## 相关文档
 

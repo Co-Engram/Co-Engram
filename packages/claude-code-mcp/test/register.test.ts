@@ -107,11 +107,11 @@ describe("registerCoEngramTool", () => {
 // ============================================================
 
 describe("MCP end-to-end", () => {
-  it("tools/list 返回 27 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2）", async () => {
+  it("tools/list 返回 28 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2 + synthesize 1）", async () => {
     const { client, cleanup } = await startClient(tmpDir);
     try {
       const list = await client.listTools();
-      expect(list.tools.length).toBe(27);
+      expect(list.tools.length).toBe(28);
       const names = list.tools.map((t) => t.name).sort();
       expect(names).toContain("engram_create");
       expect(names).toContain("engram_reinforce");

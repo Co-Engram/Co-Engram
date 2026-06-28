@@ -34,12 +34,12 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(11);
   });
 
-  it("standard = 16", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(16);
+  it("standard = 17 (含 engram_synthesize)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(17);
   });
 
-  it("full = 27 (25 native + 2 repo-health)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(27);
+  it("full = 28 (25 native + 2 repo-health + 1 synthesize)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(28);
   });
 
   it("PROFILE_TOOL_COUNTS 与 SETS size 一致", () => {
@@ -182,7 +182,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(27);
+    expect(filtered.length).toBe(28);
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -192,10 +192,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(11);
   });
 
-  it("standard 过滤到 16 个(14 + 自愈/路径树)", () => {
+  it("standard 过滤到 17 个(含 engram_synthesize)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(16);
+    expect(filtered.length).toBe(17);
   });
 
   it("minimal 不含 engram_delete", () => {

@@ -1,6 +1,6 @@
 # 工具参考
 
-Co-Engram 提供 27 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
+Co-Engram 提供 28 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
 
 本页逐一列出每个原生工具及其必填输入。为简洁起见,省略了可选字段 —— 完整字段以源码中的 Zod schema 为准。
 

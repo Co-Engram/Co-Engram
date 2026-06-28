@@ -73,6 +73,14 @@ export interface ToolContext {
    */
   readonly defaultCreatedBy?: string;
   /**
+   * LLM 客户端（可选，用于 engram_synthesize 等需要语义综合的工具）。
+   *
+   * host adapter 注入；claude-code-mcp 走 Anthropic API，
+   * openclaw-plugin 走 OpenAI-compatible endpoint。
+   * 不注入时，engram_synthesize 等工具会拒绝调用并给出明确错误。
+   */
+  readonly llmClient?: import("../observability/necessity-evaluator.js").LlmClient;
+  /**
    * 标记仓库脏（记忆内容发生变化）。
    *
    * 写操作工具在成功执行后调用此回调。

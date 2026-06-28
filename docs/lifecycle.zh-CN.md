@@ -341,7 +341,7 @@ rpe       = actual - expected
 
 ---
 
-## 6. 工具 → 生命周期映射(standard profile,16 工具)
+## 6. 工具 → 生命周期映射(standard profile,17 工具)
 
 > 完整工具签名见 [工具参考](./tool-reference.zh-CN.md)。
 
@@ -517,7 +517,7 @@ engram_report_failure 多次触发后 failedUses ≥ 5
 - [核心概念](./concepts.zh-CN.md) — 实体定义与字段
 - [架构](./architecture.zh-CN.md) — 多层设计与数据流
 - [维护引擎](./maintenance-engine.zh-CN.md) — light/deep/rem 阶段细节
-- [工具参考](./tool-reference.zh-CN.md) — 27 个工具完整签名
+- [工具参考](./tool-reference.zh-CN.md) — 28 个工具完整签名
 - [Claude Code 集成](./host-claude-code.zh-CN.md)
 - [OpenClaw 集成](./host-openclaw.zh-CN.md)
 - [可观测性](./observability.zh-CN.md) — 审计日志、viewer

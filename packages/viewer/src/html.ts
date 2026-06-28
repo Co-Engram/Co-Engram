@@ -50,20 +50,22 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const authPlaceholder = t(language, "viewer.auth.placeholder");
 
   const tabs = [
-    ["stats", t(language, "viewer.tab.stats")],
-    ["engrams", t(language, "viewer.tab.engrams")],
-    ["graph", t(language, "viewer.tab.graph")],
-    ["proposals", t(language, "viewer.tab.proposals")],
-    ["merges", t(language, "viewer.tab.merges")],
-    ["audit", t(language, "viewer.tab.audit")],
-    ["trash", t(language, "viewer.tab.trash")],
-    ["config", t(language, "viewer.tab.config")],
-    ["help", t(language, "viewer.tab.help")],
+    ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
+    ["engrams", t(language, "viewer.tab.engrams"), t(language, "viewer.tab.engrams.tip")],
+    ["graph", t(language, "viewer.tab.graph"), t(language, "viewer.tab.graph.tip")],
+    ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip")],
+    ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip")],
+    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip")],
+    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip")],
+    ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip")],
+    ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip")],
+    ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip")],
   ] as const;
 
   const tabButtons = tabs
     .map(
-      ([id, label]) => `<button data-tab="${id}" class="tab">${label}</button>`,
+      ([id, label, tip]) =>
+        `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}</button>`,
     )
     .join("\n      ");
 
@@ -240,6 +242,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <!-- Trash -->
     <section class="tab-panel" data-tab="trash">
       <div id="trash-content"></div>
+    </section>
+
+    <!-- Health -->
+    <section class="tab-panel" data-tab="health">
+      <div id="health-content"></div>
     </section>
 
     <!-- Config -->

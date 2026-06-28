@@ -110,14 +110,14 @@ describe("MCP i18n / 工具描述本地化", () => {
     }
   });
 
-  it("27 个工具在两种语言下都有非空 description", async () => {
+  it("28 个工具在两种语言下都有非空 description", async () => {
     const enClient = await startClient("en");
     const zhClient = await startClient("zh");
     try {
       const enList = await enClient.client.listTools();
       const zhList = await zhClient.client.listTools();
-      expect(enList.tools.length).toBe(27);
-      expect(zhList.tools.length).toBe(27);
+      expect(enList.tools.length).toBe(28);
+      expect(zhList.tools.length).toBe(28);
       for (const t of enList.tools) {
         expect(t.description?.length, `${t.name} en desc`).toBeGreaterThan(10);
       }

@@ -10,7 +10,7 @@ Welcome to the Co-Engram documentation. Co-Engram is a self-evolving team memory
 
 ## Reference
 
-- **[Tool Reference](./tool-reference.md)** — All 27 tools with signatures, inputs, and examples
+- **[Tool Reference](./tool-reference.md)** — All 28 tools with signatures, inputs, and examples
 - **[Data Format](./data-format.md)** — The `~/team-memory/` directory layout and Git-friendly file structure
 - **[Observability](./observability.md)** — Audit log, effectiveness tracker, proposal engine, viewer
 

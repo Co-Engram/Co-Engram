@@ -14,7 +14,7 @@ flowchart LR
 
 - OpenClaw 扫描 `extensions/` 目录,寻找 `package.json` 中带 `openclaw.extensions` 字段的包
 - 插件入口(默认导出)必须是一个含 `register(api)` 方法的对象
-- `register` 接收一个 `OpenClawPluginApi`,并为 27 个原生工具加上 2 个 OpenClaw 兼容的 `memory_search` / `memory_get` 包装器(共 29 个)逐一调用 `api.registerTool(...)`
+- `register` 接收一个 `OpenClawPluginApi`,并为 28 个原生工具加上 2 个 OpenClaw 兼容的 `memory_search` / `memory_get` 包装器(共 30 个)逐一调用 `api.registerTool(...)`
 - manifest `openclaw.plugin.json` 声明 `kind: "memory"`(使 Co-Engram 成为首要记忆插件,与 `memory-core` 互斥),并在 `contracts.tools` 下罗列每个工具名
 
 ## 安装
@@ -112,7 +112,7 @@ rm ~/team-memory/.co-engram/prompt-signals.json
 # (或等待下一次 light 维护 tick)
 ```
 
-若宿主未实现 `registerMemoryCapability`,插件会记录告警并继续 —— 全部 29 个工具仍可用,只是 LLM 不会得到引导式的 "Memory Recall" 小节。
+若宿主未实现 `registerMemoryCapability`,插件会记录告警并继续 —— 全部 30 个工具仍可用,只是 LLM 不会得到引导式的 "Memory Recall" 小节。
 
 ### 记忆候选(Proposals)
 
@@ -198,7 +198,7 @@ openclaw plugins inspect co-engram --runtime --json
     "status": "loaded",
     "activated": true,
     "toolNames": [
-      "engram_create", "engram_get", ...  // 29 tools total (27 native + memory_search + memory_get)
+      "engram_create", "engram_get", ...  // 30 tools total (28 native + memory_search + memory_get)
     ]
   }
 }

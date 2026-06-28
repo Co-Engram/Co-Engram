@@ -55,6 +55,7 @@ import {
   computeMergeStats,
   detectAnomalies,
   applyDataRootChange,
+  computeStatus,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 
@@ -301,6 +302,34 @@ async function routeApi(
   // /api/stats
   if (path === "/api/stats" && req.method === "GET") {
     respondJson(res, 200, getStats(ctx));
+    return;
+  }
+
+  // /api/status
+  // 健康可视化:把"静默失败"变成"一眼可见"。供 viewer Health tab 与
+  // `co-engram status` CLI 共用同一份 computeStatus 真相源。
+  if (path === "/api/status" && req.method === "GET") {
+    if (!dataRoot) {
+      respondJson(res, 200, {
+        generatedAt: new Date().toISOString(),
+        dataRoot: "",
+        dataRootExists: false,
+        isEngramWarehouse: false,
+        stats: { total: 0, byKind: {}, byStatus: {}, archived: 0, forgotten: 0 },
+        indexes: {
+          engramIndex: { exists: false },
+          digestJsonl: { exists: false },
+          graphJson: { exists: false },
+        },
+        proposals: { pending: 0, total: 0 },
+        git: { isRepo: false, dirty: false, uncommittedCount: 0 },
+        mergeDriver: { configured: false },
+        checks: [],
+        overall: "error" as const,
+      });
+      return;
+    }
+    respondJson(res, 200, computeStatus(dataRoot));
     return;
   }
 

@@ -1358,9 +1358,9 @@ describe("skill_invoke", () => {
 // ============================================================
 
 describe("ToolRegistry", () => {
-  it("列出所有工具（27 个：P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + doctor/list_paths 2）", () => {
+  it("列出所有工具（28 个：P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + doctor/list_paths 2 + synthesize 1）", () => {
     const reg = createToolRegistry();
-    expect(reg.list().length).toBe(27);
+    expect(reg.list().length).toBe(28);
   });
 
   it("按名查工具", () => {
@@ -1374,8 +1374,8 @@ describe("ToolRegistry", () => {
 
   it("按命名空间筛选", () => {
     const reg = createToolRegistry();
-    // 12 engram_*_* + 3 engram_*_proposal* + 2 engram_doctor / engram_list_paths = 17
-    expect(reg.listByNamespace("engram").length).toBe(17);
+    // 12 engram_*_* + 3 engram_*_proposal* + 2 engram_doctor / engram_list_paths + 1 engram_synthesize = 18
+    expect(reg.listByNamespace("engram").length).toBe(18);
     expect(reg.listByNamespace("synapse").length).toBe(4);
     expect(reg.listByNamespace("skill").length).toBe(2);
     // contradiction_resolve 不属于 engram/synapse/skill 命名空间

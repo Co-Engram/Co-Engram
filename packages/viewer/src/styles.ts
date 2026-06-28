@@ -1722,4 +1722,87 @@ div.vis-tooltip {
   color: var(--fg);
   padding-left: 0.8rem;
 }
+
+/* Health tab (ROI #1) — 与 co-engram status CLI 共用 computeStatus 真相源 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.4rem 1rem;
+  margin: 0;
+}
+.meta-grid dt {
+  color: var(--muted, #94a3b8);
+  font-size: 0.85rem;
+}
+.meta-grid dd {
+  margin: 0;
+  word-break: break-all;
+}
+.health-badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  min-width: 3.5rem;
+  text-align: center;
+}
+.health-ok {
+  background: rgba(94, 234, 212, 0.18);
+  color: #5eead4;
+  border: 1px solid rgba(94, 234, 212, 0.35);
+}
+.health-warn {
+  background: rgba(250, 204, 21, 0.18);
+  color: #facc15;
+  border: 1px solid rgba(250, 204, 21, 0.35);
+}
+.health-error {
+  background: rgba(248, 113, 113, 0.18);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.4);
+}
+.health-info {
+  background: rgba(96, 165, 250, 0.18);
+  color: #60a5fa;
+  border: 1px solid rgba(96, 165, 250, 0.35);
+}
+.health-check-list {
+  list-style: none;
+  padding: 0;
+  margin: 0.5rem 0 0 0;
+}
+.health-check-item {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.65rem 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+.health-check-item:last-child {
+  border-bottom: none;
+}
+.health-check-body {
+  flex: 1;
+  min-width: 0;
+}
+.health-check-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 0.15rem;
+}
+.health-check-message {
+  color: var(--fg);
+  font-size: 0.85rem;
+}
+.health-check-detail {
+  margin: 0.4rem 0 0 0;
+  padding: 0.5rem 0.65rem;
+  background: rgba(148, 163, 184, 0.08);
+  border-radius: 4px;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted, #94a3b8);
+}
 `;

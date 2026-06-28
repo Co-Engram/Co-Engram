@@ -10,7 +10,7 @@
 
 ## 参考
 
-- **[工具参考](./tool-reference.zh-CN.md)** —— 全部 27 个工具的签名、输入与示例
+- **[工具参考](./tool-reference.zh-CN.md)** —— 全部 28 个工具的签名、输入与示例
 - **[数据格式](./data-format.zh-CN.md)** —— `~/team-memory/` 目录布局与对 Git 友好的文件结构
 - **[可观测性](./observability.zh-CN.md)** —— 审计日志、有效性追踪器、提案引擎、viewer
 

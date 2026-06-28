@@ -19,7 +19,7 @@ Common causes:
 
 ### Q: `/mcp` shows 0 tools despite connection success
 
-The OpenClaw manifest's `contracts.tools` array is missing tool names. If you built from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 29 entries (27 native + 2 `memory_*` wrappers). The loader silently drops undeclared tools. A manifest-sync test in `packages/openclaw-plugin/test/adapter.test.ts` guards this against drift.
+The OpenClaw manifest's `contracts.tools` array is missing tool names. If you built from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 30 entries (28 native + 2 `memory_*` wrappers). The loader silently drops undeclared tools. A manifest-sync test in `packages/openclaw-plugin/test/adapter.test.ts` guards this against drift.
 
 ### Q: A tool call returns `MCP error -32602: Tool <name> not found`
 

@@ -186,4 +186,4 @@ export function resolveLanguage(
 // 保留 unresolved re-export 以维持向后兼容的命名导入。
 
 export { en, zh };
-export type { Language, StringKey, TranslationDict, DescriptionLayer };
+export type { Language, StringKey, TranslationDict };

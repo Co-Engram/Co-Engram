@@ -111,7 +111,7 @@ Key ones:
 - `ANTHROPIC_API_KEY` — Claude API key used by the proposal engine's Layer 2 necessity evaluator. Usually already set in the Claude Code environment; the adapter auto-detects it. When unset, Layer 2 falls back to the rule-based evaluator (zero LLM cost). See [observability two-layer filtering](./observability.md#proposal-engine).
 - `CO_ENGRAM_VIEWER_ENABLED=1` — start the web viewer at `http://127.0.0.1:18799`
 - `CO_ENGRAM_LANGUAGE` — language for tool descriptions / viewer / prompts (`en` | `zh`; default `en` or persisted team-memory config)
-- `CO_ENGRAM_TOOLS_PROFILE` — tool surface for the LLM: `minimal` (11 tools — 8 core read/write + 3 proposal triage, so the maintenance engine's auto-generated candidates can always be closed-loop handled), `standard` (16, default — adds learning loop, contradiction, self-healing, progressive disclosure), `full` (27, includes admin + internal management tools). Invalid values warn and fall back to `standard`.
+- `CO_ENGRAM_TOOLS_PROFILE` — tool surface for the LLM: `minimal` (11 tools — 8 core read/write + 3 proposal triage, so the maintenance engine's auto-generated candidates can always be closed-loop handled), `standard` (17, default — adds learning loop, contradiction, self-healing, progressive disclosure, LLM synthesis), `full` (28, includes admin + internal management tools). Invalid values warn and fall back to `standard`.
 
 ## Web Viewer
 

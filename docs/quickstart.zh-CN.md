@@ -118,7 +118,7 @@ co-engram: ✓ Connected
 MCP server 还会向 stderr 写入一行启动信息(可在 `claude mcp logs co-engram` 中查看):
 
 ```
-[co-engram] Loaded 0 engrams, profile=standard (16/27 tools visible to LLM)
+[co-engram] Loaded 0 engrams, profile=standard (17/28 tools visible to LLM)
 [co-engram] No memories yet — the LLM will start capturing once you discuss decisions, preferences, or lessons learned.
 ```
 
@@ -167,7 +167,7 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 ### `/mcp` 显示 0 个工具,但状态是 `✓ Connected`
 
-manifest 缺少 `contracts.tools` 条目。如果你是从 npm 安装的不应出现此问题 —— 若是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 29 个工具(27 个原生 + 2 个 `memory_*` 包装)。OpenClaw loader 会静默丢弃未声明的工具。
+manifest 缺少 `contracts.tools` 条目。如果你是从 npm 安装的不应出现此问题 —— 若是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 30 个工具(28 个原生 + 2 个 `memory_*` 包装)。OpenClaw loader 会静默丢弃未声明的工具。
 
 ### 工具已注册但调用返回错误
 

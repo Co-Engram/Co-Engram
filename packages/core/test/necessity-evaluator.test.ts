@@ -357,4 +357,69 @@ describe("LlmNecessityEvaluator", () => {
     expect(v.reason).toBe("Recurring CI decision");
     expect(v.suggestedTitle).toBe("TS CI via Actions");
   });
+
+  // ============================================================
+  // JS 内部错误 + fallback 加固(Finding 264/265 P0)
+  // ============================================================
+
+  it("LlmClient 返回非 string(undefined)→ 安全 fallback,不抛 TypeError", async () => {
+    // host adapter bug:返回 undefined 而非 string
+    const stubClient: LlmClient = {
+      async complete() {
+        return undefined as unknown as string;
+      },
+    };
+    const evaluator = new LlmNecessityEvaluator(stubClient);
+    // 不应抛 TypeError(trim of undefined),应走 fallback 路径
+    const v = await evaluator.evaluate(
+      makeInput(["same same same same same same same same"], 3),
+    );
+    expect(v.necessary).toBe(false);
+    expect(v.reason).toMatch(/internal-error.*rule-fallback|fallback-failed/);
+  });
+
+  it("LlmClient 返回 null → 安全 fallback", async () => {
+    const stubClient: LlmClient = {
+      async complete() {
+        return null as unknown as string;
+      },
+    };
+    const evaluator = new LlmNecessityEvaluator(stubClient);
+    const v = await evaluator.evaluate(
+      makeInput(["same same same same same same same same"], 3),
+    );
+    expect(v.necessary).toBe(false);
+    expect(v.reason).toMatch(/internal-error/);
+  });
+
+  it("LlmClient 返回空字符串 → 安全 fallback", async () => {
+    const stubClient: LlmClient = {
+      async complete() {
+        return "";
+      },
+    };
+    const evaluator = new LlmNecessityEvaluator(stubClient);
+    const v = await evaluator.evaluate(
+      makeInput(["same same same same same same same same"], 3),
+    );
+    expect(v.necessary).toBe(false);
+    expect(v.reason).toMatch(/internal-error/);
+  });
+
+  it("parseLlmVerdict 内部异常被 try/catch 兜住 → 安全 fallback", async () => {
+    // 构造一个让 parseLlmVerdict 抛错的输入(parseLlmVerdict 内部已有 try/catch,
+    // 但 defensive:即便它抛,evaluate 也不会崩)
+    const stubClient: LlmClient = {
+      async complete() {
+        // 包含 { 但 JSON.parse 失败的字符串(parseLlmVerdict 正常返回 null)
+        return "{ not valid json at all";
+      },
+    };
+    const evaluator = new LlmNecessityEvaluator(stubClient);
+    const v = await evaluator.evaluate(
+      makeInput(["same same same same same same same same"], 3),
+    );
+    expect(v.necessary).toBe(false);
+    expect(v.reason).toMatch(/llm-parse-failed/);
+  });
 });

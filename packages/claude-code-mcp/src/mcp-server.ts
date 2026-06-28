@@ -62,7 +62,7 @@ import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createCoEngramMcpServer } from "./register.js";
 import { startViewerServer, type ViewerRuntime } from "@co-engram/viewer";
-import { resolveNecessityEvaluator } from "./llm-client.js";
+import { resolveNecessityEvaluator, resolveLlmClient } from "./llm-client.js";
 import { resolveProfile, PROFILE_TOOL_COUNTS } from "./tool-profile.js";
 import {
   parseLanguage,
@@ -268,6 +268,9 @@ async function main(): Promise<void> {
   const necessityEvaluator = resolveNecessityEvaluator(
     persistedConfig.necessityLlm,
   );
+  // 原始 LlmClient:供 engram_synthesize 等需要直接调 LLM 的工具用
+  // 与 necessityEvaluator 共享同一份配置,避免重复建连
+  const llmClient = resolveLlmClient(persistedConfig.necessityLlm);
 
   const {
     server,
@@ -291,6 +294,7 @@ async function main(): Promise<void> {
     profile: profileResult.profile,
     ...(defaultCreatedBy ? { defaultCreatedBy } : {}),
     ...(necessityEvaluator ? { necessityEvaluator } : {}),
+    ...(llmClient ? { llmClient } : {}),
   });
 
   // 会话级 dirty flag:写工具调用后置位,shutdown 时据此判断是否 auto-commit

@@ -118,7 +118,7 @@ co-engram: ✓ Connected
 The MCP server also writes a startup line to stderr (visible in `claude mcp logs co-engram`):
 
 ```
-[co-engram] Loaded 0 engrams, profile=standard (16/27 tools visible to LLM)
+[co-engram] Loaded 0 engrams, profile=standard (17/28 tools visible to LLM)
 [co-engram] No memories yet — the LLM will start capturing once you discuss decisions, preferences, or lessons learned.
 ```
 
@@ -167,7 +167,7 @@ Run the binary directly — you'll see stderr. Common causes:
 
 ### `/mcp` shows 0 tools despite `✓ Connected`
 
-The manifest is missing `contracts.tools` entries. This shouldn't happen if you installed from npm — if building from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 29 tools (27 native + 2 `memory_*` wrappers). The OpenClaw loader silently drops undeclared tools.
+The manifest is missing `contracts.tools` entries. This shouldn't happen if you installed from npm — if building from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 30 tools (28 native + 2 `memory_*` wrappers). The OpenClaw loader silently drops undeclared tools.
 
 ### Tools registered but calls return errors
 

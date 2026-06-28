@@ -524,7 +524,29 @@ export class LlmNecessityEvaluator implements NecessityEvaluator {
       .replace("<SAMPLES_BLOCK>", samplesBlock)
       .replace("<EXISTING_TITLES>", existingTitles);
 
-    let raw: string;
+    // 容错包装:任何意外 JS 错误(host adapter bug / 返回非 string / parseLlmVerdict
+    // 内部异常 / fallback 自身抛错)都不会让 evaluate 失败。最坏情况返回保守拒绝。
+    // Finding 264/265 P0:用户观察到 necessity-evaluator 静默崩溃导致 proposal 路径死掉。
+    const safeFallback = async (
+      prefix: "llm-unavailable" | "llm-parse-failed" | "internal-error",
+      err: unknown,
+    ): Promise<NecessityVerdict> => {
+      try {
+        const verdict = await this.fallback.evaluate(input);
+        return {
+          ...verdict,
+          reason: `[${prefix}, rule-fallback] ${verdict.reason}`,
+        };
+      } catch (fallbackErr) {
+        // 规则版兜底也挂了(不应该发生,但防御):返回保守拒绝 + 错误上下文
+        return {
+          necessary: false,
+          reason: `[${prefix}, fallback-failed] ${err instanceof Error ? err.message : String(err)} | ${fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr)}`,
+        };
+      }
+    };
+
+    let raw: unknown;
     try {
       // maxTokens=1500 留足 reasoning 模型预算
       // reasoning 模型(Qwen3 / DeepSeek-R1 / DeepSeek-V4 / GLM-5.2 / Claude w/ thinking)
@@ -534,23 +556,30 @@ export class LlmNecessityEvaluator implements NecessityEvaluator {
         temperature: 0.1,
         timeoutMs: 30_000,
       });
-    } catch {
+    } catch (err) {
       // LLM 调用失败 → fallback 到规则
-      const verdict = await this.fallback.evaluate(input);
-      return {
-        ...verdict,
-        reason: `[llm-unavailable, rule-fallback] ${verdict.reason}`,
-      };
+      return safeFallback("llm-unavailable", err);
     }
 
-    const parsed = parseLlmVerdict(raw);
+    // host adapter 协议:complete 必须返回 string。但防御性检查避免 trim() TypeError
+    if (typeof raw !== "string" || raw.length === 0) {
+      return safeFallback(
+        "internal-error",
+        new Error(`LlmClient returned non-string: ${typeof raw}`),
+      );
+    }
+
+    let parsed: NecessityVerdict | null;
+    try {
+      parsed = parseLlmVerdict(raw);
+    } catch (err) {
+      // parseLlmVerdict 内部不应抛(已有 try/catch),但兜底防御
+      return safeFallback("internal-error", err);
+    }
+
     if (!parsed) {
       // LLM 返回非 JSON → fallback 到规则
-      const verdict = await this.fallback.evaluate(input);
-      return {
-        ...verdict,
-        reason: `[llm-parse-failed, rule-fallback] ${verdict.reason}`,
-      };
+      return safeFallback("llm-parse-failed", new Error("non-JSON output"));
     }
 
     return parsed;

@@ -1,17 +1,17 @@
 /**
- * LLM-facing tool description overrides (re-export from core)
+ * LLM-facing tool description helpers (re-export from core)
  *
- * The canonical implementation now lives in `@co-engram/core` so that both
- * MCP and OpenClaw adapters share the same LLM-friendly descriptions.
- * This file is kept as a thin re-export so existing MCP imports keep working.
+ * 历史上这里 re-export 了 `LLM_TOOL_DESCRIPTIONS` 常量。该常量在 Finding 107/111
+ * 三层拆分重构中已删除,agent 层描述统一迁入 i18n 字典(`tool.<name>.agent`)。
+ * 本文件保留 thin re-export 以保持现有 MCP import 不破坏。
  *
  * @module @co-engram/claude-code
  */
 
 export {
-  LLM_TOOL_DESCRIPTIONS,
   overrideDescription,
   overrideDescriptions,
   auditDescriptionQuality,
   resolveLlmDescription,
+  listAgentDescribedTools,
 } from "@co-engram/core";

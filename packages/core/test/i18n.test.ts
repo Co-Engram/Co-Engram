@@ -9,7 +9,9 @@ import {
   SUPPORTED_LANGUAGES,
   en,
   zh,
+  type DescriptionLayer,
 } from "../src/i18n/index.js";
+import { listAgentDescribedTools } from "../src/tools/llm-descriptions.js";
 
 describe("i18n / parseLanguage", () => {
   it("识别 en / english / EN", () => {
@@ -129,13 +131,13 @@ describe("i18n / localizeToolDescription", () => {
   it("英文返回英文字典", () => {
     const s = localizeToolDescription("engram_create", "en");
     expect(s).toBe(en["tool.engram_create"]);
-    expect(s).toContain("Create a new Engram");
+    expect(s).toContain("Create a new memory");
   });
 
   it("中文返回中文字典", () => {
     const s = localizeToolDescription("engram_create", "zh");
     expect(s).toBe(zh["tool.engram_create"]);
-    expect(s).toContain("创建一个新的 Engram");
+    expect(s).toContain("创建一条新记忆");
   });
 
   it("未知工具 fallback 到原始 description", () => {
@@ -286,5 +288,178 @@ describe("i18n / zh.ts 源码防回归 (Finding 141)", () => {
     }
     expect(mod).toBeTruthy();
     expect(typeof (mod as Record<string, unknown>).zh).toBe("object");
+  });
+});
+
+describe("i18n / 三层描述拆分 (Finding 107/111)", () => {
+  const TOOL_NAMES = [
+    "engram_create",
+    "engram_get",
+    "engram_update",
+    "engram_delete",
+    "engram_search",
+    "engram_list",
+    "engram_reinforce",
+    "engram_report_failure",
+    "engram_archive",
+    "engram_restore",
+    "engram_forget",
+    "engram_recompute_importance",
+    "contradiction_resolve",
+    "close_learning_loop",
+    "upgrade_verification",
+    "get_evolution_lineage",
+    "synapse_create",
+    "synapse_get",
+    "synapse_delete",
+    "synapse_list",
+    "skill_get",
+    "skill_invoke",
+    "engram_list_proposals",
+    "engram_accept_proposal",
+    "engram_dismiss_proposal",
+    "engram_doctor",
+    "engram_list_paths",
+    "engram_synthesize",
+    "memory_search",
+    "memory_get",
+  ] as const;
+
+  it("localizeToolDescription 默认 layer=user(向后兼容)", () => {
+    // 不传 layer 时等价于 layer='user',返回 tool.<name>
+    const userDesc = localizeToolDescription("engram_create", "en");
+    const explicitUser = localizeToolDescription(
+      "engram_create",
+      "en",
+      undefined,
+      "user",
+    );
+    expect(userDesc).toBe(explicitUser);
+  });
+
+  it("agent 层返回 tool.<name>.agent", () => {
+    const agentDesc = localizeToolDescription(
+      "engram_create",
+      "en",
+      undefined,
+      "agent",
+    );
+    expect(agentDesc).toContain("WHEN TO CALL");
+    expect(agentDesc).toContain("RETURNS");
+  });
+
+  it("technical 层返回 tool.<name>.technical", () => {
+    const techDesc = localizeToolDescription(
+      "engram_create",
+      "en",
+      undefined,
+      "technical",
+    );
+    // technical 层允许实现术语,且应包含输入/副作用等契约信息
+    expect(techDesc).toContain("Input:");
+    expect(techDesc).toContain("Side effects:");
+  });
+
+  it("三层描述在 en/zh 都齐全(30 个工具)", () => {
+    const enDict = en as Readonly<Record<string, string>>;
+    const zhDict = zh as Readonly<Record<string, string>>;
+    const missing: string[] = [];
+    for (const name of TOOL_NAMES) {
+      const layers = ["", ".agent", ".technical"] as const;
+      for (const suffix of layers) {
+        const key = `tool.${name}${suffix}`;
+        if (!enDict[key]) missing.push(`en.${key}`);
+        if (!zhDict[key]) missing.push(`zh.${key}`);
+      }
+    }
+    expect(
+      missing,
+      `三层描述缺失:\n${missing.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("三层描述各有区分:user 简短、agent 结构化、technical 含契约", () => {
+    const userDesc = localizeToolDescription("engram_reinforce", "en");
+    const agentDesc = localizeToolDescription(
+      "engram_reinforce",
+      "en",
+      undefined,
+      "agent",
+    );
+    const techDesc = localizeToolDescription(
+      "engram_reinforce",
+      "en",
+      undefined,
+      "technical",
+    );
+    // 三层应该互不相同
+    expect(userDesc).not.toBe(agentDesc);
+    expect(agentDesc).not.toBe(techDesc);
+    expect(userDesc).not.toBe(techDesc);
+    // agent 层带 WHEN TO CALL
+    expect(agentDesc).toContain("WHEN TO CALL");
+    // technical 层带 Input/Side effects
+    expect(techDesc).toContain("Input:");
+    expect(techDesc).toContain("Side effects:");
+  });
+
+  it("agent 层不含禁止术语(FTS / LTP / Hebbian / RPE)", () => {
+    const forbidden = [
+      "FTS",
+      "LTP",
+      "Hebbian",
+      "RPE",
+      "reinforcementScore",
+      "effectiveRetrievals",
+      "failedUses",
+    ];
+    const violations: string[] = [];
+    for (const name of TOOL_NAMES) {
+      // truthScore 仅 engram_get 允许
+      const isEngramGet = name === "engram_get";
+      for (const lang of ["en", "zh"] as const) {
+        const desc = localizeToolDescription(name, lang, undefined, "agent");
+        for (const term of forbidden) {
+          if (desc.includes(term)) {
+            violations.push(`${name}.${lang}: forbidden term "${term}"`);
+          }
+        }
+        if (!isEngramGet && desc.includes("truthScore")) {
+          violations.push(`${name}.${lang}: forbidden term "truthScore"`);
+        }
+      }
+    }
+    expect(
+      violations,
+      `agent 层含禁止术语:\n${violations.join("\n")}`,
+    ).toEqual([]);
+  });
+
+  it("technical 层允许实现术语(应包含 FTS/LTP/Hebbian 等至少一个)", () => {
+    const allowed = ["FTS", "LTP", "Hebbian", "RPE"];
+    const present = new Set<string>();
+    for (const name of TOOL_NAMES) {
+      const techDesc = localizeToolDescription(
+        name,
+        "en",
+        undefined,
+        "technical",
+      );
+      for (const term of allowed) {
+        if (techDesc.includes(term)) present.add(term);
+      }
+    }
+    // 至少应出现 3 种实现术语(覆盖 search/reinforce/synapse 等)
+    expect(present.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("listAgentDescribedTools 覆盖所有 30 个工具", () => {
+    const described = new Set(listAgentDescribedTools());
+    for (const name of TOOL_NAMES) {
+      expect(
+        described.has(name),
+        `tool "${name}" missing from listAgentDescribedTools`,
+      ).toBe(true);
+    }
   });
 });

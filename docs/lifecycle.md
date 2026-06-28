@@ -344,7 +344,7 @@ Stage timing and thresholds can be overridden via env vars or config.
 
 ---
 
-## 6. Tool → Lifecycle Mapping (standard profile, 16 tools)
+## 6. Tool → Lifecycle Mapping (standard profile, 17 tools)
 
 > For full signatures see [Tool Reference](./tool-reference.md).
 
@@ -520,7 +520,7 @@ File moved to .trash/2026-06/
 - [Concepts](./concepts.md) — Entity definitions and fields
 - [Architecture](./architecture.md) — Multi-layer design and data flow
 - [Maintenance Engine](./maintenance-engine.md) — light/deep/rem stage details
-- [Tool Reference](./tool-reference.md) — All 27 tools with full signatures
+- [Tool Reference](./tool-reference.md) — All 28 tools with full signatures
 - [Claude Code Integration](./host-claude-code.md)
 - [OpenClaw Integration](./host-openclaw.md)
 - [Observability](./observability.md) — Audit log, viewer

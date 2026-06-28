@@ -7,75 +7,77 @@
 import type { TranslationDict } from "./types.js";
 
 export const en: TranslationDict = {
-  // ===== Engram tools (12) =====
+  // ===== Engram tools (12) — user layer: plain language, no implementation terms =====
   "tool.engram_create":
-    "Create a new Engram (memory unit). Requires title / content / kind / domainTags / createdBy. Smart dedupe is on by default (dedupe=true): DUPLICATE reinforces the existing engram without creating a duplicate; UPDATE merges; NEW creates.",
+    "Create a new memory. Requires title, content, kind, domain tags, and author. Smart dedupe is on by default: duplicates reinforce the existing memory instead of creating a new one; updates merge content.",
   "tool.engram_get":
-    "Read an Engram by disclosure tier (catalog / digest / content / meta / synapses / auto). auto picks a tier based on contextBudget.",
+    "Read a memory's details on demand. Choose a brief summary or full content; auto-selects detail level based on token budget.",
   "tool.engram_update":
-    "Update Engram fields (content / title / importance / etc.).",
+    "Update a memory's fields (content, title, importance, tags, etc.).",
   "tool.engram_delete":
-    "Delete an Engram (content + meta + synapses, all three files).",
+    "Permanently delete a memory (including all its connections). Irreversible.",
   "tool.engram_search":
-    "FTS full-text search (Chinese bigram + English word), with optional filters.",
+    "Search memories using natural language, with optional filters by type, tags, status, etc.",
   "tool.engram_list":
-    "List Engrams by filter (no query — filter by metadata, reads latest state directly).",
+    "List memories by filter (no keyword query — filter by metadata, reads latest state).",
   "tool.engram_reinforce":
-    "Report an effective retrieval (LTP reinforcement + Hebbian neighbor boost). Updates effectiveRetrievals / reinforcementScore / importance (each += effectiveness × 0.02, clamped to [0,1]); neighbors get 50% boost (except contradicts).",
+    "Report an effective use (positive reinforcement). Increases the memory's strength score and use count, and boosts related memories.",
   "tool.engram_report_failure":
-    "Report a failed use (LTD weakening). Updates failedUses / retrievalCount / importance (-0.03 per use, escalated ×1.5 after threshold). failedUses≥3 suggests archive, ≥5 suggests forget.",
+    "Report a failed use (negative reinforcement). Decreases the memory's strength score; repeated failures suggest archive or forget.",
   "tool.engram_archive":
-    "Archive an engram (excluded from default retrieval, but data preserved and recoverable). Search excludes archived by default; use a filter to include.",
+    "Archive a memory (excluded from default search, but data preserved and recoverable).",
   "tool.engram_restore":
-    "Restore from archived/forgotten to active (re-enters default retrieval). If the engram has been swept to .trash/, it is moved back first before restoring.",
+    "Restore a memory from archived or forgotten state back to active, re-entering default search.",
   "tool.engram_forget":
-    "Actively forget an engram (RIF retrieval-induced forgetting). Files remain (Git keeps history); the engram leaves all default retrieval immediately. A reason is required. Default pipeline: swept to .trash/ after 30 days (removed from main index), then physically deleted (rm) after another 365 days. Recover anytime via engram_restore or the viewer's Trash tab until purged; after purge, only git history can bring it back.",
+    "Actively forget a memory. Files remain (Git-tracked); the memory leaves all default search immediately. A reason is required. Automatic cleanup follows: moved to trash after 30 days, physically deleted after another 365 days; recoverable until physical deletion.",
   "tool.engram_recompute_importance":
-    "Recompute the multi-dimensional importance of an engram (personal/team/project/network/temporal). network and temporal are system-derived (incomingSynapseCount + Ebbinghaus decay); the rest can be set via overrides. Result composite is written back to engram.importance.",
+    "Recompute a memory's multi-dimensional importance (personal/team/project/network/temporal). Network and temporal dimensions are system-derived; the rest can be set manually.",
 
   // ===== Learning loop tools (4) =====
   "tool.contradiction_resolve":
-    "Manually resolve a contradicts synapse (spec §3.9 phase 2 human intervention). Requires verdict + rationale + resolvedBy. The system marks synapse.resolutionState as resolved and appends to the evidence array.",
+    "Manually resolve a contradiction between two memories (old vs new): decide which side wins, merge, or archive the loser. Requires verdict, rationale, and resolver.",
   "tool.close_learning_loop":
-    "Close the learning loop (dopamine closure): feed usage outcome back to the system. success/partial → LTP reinforcement + Hebbian neighbor boost; failure → LTD weakening + demotion threshold check. Also triggers the provenance reward/punishment circuit if configured.",
+    "Close the verification loop: feed usage outcome back to the system. Success reinforces positively; failure weakens and triggers demotion check.",
   "tool.upgrade_verification":
-    "Upgrade an engram verification status (unverified → plausible → probable → verified → refuted). Must provide evidence description + verifier. The system validates the state machine (no level skipping) + 3D evidence conditions (evidenceCount + cross-context domainTags + temporal stability days). force=true skips condition checks but keeps state machine validation (manual override scenario).",
+    "Upgrade a memory's verification status (unverified → plausible → probable → verified). Requires evidence description and verifier. The system validates the state machine (no level skipping) and evidence conditions; force=true skips evidence checks but keeps state machine validation.",
   "tool.get_evolution_lineage":
-    "Trace the evolution lineage of an engram (spec §12.7 scenario 6). Follows derives_from / consolidates / supersedes synapses both ways: ancestors = sources (observation etc.), descendants = evolution results (pattern/procedure etc.). Returns DAG nodes and edges for graph visualization. spec §4.6 acceptance: from a Skill you can trace back to the original observation chain.",
+    "Trace a memory's evolution lineage (ancestors and descendants). Follows derivation/consolidation/supersession relationships both ways, returning graph nodes and edges for visualization.",
 
   // ===== Synapse tools (4) =====
   "tool.synapse_create":
-    "Create a Synapse (connection) between two Engrams. Updates incoming/outgoing caches on both ends.",
-  "tool.synapse_get": "Read a single Synapse (by from engramId + synapseId).",
-  "tool.synapse_delete": "Delete a Synapse (updates both caches).",
+    "Create a Synapse (typed connection, e.g. extends / contradicts / caused-by) between two memories.",
+  "tool.synapse_get": "Read a single Synapse's details.",
+  "tool.synapse_delete": "Delete a Synapse.",
   "tool.synapse_list":
-    "List all Synapses of an Engram (outgoing / incoming / both).",
+    "List all Synapses of a memory (outgoing / incoming / both).",
 
   // ===== Skill tools (2) =====
   "tool.skill_get":
-    "Read Skill metadata (procedural memory). P0 reads from in-memory registry.",
+    "Read Skill metadata (procedural memory: a parameterized, invocable template).",
   "tool.skill_invoke":
-    "Invoke a Skill (procedural memory). P0 is a framework; concrete template execution (tool-sequence / prompt-template) lands in P1.",
+    "Invoke a Skill with parameters (procedural memory). Currently a framework; concrete template execution lands in a later version.",
 
   // ===== Proposal tools (3) =====
   "tool.engram_list_proposals":
-    "List topic proposal candidates. When a topic is mentioned multiple times in conversation but has no matching engram, the system generates a pending proposal for confirmation. Returns pending only by default; pass includeAll=true to see accepted/dismissed history.",
+    "List pending memory proposals. When a topic is mentioned multiple times in conversation but has no matching memory, the system generates a pending proposal for confirmation. Returns pending only by default; pass includeAll=true to see history.",
   "tool.engram_accept_proposal":
-    "Accept a proposal candidate → the system auto-creates the corresponding engram and marks the proposal as accepted. Future occurrences of the same topic will not generate duplicate proposals.",
+    "Accept a proposal candidate → the system auto-creates the corresponding memory and marks the proposal as accepted. Future occurrences of the same topic will not generate duplicate proposals.",
   "tool.engram_dismiss_proposal":
     "Dismiss a proposal candidate. Suppressed for 30 days by default; override via dismissDays. Reason can be filled for meta-learning.",
+  "tool.engram_synthesize":
+    "Manually trigger REM: hand a set of existing memories to an LLM and synthesize a pattern memory; auto-creates a derives_from synapse per source. Requires an LLM client. Use dryRun=true to preview without writing.",
 
   // ===== Repository health tools (2) =====
   "tool.engram_doctor":
-    "Run a self-healing scan over the memory repo. Auto-fixes moved files, title renames, and stale index entries; reports dangling synapse references and orphan markdown for manual review.",
+    "Run a self-healing scan over the memory repo. Auto-fixes moved files, title renames, and stale index entries; reports dangling connections and orphan files for manual review.",
   "tool.engram_list_paths":
-    "List the physical directory tree of the memory repo with cumulative engramCount per node, for progressive disclosure before searching.",
+    "List the memory repo's directory tree with cumulative memory count per node, for orienting before searching.",
 
   // ===== OpenClaw-compatible memory tools (2) =====
   "tool.memory_search":
-    "Search team memory (engrams) using natural language. Returns relevant memory snippets with relevance scores. Call this when the user asks about past decisions, preferences, people, dates, or project context.",
+    "Search team memory using natural language. Returns relevant memory snippets with relevance scores. Call this when the user asks about past decisions, preferences, people, dates, or project context.",
   "tool.memory_get":
-    "Read full content of a single memory (engram) by ID. Returns content, metadata (importance, truthScore, reinforcementCount), and related memory IDs. Use after memory_search to dive into specifics.",
+    "Read full content of a single memory by ID. Returns content, metadata, and related memory IDs. Use after memory_search to dive into specifics.",
 
   // ===== Tool descriptions: agent layer (LLM-facing, structured WHEN/RETURNS) =====
   // Migrated from LLM_TOOL_DESCRIPTIONS + 13 new entries for previously-uncovered tools.
@@ -254,6 +256,22 @@ WHEN NOT TO CALL:
 - The proposal is borderline (accept + refine instead)
 
 RETURNS: Proposal marked as dismissed + removed from pending list.`,
+  "tool.engram_synthesize.agent": `Synthesize multiple engrams into a single pattern memory (manual REM).
+
+WHEN TO CALL:
+- Several engrams recur under one theme and combine into a reusable lesson
+- After a retrospective, abstract a pattern from concrete memories
+- REM's heuristic was too low-confidence, but human judgement says it's a real pattern
+- You want explicit derives_from lineage links among related engrams
+
+WHEN NOT TO CALL:
+- Only one engram (use engram_update)
+- Sources are unrelated (would produce garbage)
+- You want to resolve conflicts (use contradiction_resolve)
+- You want to deduplicate (engram_create has dedupe)
+- ctx.llmClient is not configured (tool throws with setup guidance)
+
+RETURNS: patternEngramId + synapseIds (one derives_from per source) + draft. dryRun=true returns the draft only.`,
   "tool.engram_doctor.agent": `Run a self-healing scan over the memory repo and report findings.
 
 Auto-fixes: moved files (index re-points), renamed titles (re-slug + rename), stale index entries (cleared). Reports for manual review: dangling synapse references and orphan markdown.
@@ -446,7 +464,7 @@ WHEN NOT TO CALL:
 - You haven't called memory_search yet (search first)
 - To list all memories (use engram_list)
 
-RETURNS: Full content + metadata (importance, truthScore, reinforcementCount) + related memory IDs.`,
+RETURNS: Full content + metadata (importance, tags, kind) + related memory IDs.`,
 
   // ===== Tool descriptions: technical layer (developer/audit-facing, full contract) =====
   // Allows implementation terms (FTS / LTP / Hebbian / RPE). Documents parameter semantics,
@@ -592,6 +610,13 @@ Default dismissDays=30. Reason recorded for meta-learning.
 Side effects: marks proposal status=dismissed; sets suppressedUntil timestamp; appends audit.
 Error conditions: proposal not found throws; already accepted throws.
 Invariant: after dismissDays, proposal may re-surface if topic mentioned again.`,
+  "tool.engram_synthesize.technical": `LLM-synthesize multiple engrams into a pattern. Input: { ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
+Behavior: load sources → call ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → parse JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence from LLM) → for each source addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence marks synthesis provenance).
+domainTags resolution priority: user-explicit > LLM-inferred > union of source tags (first 5).
+Side effects: writes new engram's three files + N synapses; appends audit { target: 'pattern-via-synthesis', sourceIds, synapseIds }; markDirty.
+dryRun=true: returns draft only, no writes.
+Error conditions: llmClient missing throws with setup guidance; ids after dedup < 2 throws; any source missing throws (lists missing ids, no partial execution); LLM returns non-string throws; JSON parse failure throws (no engram created, avoids garbage); LLM call error propagates.
+Invariants: derives_from direction is always pattern → source; synapse weight fixed at 0.8; ids auto-deduped.`,
   "tool.engram_doctor.technical": `Self-healing scan. Input: { incremental?: boolean }
 Auto-fixes: file moves (index re-points), title renames (re-slug + rename), stale index entries (cleared).
 Reports (manual review): dangling synapse references, orphan markdown files.
@@ -652,7 +677,33 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.trash": "Trash",
   "viewer.tab.config": "Config",
   "viewer.tab.help": "Help",
-  "viewer.tab.merges": "Merges",
+  "viewer.tab.merges": "Team Memory Merges",
+  "viewer.tab.health": "Health",
+  "viewer.tab.stats.tip": "Memory repository overview: engram/synapse counts, kind & status distributions, top contributors, popular tags",
+  "viewer.tab.engrams.tip": "Browse and search all memory engrams (card view or directory view grouped by domain/kind)",
+  "viewer.tab.graph.tip": "Memory synapse visualization; filter and color by family (structural/causal/evidential/temporal/modulatory) and kind",
+  "viewer.tab.proposals.tip": "Candidate memories implicitly captured but not yet approved; accept to promote to a real engram, dismiss to discard",
+  "viewer.tab.merges.tip": "Team memory merges: deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
+  "viewer.tab.audit.tip": "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
+  "viewer.tab.trash.tip": "Soft-deleted engrams and synapses; restore or permanently purge",
+  "viewer.tab.health.tip": "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
+  "viewer.tab.config.tip": "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
+  "viewer.tab.help.tip": "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
+  "viewer.health.title": "Warehouse Health",
+  "viewer.health.subtitle": "One-glance diagnostic — surfaces silent failures before they bite.",
+  "viewer.health.overall": "Overall",
+  "viewer.health.generatedAt": "Generated",
+  "viewer.health.dataRoot": "Data Root",
+  "viewer.health.checks": "Checks",
+  "viewer.health.refresh": "Refresh",
+  "viewer.health.empty": "No data root configured. Run `co-engram init` to create a warehouse.",
+  "viewer.health.badge.ok": "OK",
+  "viewer.health.badge.warn": "WARN",
+  "viewer.health.badge.error": "ERROR",
+  "viewer.health.badge.info": "INFO",
+  "viewer.health.stats.total": "Total engrams",
+  "viewer.health.stats.archived": "Archived",
+  "viewer.health.stats.forgotten": "Forgotten",
   "viewer.search.placeholder": "Full-text search engrams...",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",

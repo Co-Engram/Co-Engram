@@ -10,72 +10,634 @@
  */
 
 export const zh = {
-  // ===== Engram 工具(12 个) =====
+  // ===== Engram 工具(12 个) — user 层:plain language,无实现术语 =====
   "tool.engram_create":
-    "创建一个新的 Engram(记忆单元)。需要 title / content / kind / domainTags / createdBy。默认开启智能去重(dedupe=true):DUPLICATE 时强化原 engram 不重复创建;UPDATE 时合并;NEW 时正常创建。",
+    "创建一条新记忆。需要标题、内容、类型、领域标签和作者。默认开启智能去重:重复时强化原记忆而非新建,需更新时合并内容。",
   "tool.engram_get":
-    "按披露层级(catalog / digest / content / meta / synapses / auto)读取 Engram。auto 模式按 contextBudget 自动选 tier。",
+    "按需读取一条记忆的详情。可只看摘要,也可读完整内容;支持按 token 预算自动选择详略。",
   "tool.engram_update":
-    "更新 Engram 的字段(content / title / importance / 等)。",
-  "tool.engram_delete": "删除 Engram(content + meta + synapses 三文件一起删)。",
-  "tool.engram_search": "FTS 全文检索(中文 bigram + 英文 word),可选过滤器。",
+    "更新一条记忆的字段(内容、标题、重要性、标签等)。",
+  "tool.engram_delete": "永久删除一条记忆(连同所有连接)。不可恢复。",
+  "tool.engram_search": "用自然语言搜索记忆,可选按类型、标签、状态等过滤。",
   "tool.engram_list":
-    "按过滤器列出 Engram(无查询,按元数据过滤,直接读最新数据)。",
+    "按过滤条件列出记忆(无关键词查询,按元数据筛选,读最新状态)。",
   "tool.engram_reinforce":
-    "上报一次有效检索(LTP 强化 + Hebbian 关联强化)。更新 effectiveRetrievals / reinforcementScore / importance(每次 += effectiveness × 0.02,clamp [0,1]);邻居 engram 得到 50% 增益(contradicts 除外)。",
+    "上报一次有效使用(正向强化)。提升记忆的强度分数和使用计数,并连带强化相关记忆。",
   "tool.engram_report_failure":
-    "上报一次失败使用(LTD 削弱)。更新 failedUses / retrievalCount / importance(单次 -0.03,超阈值后 ×1.5 升级)。failedUses≥3 建议 archive,≥5 建议 forget。",
+    "上报一次失败使用(负向强化)。降低记忆的强度分数;多次失败会建议归档或遗忘。",
   "tool.engram_archive":
-    "归档 engram(移出默认检索,但保留数据可恢复)。检索默认排除 archived,可用 filter 包含。",
+    "归档一条记忆(移出默认搜索,但保留数据可恢复)。",
   "tool.engram_restore":
-    "从 archived/forgotten 恢复为 active,重新进入默认检索。若 engram 已被 sweep 到 .trash/,会先从回收站移回再恢复。",
+    "从归档或遗忘状态恢复一条记忆,重新进入默认搜索。",
   "tool.engram_forget":
-    "主动遗忘 engram(RIF 检索诱导遗忘)。文件保留(Git 可追溯),立即移出所有默认检索。需要 reason。后续默认流程:forgotten 30 天后 sweep 到 .trash/ 回收站(主索引移除),再 365 天后物理删除(rm);任意时刻可通过 engram_restore 或 viewer 回收站恢复,物理删除后只能从 git 历史找回。",
+    "主动遗忘一条记忆。文件保留(Git 可追溯),立即移出所有默认搜索。需要填写理由。后续会自动清理:30 天后进回收站,365 天后物理删除;物理删除前可随时恢复。",
   "tool.engram_recompute_importance":
-    "重新计算 engram 的多维重要性(personal/team/project/network/temporal)。network 和 temporal 由系统派生(incomingSynapseCount + 艾宾浩斯衰退),其余可通过 overrides 手动设置。结果 composite 写回 engram.importance。",
+    "重算一条记忆的多维重要性(个人/团队/项目/网络/时间)。网络和时间维度由系统派生,其余可手动设置。",
 
   // ===== 学习回路工具(4 个) =====
   "tool.contradiction_resolve":
-    "人工裁决一个 contradicts synapse(spec §3.9 阶段 2 人工介入)。必须给 verdict + rationale + resolvedBy。系统会自动把 synapse.resolutionState 标记为 resolved 并记录到 evidence 数组。",
+    "人工裁决两条互相矛盾的记忆(旧 vs 新):决定保留哪一方、合并还是归档败方。需要给出裁决理由和裁决人。",
   "tool.close_learning_loop":
-    "闭合学习回路(多巴胺闭环):把使用结果反馈到系统。success/partial → LTP 强化 + Hebbian 邻居强化;failure → LTD 削弱 + 触发降级阈值检查。同步触发 Provenance 奖惩回路(如已配置)。",
+    "关闭验证回路:把使用结果反馈给系统。成功则正向强化,失败则负向弱化并触发降级检查。",
   "tool.upgrade_verification":
-    "升级 engram 的验证状态(unverified → plausible → probable → verified → refuted)。必须给出证据说明 + 验证人。系统会校验状态机(不允许跳级)+ 三维证据条件(evidenceCount + 跨情境 domainTags + 时间稳定天数)。force=true 可跳过条件检查但保留状态机校验(人工裁决场景)。",
+    "升级一条记忆的验证状态(未验证 → 似真 → 可信 → 已验证)。需要给出证据说明和验证人。系统校验状态机(不允许跳级)和证据条件;force=true 可跳过证据检查但保留状态机校验。",
   "tool.get_evolution_lineage":
-    "追溯 engram 的进化血统(spec §12.7 场景 6)。沿 derives_from / consolidates / supersedes synapse 双向追溯:ancestors = 来源(observation 等),descendants = 演化结果(pattern/procedure 等)。返回 DAG 节点和边,可用于 Graph View 可视化。spec §4.6 验收:从 Skill 可反向追溯到原 observation 的完整链路。",
+    "追溯一条记忆的演化谱系(祖先和后代)。沿派生/合并/取代关系双向追溯,返回图谱节点和边,可用于可视化。",
 
   // ===== Synapse 工具(4 个) =====
   "tool.synapse_create":
-    "在两个 Engram 之间创建 Synapse(连接)。自动更新双方的 incoming/outgoing 缓存。",
-  "tool.synapse_get": "读取单条 Synapse(通过 from engramId + synapseId)。",
-  "tool.synapse_delete": "删除一条 Synapse(同步更新双方缓存)。",
-  "tool.synapse_list": "列出某 Engram 的所有 Synapses(出边 / 入边 / 双向)。",
+    "在两条记忆之间创建一条 Synapse(有类型的连接,如扩展、矛盾、因果)。",
+  "tool.synapse_get": "读取单条 Synapse 的详情。",
+  "tool.synapse_delete": "删除一条 Synapse。",
+  "tool.synapse_list": "列出某条记忆的所有 Synapse(出边 / 入边 / 双向)。",
 
   // ===== Skill 工具(2 个) =====
   "tool.skill_get":
-    "读取 Skill 元信息(程序性记忆)。P0 阶段从内存 registry 读取。",
+    "读取 Skill 元信息(程序性记忆,即带参数的可调用模板)。",
   "tool.skill_invoke":
-    "调用一个 Skill(程序性记忆)。P0 阶段是框架;具体模板执行(tool-sequence / prompt-template)在 P1 实现。",
+    "带参数调用一个 Skill(程序性记忆)。当前为框架;具体模板执行在后续版本实现。",
 
   // ===== 候选提案工具(3 个) =====
   "tool.engram_list_proposals":
-    "列出主题候选提案。当某主题在对话中被多次提及但无匹配 engram 时,系统会生成 pending 提案等待确认。默认只返回 pending;传 includeAll=true 可查看历史 accepted/dismissed。",
+    "列出待处理的记忆候选。当某主题在对话中被多次提及但无匹配记忆时,系统生成待确认提案。默认只返回待处理;传 includeAll=true 可查看历史。",
   "tool.engram_accept_proposal":
-    "接受一个候选提案 → 系统自动创建对应 engram,并把提案标记为 accepted。后续相同主题不会再产生重复提案。",
+    "接受一个候选提案 → 系统自动创建对应记忆,并标记提案为已接受。后续相同主题不会再产生重复提案。",
   "tool.engram_dismiss_proposal":
-    "拒绝一个候选提案。默认 30 天内不再提示;可通过 dismissDays 自定义冷却期。可填 reason 便于元学习。",
+    "驳回一个候选提案。默认 30 天内不再提示;可自定义冷却期。可填理由便于元学习。",
+  "tool.engram_synthesize":
+    "手工触发 REM:把多条已有记忆交给 LLM 综合成一条 pattern(模式)记忆,并自动为每个源连一条 derives_from(派生自)连接。需要配置 LLM。可选 dryRun 只看草稿不创建。",
 
   // ===== 仓库健康工具(2 个) =====
   "tool.engram_doctor":
-    "对记忆仓库做一次自愈扫描。自动修复文件移动、标题重命名、过期索引项;报告 dangling synapse 引用和孤儿 markdown 供人工处理。",
+    "对记忆仓库做一次自愈扫描。自动修复文件移动、标题重命名、过期索引项;报告悬空连接和孤儿文件供人工处理。",
   "tool.engram_list_paths":
-    "列出记忆仓库的物理目录树,每节点带累计 engramCount,用于搜索前的渐进式披露。",
+    "列出记忆仓库的目录树,每节点带累计记忆数,用于搜索前先建立全局认知。",
 
   // ===== OpenClaw 兼容 memory 工具(2 个) =====
   "tool.memory_search":
-    "用自然语言搜索团队记忆(engram)。返回相关记忆片段及相关性分数。当用户询问过往决策、偏好、人名、日期或项目细节时调用。",
+    "用自然语言搜索团队记忆。返回相关记忆片段及相关性分数。当用户询问过往决策、偏好、人名、日期或项目细节时调用。",
   "tool.memory_get":
-    "按 ID 读取单条记忆(engram)的完整内容。返回 content、metadata(含 importance、truthScore、reinforcementCount)和相关记忆 ID。在 memory_search 之后用来查看细节。",
+    "按 ID 读取单条记忆的完整内容。返回内容、元数据和相关记忆 ID。在 memory_search 之后用来查看细节。",
+
+  // ===== 工具描述:agent 层(LLM 友好,结构化 WHEN/RETURNS)=====
+  // 从 LLM_TOOL_DESCRIPTIONS 迁移 + 13 个原未覆盖工具的新描述。
+  // 禁止术语:FTS / LTP / Hebbian / RPE / reinforcementScore / effectiveRetrievals / failedUses。
+  // truthScore 仅在 engram_get 中允许(字段名引用)。
+  "tool.engram_search.agent": `搜索团队记忆(过去的设计决策、偏好、项目上下文)。
+
+何时调用:
+- 用户引用过去的工作("我们之前决定"、"上次"、"以前我们")
+- 用户提到偏好("我喜欢"、"我一直用"、"我讨厌")
+- 用户问项目历史("X 为什么存在"、"谁决定的"、"我们讨论过...吗")
+- 遇到可能之前见过的 bug
+- 用户明确说"记住"或"我们讨论过"
+
+何时不调用:
+- 与团队历史无关的纯代码问题
+- 通用编程知识(用 web search)
+- 简单问候
+
+返回:Top N 条 engram(标题 + 摘要 + 分数 + tags)。需要全文用 engram_get。`,
+  "tool.engram_get.agent": `按 ID 读取单条记忆(engram)的完整内容。
+
+何时调用:
+- engram_search 返回的命中需要读全文
+- 用户明确询问某个 engram ID 的详情
+- 需要搜索摘要里没显示的元数据(重要性、tags、验证状态)
+
+何时不调用:
+- 还没调过 engram_search(先搜索)
+- engram ID 来自过时的对话(重新搜索验证)
+
+返回:完整内容 + 元数据(创建时间、重要性、truthScore、强化次数)+ 相关 engram ID 列表。`,
+  "tool.engram_create.agent": `为重要的团队知识创建新记忆(engram)。
+
+何时调用:
+- 用户明确表达偏好("以后用 arrow function")
+- 用户做出带理由的设计决策("我们用 PostgreSQL,因为 X")
+- 用户分享 bug 教训("这个失败因为 Y,以后记得检查 Z")
+- 用户纠正过时记忆("其实我们已经改用 X 了")
+
+何时不调用:
+- 琐碎/一次性信息("天气不错")
+- CLAUDE.md 或项目 README 已有的信息
+- 用户只是在询问的信息(用 engram_search)
+
+返回:创建的 engram ID + 版本号。自动检测重复。`,
+  "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
+
+何时调用:
+- 给已有 engram 补充细节("迁移还要处理 X")
+- 修正记忆里的笔误/不精确表述
+- 用户澄清之前的记忆("我的意思是...")
+
+何时不调用:
+- 新信息和旧的矛盾(用 engram_create + contradiction_resolve)
+- 记忆没问题(不要为了刷新时间戳而更新)
+
+返回:更新后的 engram + 新版本号。`,
+  "tool.engram_list.agent": `浏览所有记忆(分页),最新优先。
+
+何时调用:
+- 用户想看存储的记忆概览("你知道我什么")
+- 需要找记忆但没精确查询词
+- 回顾最近捕获的内容
+
+何时不调用:
+- 有明确查询(用 engram_search 更快更准)
+- 只为检查记忆是否存在(按内容搜)
+
+返回:engram 摘要列表(标题、tags、更新时间)+ 总数。支持分页。`,
+  "tool.synapse_create.agent": `在两条记忆之间创建有类型的连接(synapse)。
+
+何时调用:
+- 新记忆扩展/矛盾/关联已有记忆
+- 用户提到因果或依赖关系("X 因为 Y 发生")
+- 把决策链接到理由,或 bug 链接到修复
+
+何时不调用:
+- 两条记忆无关
+- 不确定关系类型(默认用 'related_to')
+
+返回:synapse ID + from/to engram ID。常见类型:extends、contradicts、related_to、caused_by。`,
+  "tool.engram_reinforce.agent": `标记某条记忆被有效使用(正向强化)。
+
+何时调用:
+- 你在回答里引用了 engram ID 且用户接受了结果
+- 取回的记忆直接帮助解决了任务
+- 成功完成依赖某条记忆的任务后
+
+何时不调用:
+- 实际没用那条记忆(只是扫了一眼)
+- 任务失败或记忆错了(用 engram_report_failure)
+
+返回:记忆的强度分数增加 + 有效使用计数 +1。`,
+  "tool.engram_report_failure.agent": `报告某条记忆错误或过时(负向强化)。
+
+何时调用:
+- 用户说"不对"、"我们改了"、"过时了"
+- 取回的记忆导致了错误答案
+- 代码或现实和记忆矛盾
+
+何时不调用:
+- 记忆只是不完整(用 engram_update)
+- 不确定(先问用户)
+
+返回:记忆的失败次数增加 + 强度分数下降。可能在后续维护周期自动驳回。`,
+  "tool.engram_delete.agent": `永久删除一条记忆(谨慎使用)。
+
+何时调用:
+- 用户明确要删除("删掉关于 X 的那条记忆")
+- 记忆重复了,只保留一条
+- 记忆含敏感信息不应保留
+
+何时不调用:
+- 记忆只是过时(用 engram_report_failure,让维护 refute)
+- 用户表述模糊("忘掉那个"— 确认含义)
+- 批量清理(用 CLI)
+
+返回:{ deleted: true } 或未找到错误。`,
+  "tool.close_learning_loop.agent": `确认记忆正确后,关闭验证回路。
+
+何时调用:
+- 使用了记忆,验证有效,想标记为已确认
+- 正向反馈 + 用户确认记忆准确后
+- 完成"取回 → 使用 → 验证 → 确认"循环
+
+何时不调用:
+- 还没实际验证(等确认扎实后再调)
+- 记忆最终错了(用 engram_report_failure)
+
+返回:更新后的验证状态 + 闭环元数据。`,
+  "tool.contradiction_resolve.agent": `解决两条记忆之间的矛盾(旧 vs 新)。
+
+何时调用:
+- 新记忆明确矛盾旧记忆
+- 用户确认旧记忆错了应该 refute
+- 需要标记 contradiction synapse 里哪一方胜出
+
+何时不调用:
+- 两条记忆只是不同视角(用 synapse kind 'related_to')
+- 不确定哪个对(问用户)
+
+返回:resolution 记录 + 两条 engram 的验证状态更新。`,
+  "tool.engram_list_proposals.agent": `列出待处理的记忆候选(隐式捕获但待审批的)。
+
+何时调用:
+- 系统提示显示"N 个候选记忆待处理"
+- 用户问"有什么候选"或"查看待处理记忆"
+- 定期清理已捕获但未确认的记忆
+
+何时不调用:
+- 没有待处理候选(系统提示会显示 0)
+- 刚刚显式搜索过(用 engram_search)
+
+返回:候选列表(标题、相似度、样本消息、proposal ID)。`,
+  "tool.engram_accept_proposal.agent": `接受待处理的候选(转成真正的 engram)。
+
+何时调用:
+- 用户确认候选有效("对,保存那个")
+- 你审核后认为候选捕获了真实偏好/决策
+
+何时不调用:
+- 候选错误或质量低(用 engram_dismiss_proposal)
+- 还没审核
+
+返回:创建的 engram ID + 候选标记为已接受。`,
+  "tool.engram_dismiss_proposal.agent": `驳回待处理的候选(拒绝捕获)。
+
+何时调用:
+- 用户说"不,不值得保存"
+- 候选是噪声/低质量/已被覆盖
+- 审核后决定不应成为记忆
+
+何时不调用:
+- 还没审核候选内容
+- 候选处于边缘(改为接受 + 细化)
+
+返回:候选标记为已驳回 + 从待处理列表移除。`,
+  "tool.engram_synthesize.agent": `综合多条 engram 形成一条 pattern 记忆(手工触发的 REM)。
+
+何时调用:
+- 几条 engram 在同一主题下反复出现,组合起来能形成可复用经验
+- 团队刚做完复盘,想从具体记忆提炼抽象模式
+- REM 启发式置信度不够,但人判断是真 pattern
+- 想给一组相关 engram 显式建立 derives_from 溯源
+
+何时不调用:
+- 只有一条 engram(改用 engram_update)
+- 源 engram 主题无关(综合出垃圾)
+- 想合并矛盾记忆(改用 contradiction_resolve)
+- 想去重(engram_create 自带 dedupe)
+- ctx.llmClient 未配置(会抛错带安装指引)
+
+返回:patternEngramId + synapseIds(每源一条 derives_from)+ draft(含 title/content/summary/confidence/reason)。dryRun=true 时不创建,只返回 draft。`,
+  "tool.engram_doctor.agent": `对记忆仓库做一次自愈扫描。
+
+自动修复:文件移动(索引重新指向)、标题重命名(重新生成 slug + 重命名)、过期索引项(清除)。仅报告:dangling synapse 引用、孤儿 markdown。
+
+何时调用:
+- 用户说"记忆看起来不对"或"搜索找不到该有的条目"
+- 用户手动编辑/重命名了数据目录下的文件
+- 触及数据仓库的 Git 合并之后
+- 定期健康检查(每次会话一次)
+
+何时不调用:
+- 没观察到不一致
+- 用户想看具体某条 engram(用 engram_get)
+
+返回:开始/结束时间戳、总计数、自动修复数、待审核数,以及完整 issues 列表。`,
+  "tool.engram_list_paths.agent": `展示记忆仓库的物理目录树,让你在搜索前先建立全局认知。
+
+每节点带 engramCount(子树累计)。用它了解记忆集中在哪些领域、项目,再决定搜什么。
+
+何时调用:
+- 会话开始时,在 engram_search 之前建立全局观感
+- 用户问"我们有哪些方面的记忆"或"团队做什么领域"
+- 准备搜索但想先选更具体的 domain tag
+
+何时不调用:
+- 已知道具体查询——直接 engram_search
+- 用户想要某条 engram(用 engram_get)
+
+返回:嵌套 { path, engramCount, children } 树,根为 '/'。可选 maxDepth(1-10,默认 5)。`,
+  // 13 个原未覆盖工具的 agent 描述
+  "tool.engram_archive.agent": `归档记忆(移出默认检索,但保留数据可恢复)。
+
+何时调用:
+- 记忆不再活跃相关,但将来可能需要
+- 用户要求"搁置"/"暂存"/"放一边"某条记忆
+- 在不丢历史的前提下减少搜索噪声
+
+何时不调用:
+- 记忆是错的(用 engram_report_failure)
+- 记忆应永久删除(用 engram_delete 或 engram_forget)
+- 只是想刷新记忆(用 engram_update)
+
+返回:{ archived: true } + 新状态。检索默认排除 archived,可用 filter 包含。`,
+  "tool.engram_restore.agent": `从 archived/forgotten 恢复为 active,重新进入默认检索。
+
+何时调用:
+- 用户要求"找回"/"取消归档"/"恢复"某条记忆
+- 之前归档的记忆又变相关了
+- 从 viewer 回收站恢复
+
+何时不调用:
+- 记忆已被物理清除(只能从 git 历史恢复)
+- 还没确认记忆仍准确(考虑先 engram_update)
+
+返回:{ restored: true } + 新状态。立即重新进入默认检索。`,
+  "tool.engram_forget.agent": `主动遗忘记忆(RIF 检索诱导遗忘)。
+
+文件保留(Git 可追溯),立即移出所有默认检索。需要 reason。
+
+何时调用:
+- 用户明确说"忘掉这个"/"别再记这个"
+- 记忆有误导性,不应在将来搜索中浮现
+- 在考虑永久删除前的软移除
+
+何时不调用:
+- 记忆只是过时(用 engram_report_failure,让维护处理)
+- 用户表述模糊(确认要遗忘什么)
+- 想保持可搜索(用 engram_archive 代替)
+
+返回:{ forgotten: true } + reason 已记录。默认清理流程:30 天后进 .trash/,再 365 天后物理删除。`,
+  "tool.engram_recompute_importance.agent": `重算记忆的多维重要性分数。
+
+何时调用:
+- 检索/使用模式发生显著变化后(批量 reinforce 或 failure)
+- 用户要求"重排"/"重算"/"刷新重要性"
+- 调试异常搜索排名
+
+何时不调用:
+- 仅为刷新时间戳(用 engram_update)
+- 作为常规操作(重要性在 reinforce/failure 时自动更新)
+
+返回:重算的重要性向量(personal/team/project/network/temporal)+ 新 composite 分数,写回 engram.importance。`,
+  "tool.upgrade_verification.agent": `升级记忆的验证状态(unverified → plausible → probable → verified)。
+
+何时调用:
+- 你验证了记忆准确,想标记为已确认
+- 跨情境证据支持该记忆
+- 在 close_learning_loop 成功且证据扎实后
+
+何时不调用:
+- 没有证据(先用 close_learning_loop 完成基础确认循环)
+- 想降级(本工具只升级;refuted 是另一条路径)
+- 不带 force=true 跳级(状态机校验会拒绝)
+
+返回:新验证状态 + 证据记录。force=true 跳过证据检查但保留状态机校验。`,
+  "tool.get_evolution_lineage.agent": `追溯记忆如何演化(祖先和后代)。
+
+何时调用:
+- 用户问"这个决策从哪来"/"这个 pattern 怎么形成的"
+- 理解一个 pattern 或 procedure 的派生链
+- 审查 observation 谱系是否支持某个 pattern 的有效性
+
+何时不调用:
+- 记忆没有演化关系(返回空图)
+- 只想要相关记忆(用 engram_get 的 synapses tier)
+
+返回:DAG 节点和边。ancestors = 来源(observation 等),descendants = 演化结果(pattern/procedure)。`,
+  "tool.synapse_get.agent": `读取两条记忆之间的单条 synapse(连接)。
+
+何时调用:
+- 检查某个连接的元数据(weight、direction、evidence)
+- 调试为什么两条记忆被关联
+- 在 synapse_list 返回 synapse ID 后想看详情
+
+何时不调用:
+- 列出某记忆的所有 synapse(用 synapse_list)
+- 检查是否存在连接(用 synapse_list + filter)
+
+返回:Synapse 记录(id、from、to、kind、weight、direction、evidence、resolutionState)。`,
+  "tool.synapse_delete.agent": `删除两条记忆之间的 synapse(连接)。
+
+何时调用:
+- 用户确认连接错误/不再相关
+- 清理错误的 contradiction 或 derives_from 链接
+- 合并后清理重复
+
+何时不调用:
+- 连接只是弱(用 synapse_create 调低 weight 代替)
+- contradiction 已解决(用 contradiction_resolve,不要 delete)
+- 没确认用户想移除连接
+
+返回:{ deleted: true } + 双方 engram 缓存更新。`,
+  "tool.synapse_list.agent": `列出某条记忆的所有 synapse(连接)。
+
+何时调用:
+- 在决定 update 或 delete 前审查记忆连接了什么
+- 理解某主题周围的关系图
+- 检查 contradiction 或 derivation
+
+何时不调用:
+- 只需要某条特定 synapse(用 synapse_get)
+- 想看完整图视图(用 viewer 的 Graph tab)
+
+返回:Synapse 列表(出边/入边/双向),含 kind、weight、direction。`,
+  "tool.skill_get.agent": `读取 skill 元信息(程序性记忆)。
+
+何时调用:
+- 在 invoke 前检查已注册 skill 做什么
+- 列出可用 skill(程序性模板)
+- 调试 skill registry 问题
+
+何时不调用:
+- 想执行 skill(用 skill_invoke)
+- 想读陈述性记忆(用 engram_search / engram_get)
+
+返回:Skill 元信息(name、description、template kind、parameters)。`,
+  "tool.skill_invoke.agent": `带参数调用一个 skill(程序性记忆)。
+
+何时调用:
+- 用户要求执行已知的程序性模板
+- 在 skill_get 识别出正确 skill 后
+- 运行 tool-sequence 或 prompt-template skill
+
+何时不调用:
+- 没有已注册 skill 的一次性任务
+- 没先查 skill_get(可能没选对 skill)
+
+返回:Skill 执行结果(取决于模板)。`,
+  "tool.memory_search.agent": `用自然语言搜索团队记忆。返回相关记忆片段及相关性分数。
+
+何时调用:
+- 用户询问过往决策、偏好、人名、日期或项目细节
+- 用户引用过去工作("我们决定"、"上次"、"以前")
+- 需要当前代码或文档里没有的团队历史
+
+何时不调用:
+- 与团队历史无关的纯代码问题
+- 通用编程知识(用 web search)
+- 当前对话已答过的话题
+
+返回:命中结果含 id、title、内容片段、score、metadata。用 memory_get 读全文。`,
+  "tool.memory_get.agent": `按 ID 读取单条记忆的完整内容。
+
+何时调用:
+- memory_search 返回的命中需要读全文
+- 用户明确询问某个 memory ID 的详情
+- 需要搜索摘要里没显示的元数据(重要性、kind、tags)
+
+何时不调用:
+- 还没调过 memory_search(先搜索)
+- 想列出所有记忆(用 engram_list)
+
+返回:完整内容 + 元数据(重要性、tags、kind)+ 相关记忆 ID。`,
+
+  // ===== 工具描述:technical 层(开发者/审计向,完整契约)=====
+  // 允许实现术语(FTS / LTP / Hebbian / RPE)。记录参数语义、错误条件、副作用、不变量。
+  // 用于技术文档、API 契约、debug。
+  "tool.engram_search.technical": `FTS5 全文检索(中文 bigram tokenizer + 英文 word tokenizer)。
+输入:{ query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, emotionalValence?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
+副作用:无(只读)。不更新 lastRetrievedAt(用 engram_reinforce)。
+错误条件:空 query 抛错;limit 钳到 [1, 100]。
+不变量:archived engram 默认排除,除非 filter.status 包含 'archived'。
+索引:读 digest.jsonl + FTS 索引;冷启动重建。`,
+  "tool.engram_get.technical": `按披露层级读取 engram(渐进式披露,控制 token 成本)。
+输入:{ id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synapses' | 'auto'; contextBudget?: number }
+- catalog:id + title + kind + tags(最小)
+- digest:+ summary + importance + 时间戳
+- content:+ 完整 body
+- meta:+ frontmatter(全字段)
+- synapses:+ 出/入边
+- auto:按 contextBudget 自动选 tier(默认)
+副作用:无。不更新 lastRetrievedAt(用 engram_reinforce)。
+错误条件:未找到抛错;无效 tier 抛错。
+truthScore 字段在此暴露(允许字段名引用)。`,
+  "tool.engram_create.technical": `创建新 engram。输入:{ title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, emotionalValence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+kind 枚举:observation | fact | pattern | procedure | hypothesis。
+Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UPDATE 合并 content;NEW 创建。
+副作用:写 engrams/<slug>.md + .meta.json + .synapses.json;append audit;mark repo dirty。
+错误条件:缺必填字段抛错;无效 kind 抛错。
+不变量:slug 唯一性强制;冲突加后缀。`,
+  "tool.engram_update.technical": `更新 engram 字段。输入:{ id, title?, content?, summary?, importance?, domainTags?, contextTags?, emotionalValence?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+乐观锁:version 字段校验(Finding 231 — 待实现)。
+副作用:重写 .md + .meta.json;append audit;增量更新 digest/graph 索引;mark dirty。
+错误条件:未找到抛错;version 不匹配抛错(实现后)。
+不变量:title 变更触发 re-slug + 文件重命名。`,
+  "tool.engram_delete.technical": `硬删除 engram。输入:{ id }
+副作用:删除 .md + .meta.json + .synapses.json;移除其他 engram 上的 incoming synapse;重建 digest/graph;append audit。
+错误条件:未找到抛错。
+不变量:不可逆(vs engram_forget 保留文件)。Git 历史是唯一恢复途径。
+警告:软移除优先用 engram_archive 或 engram_forget。`,
+  "tool.engram_list.technical": `按 filter 列出 engram(无 query,纯元数据过滤,读最新状态)。
+输入:{ filter?: 同 engram_search;limit?,cursor? }
+副作用:无。
+分页:cursor-based,opaque token。
+不变量:读 engram-index.json(catalog);不读完整内容。比 engram_search 列举更快。`,
+  "tool.engram_reinforce.technical": `上报有效检索(LTP)。输入:{ id, effectiveness: 0..1, note? }
+更新:effectiveRetrievals += 1;reinforcementScore += effectiveness;importance += effectiveness × 0.02(clamp [0,1])。
+Hebbian 强化:邻居 engram(经 synapse)得 50% delta,contradicts synapse kind 除外。
+副作用:写目标 + 邻居的 .meta.json;append audit;append effectiveness signal。
+错误条件:未找到抛错;effectiveness 越界抛错。
+注意:此路径与 maintenance applyRpeUpdate 不同(Finding 124)— tool 路径增长 importance,maintenance 路径不增长。`,
+  "tool.engram_report_failure.technical": `上报失败使用(LTD)。输入:{ id, reason, context? }
+更新:failedUses += 1;retrievalCount += 1;importance -= 0.03(超阈值后 ×1.5 升级)。
+自动建议:failedUses ≥ 3 → 建议 archive;≥ 5 → 建议 forget。
+副作用:写 .meta.json;append audit;append effectiveness signal(failure)。
+错误条件:未找到抛错;空 reason 抛错。`,
+  "tool.engram_archive.technical": `归档 engram。输入:{ id, reason? }
+状态转换:active → archived。
+副作用:写 .meta.json(status);重建 digest(默认 FTS 排除 archived)。
+错误条件:未找到抛错;已 archived 幂等。
+不变量:数据保留;可通过 engram_restore 恢复。检索默认排除 archived,除非 filter.status='archived'。`,
+  "tool.engram_restore.technical": `从 archived/forgotten 恢复。输入:{ id }
+状态转换:archived|forgotten → active。
+若 engram 已被 sweep 到 .trash/,先移回。
+副作用:写 .meta.json;重建 digest;append audit。
+错误条件:未找到抛错;物理清除抛错(不可恢复)。
+不变量:立即重新进入默认检索。`,
+  "tool.engram_forget.technical": `RIF 检索诱导遗忘。输入:{ id, reason }
+状态:active|archived → forgotten。
+文件保留(Git 跟踪)。立即移出所有默认检索。
+清理流程(maintenance):forgotten → 30 天 → .trash/(主索引移除)→ 365 天 → 物理 rm。
+副作用:写 .meta.json(status + forgottenAt);重建 digest;append audit。
+错误条件:未找到抛错;空 reason 抛错。
+恢复:物理清除前可随时 engram_restore;清除后只能 git 历史。`,
+  "tool.engram_recompute_importance.technical": `重算多维重要性。输入:{ id, overrides?: { personal?, team?, project? } }
+维度:personal / team / project(可设);network(incomingSynapseCount 派生);temporal(艾宾浩斯衰退)。
+composite = 加权和(spec §8)。写回 engram.importance。
+副作用:写 .meta.json(importance + importanceVector);append audit。
+错误条件:未找到抛错。
+不变量:network + temporal 始终系统派生;overrides 只影响其余三维。`,
+  "tool.contradiction_resolve.technical": `裁决 contradicts synapse。输入:{ fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
+更新:synapse.resolutionState = 'resolved';append evidence[];verdict=archive 时,败方 engram status → archived。
+副作用:写 synapse 文件 + .meta.json(若 archive);append audit。
+错误条件:未找到抛错;非 contradicts synapse 抛错;已 resolved 抛错。
+Spec:§3.9 phase 2 人工介入。`,
+  "tool.close_learning_loop.technical": `闭合验证回路。输入:{ engramId, outcome: 'success' | 'failure' | 'partial', effectiveness?, reportedBy }
+success/partial → LTP(engram_reinforce 路径)+ Hebbian 邻居强化。
+failure → LTD(engram_report_failure 路径)+ 降级阈值检查(低于则 auto-archive)。
+触发 provenance 奖惩回路(如配置)。
+副作用:写 .meta.json(importance + verification status);append audit + effectiveness signal。
+错误条件:未找到抛错;无效 outcome 抛错。`,
+  "tool.upgrade_verification.technical": `升级验证状态。输入:{ id, evidenceDescription, verifier, force? }
+状态机:unverified → plausible → probable → verified(不可跳级)。refuted 是独立路径。
+三维证据条件:evidenceCount ≥ N + 跨情境 domainTags + 时间稳定天数。
+force=true:跳过证据条件检查但保留状态机校验。
+副作用:写 .meta.json(verificationStatus + evidence[]);append audit。
+错误条件:未找到抛错;非法转换抛错;证据不足抛错(不带 force 时)。
+Spec:§3.9 phase 1。`,
+  "tool.get_evolution_lineage.technical": `追溯演化 DAG。输入:{ id, direction?: 'ancestors' | 'descendants' | 'both', maxDepth? }
+沿 synapse kind:derives_from / consolidates / supersedes(双向)。
+返回:{ nodes: Engram[], edges: Synapse[] }。
+副作用:无(只读)。
+不变量:ancestors = 来源(observation/hypothesis),descendants = 演化结果(pattern/procedure)。
+Spec:§4.6 验收,§12.7 场景 6。`,
+  "tool.synapse_create.technical": `创建 synapse。输入:{ from, to, kind, weight?, direction?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
+kind 枚举:extends | part_of | similar_to | depends_on | causes | follows | derives_from | contradicts | exemplifies | supersedes | consolidates | contextualizes。
+direction:'directional' | 'bidirectional'(默认 directional)。
+副作用:写两端的 .synapses.json(outgoing + incoming 缓存);append audit。
+错误条件:from/to 未找到抛错;自环抛错;重复抛错。
+不变量:contradicts synapse 创建 contradiction 条目用于跟踪。`,
+  "tool.synapse_get.technical": `读取单条 synapse。输入:{ from, synapseId }
+返回:完整 synapse 记录(id、from、to、kind、weight、direction、evidence、resolutionState、createdAt)。
+副作用:无。
+错误条件:未找到抛错。`,
+  "tool.synapse_delete.technical": `删除 synapse。输入:{ from, synapseId }
+副作用:从两端 .synapses.json 移除;重建 graph 索引;append audit。
+错误条件:未找到抛错。
+不变量:contradicts synapse 删除也会清除 contradiction 条目(显式裁决用 contradiction_resolve 代替)。`,
+  "tool.synapse_list.technical": `列出某 engram 的 synapse。输入:{ from, direction?: 'outgoing' | 'incoming' | 'both' }
+返回:synapse 记录数组。
+副作用:无。
+不变量:outgoing = engram 作为源;incoming = engram 作为目标。均读自缓存的 .synapses.json。`,
+  "tool.skill_get.technical": `读取 skill 元信息。输入:{ name }
+P0:从内存 registry 读取(skill 启动时加载)。
+返回:{ name, description, templateKind: 'tool-sequence' | 'prompt-template', parameters, version }。
+副作用:无。
+错误条件:未找到抛错。
+注:P1 将加入文件系统支持的 skill 加载。`,
+  "tool.skill_invoke.technical": `调用 skill。输入:{ name, parameters }
+P0:仅框架——返回"skill invoked"不执行模板。
+P1:tool-sequence 执行参数化工具链;prompt-template 渲染并返回 prompt。
+副作用:取决于模板(tool-sequence 可能写 engram)。
+错误条件:未找到抛错;参数校验抛错。
+不变量:skill 执行记入 provenance 日志。`,
+  "tool.engram_list_proposals.technical": `列出待处理提案。输入:{ includeAll?: boolean }
+默认:只返回 pending。includeAll=true 返回 accepted/dismissed 历史。
+提案引擎:对话中提及 ≥3 次但无匹配 engram 的主题生成 pending 提案。
+副作用:无(只读)。
+返回:{ proposalId, title, similarity, sampleMessage, status, createdAt } 数组。`,
+  "tool.engram_accept_proposal.technical": `接受提案。输入:{ entityId, title?, content?, domainTags?, kind?, createdBy? }
+副作用:创建 engram(内部调 engram_create);标记提案 status=accepted;抑制同主题未来重复提案;append audit。
+错误条件:提案未找到抛错;已 accepted/dismissed 抛错。
+不变量:默认 createdBy 回退链:explicit > ctx.defaultCreatedBy > 'unknown'。`,
+  "tool.engram_dismiss_proposal.technical": `驳回提案。输入:{ entityId, reason?, dismissDays? }
+默认 dismissDays=30。reason 记入元学习。
+副作用:标记提案 status=dismissed;设置 suppressedUntil 时间戳;append audit。
+错误条件:提案未找到抛错;已 accepted 抛错。
+不变量:dismissDays 后,若主题再次提及,提案可能重新浮现。`,
+  "tool.engram_synthesize.technical": `LLM 综合多条 engram 形成 pattern。输入:{ ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
+行为:读源 → 调 ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → 解析 JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence 来自 LLM) → 对每个源 addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence 标注 synthesis 来源)。
+domainTags 解析优先级:用户显式 > LLM 推断 > 源 tags 并集(取前 5)。
+副作用:写新 engram 三件套 + N 条 synapse;append audit { target: 'pattern-via-synthesis', sourceIds, synapseIds };markDirty。
+dryRun=true:只返回 draft,不写盘。
+错误条件:llmClient 缺失抛错带安装指引;ids 去重后 < 2 抛错;任一源不存在抛错(列出缺失 id,不部分执行);LLM 返回非 string 抛错;JSON 解析失败抛错(不创建 engram,避免垃圾数据);LLM 调用抛错透传。
+不变量:derives_from 方向永远是 pattern → source;synapse weight 固定 0.8;id 自动去重。`,
+  "tool.engram_doctor.technical": `自愈扫描。输入:{ incremental?: boolean }
+自动修复:文件移动(索引重新指向)、标题重命名(re-slug + rename)、过期索引项(清除)。
+报告(人工审核):dangling synapse 引用、孤儿 markdown。
+副作用:可能重写 .meta.json / .synapses.json / 索引文件;append audit log。
+返回:{ startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }。
+incremental=true:只扫描自上次 mtime pass 以来变化的文件。`,
+  "tool.engram_list_paths.technical": `带 engramCount 的目录树。输入:{ maxDepth?: 1..10(默认 5) }
+直接读文件系统(非索引)。每节点:{ path, engramCount, children }。
+副作用:无。
+用途:渐进式披露——搜索前先建立全局观感。
+不变量:engramCount 是子树累计(含子节点)。`,
+  "tool.memory_search.technical": `engram_search 的 OpenClaw 兼容别名。同样 FTS5 后端,简化 schema。
+输入:{ query, maxResults?, minScore? }
+副作用:无。
+返回:{ results: MemorySearchHit[], total }。MemorySearchHit 隐藏内部字段(emotionalValence、freshness、sourceType)。
+不变量:maxResults 钳到 [1, 50];minScore 钳到 [0, 1]。`,
+  "tool.memory_get.technical": `engram_get(content tier)的 OpenClaw 兼容别名。同样后端。
+输入:{ id }
+副作用:无。
+返回:{ id, title, content, metadata: { importance, truthScore, reinforcementCount, tags, kind }, relatedIds }。
+不变量:relatedIds 派生自 synapse(双向)。`,
 
   // ===== 系统提示词(buildProposalPrompt) =====
   "prompt.proposal_prompt":
@@ -115,7 +677,33 @@ export const zh = {
   "viewer.tab.trash": "记忆回收站",
   "viewer.tab.config": "配置",
   "viewer.tab.help": "帮助",
-  "viewer.tab.merges": "合并",
+  "viewer.tab.merges": "团队记忆合并",
+  "viewer.tab.health": "健康",
+  "viewer.tab.stats.tip": "记忆库整体统计:印迹/突触数量、kind 与 status 分布、贡献者排名、热门 tag",
+  "viewer.tab.engrams.tip": "浏览和搜索所有记忆印迹(卡片视图或按 domain/kind 分组的目录视图)",
+  "viewer.tab.graph.tip": "记忆突触可视化图谱;按 family(结构/因果/证据/时序/调制)和 kind 着色与过滤",
+  "viewer.tab.proposals.tip": "隐式捕获但尚未审批的候选记忆;接受则转为正式 engram,驳回则丢弃",
+  "viewer.tab.merges.tip": "团队记忆合并:相似记忆去重、矛盾记忆(contradicts)三阶段解决工作流",
+  "viewer.tab.audit.tip": "记忆变更时间线:创建/更新/删除/强化/矛盾解决的历史记录",
+  "viewer.tab.trash.tip": "软删除的印迹与突触;可恢复或彻底清除",
+  "viewer.tab.health.tip": "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
+  "viewer.tab.config.tip": "配置:dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
+  "viewer.tab.help.tip": "使用说明:概念释义、端口与 dataRoot、Claude Code 与 OpenClaw 双宿主说明",
+  "viewer.health.title": "仓库健康",
+  "viewer.health.subtitle": "一眼诊断——把静默失败提前暴露出来。",
+  "viewer.health.overall": "总体",
+  "viewer.health.generatedAt": "生成时间",
+  "viewer.health.dataRoot": "数据根目录",
+  "viewer.health.checks": "检查项",
+  "viewer.health.refresh": "刷新",
+  "viewer.health.empty": "未配置数据根目录。运行 `co-engram init` 创建仓库。",
+  "viewer.health.badge.ok": "正常",
+  "viewer.health.badge.warn": "警告",
+  "viewer.health.badge.error": "错误",
+  "viewer.health.badge.info": "信息",
+  "viewer.health.stats.total": "记忆总数",
+  "viewer.health.stats.archived": "已归档",
+  "viewer.health.stats.forgotten": "已遗忘",
   "viewer.search.placeholder": "全文检索记忆印迹...",
   "viewer.search.button": "搜索",
   "viewer.search.clear": "清空",

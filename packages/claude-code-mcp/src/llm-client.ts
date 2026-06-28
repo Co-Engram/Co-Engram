@@ -151,6 +151,31 @@ export function createAnthropicLlmClient(cfg: AnthropicLlmConfig): LlmClient {
 }
 
 /**
+ * 解析原始 LlmClient(供 engram_synthesize 等需要直接调 LLM 的工具用)
+ *
+ * 优先级同 resolveNecessityEvaluator。失败不抛错,返回 undefined。
+ *
+ * 注意:本函数和 resolveNecessityEvaluator 共享同一份配置解析逻辑,
+ * host adapter 应只调其中一个,然后把同一个 client 同时喂给 ProposalEngine
+ * (作为 NecessityEvaluator)和 ToolContext(作为 llmClient),避免重复建连。
+ *
+ * @param explicitConfig 持久化配置中的 necessityLlm 字段(可选)
+ */
+export function resolveLlmClient(
+  explicitConfig?: Partial<AnthropicLlmConfig>,
+): LlmClient | undefined {
+  const llmConfig = loadClaudeCodeFallbackLlmConfig(explicitConfig);
+  if (!llmConfig) return undefined;
+
+  try {
+    return createAnthropicLlmClient(llmConfig);
+  } catch {
+    // 配置错误不阻塞 MCP server 启动;调用方降级
+    return undefined;
+  }
+}
+
+/**
  * 解析必要性评估器
  *
  * 优先级:
@@ -165,14 +190,7 @@ export function createAnthropicLlmClient(cfg: AnthropicLlmConfig): LlmClient {
 export function resolveNecessityEvaluator(
   explicitConfig?: Partial<AnthropicLlmConfig>,
 ): NecessityEvaluator | undefined {
-  const llmConfig = loadClaudeCodeFallbackLlmConfig(explicitConfig);
-  if (!llmConfig) return undefined;
-
-  try {
-    const client = createAnthropicLlmClient(llmConfig);
-    return new LlmNecessityEvaluator(client);
-  } catch {
-    // 配置错误不阻塞 MCP server 启动;规则版兜底
-    return undefined;
-  }
+  const client = resolveLlmClient(explicitConfig);
+  if (!client) return undefined;
+  return new LlmNecessityEvaluator(client);
 }

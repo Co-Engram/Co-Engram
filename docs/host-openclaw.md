@@ -14,7 +14,7 @@ flowchart LR
 
 - OpenClaw scans the `extensions/` directory for packages with `openclaw.extensions` in their `package.json`
 - The plugin entry (default export) must be an object with a `register(api)` method
-- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for each of the 27 native tools plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers (29 total)
+- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for each of the 28 native tools plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers (30 total)
 - The manifest `openclaw.plugin.json` declares `kind: "memory"` (making Co-Engram the primary memory plugin, mutually exclusive with `memory-core`) and lists every tool name under `contracts.tools`
 
 ## Installation
@@ -112,7 +112,7 @@ rm ~/team-memory/.co-engram/prompt-signals.json
 # (or wait for the next light maintenance tick)
 ```
 
-If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all 29 tools still work, the LLM just won't get the guided "Memory Recall" section.
+If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all 30 tools still work, the LLM just won't get the guided "Memory Recall" section.
 
 ### Memory Proposals
 
@@ -198,7 +198,7 @@ Expected:
     "status": "loaded",
     "activated": true,
     "toolNames": [
-      "engram_create", "engram_get", ...  // 29 tools total (27 native + memory_search + memory_get)
+      "engram_create", "engram_get", ...  // 30 tools total (28 native + memory_search + memory_get)
     ]
   }
 }

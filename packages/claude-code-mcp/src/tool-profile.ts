@@ -1,7 +1,7 @@
 /**
  * 工具暴露 profile
  *
- * Claude Code MCP 不需要把全部 27 个工具暴露给 LLM。
+ * Claude Code MCP 不需要把全部 28 个工具暴露给 LLM。
  * 本模块定义三档 profile,通过环境变量 / 持久化配置选择。
  *
  * 核心理念:
@@ -9,8 +9,12 @@
  *   - 内部/管理类工具(archive / restore / forget / recompute_importance /
  *     synapse_get/list/delete / skill_* / upgrade_verification /
  *     get_evolution_lineage)在所有 profile 下都不暴露,只通过 CLI 或维护引擎使用
+ *   - engram_synthesize 是 LLM-driven 综合工具,standard+ 暴露(minimal 不暴露,
+ *     因为它依赖 LLM 配置,且 minimal 关注核心读写闭环)
  *
  * profile 优先级:env > 持久化配置 > 默认(standard)
+ *
+ * PROFILE_TOOL_COUNTS 反映实际数量;改 profile 内容时同步更新。
  *
  * @module @co-engram/claude-code
  */
@@ -30,8 +34,8 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   proposals。若 minimal 暴露了"待审核候选 N 条"提示却不容许处理,会形成
  *   "看得到但处理不了"的体验断裂。把 list/accept/dismiss 提供到 minimal,
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
- * standard: minimal + 学习回路 + contradiction + 数据管理 + 自愈/路径树 = 16 个
- * full: 全部 27 个(包含隐藏的管理类工具,调试用)
+ * standard: minimal + 学习回路 + contradiction + 数据管理 + 自愈/路径树 + engram_synthesize = 17 个
+ * full: 全部 28 个(包含隐藏的管理类工具,调试用)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
@@ -68,9 +72,11 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     // 仓库健康工具(自愈扫描 + 渐进式披露,面向所有用户)
     "engram_doctor",
     "engram_list_paths",
+    // LLM 综合(手工触发 REM,需 llmClient 注入)
+    "engram_synthesize",
   ]),
   full: new Set<string>([
-    // 全部 27 个 native 工具(含自愈/路径树等高级工具)
+    // 全部 28 个 native 工具(含自愈/路径树等高级工具)
     "engram_create",
     "engram_get",
     "engram_update",
@@ -99,6 +105,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     // 仓库健康工具(full-only)
     "engram_doctor",
     "engram_list_paths",
+    // LLM 综合
+    "engram_synthesize",
   ]),
 };
 
@@ -176,6 +184,6 @@ export function filterToolsByProfile(
  */
 export const PROFILE_TOOL_COUNTS: Record<ToolProfile, number> = {
   minimal: 11,
-  standard: 16,
-  full: 27,
+  standard: 17,
+  full: 28,
 };

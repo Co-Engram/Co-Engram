@@ -13,6 +13,7 @@ import {
   EffectivenessTracker,
   ProposalEngine,
   DEFAULT_HASHER_EMBEDDER,
+  writeTeamMemoryConfig,
   type Synapse,
   type SynapseKind,
   type SynapseDirection,
@@ -171,13 +172,16 @@ describe("renderSpaHtml", () => {
   it("language=en 渲染英文 UI", () => {
     const html = renderSpaHtml({ language: "en" });
     expect(html).toContain("Self-evolving team memory");
-    expect(html).toContain('data-tab="stats" class="tab">Stats<');
-    expect(html).toContain('data-tab="engrams" class="tab">Engrams<');
-    expect(html).toContain('data-tab="audit" class="tab">Audit<');
+    expect(html).toContain('data-tab="stats"');
+    expect(html).toContain(">Stats</button>");
+    expect(html).toContain('data-tab="engrams"');
+    expect(html).toContain(">Engrams</button>");
+    expect(html).toContain('data-tab="audit"');
+    expect(html).toContain(">Audit</button>");
     expect(html).toContain("Full-text search engrams");
     // 中文 UI 不应该有英文 tab 标签
-    expect(html).not.toContain('class="tab">统计<');
-    expect(html).not.toContain('class="tab">审计<');
+    expect(html).not.toContain(">统计</button>");
+    expect(html).not.toContain(">审计</button>");
   });
 
   it("language=zh 渲染中文 UI", () => {
@@ -190,8 +194,8 @@ describe("renderSpaHtml", () => {
     expect(html).toContain("全文检索");
     expect(html).toContain("搜索");
     // 中文 UI 不应该有英文 tab 标签
-    expect(html).not.toContain('class="tab">Stats<');
-    expect(html).not.toContain('class="tab">Engrams<');
+    expect(html).not.toContain(">Stats</button>");
+    expect(html).not.toContain(">Engrams</button>");
   });
 
   it("language 影响 <html lang=...>", () => {
@@ -295,7 +299,8 @@ describe("Viewer server 基础", () => {
       const res = await makeRequest(port, "/");
       expect(res.status).toBe(200);
       expect(res.body).toContain("Self-evolving team memory");
-      expect(res.body).toContain('data-tab="stats" class="tab">Stats<');
+      expect(res.body).toContain('data-tab="stats"');
+      expect(res.body).toContain(">Stats</button>");
       expect(res.body).toContain("Full-text search engrams");
       expect(res.body).toContain('<html lang="en">');
     });
@@ -353,6 +358,57 @@ describe("GET /api/stats", () => {
       expect(data.totalEngrams).toBe(1);
       expect(data.byKind.procedure).toBe(1);
       expect(data.topTags[0]).toEqual({ tag: "testing", count: 1 });
+    });
+  });
+});
+
+// ============================================================
+// /api/status (ROI #1 — 健康可视化,与 CLI 共用 core computeStatus)
+// ============================================================
+
+describe("GET /api/status", () => {
+  it("dataRoot 未配置时返回 overall=error 占位快照", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/status");
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.overall).toBe("error");
+      expect(data.dataRootExists).toBe(false);
+      expect(data.stats.total).toBe(0);
+    });
+  });
+
+  it("dataRoot 指向真实仓库时返回 checks + overall", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 写入 .co-engram/config.json 让 computeStatus 识别为 engram 仓库
+    await writeTeamMemoryConfig(tmpDir, {
+      version: 1,
+      language: "zh",
+      defaultCreatedBy: "tester",
+      createdAt: new Date().toISOString(),
+      initializedBy: "test",
+    });
+    ctx.repository.createEngram({
+      title: "t",
+      content: "c",
+      kind: "fact",
+      domainTags: ["test"],
+      createdBy: "tester",
+    });
+    await withViewer(ctx, { dataRoot: tmpDir }, async (port) => {
+      const res = await makeRequest(port, "/api/status");
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.dataRoot).toBe(tmpDir);
+      expect(data.dataRootExists).toBe(true);
+      expect(data.isEngramWarehouse).toBe(true);
+      expect(data.stats.total).toBe(1);
+      expect(data.stats.byKind.fact).toBe(1);
+      expect(Array.isArray(data.checks)).toBe(true);
+      expect(data.checks.length).toBeGreaterThan(0);
+      // overall 不是 error(仓库存在且有 engram)
+      expect(data.overall).not.toBe("error");
     });
   });
 });

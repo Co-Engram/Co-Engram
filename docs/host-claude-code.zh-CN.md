@@ -111,7 +111,7 @@ co-engram: ✓ Connected
 - `ANTHROPIC_API_KEY` —— proposal engine Layer 2 必要性评估用的 Claude API key。Claude Code 环境通常已配置,适配器会自动读取。不配置时 Layer 2 走规则版评估器(零 LLM 成本)。详见 [observability 双层过滤](./observability.zh-CN.md#proposal-引擎)。
 - `CO_ENGRAM_VIEWER_ENABLED=1` —— 在 `http://127.0.0.1:18799` 启动 web 查看器
 - `CO_ENGRAM_LANGUAGE` —— 工具描述/查看器/提示词所用语言(`en` | `zh`;默认 `en` 或已持久化的 team-memory 配置)
-- `CO_ENGRAM_TOOLS_PROFILE` —— 暴露给 LLM 的工具集合:`minimal`(11 个 —— 8 个核心读/写 + 3 个 proposal 处理,确保维护引擎自动生成的候选始终能闭环)、`standard`(16 个,默认 —— 加上学习回路、contradiction、自愈与渐进式披露)、`full`(27 个,包含管理类 + 内部管理工具)。无效值会告警并回退为 `standard`。
+- `CO_ENGRAM_TOOLS_PROFILE` —— 暴露给 LLM 的工具集合:`minimal`(11 个 —— 8 个核心读/写 + 3 个 proposal 处理,确保维护引擎自动生成的候选始终能闭环)、`standard`(17 个,默认 —— 加上学习回路、contradiction、自愈、渐进式披露与 LLM 综合)、`full`(28 个,包含管理类 + 内部管理工具)。无效值会告警并回退为 `standard`。
 
 ## Web 查看器
 

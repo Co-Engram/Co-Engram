@@ -445,6 +445,42 @@ export const EngramDismissProposalInputSchema = z.object({
 });
 
 // ============================================================
+// engram_synthesize
+// （Feature 1：手工触发 REM — 综合多条 engram 形成 pattern）
+// ============================================================
+
+export const EngramSynthesizeInputSchema = z.object({
+  /**
+   * 待综合的源 engram id 列表。
+   *
+   * 至少 2 条（单条无综合价值），最多 20 条（防 LLM 上下文超长 + 成本失控）。
+   * id 重复会自动去重；不存在的 id 抛错并标明缺哪个。
+   */
+  ids: z.array(z.string().min(1)).min(2).max(20),
+  /** 可选：综合结果归属的 domainTags；不传时由 LLM 推断 */
+  domainTags: z.array(z.string().min(1)).max(5).optional(),
+  /**
+   * 可选：给 LLM 的综合提示（如"聚焦在测试稳定性"）。
+   *
+   * 让用户在不对 LLM 输出做兜底修改的前提下引导综合方向。
+   */
+  synthesisHints: z.string().max(500).optional(),
+  /**
+   * 可选：综合产物的作者标识。
+   *
+   * 缺省时回退到 ctx.defaultCreatedBy,再缺省 "unknown"。
+   */
+  createdBy: z.string().min(1).optional(),
+  /**
+   * 可选：dry-run 模式（默认 false）。
+   *
+   * true 时只让 LLM 草拟 title/content/summary/domainTags 但不实际创建 engram/synapse，
+   * 供调用方预览综合质量；返回里会带 draft 字段，patternEngramId/synapseIds 为空。
+   */
+  dryRun: z.boolean().optional(),
+});
+
+// ============================================================
 // 类型导出（Zod 推导）
 // ============================================================
 
@@ -492,4 +528,7 @@ export type EngramAcceptProposalToolInput = z.infer<
 >;
 export type EngramDismissProposalToolInput = z.infer<
   typeof EngramDismissProposalInputSchema
+>;
+export type EngramSynthesizeToolInput = z.infer<
+  typeof EngramSynthesizeInputSchema
 >;

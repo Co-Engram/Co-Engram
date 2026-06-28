@@ -13,6 +13,7 @@
  * @module @co-engram/core/storage
  */
 
+import { resolve, normalize, relative, sep } from "node:path";
 import type { EngramCreateInput } from "../types/engram.js";
 import { slugify } from "../types/slugify.js";
 
@@ -84,4 +85,59 @@ export function deriveAllFilePaths(relativePath: string): {
     meta: deriveMetaFilePath(relativePath),
     synapses: deriveSynapsesFilePath(relativePath),
   };
+}
+
+/**
+ * 把相对路径安全地拼到仓库根目录下,拒绝 `..` 逃逸(Finding 156/157 P0)。
+ *
+ * 威胁模型:
+ *   - 调用方传入 `pathHint='../etc/passwd'` 或 domainTag=`'..'`
+ *   - 直接 `join(root, '../etc/passwd')` 会跳出 root,读写任意文件
+ *
+ * 防御:
+ *   1. normalize 后用 `relative(root, abs)` 检查结果不以 `..` 开头
+ *   2. 同时拒绝绝对路径(Windows 盘符 / POSIX `/`)与盘符相对路径(`C:foo`)
+ *   3. 拒绝 NUL 字节(防止截断攻击)
+ *
+ * @param root 仓库根目录(绝对路径)
+ * @param relativePath 用户/调用方传入的相对路径
+ * @returns 安全的绝对路径
+ * @throws 若 relativePath 试图逃逸 root 或含非法字符
+ */
+export function safeJoinWithinRoot(root: string, relativePath: string): string {
+  if (typeof relativePath !== "string" || relativePath.length === 0) {
+    throw new Error("safeJoinWithinRoot: relativePath is empty");
+  }
+  if (relativePath.includes("\0")) {
+    throw new Error(`safeJoinWithinRoot: NUL byte in path`);
+  }
+  // 拒绝绝对路径(POSIX `/` 与 Windows `C:\\` / `C:foo`)
+  if (relativePath.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(relativePath) || /^[a-zA-Z]:[^\\/]/.test(relativePath)) {
+    throw new Error(`safeJoinWithinRoot: absolute path not allowed: ${relativePath}`);
+  }
+  const absRoot = resolve(root);
+  const absTarget = normalize(resolve(absRoot, relativePath));
+  const rel = relative(absRoot, absTarget);
+  // rel === '' 表示 absTarget === absRoot(自身,合法)
+  // rel 不以 `..` 开头且不以 `..${sep}` 开头 → 仍在 root 内
+  if (rel === ".." || rel.startsWith(`..${sep}`)) {
+    throw new Error(
+      `safeJoinWithinRoot: path escapes root (root=${absRoot}, target=${absTarget})`,
+    );
+  }
+  return absTarget;
+}
+
+/**
+ * 校验相对路径是否在 root 内(不抛错,返回 boolean)。
+ *
+ * 用于 readEngram 等读取场景:resolvePath 拿到 stableId 后,先校验路径合法性。
+ */
+export function isPathWithinRoot(root: string, relativePath: string): boolean {
+  try {
+    safeJoinWithinRoot(root, relativePath);
+    return true;
+  } catch {
+    return false;
+  }
 }

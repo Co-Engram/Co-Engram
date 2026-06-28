@@ -66,26 +66,26 @@ describe("OpenClaw adapter i18n / adaptTool", () => {
     expect(desc.description).toContain("在两条记忆之间创建有类型的连接");
   });
 
-  it("未传 language 时所有 27 个工具的描述与传 zh 一致", () => {
+  it("未传 language 时所有 28 个工具的描述与传 zh 一致", () => {
     const registry = createToolRegistry();
     const tools = registry.list();
     const ctx = makeFakeCtx();
     const defaultDescs = adaptAllTools(tools, ctx);
     const zhDescs = adaptAllTools(tools, ctx, "zh");
-    expect(defaultDescs.length).toBe(27);
-    expect(zhDescs.length).toBe(27);
+    expect(defaultDescs.length).toBe(28);
+    expect(zhDescs.length).toBe(28);
     for (let i = 0; i < defaultDescs.length; i++) {
       expect(defaultDescs[i]!.description).toBe(zhDescs[i]!.description);
     }
   });
 
-  it("LLM 字典未覆盖的工具(如 engram_archive)仍走 core i18n", () => {
+  it("原未覆盖工具(如 engram_archive)现在也有 agent 层描述(Finding 107/111 三层拆分)", () => {
     const registry = createToolRegistry();
     const tool = registry.get("engram_archive") as Tool;
     const ctx = makeFakeCtx();
     const desc = adaptTool(tool, ctx, "en");
-    // engram_archive 不在 LLM_TOOL_DESCRIPTIONS 里,应回退到 core i18n
-    expect(desc.description).not.toContain("WHEN TO CALL");
+    // 三层拆分后,engram_archive 已有 agent 层描述(带 WHEN TO CALL 结构)
+    expect(desc.description).toContain("WHEN TO CALL");
   });
 });
 
@@ -106,8 +106,8 @@ describe("OpenClaw plugin i18n / registerCoEngramTools", () => {
   it("language=zh 时注册的工具描述是中文(LLM 字典优先)", () => {
     const { api, tools } = makeFakeApi();
     registerCoEngramTools(api, { dataRoot: tmpDir, language: "zh" });
-    // 27 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 29
-    expect(tools.length).toBe(29);
+    // 28 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 30
+    expect(tools.length).toBe(30);
     const create = tools.find((t) => t.name === "engram_create");
     expect(create?.description).toContain("创建新记忆");
     expect(create?.description).toContain("何时调用");
@@ -116,8 +116,8 @@ describe("OpenClaw plugin i18n / registerCoEngramTools", () => {
   it("language=en 时注册的工具描述是英文(LLM 字典优先)", () => {
     const { api, tools } = makeFakeApi();
     registerCoEngramTools(api, { dataRoot: tmpDir, language: "en" });
-    // 27 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 29
-    expect(tools.length).toBe(29);
+    // 28 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 30
+    expect(tools.length).toBe(30);
     const create = tools.find((t) => t.name === "engram_create");
     expect(create?.description).toContain("Create a new memory");
     expect(create?.description).toContain("WHEN TO CALL");

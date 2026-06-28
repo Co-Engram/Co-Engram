@@ -1215,6 +1215,80 @@ window.CO_ENGRAM_TRASH = {
 };
 
 // ============================================================
+// Health — 仓库健康可视化(ROI #1)
+// 与 'co-engram status' CLI 共用 core computeStatus 真相源。
+// ============================================================
+CO_ENGRAM.on('health', async function() {
+  const root = document.getElementById('health-content');
+  if (!root) return;
+  const T = CO_ENGRAM_T;
+  root.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div>';
+  let snap;
+  try { snap = await CO_ENGRAM.apiGet('/api/status'); }
+  catch (e) { root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>'; return; }
+
+  if (!snap.dataRoot) {
+    root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.empty')) + '</div>';
+    return;
+  }
+
+  const badgeClass = { ok: 'health-ok', warn: 'health-warn', error: 'health-error', info: 'health-info' };
+  const badgeLabel = (s) => T.t('viewer.health.badge.' + s);
+  const badgeHtml = (s) => '<span class="health-badge ' + (badgeClass[s] || 'health-info') + '">' + CO_ENGRAM.escapeHtml(badgeLabel(s)) + '</span>';
+
+  let html = '<div class="card">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5rem">'
+    + '<div><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.title')) + '</h3>'
+    + '<div class="muted" style="margin-top:.25rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.subtitle')) + '</div></div>'
+    + '<div style="display:flex;align-items:center;gap:.75rem">'
+    + badgeHtml(snap.overall)
+    + '<button class="btn" onclick="CO_ENGRAM._healthRefresh()">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.refresh')) + '</button>'
+    + '</div></div>'
+    + '<dl class="meta-grid" style="margin-top:1rem">'
+    + '<dt>' + CO_ENGRAM.escapeHtml(T.t('viewer.health.dataRoot')) + '</dt><dd><code>' + CO_ENGRAM.escapeHtml(snap.dataRoot) + '</code></dd>'
+    + '<dt>' + CO_ENGRAM.escapeHtml(T.t('viewer.health.generatedAt')) + '</dt><dd>' + CO_ENGRAM.escapeHtml(snap.generatedAt) + '</dd>'
+    + '</dl>';
+
+  // 统计快览
+  if (snap.stats) {
+    html += '<div class="kpi-grid" style="margin-top:1rem">'
+      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.total')) + '</div><div class="kpi-value">' + (snap.stats.total ?? 0) + '</div></div>'
+      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.archived')) + '</div><div class="kpi-value">' + (snap.stats.archived ?? 0) + '</div></div>'
+      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.forgotten')) + '</div><div class="kpi-value">' + (snap.stats.forgotten ?? 0) + '</div></div>'
+      + '</div>';
+  }
+  html += '</div>';
+
+  // 检查项列表
+  html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.checks')) + '</h3>';
+  if (!snap.checks || !snap.checks.length) {
+    html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.empty')) + '</div>';
+  } else {
+    html += '<ul class="health-check-list">';
+    for (const c of snap.checks) {
+      html += '<li class="health-check-item">'
+        + badgeHtml(c.status)
+        + '<div class="health-check-body">'
+        + '<div class="health-check-label">' + CO_ENGRAM.escapeHtml(c.label) + '</div>'
+        + '<div class="health-check-message">' + CO_ENGRAM.escapeHtml(c.message) + '</div>'
+        + (c.detail ? '<pre class="health-check-detail">' + CO_ENGRAM.escapeHtml(c.detail) + '</pre>' : '')
+        + '</div></li>';
+    }
+    html += '</ul>';
+  }
+  html += '</div>';
+
+  root.innerHTML = html;
+});
+
+CO_ENGRAM._healthRefresh = async function() {
+  const root = document.getElementById('health-content');
+  if (root) root.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loading')) + '</div>';
+  // 强制重新渲染:触发 health 事件
+  CO_ENGRAM.showTab('health');
+};
+
+// ============================================================
 // Config
 // ============================================================
 CO_ENGRAM.on('config', async function() {

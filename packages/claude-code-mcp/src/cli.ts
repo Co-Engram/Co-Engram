@@ -37,12 +37,13 @@ import {
   formatAnomaliesAsText,
   AuditLog,
   findDataRoot,
-  resolveBootstrapDataRootSync,
   readBootstrapDataRootSync,
   writeBootstrapDataRoot,
   getBootstrapConfigPath,
   getDefaultDataRoot,
   applyDataRootChange,
+  computeStatus,
+  formatStatusAsText,
   DEFAULT_LANGUAGE,
   type Language,
 } from "@co-engram/core";
@@ -546,6 +547,27 @@ async function main(): Promise<void> {
       ) {
         process.exit(1);
       }
+    }
+    return;
+  }
+
+  if (args.command === "status") {
+    // co-engram status [--cwd PATH] [--json]
+    // 健康可视化:把"静默失败"变成"一眼可见"。
+    // 不要求 dataRoot 是 engram 仓库——即使目录不存在也返回诊断(便于首启排查)。
+    const cwd = args.cwd ?? process.cwd();
+    const dataRoot =
+      findDataRoot(cwd) ??
+      readBootstrapDataRootSync() ??
+      getDefaultDataRoot();
+    const snapshot = computeStatus(dataRoot);
+    if (args.json) {
+      process.stdout.write(JSON.stringify(snapshot, null, 2) + "\n");
+    } else {
+      process.stdout.write(formatStatusAsText(snapshot));
+    }
+    if (snapshot.overall === "error") {
+      process.exit(1);
     }
     return;
   }

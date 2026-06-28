@@ -1,6 +1,6 @@
 # Tool Reference
 
-Co-Engram exposes 27 native tools. All are accessible via MCP (`mcp__co-engram__<name>`) or the OpenClaw plugin API. Under `@co-engram/openclaw`, two additional wrappers (`memory_search`, `memory_get`) are registered for OpenClaw's memory plugin contract — they call into `engram_search` / `engram_get` internally.
+Co-Engram exposes 28 native tools. All are accessible via MCP (`mcp__co-engram__<name>`) or the OpenClaw plugin API. Under `@co-engram/openclaw`, two additional wrappers (`memory_search`, `memory_get`) are registered for OpenClaw's memory plugin contract — they call into `engram_search` / `engram_get` internally.
 
 This page lists every native tool with its required inputs. Optional fields are omitted for brevity — see the Zod schema in source for the full surface.
 

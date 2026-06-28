@@ -25,6 +25,7 @@ import {
   type MaintenanceConfig,
   type ProposalEngineConfig,
   type NecessityEvaluator,
+  type LlmClient,
   type Tool,
   type ToolContext,
 } from "@co-engram/core";
@@ -37,7 +38,6 @@ import {
   resolveProfile,
   type ToolProfile,
 } from "./tool-profile.js";
-import { LLM_TOOL_DESCRIPTIONS } from "./tool-descriptions.js";
 import {
   buildServerInstructions,
   type InstructionSessionState,
@@ -62,6 +62,7 @@ const WRITE_TOOL_NAMES = new Set([
   "close_learning_loop",
   "engram_accept_proposal",
   "engram_recompute_importance",
+  "engram_synthesize",
 ]);
 
 /**
@@ -93,8 +94,8 @@ export interface CoEngramMcpServerConfig {
    *
    * 控制注册到 MCP 的工具数量:
    *   - minimal: 11 个(8 核心读写 + 3 proposal 处理,保证维护引擎产生的候选始终能闭环)
-   *   - standard: 16 个(含学习回路 + contradiction + 自愈/路径树)
-   *   - full: 27 个(调试 / co-engram 二次开发,含实验性高级工具)
+   *   - standard: 17 个(含学习回路 + contradiction + 自愈/路径树 + engram_synthesize)
+   *   - full: 28 个(调试 / co-engram 二次开发,含实验性高级工具)
    *
    * 不指定时,从 env / persistedConfig 解析(见 mcp-server.ts)。
    */
@@ -113,6 +114,13 @@ export interface CoEngramMcpServerConfig {
    * host 用此字段注入 LlmNecessityEvaluator 做语义必要性判断。
    */
   readonly necessityEvaluator?: NecessityEvaluator;
+  /**
+   * LLM 客户端(可选,供 engram_synthesize 等需要直接调 LLM 的工具用)
+   *
+   * 不指定时,ctx.llmClient 为 undefined,engram_synthesize 会抛错带安装指引。
+   * host 通常和 necessityEvaluator 共享同一份配置(mcp-server.ts 已实现)。
+   */
+  readonly llmClient?: LlmClient;
   /**
    * 是否在 MCP server 启动时自动 onboard git merge driver(默认 true)。
    *
@@ -211,6 +219,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(config.defaultCreatedBy
       ? { defaultCreatedBy: config.defaultCreatedBy }
       : {}),
+    ...(config.llmClient ? { llmClient: config.llmClient } : {}),
   };
 
   const language = config.language ?? DEFAULT_LANGUAGE;
@@ -366,18 +375,22 @@ export function registerCoEngramTool(
 }
 
 /**
- * 解析工具描述(优先级)
+ * 解析工具描述(LLM-facing agent 层)
  *
- * 1. LLM_TOOL_DESCRIPTIONS(16 个 standard profile 工具,LLM-friendly)
- * 2. core i18n 字典(其余 11 个工具)
+ * 优先级:
+ * 1. i18n 字典 `tool.<name>.agent`(原 LLM_TOOL_DESCRIPTIONS 已迁移至此,单一真相源)
+ * 2. core i18n 字典 `tool.<name>`(legacy user 层 fallback)
  * 3. tool.description 原值(最终 fallback)
+ *
+ * Finding 107/111 三层拆分:agent 层用于 LLM 决策(user/agent/technical 三层分离)。
  */
 function resolveToolDescription(tool: Tool, language: Language): string {
-  const llmEntry = LLM_TOOL_DESCRIPTIONS[tool.name];
-  if (llmEntry) {
-    return language === "zh" ? llmEntry.zh : llmEntry.en;
-  }
-  return localizeToolDescription(tool.name, language, tool.description);
+  return localizeToolDescription(
+    tool.name,
+    language,
+    tool.description,
+    "agent",
+  );
 }
 
 /**

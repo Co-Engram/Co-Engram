@@ -19,7 +19,7 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 ### 问:`/mcp` 显示已连接成功,但工具数为 0
 
-OpenClaw manifest 的 `contracts.tools` 数组缺少工具名。如果你是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 29 个条目(27 个原生工具 + 2 个 `memory_*` 包装器)。加载器会静默丢弃未声明的工具。`packages/openclaw-plugin/test/adapter.test.ts` 中有一个 manifest 同步测试,用于防止出现不一致。
+OpenClaw manifest 的 `contracts.tools` 数组缺少工具名。如果你是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 30 个条目(28 个原生工具 + 2 个 `memory_*` 包装器)。加载器会静默丢弃未声明的工具。`packages/openclaw-plugin/test/adapter.test.ts` 中有一个 manifest 同步测试,用于防止出现不一致。
 
 ### 问:调用某工具时报 `MCP error -32602: Tool <name> not found`
 

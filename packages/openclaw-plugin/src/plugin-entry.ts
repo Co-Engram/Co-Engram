@@ -32,6 +32,7 @@ import {
   ProposalEngine,
   LlmNecessityEvaluator,
   DEFAULT_HASHER_EMBEDDER,
+  type LlmClient,
   createToolRegistry,
   createDefaultSignalSink,
   wrapAllToolsWithSignalSink,
@@ -145,6 +146,10 @@ export function createCoEngramContext(
     fullConfig.effectivenessEnabled && auditLog
       ? new EffectivenessTracker(fullConfig.dataRoot, auditLog)
       : undefined;
+  // LLM client 只构造一次,共享给 ProposalEngine(包装成 NecessityEvaluator)
+  // 和 ToolContext(供 engram_synthesize 直接用)
+  const llmClient = resolveLlmClient(config);
+  const necessityEvaluator = resolveNecessityEvaluator(config, llmClient);
   const proposalEngine =
     fullConfig.proposalEnabled && auditLog
       ? new ProposalEngine({
@@ -153,7 +158,7 @@ export function createCoEngramContext(
           auditLog,
           dataRoot: fullConfig.dataRoot,
           ...(config.proposalConfig ? { config: config.proposalConfig } : {}),
-          necessityEvaluator: resolveNecessityEvaluator(config),
+          ...(necessityEvaluator ? { necessityEvaluator } : {}),
         })
       : undefined;
 
@@ -167,8 +172,29 @@ export function createCoEngramContext(
     ...(fullConfig.defaultCreatedBy
       ? { defaultCreatedBy: fullConfig.defaultCreatedBy }
       : {}),
+    ...(llmClient ? { llmClient } : {}),
   };
   return ctx;
+}
+
+/**
+ * 解析原始 LlmClient(供 engram_synthesize 等需要直接调 LLM 的工具用)
+ *
+ * 优先级同 resolveNecessityEvaluator 的 2/3/4(注意:不读 config.necessityEvaluator
+ * 实例——那是 NecessityEvaluator 包装,不是裸 client)。
+ *
+ * 与 resolveNecessityEvaluator 在同一份配置上建一次 client,然后两边共享。
+ */
+function resolveLlmClient(config: CoEngramPluginConfig): LlmClient | undefined {
+  // 显式配置 + OpenClaw fallback
+  const llmConfig = config.necessityLlm ?? loadOpenClawFallbackLlmConfig();
+  if (!llmConfig) return undefined;
+
+  try {
+    return createOpenAiCompatibleLlmClient(llmConfig);
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -176,29 +202,24 @@ export function createCoEngramContext(
  *
  * 优先级:
  *   1. config.necessityEvaluator(宿主直接注入实例)
- *   2. config.necessityLlm(显式配置 endpoint/key/model)
- *   3. ~/.openclaw/openclaw.json fallback(OpenClaw native model)
+ *   2. 复用调用方已构造的 llmClient(避免重复建连)
+ *   3. 自行 resolveLlmClient(config)
  *   4. undefined → ProposalEngine 内部默认 RuleBasedNecessityEvaluator
  *
  * 失败(如配置不全)不抛错,返回 undefined 让 ProposalEngine 用规则版兜底。
+ *
+ * @param preBuiltClient 调用方已构造的 llmClient(优先用,避免重复建连)
  */
 function resolveNecessityEvaluator(
   config: CoEngramPluginConfig,
+  preBuiltClient?: LlmClient,
 ): NecessityEvaluator | undefined {
   // 1. 宿主直接注入
   if (config.necessityEvaluator) return config.necessityEvaluator;
 
-  // 2. 显式配置 + 3. OpenClaw fallback
-  const llmConfig = config.necessityLlm ?? loadOpenClawFallbackLlmConfig();
-  if (!llmConfig) return undefined;
-
-  try {
-    const client = createOpenAiCompatibleLlmClient(llmConfig);
-    return new LlmNecessityEvaluator(client);
-  } catch {
-    // 配置错误不阻塞 plugin 启动;规则版兜底
-    return undefined;
-  }
+  const client = preBuiltClient ?? resolveLlmClient(config);
+  if (!client) return undefined;
+  return new LlmNecessityEvaluator(client);
 }
 
 /**

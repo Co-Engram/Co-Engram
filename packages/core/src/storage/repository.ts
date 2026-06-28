@@ -57,6 +57,10 @@ import type {
 import { isStableEngramId } from "../types/repository-types.js";
 import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import { computeSynapseId } from "../types/synapse-id.js";
+import {
+  safeJoinWithinRoot,
+  isPathWithinRoot,
+} from "./path.js";
 
 import { computeContentHash, computeContentSize } from "./hash.js";
 import { DEFAULT_LANGUAGE, type Language } from "../i18n/index.js";
@@ -366,17 +370,24 @@ export class EngramRepository {
   /** 解析 stableId → 相对路径 */
   private resolvePath(stableId: string): string | undefined {
     if (!isStableEngramId(stableId)) {
-      // 兼容:可能是相对路径,直接当 path 用
+      // 兼容:可能是相对路径,直接当 path 用。
+      // 但必须先校验路径在 root 内(Finding 156/157 P0:防 `..` 逃逸)
+      if (!isPathWithinRoot(this.config.rootPath, stableId)) return undefined;
       if (this.existsAtPath(stableId)) return stableId;
       return undefined;
     }
     const entry = this.getIndex().entries.get(stableId as StableEngramId);
+    // 防御:索引中的 path 也校验(理论上是 trusted,但 doctor 自愈后可能含异常)
+    if (entry?.path && !isPathWithinRoot(this.config.rootPath, entry.path)) {
+      return undefined;
+    }
     return entry?.path;
   }
 
   /** 检查相对路径是否存在 engram 文件 */
   private existsAtPath(relativePath: string): boolean {
-    return existsSync(join(this.config.rootPath, relativePath));
+    if (!isPathWithinRoot(this.config.rootPath, relativePath)) return false;
+    return existsSync(safeJoinWithinRoot(this.config.rootPath, relativePath));
   }
 
   // ─── Engram CRUD ───────────────────────────────────────────────────────
@@ -397,8 +408,10 @@ export class EngramRepository {
     const contentHash = computeContentHash(input.content);
     const contentSize = computeContentSize(input.content);
 
+    // pathHint 优先;否则用 deriveDefaultPath(slugify title + raw domainTags + .md)
+    // safeJoinWithinRoot 拦截 `..` 逃逸与绝对路径(Finding 156/157 P0)
     const relativePath = input.pathHint ?? this.deriveDefaultPath(input);
-    const absolutePath = join(this.config.rootPath, relativePath);
+    const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
 
     if (existsSync(absolutePath)) {
       throw new Error(`Engram already exists at ${relativePath}`);
@@ -476,7 +489,8 @@ export class EngramRepository {
     if (!relativePath) {
       throw new Error(`Engram not found: ${stableId}`);
     }
-    const absolutePath = join(this.config.rootPath, relativePath);
+    // resolvePath 已校验路径在 root 内,这里再防御一次
+    const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
     const file = readEngramFile(absolutePath);
     return this.assembleEngram(file, relativePath);
   }
@@ -488,7 +502,8 @@ export class EngramRepository {
     const relativePath = this.resolvePath(stableId);
     return (
       relativePath !== undefined &&
-      existsSync(join(this.config.rootPath, relativePath))
+      isPathWithinRoot(this.config.rootPath, relativePath) &&
+      existsSync(safeJoinWithinRoot(this.config.rootPath, relativePath))
     );
   }
 

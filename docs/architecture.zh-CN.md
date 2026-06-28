@@ -21,7 +21,7 @@ flowchart TB
   end
 
   subgraph L3["3. Core Layer (host-agnostic)"]
-    Tools["Tools (27)<br/>engrams · synapses · skills · learning · doctor"]
+    Tools["Tools (28)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
     Retrieval["Retrieval<br/>FTS (bigram+word) · graph traversal"]
     Engine["Maintenance Engine<br/>light · deep · rem"]
     Signals["Signals<br/>event sink · extract · RPE"]
@@ -86,7 +86,7 @@ Co-Engram 的核心。零宿主依赖 — 不依赖 `@modelcontextprotocol/sdk`,
 
 五个子模块:
 
-- **Tools** — 27 个自描述工具,使用 Zod schema,被 MCP adapter 和 plugin adapter 共同使用
+- **Tools** — 28 个自描述工具,使用 Zod schema,被 MCP adapter 和 plugin adapter 共同使用
 - **Retrieval** — 基于 `digest.jsonl` 的内存倒排索引(CJK 使用 bigram 分词器 + 英文使用 word 分词器),以及基于 synapse 边的图遍历
 - **Maintenance Engine** — 按间隔运行 `light` / `deep` / `rem` 阶段(详见 [maintenance-engine](./maintenance-engine.zh-CN.md))
 - **Signals** — 收集 `ToolCallEvent`,提取行为信号,计算 RPE(预测误差)

@@ -91,7 +91,7 @@ Claude Code supports several integration mechanisms: MCP servers, slash commands
 - **MCP tools get schema validation.** Input/output is validated against JSON Schema. We already validate with Zod internally; MCP gives us an additional layer at the protocol boundary.
 - **MCP is discoverable.** `/mcp` in Claude Code lists all tools. Users can see exactly what Co-Engram exposes, no documentation lookup required.
 
-**Trade-off:** MCP has more overhead than a direct function call. For 27 tools in a session-scoped server, this is negligible — but it's not free.
+**Trade-off:** MCP has more overhead than a direct function call. For 28 tools in a session-scoped server, this is negligible — but it's not free.
 
 ## See Also
 
