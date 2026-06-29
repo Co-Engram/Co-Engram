@@ -12,6 +12,7 @@
   "scripts": {
     "build": "pnpm -r --filter './packages/**' build",
     "test": "pnpm -r --filter './packages/**' test",
+    "test:contracts": "pnpm --filter @co-engram/contracts-test test",
     "typecheck": "pnpm -r --filter './packages/**' exec tsc --noEmit",
     "format": "pnpm exec prettier --write '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'",
     "format:check": "pnpm exec prettier --check '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'"
