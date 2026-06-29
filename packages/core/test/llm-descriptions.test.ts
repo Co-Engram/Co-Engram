@@ -41,3 +41,72 @@ describe("tool descriptions reference CONCEPT_DICTIONARY", () => {
     expect(descEn.toLowerCase()).toContain("contradicts");
   });
 });
+
+describe("runtime FORBIDDEN_TERMS check (Task 3.1)", () => {
+  const forbiddenTool = (forbiddenText: string): Tool => ({
+    name: "_test_forbidden",
+    description: forbiddenText,
+    inputSchema: {} as never,
+    execute: () => {
+      throw new Error("stub");
+    },
+  });
+
+  it("throws on forbidden term in strict mode", () => {
+    expect(() =>
+      resolveLlmDescription(
+        forbiddenTool("uses FTS internally"),
+        "zh",
+        undefined,
+        { failMode: "strict" },
+      ),
+    ).toThrow(/forbidden term/);
+  });
+
+  it("warns but does not throw in warn mode", () => {
+    const warns: string[] = [];
+    const result = resolveLlmDescription(
+      forbiddenTool("uses FTS internally"),
+      "zh",
+      undefined,
+      { failMode: "warn", onWarn: (m) => warns.push(m) },
+    );
+    expect(result).toContain("[⚠ description violates]");
+    expect(warns.length).toBeGreaterThan(0);
+  });
+
+  it("default failMode is warn (does not break existing callers)", () => {
+    // No options passed — defaults to warn, so a forbidden description is flagged, not thrown
+    const result = resolveLlmDescription(
+      forbiddenTool("uses FTS internally"),
+      "zh",
+    );
+    expect(result).toContain("[⚠ description violates]");
+  });
+
+  it("passes through clean descriptions unchanged (no flag marker)", () => {
+    const desc = resolveLlmDescription(stubTool("engram_get"), "zh");
+    expect(desc).not.toContain("[⚠ description violates]");
+  });
+
+  it("detects all FORBIDDEN_TERMS (FTS, LTP, Hebbian, RPE, etc.) in strict mode", () => {
+    for (const term of ["FTS", "LTP", "Hebbian", "RPE"]) {
+      expect(() =>
+        resolveLlmDescription(
+          forbiddenTool(`description with ${term}`),
+          "zh",
+          undefined,
+          { failMode: "strict" },
+        ),
+      ).toThrow(/forbidden term/);
+    }
+  });
+
+  it("truthScore is allowed in engram_get description (field name exception)", () => {
+    // engram_get references truthScore as a field name; this is the documented exception
+    const desc = resolveLlmDescription(stubTool("engram_get"), "zh");
+    // Should not be flagged even if truthScore appears
+    expect(desc).not.toContain("[⚠ description violates]");
+  });
+});
+

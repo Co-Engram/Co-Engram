@@ -11,6 +11,10 @@
 
 import type { Language, Tool } from "../index.js";
 import { localizeToolDescription, en, zh } from "../i18n/index.js";
+import {
+  applyRuntimeCheck,
+  type RuntimeCheckOptions,
+} from "../observability/runtime-description-check.js";
 
 /**
  * Resolve a tool's LLM-facing description.
@@ -20,21 +24,27 @@ import { localizeToolDescription, en, zh } from "../i18n/index.js";
  *   2. fallback (caller-provided default, usually the core `tool.*` i18n string)
  *
  * 返回字符串,不修改入参。
+ *
+ * Task 3.1 后:解析结果会被运行时校验(FORBIDDEN_TERMS)。默认 `warn` 模式
+ * (含禁词时返回带 [⚠ description violates] 前缀的标记文本)。生产 host 启动时
+ * 应传 `options.failMode = 'strict'`,让违规描述立刻 throw。
  */
 export function resolveLlmDescription<T extends Tool>(
   tool: T,
   language: Language,
   fallback?: string,
+  options?: RuntimeCheckOptions,
 ): string {
   // localizeToolDescription 的最终 fallback 是 toolName;此处把 tool.description
   // 作为中间 fallback,保持与原 LLM_TOOL_DESCRIPTIONS 时代一致的语义:
   // agent 字典 → fallback (caller 提供) → tool.description → toolName
-  return localizeToolDescription(
+  const resolved = localizeToolDescription(
     tool.name,
     language,
     fallback ?? tool.description,
     "agent",
   );
+  return applyRuntimeCheck(resolved, tool.name, options);
 }
 
 /**
@@ -83,6 +93,7 @@ const FORBIDDEN_TERMS: readonly string[] = [
   "engram_reinforce", // 不应在描述里引用其他工具的内部字段
   "truthScore", // 例外:engram_get 描述里可以保留作为字段名
 ];
+export { FORBIDDEN_TERMS };
 
 /**
  * 列出 i18n 字典中所有 agent 层 key 对应的工具名
