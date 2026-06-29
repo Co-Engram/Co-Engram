@@ -12,7 +12,7 @@
  * @module @co-engram/core/storage
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -77,6 +77,11 @@ export function initGitRepo(repoPath: string): void {
  * Stage 文件并提交
  *
  * 注意：不会自动 push，团队需要时手动 push。
+ *
+ * 实现安全说明(Task 4.2):用 `spawnSync` + 数组参数(`args[]`)而非
+ * `execSync` + 字符串拼接,避免 shell 元字符(backtick / $ / 反引号)
+ * 在 authorName / message / file 路径里触发命令注入。数组参数下 git
+ * 直接收到原始字符串,不经 shell 解释。
  */
 export function commitFiles(options: GitCommitOptions): GitCommitResult {
   const { repoPath, files, message, authorName, authorEmail } = options;
@@ -85,61 +90,89 @@ export function commitFiles(options: GitCommitOptions): GitCommitResult {
     initGitRepo(repoPath);
   }
 
-  // Stage files
+  // Stage files —— 数组参数,文件名含空格 / 特殊字符都无需 shell 转义
   if (files.length > 0) {
-    const fileArgs = files.map((f) => `"${f.replace(/"/g, '\\"')}"`).join(" ");
-    execSync(`git add ${fileArgs}`, { cwd: repoPath, stdio: "ignore" });
+    runGitSpawn(repoPath, ["add", ...files]);
   } else {
-    execSync("git add -A", { cwd: repoPath, stdio: "ignore" });
+    runGitSpawn(repoPath, ["add", "-A"]);
   }
 
-  // Check if there are staged changes
-  let hasStagedChanges = true;
-  try {
-    execSync("git diff --cached --quiet", { cwd: repoPath, stdio: "ignore" });
-    hasStagedChanges = false; // exit 0 means no changes
-  } catch {
-    hasStagedChanges = true;
-  }
-
-  if (!hasStagedChanges) {
+  // Check if there are staged changes(git diff --cached --quiet 退出码:
+  // 0 = 无变化,1 = 有变化)
+  const diffResult = spawnSync(
+    "git",
+    ["diff", "--cached", "--quiet"],
+    { cwd: repoPath, stdio: "ignore" },
+  );
+  if (diffResult.status === 0) {
     // Nothing to commit
     const branch = getCurrentBranch(repoPath);
     return { commitHash: "", branch, filesChanged: 0 };
   }
 
-  // Commit
-  const authorArgs: string[] = [];
+  // Commit —— 用 -c user.name=... -c user.email=... 临时覆盖;数组参数
+  // 让 authorName 含 backtick / $ 等也字面保留,不触发 shell
+  const commitArgs: string[] = [];
   if (authorName) {
-    authorArgs.push(`-c "user.name=${authorName.replace(/"/g, '\\"')}"`);
+    commitArgs.push("-c", `user.name=${authorName}`);
   }
   if (authorEmail) {
-    authorArgs.push(`-c "user.email=${authorEmail}"`);
+    commitArgs.push("-c", `user.email=${authorEmail}`);
   }
-  const authorPart =
-    authorArgs.length > 0 ? `git ${authorArgs.join(" ")}` : "git";
-  const escapedMessage = message.replace(/"/g, '\\"');
-  execSync(`${authorPart} commit -m "${escapedMessage}"`, {
-    cwd: repoPath,
-    stdio: "ignore",
-  });
+  commitArgs.push("commit", "-m", message);
+  runGitSpawn(repoPath, commitArgs);
 
-  const commitHash = execSync("git rev-parse HEAD", {
-    cwd: repoPath,
-    encoding: "utf8",
-  }).trim();
+  const commitHash = spawnSyncOutput(repoPath, ["rev-parse", "HEAD"]).trim();
   const branch = getCurrentBranch(repoPath);
 
-  // Count changed files in this commit
-  const filesChanged = parseInt(
-    execSync("git diff --name-only HEAD~1 HEAD 2>/dev/null | wc -l", {
-      cwd: repoPath,
-      encoding: "utf8",
-    }).trim() || "0",
-    10,
-  );
+  // Count changed files in this commit(spawn 版,无 shell pipeline)
+  // 用 `git show --name-only` 对首次 commit(无 HEAD~1)也工作
+  const showNames = spawnSyncOutput(repoPath, [
+    "show",
+    "--name-only",
+    "--pretty=format:",
+    "HEAD",
+  ]).trim();
+  const filesChanged = showNames
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean).length;
 
   return { commitHash, branch, filesChanged };
+}
+
+/**
+ * 内部 helper:用 spawnSync 跑 git 命令,失败抛错。
+ *
+ * 数组参数绕过 shell,任何字符(包括 backtick / $ / 引号 / 换行)都按
+ * 字面传递给 git。是 Task 4.2 防 shell 注入的核心。
+ */
+function runGitSpawn(repoPath: string, args: readonly string[]): string {
+  const result = spawnSync("git", args, {
+    cwd: repoPath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) {
+    const stderr = (result.stderr ?? "").trim();
+    throw new Error(
+      `git ${args.join(" ")} failed (status=${result.status}): ${stderr}`,
+    );
+  }
+  return result.stdout ?? "";
+}
+
+/**
+ * 内部 helper:用 spawnSync 跑 git 命令取 stdout,失败返回空串。
+ */
+function spawnSyncOutput(repoPath: string, args: readonly string[]): string {
+  const result = spawnSync("git", args, {
+    cwd: repoPath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status !== 0) return "";
+  return result.stdout ?? "";
 }
 
 /**
