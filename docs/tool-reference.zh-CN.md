@@ -363,7 +363,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 **可选输入:**
 
 - `engramId: string` —— 过滤某个 engram 的完整历史
-- `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`)
+- `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`)
 - `since: string`(ISO 8601,包含)、`until: string`(ISO 8601,不包含)
 - `limit: number`(默认 100,最大 1000)
 

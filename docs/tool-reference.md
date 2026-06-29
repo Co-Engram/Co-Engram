@@ -363,7 +363,7 @@ Query the audit log (team-memory's event history, `audit.jsonl`). Surfaces the d
 **Optional inputs:**
 
 - `engramId: string` — filter to one engram's full history
-- `action: AuditAction` — filter by event type (`create`, `update`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`, `noise_filtered`, `necessity_rejected`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`)
+- `action: AuditAction` — filter by event type (`create`, `update`, `update_lifecycle`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`, `noise_filtered`, `necessity_rejected`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`)
 - `since: string` (ISO 8601, inclusive), `until: string` (ISO 8601, exclusive)
 - `limit: number` (default 100, max 1000)
 
