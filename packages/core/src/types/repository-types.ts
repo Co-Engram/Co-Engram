@@ -80,6 +80,21 @@ export interface EngramIndex {
 }
 
 /**
+ * Doctor next-action 提示
+ *
+ * 让"doctor 报告问题"不只是描述现象,还告诉用户/agent 用哪个工具、怎么解决。
+ * 解决 root cause「报告完然后呢?」——挑剔用户不需要翻文档查怎么处理 dangling synapse。
+ */
+export interface DoctorNextAction {
+  /** 推荐使用的工具名(如 engram_delete / synapse_delete / engram_create) */
+  readonly tool: string;
+  /** 参数提示(自然语言,告诉用户传什么 args) */
+  readonly argsHint: string;
+  /** 解释为什么用这个工具(用户层说明) */
+  readonly explanation: string;
+}
+
+/**
  * Doctor 扫描发现的问题
  */
 export interface DoctorIssue {
@@ -98,6 +113,8 @@ export interface DoctorIssue {
   readonly message: string;
   /** doctor 是否已自动修复 */
   readonly autoFixed: boolean;
+  /** 人工裁决类问题的 next-action 提示(可选,只对需要人工介入的 kind 填) */
+  readonly nextAction?: DoctorNextAction;
 }
 
 /**

@@ -40,6 +40,11 @@ export interface EngramDoctorResult {
     readonly path?: string;
     readonly message: string;
     readonly autoFixed: boolean;
+    readonly nextAction?: {
+      readonly tool: string;
+      readonly argsHint: string;
+      readonly explanation: string;
+    };
   }[];
 }
 
@@ -47,7 +52,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
   {
     name: "engram_doctor",
     description:
-      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), and Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Returns a structured report.",
+      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), and Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Each manual-review issue includes a `nextAction` hint (tool + argsHint + explanation) so the caller knows exactly which tool to invoke next. Returns a structured report.",
     inputSchema: EngramDoctorInputSchema,
     execute(input, ctx) {
       const parsed = validateInput<EngramDoctorToolInput>(
@@ -76,6 +81,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
           path: i.path,
           message: i.message,
           autoFixed: i.autoFixed,
+          nextAction: i.nextAction,
         })),
       };
     },

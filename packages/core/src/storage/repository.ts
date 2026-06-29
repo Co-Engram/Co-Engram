@@ -1184,6 +1184,12 @@ export class EngramRepository {
           path: orphanPath,
           message: `Markdown file without frontmatter: ${orphanPath} (either delete it or add frontmatter with a stable id)`,
           autoFixed: false,
+          nextAction: {
+            tool: "engram_create",
+            argsHint: `{ title, content, kind, domainTags, createdBy }  // 直接读取这个 markdown 的内容作为 engram body`,
+            explanation:
+              "Markdown 文件没有 frontmatter,所以不在 engram 索引里。如果是新记忆,用 engram_create 注册(把现有正文粘到 content);如果是废弃草稿,直接 rm 即可。",
+          },
         });
         pendingManualReview.push(issues[issues.length - 1]!);
       },
@@ -1225,11 +1231,18 @@ export class EngramRepository {
           // 标记相关 synapse dangling
           const touching = listSynapsesForEngram(this.config.rootPath, oldId);
           if (touching.outgoing.length + touching.incoming.length > 0) {
+            const danglingCount =
+              touching.outgoing.length + touching.incoming.length;
             pendingManualReview.push({
               kind: "dangling_synapse",
               stableId: oldId,
-              message: `Engram ${oldId} was deleted but ${touching.outgoing.length + touching.incoming.length} synapse(s) still reference it (clean up manually or restore the engram)`,
+              message: `Engram ${oldId} was deleted but ${danglingCount} synapse(s) still reference it (clean up manually or restore the engram)`,
               autoFixed: false,
+              nextAction: {
+                tool: "synapse_delete",
+                argsHint: `{ id: "<synapseId>" }  // synapseId 在每个 synapse 的 yaml id 字段,逐条删`,
+                explanation: `被删 engram 还有 ${danglingCount} 条 synapse 指向它,这些 synapse 现在是悬空的。去 synapses/ 目录找出涉及该 engram 的 synapse,用 synapse_delete 逐条清理;或者用 engram_create 重建该 engram(让 synapse 重新有目标)。`,
+              },
             });
           }
         }
