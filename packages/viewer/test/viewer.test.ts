@@ -88,16 +88,28 @@ async function withViewer<T>(
     | undefined,
   fn: (port: number) => Promise<T>,
 ): Promise<T> {
-  const runtime = await startViewerServer(ctx, {
-    port: nextPort(),
-    ...(options?.token ? { token: options.token } : {}),
-    ...(options?.language ? { language: options.language } : {}),
-    ...(options?.dataRoot ? { dataRoot: options.dataRoot } : {}),
-  });
+  // Task 5.3:测试基础设施改用 env CO_ENGRAM_VIEWER_PORT 而非 config.port,
+  // 避免触发 viewer.port deprecation warn(那是为真实用户准备的提示,不是测试噪音)。
+  const port = nextPort();
+  const savedEnv = process.env.CO_ENGRAM_VIEWER_PORT;
+  process.env.CO_ENGRAM_VIEWER_PORT = String(port);
   try {
-    return await fn(runtime.port);
+    const runtime = await startViewerServer(ctx, {
+      ...(options?.token ? { token: options.token } : {}),
+      ...(options?.language ? { language: options.language } : {}),
+      ...(options?.dataRoot ? { dataRoot: options.dataRoot } : {}),
+    });
+    try {
+      return await fn(runtime.port);
+    } finally {
+      await runtime.stop();
+    }
   } finally {
-    await runtime.stop();
+    if (savedEnv === undefined) {
+      delete process.env.CO_ENGRAM_VIEWER_PORT;
+    } else {
+      process.env.CO_ENGRAM_VIEWER_PORT = savedEnv;
+    }
   }
 }
 

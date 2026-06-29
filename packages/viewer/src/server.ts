@@ -134,6 +134,16 @@ export function startViewerServer(
     Number.isFinite(envPort) &&
     envPort > 0 &&
     envPort < 65536;
+  // Task 5.3:用户在 persisted config 设了 viewer.port 时 warn,
+  // 让用户知道这个字段已废弃(两宿主共享 persisted config 会抢同一端口)。
+  // 改用 env CO_ENGRAM_VIEWER_PORT 让两宿主各自指定。
+  if (config.port !== undefined && !envPortValid) {
+    console.warn(
+      `[co-engram] viewer.port=${config.port} from persisted config is deprecated ` +
+        `(two hosts sharing persisted config would clash on the same port). ` +
+        `Use env CO_ENGRAM_VIEWER_PORT instead. This time falling back to port ${config.port}.`,
+    );
+  }
   const startPort = (envPortValid ? envPort : undefined) ??
     config.port ??
     defaultPort;
