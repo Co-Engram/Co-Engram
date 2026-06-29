@@ -1,0 +1,25 @@
+{
+  "name": "@co-engram/contracts-test",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dual-host contract tests ensuring claude-code-mcp and openclaw-plugin stay in sync.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run --reporter=verbose --passWithNoTests",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@co-engram/core": "workspace:*",
+    "@co-engram/claude-code": "workspace:*",
+    "@co-engram/openclaw": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
