@@ -152,6 +152,19 @@ export function serializeEngramFile(
   // 不依赖 frontmatter aliases。中文模式 frontmatter 在文件底部,
   // Obsidian 不识别底部 frontmatter,aliases 注入也无意义。
   // 历史 engram 中残留的 aliases 字段会被显式剥离,doctor 重写后清干净。
+  //
+  // Task 5.4:剥离前 warn 一次,让用户知道手动加的 aliases 字段会被丢弃
+  // (R15 实证:静默剥离让用户困惑"我加的字段去哪了")。
+  if (
+    "aliases" in file.frontmatter &&
+    Array.isArray((file.frontmatter as { aliases?: unknown }).aliases) &&
+    (file.frontmatter as { aliases?: unknown[] }).aliases!.length > 0
+  ) {
+    const id = (file.frontmatter as { id?: string }).id ?? "<unknown>";
+    console.warn(
+      `[co-engram] engram ${id}: aliases field stripped (legacy field, no longer used; Obsidian wikilinks use filename as target).`,
+    );
+  }
   const { aliases: _drop, ...frontmatter } = file.frontmatter;
   void _drop;
 
