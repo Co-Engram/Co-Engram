@@ -79,7 +79,7 @@ describe("OpenClaw adapter i18n / adaptTool", () => {
     }
   });
 
-  it("原未覆盖工具(如 engram_archive)现在也有 agent 层描述(Finding 107/111 三层拆分)", () => {
+  it("原未覆盖工具(如 engram_archive)现在也有 agent 层描述(user/agent/technical 三层拆分)", () => {
     const registry = createToolRegistry();
     const tool = registry.get("engram_archive") as Tool;
     const ctx = makeFakeCtx();

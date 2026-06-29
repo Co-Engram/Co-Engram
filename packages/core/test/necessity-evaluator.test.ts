@@ -359,7 +359,7 @@ describe("LlmNecessityEvaluator", () => {
   });
 
   // ============================================================
-  // JS 内部错误 + fallback 加固(Finding 264/265 P0)
+  // JS 内部错误 + fallback 加固(确保 evaluate 永不抛出)
   // ============================================================
 
   it("LlmClient 返回非 string(undefined)→ 安全 fallback,不抛 TypeError", async () => {

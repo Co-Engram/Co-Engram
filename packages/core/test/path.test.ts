@@ -80,7 +80,7 @@ describe("文件路径推导", () => {
 });
 
 // ============================================================
-// safeJoinWithinRoot / isPathWithinRoot (Finding 156/157 P0)
+// safeJoinWithinRoot / isPathWithinRoot (path traversal 防御)
 // ============================================================
 
 describe("safeJoinWithinRoot — path traversal 防御", () => {
@@ -145,7 +145,7 @@ describe("safeJoinWithinRoot — path traversal 防御", () => {
   });
 });
 
-describe("EngramRepository — path traversal 端到端防御 (Finding 156/157)", () => {
+describe("EngramRepository — path traversal 端到端防御 (.. / 绝对路径)", () => {
   it("createEngram 拒绝 pathHint 逃逸", () => {
     const tmp = mkdtempSync(join(tmpdir(), "co-engram-path-trav-"));
     try {

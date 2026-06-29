@@ -526,7 +526,8 @@ export class LlmNecessityEvaluator implements NecessityEvaluator {
 
     // 容错包装:任何意外 JS 错误(host adapter bug / 返回非 string / parseLlmVerdict
     // 内部异常 / fallback 自身抛错)都不会让 evaluate 失败。最坏情况返回保守拒绝。
-    // Finding 264/265 P0:用户观察到 necessity-evaluator 静默崩溃导致 proposal 路径死掉。
+    // 历史教训:necessity-evaluator 曾静默崩溃,导致 proposal 路径整体死掉,proposal
+    // 队列无限累积。所有错误路径必须 fallback,不可 throw 出去。
     const safeFallback = async (
       prefix: "llm-unavailable" | "llm-parse-failed" | "internal-error",
       err: unknown,

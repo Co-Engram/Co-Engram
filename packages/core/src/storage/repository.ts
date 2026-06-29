@@ -375,7 +375,7 @@ export class EngramRepository {
   private resolvePath(stableId: string): string | undefined {
     if (!isStableEngramId(stableId)) {
       // 兼容:可能是相对路径,直接当 path 用。
-      // 但必须先校验路径在 root 内(Finding 156/157 P0:防 `..` 逃逸)
+      // 但必须先校验路径在 root 内(防 `..` 逃逸,path traversal 防御)
       if (!isPathWithinRoot(this.config.rootPath, stableId)) return undefined;
       if (this.existsAtPath(stableId)) return stableId;
       return undefined;
@@ -413,7 +413,7 @@ export class EngramRepository {
     const contentSize = computeContentSize(input.content);
 
     // pathHint 优先;否则用 deriveDefaultPath(slugify title + raw domainTags + .md)
-    // safeJoinWithinRoot 拦截 `..` 逃逸与绝对路径(Finding 156/157 P0)
+    // safeJoinWithinRoot 拦截 `..` 逃逸与绝对路径(path traversal 防御)
     const relativePath = input.pathHint ?? this.deriveDefaultPath(input);
     const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
 

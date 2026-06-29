@@ -84,7 +84,7 @@ export function t(
 /**
  * 工具描述层级
  *
- * 三层拆分(Finding 107/111 的根因修复:jargon 与友好性的矛盾):
+ * 三层拆分(jargon 与友好性矛盾的根因修复):
  *
  * - `user` — 面向终端用户(viewer 帮助栏、UI 工具列表)。plain language,无内部术语。
  * - `agent` — 面向 LLM agent(MCP/OpenClaw 工具注册)。带 WHEN TO CALL/RETURNS 结构,

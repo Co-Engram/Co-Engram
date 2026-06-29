@@ -383,7 +383,7 @@ export function registerCoEngramTool(
  * 2. core i18n 字典 `tool.<name>`(legacy user 层 fallback)
  * 3. tool.description 原值(最终 fallback)
  *
- * Finding 107/111 三层拆分:agent 层用于 LLM 决策(user/agent/technical 三层分离)。
+ * 三层拆分背景:agent 层用于 LLM 决策(user/agent/technical 三层分离)。
  */
 function resolveToolDescription(tool: Tool, language: Language): string {
   return localizeToolDescription(

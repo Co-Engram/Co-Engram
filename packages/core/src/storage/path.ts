@@ -88,7 +88,7 @@ export function deriveAllFilePaths(relativePath: string): {
 }
 
 /**
- * 把相对路径安全地拼到仓库根目录下,拒绝 `..` 逃逸(Finding 156/157 P0)。
+ * 把相对路径安全地拼到仓库根目录下,拒绝 `..` 逃逸(path traversal 防御)。
  *
  * 威胁模型:
  *   - 调用方传入 `pathHint='../etc/passwd'` 或 domainTag=`'..'`

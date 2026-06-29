@@ -1,5 +1,5 @@
 /**
- * Cross-host contract test (Finding 206/243)
+ * Cross-host contract test
  *
  * 防止 Claude Code MCP 与 OpenClaw plugin 在共享 core 之上漂移。
  * 双宿主各自实现 adapter 层,容易在工具集 / 默认值 / 描述 上产生不对称。

@@ -291,7 +291,7 @@ describe("i18n / zh.ts 源码防回归 (Finding 141)", () => {
   });
 });
 
-describe("i18n / 三层描述拆分 (Finding 107/111)", () => {
+describe("i18n / 三层描述拆分 (user/agent/technical)", () => {
   const TOOL_NAMES = [
     "engram_create",
     "engram_get",

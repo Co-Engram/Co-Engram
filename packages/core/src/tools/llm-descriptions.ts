@@ -2,7 +2,7 @@
  * LLM-facing tool description resolution (host-agnostic)
  *
  * 历史上这里维护一个独立的 `LLM_TOOL_DESCRIPTIONS` 常量,与 i18n 字典并行,
- * 容易漂移。Finding 107/111 的三层拆分重构把 agent 层描述统一迁入 i18n 字典
+ * 容易漂移。三层拆分重构把 agent 层描述统一迁入 i18n 字典
  * (`tool.<name>.agent`),实现单一真相源。本模块仅保留薄薄的解析/审计/override 函数,
  * 全部委托到 `localizeToolDescription(..., layer='agent')`。
  *
