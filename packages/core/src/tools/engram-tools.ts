@@ -24,6 +24,7 @@ import { matchesFilter } from "../retrieval/filter.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
 import { adaptiveDisclosure } from "../disclosure/adaptive.js";
 import { createBudget } from "../disclosure/budget.js";
+import { formatScoreField } from "../concepts/dictionary.js";
 import {
   recordRetrievalSuccess,
   reinforceEngram,
@@ -702,8 +703,11 @@ export const engramReinforceTool: Tool<
     retrievalCount: number;
     effectiveRetrievals: number;
     reinforcementScore: number;
+    reinforcementScoreBand: import("../concepts/types.js").ScoreBand;
     importance: number;
+    importanceBand: import("../concepts/types.js").ScoreBand;
     importanceDelta: number;
+    importanceDeltaBand: import("../concepts/types.js").ScoreBand;
     lastEffectiveAt: string;
     reinforcedNeighborIds: readonly string[];
   }
@@ -743,13 +747,22 @@ export const engramReinforceTool: Tool<
       engramId: parsed.id,
       metadata: { effectiveness: parsed.effectiveness, note: parsed.note },
     });
+    // 数值字段经 formatScoreField 封装:raw 2 位小数(杀浮点噪声如
+    // 0.018000000000000002)+ band(high/medium/low,host adapter 本地化)。
+    // 见 fix-1 Task 1.3 / R8 R11 R15 实证。
+    const reinforcement = formatScoreField(direct.reinforcementScore);
+    const importance = formatScoreField(direct.importance);
+    const importanceDelta = formatScoreField(direct.importanceDelta);
     return {
       id: parsed.id,
       retrievalCount: direct.retrievalCount,
       effectiveRetrievals: direct.effectiveRetrievals,
-      reinforcementScore: direct.reinforcementScore,
-      importance: direct.importance,
-      importanceDelta: direct.importanceDelta,
+      reinforcementScore: reinforcement.raw,
+      reinforcementScoreBand: reinforcement.band,
+      importance: importance.raw,
+      importanceBand: importance.band,
+      importanceDelta: importanceDelta.raw,
+      importanceDeltaBand: importanceDelta.band,
       lastEffectiveAt: direct.lastEffectiveAt,
       reinforcedNeighborIds: related.reinforcedNeighborIds,
     };
@@ -767,7 +780,9 @@ export const engramReportFailureTool: Tool<
     failedUses: number;
     retrievalCount: number;
     importance: number;
+    importanceBand: import("../concepts/types.js").ScoreBand;
     importanceDelta: number;
+    importanceDeltaBand: import("../concepts/types.js").ScoreBand;
     shouldArchive: boolean;
     shouldForget: boolean;
   }
@@ -797,12 +812,17 @@ export const engramReportFailureTool: Tool<
       engramId: parsed.id,
       metadata: { reason: parsed.reason, context: parsed.context },
     });
+    // 同 engram_reinforce:formatScoreField 杀浮点噪声 + 加 band。
+    const importance = formatScoreField(result.importance);
+    const importanceDelta = formatScoreField(result.importanceDelta);
     return {
       id: parsed.id,
       failedUses: result.failedUses,
       retrievalCount: result.retrievalCount,
-      importance: result.importance,
-      importanceDelta: result.importanceDelta,
+      importance: importance.raw,
+      importanceBand: importance.band,
+      importanceDelta: importanceDelta.raw,
+      importanceDeltaBand: importanceDelta.band,
       shouldArchive: result.shouldArchive,
       shouldForget: result.shouldForget,
     };

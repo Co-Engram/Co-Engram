@@ -255,5 +255,40 @@ export function formatScore(score: number, lang: "zh" | "en"): string {
   return `${labels[lang][band]}(${score.toFixed(2)})`;
 }
 
+/**
+ * 工具返回结果里的结构化分数字段
+ *
+ * `raw` 是 2 位小数(rounded),保证 JSON 序列化不会泄露浮点噪声
+ * (如 0.018000000000000002 / 0.7719155626908514)。
+ *
+ * `band` 是语言中立的等级枚举,host adapter / viewer 用 translatePrompt
+ * 或本地 i18n 字典把它本地化为『高』/『high』等。
+ *
+ * 设计原因:不在 core 层硬编码中文,保持 host-agnostic(元2 dual-host 契约)。
+ */
+export interface ScoreField {
+  /** 2 位小数(rounded),JSON-safe */
+  readonly raw: number;
+  /** 语言中立等级:high (≥0.7) / medium (≥0.3) / low (<0.3) */
+  readonly band: ScoreBand;
+}
+
+/**
+ * 把裸浮点封装为 ScoreField
+ *
+ * 同时做两件事:
+ *   1. round 到 2 位小数,杀掉浮点噪声(0.018000000000000002 → 0.02)
+ *   2. 计算 band(high/medium/low),供 host adapter 渲染
+ *
+ * 单独抽出是因为多个工具(engram_get / engram_reinforce / engram_recompute_importance /
+ * engram_search)都要做同样的处理,集中一处避免漂移。
+ */
+export function formatScoreField(raw: number): ScoreField {
+  const rounded = Math.round(raw * 100) / 100;
+  const band: ScoreBand =
+    rounded >= 0.7 ? "high" : rounded >= 0.3 ? "medium" : "low";
+  return { raw: rounded, band };
+}
+
 /** 重导出类型,方便 `import { CONCEPT_DICTIONARY, type ConceptEntry } from "..."` */
 export type { ConceptEntry, ConceptId, ScoreBand } from "./types.js";

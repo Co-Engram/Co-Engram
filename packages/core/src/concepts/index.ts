@@ -11,4 +11,6 @@ export {
   CONCEPT_DICTIONARY,
   getConcept,
   formatScore,
+  formatScoreField,
 } from "./dictionary.js";
+export type { ScoreField } from "./dictionary.js";
