@@ -16,4 +16,11 @@ export {
   readPromptSignals,
   writePromptSignals,
   PROMPT_SIGNALS_FILENAME,
+  PromptSignalCache,
+  type PromptSignalCacheOptions,
 } from "./cache.js";
+export {
+  PromptSignalBus,
+  type PromptSignalEvent,
+  type PromptSignalEventType,
+} from "./event-bus.js";
