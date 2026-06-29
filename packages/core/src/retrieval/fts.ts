@@ -1,18 +1,35 @@
 /**
  * Full Text Search（关键词匹配）
  *
- * 简单实现：基于 digest.jsonl 的内存倒排索引。
- * P1 阶段会替换为 MiniSearch 等成熟方案；P0 先用极简实现验证流程。
+ * 基于内存倒排索引。Task 4.1 把 P0 时代的中文 bigram 切分换成了
+ * Intl.Segmenter(Node 22+ 内置,零新依赖),消除 bigram 跨词边界的假阳性。
  *
- * 策略：
- *   - 中文：按字符切分（bigram）
- *   - 英文：按 word boundary 切分
+ * 策略:
+ *   - 中文:Intl.Segmenter(granularity=word)按字典做词级切分,
+ *     同时保留单字让短查询仍能命中(unigram 覆盖,无 bigram 假阳性)。
+ *   - 英文:word boundary 切分
  *   - 大小写不敏感
  *
  * @module @co-engram/core/retrieval
  */
 
 import type { DigestLine } from "../index/types.js";
+
+/**
+ * 中文 word segmenter(lazy 单例)
+ *
+ * Intl.Segmenter 实例可重用,构造有非零开销。模块级缓存让多次 tokenize 共享。
+ */
+let zhWordSegmenter: Intl.Segmenter | null = null;
+function getZhSegmenter(): Intl.Segmenter | null {
+  if (zhWordSegmenter !== null) return zhWordSegmenter;
+  try {
+    zhWordSegmenter = new Intl.Segmenter("zh", { granularity: "word" });
+  } catch {
+    zhWordSegmenter = null; // 旧 ICU / 非 zh 环境:fallback 到单字
+  }
+  return zhWordSegmenter;
+}
 
 /** Token 化结果 */
 function tokenize(text: string): string[] {
@@ -26,19 +43,27 @@ function tokenize(text: string): string[] {
   const englishWords = lower.match(/[a-z][a-z0-9_-]{1,}/g) ?? [];
   tokens.push(...englishWords);
 
-  // 中文 bigram
-  const chineseSegments = lower.match(/[一-龥]+/g) ?? [];
-  for (const seg of chineseSegments) {
-    if (seg.length === 1) {
-      tokens.push(seg);
+  // 中文段(Intl.Segmenter 也能切英文,但 regex 已处理;这里只跑中日韩段)
+  const cjkSegments = lower.match(/[一-龥ぁ-んァ-ン]+/g) ?? [];
+  const segmenter = getZhSegmenter();
+  for (const seg of cjkSegments) {
+    if (segmenter !== null) {
+      // 词级切分:不额外生成单字 token,避免 "忆系" 这种跨词边界的查询命中
+      // "记忆系统设计"(否则单字 "忆"/"系" 都在文档 tokens 里,导致假阳性)。
+      // ICU 字典能识别的常见词("记忆"/"系统"/"设计")会作为一个 token,
+      // 词典不识别的("调试"→["调","试"])按单字输出,符合用户直觉。
+      const seen = new Set<string>();
+      for (const { segment } of segmenter.segment(seg)) {
+        const trimmed = segment.trim();
+        if (!trimmed) continue;
+        if (!seen.has(trimmed)) {
+          seen.add(trimmed);
+          tokens.push(trimmed);
+        }
+      }
     } else {
-      for (let i = 0; i < seg.length - 1; i++) {
-        tokens.push(seg.slice(i, i + 2));
-      }
-      // 也加入单字，便于短查询匹配
-      for (const ch of seg) {
-        tokens.push(ch);
-      }
+      // fallback:无 Intl.Segmenter 时退到单字(不引入 bigram 假阳性)
+      for (const ch of seg) tokens.push(ch);
     }
   }
 

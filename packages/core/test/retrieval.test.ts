@@ -85,6 +85,26 @@ describe("FTS 索引", () => {
     const hits = searchFts("xyz", index);
     expect(hits).toEqual([]);
   });
+
+  it("中文词级切分不产生 bigram 假阳性(Task 4.1)", () => {
+    // bigram 实现:"记忆系统设计" → 含 "忆系" 这个无意义 token
+    // Intl.Segmenter 词级切分:"记忆系统设计" → ["记忆", "系统", "设计"]
+    // 不会产生跨词边界的 token
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "记忆系统设计",
+        summary: "记忆系统的设计原则",
+      }),
+    ];
+    const index = buildFtsIndex(lines);
+    // 搜 "忆系"(跨词边界的 bigram)——应无匹配
+    const falseHits = searchFts("忆系", index);
+    expect(falseHits).toEqual([]);
+    // 搜真正的词——应匹配
+    const realHits = searchFts("记忆", index);
+    expect(realHits.length).toBeGreaterThan(0);
+  });
 });
 
 describe("过滤器", () => {
