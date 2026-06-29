@@ -16,7 +16,8 @@
     "typecheck": "pnpm -r --filter './packages/**' exec tsc --noEmit",
     "format": "pnpm exec prettier --write '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'",
     "format:check": "pnpm exec prettier --check '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'",
-    "lint:finding-refs": "node scripts/lint-no-finding-refs.mjs"
+    "lint:finding-refs": "node scripts/lint-no-finding-refs.mjs",
+    "audit:defaults": "node scripts/audit-hardcoded-defaults.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

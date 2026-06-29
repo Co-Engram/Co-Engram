@@ -1,0 +1,29 @@
+{
+  "_doc": "白名单:audit-hardcoded-defaults.mjs 检测到的'合理硬编码默认值'。这些 DEFAULT_* 常量已经通过对应 Config 接口暴露给用户调整,常量本身只是 fallback。",
+  "items": [
+    {
+      "file": "packages/core/src/maintenance/types.ts",
+      "line": 65,
+      "name": "DEFAULT_LIGHT_INTERVAL_MS",
+      "reason": "已被 MaintenanceConfig.lightIntervalMs 暴露,常量是 fallback"
+    },
+    {
+      "file": "packages/core/src/maintenance/types.ts",
+      "line": 66,
+      "name": "DEFAULT_DEEP_INTERVAL_MS",
+      "reason": "已被 MaintenanceConfig.deepIntervalMs 暴露,常量是 fallback"
+    },
+    {
+      "file": "packages/core/src/maintenance/types.ts",
+      "line": 67,
+      "name": "DEFAULT_REM_INTERVAL_MS",
+      "reason": "已被 MaintenanceConfig.remIntervalMs 暴露,常量是 fallback"
+    },
+    {
+      "file": "packages/core/src/maintenance/types.ts",
+      "line": 68,
+      "name": "DEFAULT_SIGNAL_PRUNE_AGE_MS",
+      "reason": "已被 MaintenanceConfig.signalPruneAgeMs 暴露,常量是 fallback"
+    }
+  ]
+}
