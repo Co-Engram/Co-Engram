@@ -14,5 +14,6 @@ export * from "./skill-tools.js";
 export * from "./proposal-tools.js";
 export * from "./doctor-tools.js";
 export * from "./synthesize-tools.js";
+export * from "./audit-query-tool.js";
 export * from "./llm-descriptions.js";
 export * from "./registry.js";

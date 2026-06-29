@@ -30,10 +30,10 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 18 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
- *   自愈/路径树 + engram_synthesize
+ * standard: 19 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
+ *   自愈/路径树 + engram_synthesize + engram_audit_query
  *
- * full: 28 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ * full: 29 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
  *   但不含 skill_invoke —— 它是 P0 stub(Task 3.2 移除,等 P1 真正实现再放回)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
@@ -76,6 +76,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_paths",
     // LLM 综合(手工触发 REM,需 llmClient 注入)
     "engram_synthesize",
+    // 审计查询(让挑剔用户不开 viewer 也能查事件历史)
+    "engram_audit_query",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -108,6 +110,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_paths",
     // LLM 综合
     "engram_synthesize",
+    // 审计查询(让挑剔用户不开 viewer 也能查事件历史)
+    "engram_audit_query",
     // 手动 pull/commit/push
     "engram_sync",
   ]),
