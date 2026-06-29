@@ -34,18 +34,33 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 18 (含 engram_synthesize)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(18);
+  it("standard = 19 (Task 3.3 加 engram_audit_query 后)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(19);
   });
 
-  it("full = 29 (25 native + 2 repo-health + 1 synthesize + engram_sync)", () => {
+  it("full = 29 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query)", () => {
     expect(PROFILE_TOOL_SETS.full.size).toBe(29);
   });
 
-  it("PROFILE_TOOL_COUNTS 与 SETS size 一致", () => {
+  // ============================================================
+  // Task 5.1: PROFILE_TOOL_COUNTS regression guard(显式锁定)
+  // ============================================================
+  it("Task 5.1: PROFILE_TOOL_COUNTS 等于 .size(防硬编码漂移)", () => {
     expect(PROFILE_TOOL_COUNTS.minimal).toBe(PROFILE_TOOL_SETS.minimal.size);
     expect(PROFILE_TOOL_COUNTS.standard).toBe(PROFILE_TOOL_SETS.standard.size);
     expect(PROFILE_TOOL_COUNTS.full).toBe(PROFILE_TOOL_SETS.full.size);
+  });
+
+  it("Task 5.1: minimal 至少 11 个(防意外缩容)", () => {
+    expect(PROFILE_TOOL_SETS.minimal.size).toBeGreaterThanOrEqual(11);
+  });
+
+  it("Task 5.1: standard 至少 17 个(防意外缩容)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBeGreaterThanOrEqual(17);
+  });
+
+  it("Task 5.1: full 至少 28 个(防意外缩容)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBeGreaterThanOrEqual(28);
   });
 });
 
@@ -62,7 +77,7 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     }
   });
 
-  it("full 包含所有 native + 仓库健康工具(含管理类)", () => {
+  it("full 包含所有 native + 仓库健康工具(含管理类,Task 3.2 后不含 skill_invoke)", () => {
     const managementTools = [
       "engram_archive",
       "engram_restore",
@@ -72,7 +87,6 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
       "synapse_list",
       "synapse_delete",
       "skill_get",
-      "skill_invoke",
       "upgrade_verification",
       "get_evolution_lineage",
       "engram_doctor",
@@ -81,6 +95,8 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     for (const t of managementTools) {
       expect(PROFILE_TOOL_SETS.full.has(t)).toBe(true);
     }
+    // Task 3.2:skill_invoke 移出 full profile(标 experimental stub)
+    expect(PROFILE_TOOL_SETS.full.has("skill_invoke")).toBe(false);
   });
 
   it("standard 不包含管理类工具", () => {
@@ -192,10 +208,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 18 个(含 engram_synthesize)", () => {
+  it("standard 过滤到 19 个(Task 3.3 加 engram_audit_query 后)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(18);
+    expect(filtered.length).toBe(19);
   });
 
   it("minimal 不含 engram_delete", () => {
