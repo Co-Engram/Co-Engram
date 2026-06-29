@@ -22,6 +22,8 @@ Records state mutations + necessary events. Stored as JSONL at `$DATA_ROOT/.co-e
 
 **Conflict markers:** `contradicted` (consumed by `EffectivenessTracker.effectiveness()`)
 
+**Git merge driver events:** `merge_resolved` (driver auto-resolved a conflict), `merge_backup_failed` (loser-side backup failed to persist), `merge_conflict_escalated` (driver left a marker and escalated to human), `merge_llm_arbitrated` / `merge_llm_arbitrated_escalated` / `merge_llm_arbitrated_failed` (Phase 3 LLM arbiter outcomes)
+
 **No longer written** (kept in the `AuditAction` enum only to read old logs):
 
 - `noise_filtered` (Layer 1 prefilter rejects — every conversation message could produce one)
@@ -50,6 +52,10 @@ const report = audit.effectiveness("01J...A");
 
 `effectiveRate` formula: `effective / (effective + inconclusive + contradicted)`. Returns `null` if `hits < 3` (statistical noise floor).
 
+### Querying via the `engram_audit_query` tool
+
+LLM agents that need "what happened to this engram?" without opening the viewer or reading JSONL directly can call the **`engram_audit_query`** tool (in `standard` and `full` profiles). It exposes the same `AuditLog.query()` filters — `engramId`, `action`, `since`, `until`, `limit` — and returns chronological events. See [Tool Reference](./tool-reference.md) for the full signature.
+
 ## Effectiveness Tracker
 
 When `engram_search` hits an engram, the wrapped tool calls `effectivenessTracker.openWindow(...)`. The window length depends on the engram's kind:
@@ -74,6 +80,34 @@ Window records are the source of truth for effectiveness stats — `Effectivenes
 `audit.jsonl` no longer records `retrieve_hit` / `retrieve_effective` / `retrieve_inconclusive` because window records already cover them — writing them to audit would duplicate per-search events and drown out the state changes worth auditing.
 
 This gives the system a feedback signal: engrams with low `effectiveRate` over many hits are candidates for archive/forget.
+
+## Score Field Format
+
+All numeric scores returned by tools (importance, reinforcementScore, lastRetrievalScore, FTS score, effectiveness) are wrapped in a `ScoreField` to keep presentation consistent and host-agnostic:
+
+```ts
+interface ScoreField {
+  readonly raw: number;                       // 2 decimals (rounded), JSON-safe
+  readonly band: "high" | "medium" | "low";   // language-neutral tier
+}
+```
+
+**Band thresholds** (see `formatScoreField` in [`concepts/dictionary.ts`](../packages/core/src/concepts/dictionary.ts)):
+
+| Band    | Range          |
+| ------- | -------------- |
+| `high`  | `raw ≥ 0.70`   |
+| `medium`| `0.30 ≤ raw < 0.70` |
+| `low`   | `raw < 0.30`   |
+
+**Why two fields instead of one float:**
+
+- `raw` is rounded to 2 decimals to prevent floating-point noise from leaking to the UI (e.g., `0.018000000000000002` becomes `0.02`).
+- `band` is a language-neutral enum so the core stays host-agnostic — the viewer or host adapter localizes it (`高/中/低` in Chinese, `high/medium/low` in English) via the i18n dictionary, not by the core.
+
+**Where it shows up:** `engram_get`, `engram_search`, `engram_reinforce`, `engram_report_failure`, `engram_recompute_importance`, and the viewer's effectiveness report all return `ScoreField` for any user-facing numeric.
+
+For ad-hoc string formatting inside core (e.g., embedding a score in an audit reason), `formatScore(score, lang)` returns `"high(0.84)"` / `"高(0.84)"` directly.
 
 ## Proposal Engine
 

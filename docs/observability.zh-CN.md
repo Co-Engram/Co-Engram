@@ -22,6 +22,8 @@ Co-Engram 自带三组件的可观测性栈。三者都是可选的,但默认开
 
 **冲突标记:** `contradicted`(供 `EffectivenessTracker.effectiveness()` 派生用)
 
+**Git merge driver 事件:** `merge_resolved`(driver 自动解决冲突)、`merge_backup_failed`(输方备份落盘失败)、`merge_conflict_escalated`(driver 留 marker 升级人工)、`merge_llm_arbitrated` / `merge_llm_arbitrated_escalated` / `merge_llm_arbitrated_failed`(Phase 3 LLM 仲裁结果)
+
 **不再写入**(只在 `AuditAction` 枚举里保留以便读旧日志):
 
 - `noise_filtered`(Layer 1 预过滤拒绝 —— 每条对话消息都可能产生)
@@ -50,6 +52,10 @@ const report = audit.effectiveness("01J...A");
 
 `effectiveRate` 计算公式:`effective / (effective + inconclusive + contradicted)`。当 `hits < 3` 时返回 `null`(统计噪声下限)。
 
+### 通过 `engram_audit_query` 工具查询
+
+LLM agent 想"查询某个 engram 发生了什么",又不想打开 viewer 或直接读 JSONL,可以调用 **`engram_audit_query`** 工具(`standard` 和 `full` profile 均暴露)。它把 `AuditLog.query()` 的过滤项 —— `engramId`、`action`、`since`、`until`、`limit` —— 透出给 LLM,返回按时间升序的事件。完整签名见 [工具参考](./tool-reference.zh-CN.md)。
+
 ## 有效性追踪器
 
 当 `engram_search` 命中一个 engram 时,被包装的工具会调用 `effectivenessTracker.openWindow(...)`。窗口长度取决于该 engram 的 kind:
@@ -74,6 +80,34 @@ const report = audit.effectiveness("01J...A");
 `audit.jsonl` 不再记录 `retrieve_hit` / `retrieve_effective` / `retrieve_inconclusive`,因为窗口记录已经覆盖这些 —— 再写一份 audit 会让每次搜索都重复落盘,淹没真正值得审计的状态变更。
 
 这为系统提供了一个反馈信号:在大量命中下 `effectiveRate` 较低的 engram,会成为归档/遗忘的候选对象。
+
+## 分数字段格式(Score Field)
+
+工具返回的所有数值字段(importance、reinforcementScore、lastRetrievalScore、FTS score、effectiveness)统一封装为 `ScoreField`,保证呈现一致并保持 host-agnostic:
+
+```ts
+interface ScoreField {
+  readonly raw: number;                       // 2 位小数(rounded),JSON-safe
+  readonly band: "high" | "medium" | "low";   // 语言中立等级
+}
+```
+
+**等级阈值**(见 [`concepts/dictionary.ts`](../packages/core/src/concepts/dictionary.ts) 中的 `formatScoreField`):
+
+| 等级     | 范围               |
+| -------- | ------------------ |
+| `high`   | `raw ≥ 0.70`       |
+| `medium` | `0.30 ≤ raw < 0.70`|
+| `low`    | `raw < 0.30`       |
+
+**为什么用两个字段而不是单个浮点:**
+
+- `raw` 固定 2 位小数,杜绝浮点噪声泄漏到 UI(例如 `0.018000000000000002` 会变成 `0.02`)。
+- `band` 是语言中立的枚举,保持 core 层 host-agnostic —— 由 viewer 或 host adapter 通过 i18n 字典本地化(`高/中/低` 或 `high/medium/low`),而不是由 core 层硬编码。
+
+**出现位置:** `engram_get`、`engram_search`、`engram_reinforce`、`engram_report_failure`、`engram_recompute_importance`,以及 viewer 的 effectiveness 报告,所有面向用户的数值字段都返回 `ScoreField`。
+
+若需在 core 内部把分数嵌入字符串(例如审计 reason),`formatScore(score, lang)` 直接返回 `"高(0.84)"` / `"high(0.84)"`。
 
 ## Proposal 引擎
 
