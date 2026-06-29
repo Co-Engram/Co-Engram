@@ -1412,6 +1412,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Config-tab edits write to the persisted file by default and take effect after restarting the host. Edit the data root directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code> (the latter supports <code>--force</code> to take over a non-empty directory).",
   "viewer.help.tip4":
     "On repository inconsistency, call <code>engram_doctor</code> from the agent for a self-healing scan.",
+  "viewer.help.tip5":
+    "Numeric fields like <code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> show a band label (high / medium / low; thresholds ≥0.7 / ≥0.3 / <0.3) next to the raw 2-decimal value. The band is language-neutral in storage; the UI localizes it.",
 
   // ===== Ports & data root =====
   "viewer.help.opsTitle": "Ports & data root",
@@ -1419,6 +1421,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>Viewer port</strong>:Claude Code (MCP) defaults to <code>18799</code>,OpenClaw (plugin) defaults to <code>18899</code> — both hosts can run side-by-side without conflict. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides both. The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port).",
   "viewer.help.opsDataRoot":
     "<strong>Data root</strong>:edit directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code>. Both write the same <code>~/.co-engram/config.json</code> bootstrap config; restart the current host to apply. For safety, the UI only accepts empty dirs or existing co-engram warehouses; to take over a non-empty non-co-engram dir use the CLI with <code>--force</code>.",
+
+  // ===== Tool profiles =====
+  "viewer.help.profilesTitle": "Tool profiles",
+  "viewer.help.profilesBody":
+    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Counts come from <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal (12)</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (19, default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>). <strong>full (29)</strong>: all native tools except the experimental <code>skill_invoke</code> (P0 stub). Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
 
   // ===== Save & sync =====
   "viewer.help.syncTitle": "Save and sync to remote",

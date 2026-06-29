@@ -1815,11 +1815,15 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tip2') + '</li>'
       + '<li>' + T.t('viewer.help.tip3') + '</li>'
       + '<li>' + T.t('viewer.help.tip4') + '</li>'
+      + '<li>' + T.t('viewer.help.tip5') + '</li>'
       + '</ul>'
 
       + '<h3>' + T.t('viewer.help.opsTitle') + '</h3>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsPorts') + '</p>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsDataRoot') + '</p>'
+
+      + '<h3>' + T.t('viewer.help.profilesTitle') + '</h3>'
+      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.profilesBody') + '</p>'
 
       + '<h3>' + T.t('viewer.help.syncTitle') + '</h3>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.syncBody') + '</p>'

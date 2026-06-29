@@ -1363,6 +1363,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "配置 tab 的修改默认写入持久化文件,重启宿主后生效。数据根目录既可在配置 tab 直接编辑保存,也可用 CLI <code>co-engram config data-root &lt;path&gt;</code> 修改(后者支持 <code>--force</code> 接管非空目录)。",
   "viewer.help.tip4":
     "遇到仓库不一致,可在 agent 中调 <code>engram_doctor</code> 自愈扫描。",
+  "viewer.help.tip5":
+    "<code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> 等数值字段会在 2 位小数原始值旁显示等级标签(高 / 中 / 低;阈值 ≥0.7 / ≥0.3 / <0.3)。等级在存储层语言中立,由 UI 本地化。",
 
   // ===== 端口与数据根目录 =====
   "viewer.help.opsTitle": "端口与数据根目录",
@@ -1370,6 +1372,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>查看器端口</strong>:Claude Code(MCP)默认 <code>18799</code>,OpenClaw(plugin)默认 <code>18899</code>——两宿主同机运行不冲突。环境变量 <code>CO_ENGRAM_VIEWER_PORT</code> 可同时覆盖两宿主。持久化配置里的 <code>viewer.port</code> 已废弃(两宿主共享持久化文件会抢端口)。",
   "viewer.help.opsDataRoot":
     "<strong>数据根目录</strong>:在配置 tab 直接输入路径并保存,或用 CLI <code>co-engram config data-root &lt;path&gt;</code>。两者都写同一份 <code>~/.co-engram/config.json</code> bootstrap 配置,修改后需重启当前宿主生效。UI 出于安全只接受空目录或现有 co-engram 仓库;要接管非空非 co-engram 目录请走 CLI 加 <code>--force</code>。",
+
+  // ===== 工具 profile =====
+  "viewer.help.profilesTitle": "工具 profile",
+  "viewer.help.profilesBody":
+    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(19,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>)。<strong>full(29)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
 
   // ===== 保存与同步 =====
   "viewer.help.syncTitle": "保存与同步到远端",
