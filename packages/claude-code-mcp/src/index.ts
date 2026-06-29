@@ -7,5 +7,6 @@
  */
 
 export * from "./register.js";
+export * from "./tool-profile.js";
 export * from "./maintenance-runtime.js";
 export * from "@co-engram/viewer";

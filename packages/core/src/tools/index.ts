@@ -6,6 +6,7 @@
 
 export * from "./schemas.js";
 export * from "./tool.js";
+export * from "./tool-profile.js";
 export * from "./wrapped.js";
 export * from "./engram-tools.js";
 export * from "./synapse-tools.js";

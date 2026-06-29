@@ -291,19 +291,11 @@ WHEN NOT TO CALL:
 RETURNS: started/finished timestamps, total counts, autoFixesApplied, pendingManualReview, and the full issues array (kind + path + message + autoFixed).`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
-Flow: ① create .gitignore if missing (excludes .co-engram/ cache) → ② git fetch + compare with remote → ③ git pull --rebase --autostash (abort and report on conflict) → ④ git add -A + commit (skip if nothing to commit) → ⑤ git push (auto-degrades to commit-only when no remote).
+Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
 
-WHEN TO CALL:
-- User says "save my memories", "commit memories", "sync to remote", "push"
-- After a dense authoring session, user wants to explicitly persist
-- User suspects remote has updates and wants to merge first
-- dryRun=true: user wants to preview uncommitted changes
+WHEN TO CALL: user says "save/commit/push memories"; after dense authoring; dryRun=true to preview uncommitted changes.
 
-WHEN NOT TO CALL:
-- User is fine with auto markDirty handling persistence later
-- Repo is not a git repo (tool throws with init guidance)
-
-RETURNS: { repoPath, gitignoreCreated, pulled: { ok, upToDate?, conflicts? }, committed: { ok, sha?, filesChanged, nothingToCommit? }, pushed: { ok, skipped?, reason? }, summary }. On conflict, pulled.ok=false + conflicts array; tool halts remaining phases.`,
+RETURNS: { pulled:{ok,upToDate?,conflicts?}, committed:{ok,sha?,filesChanged,nothingToCommit?}, pushed:{ok,skipped?,reason?}, summary }. On conflict, pulled.ok=false + conflicts array; tool halts remaining phases.`,
   "tool.engram_list_paths.agent": `Show the physical directory tree of the memory repo so you can orient before searching.
 
 Each node carries engramCount (cumulative for that subtree). Use it to see where memory is concentrated (which domains, which projects) before deciding what to search for.

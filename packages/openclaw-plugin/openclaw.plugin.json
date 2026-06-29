@@ -35,7 +35,8 @@
       "engram_dismiss_proposal",
       "engram_doctor",
       "engram_list_paths",
-      "engram_synthesize"
+      "engram_synthesize",
+      "engram_sync"
     ]
   },
   "name": "Co-Engram",

@@ -28,17 +28,9 @@ export interface ContractDiff {
   readonly detail: string;
 }
 
-/**
- * profile 工具集两端一致性测试
- *
- * 验证 claude-code-mcp 与 openclaw-plugin 的 PROFILE_TOOL_SETS(minimal/standard/full)
- * 与 PROFILE_TOOL_COUNTS 完全一致。
- *
- * Task 2.2 实现。
- */
-export async function runProfileContractTests(): Promise<ContractResult> {
-  return { passed: true, diffs: [] };
-}
+export {
+  runProfileContractTests,
+} from "./profile-contract.js";
 
 /**
  * i18n key 两端一致性测试

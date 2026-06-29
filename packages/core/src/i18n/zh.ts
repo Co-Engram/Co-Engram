@@ -289,21 +289,13 @@ export const zh = {
 - 用户想看具体某条 engram(用 engram_get)
 
 返回:开始/结束时间戳、总计数、自动修复数、待审核数,以及完整 issues 列表。`,
-  "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 全链路同步。
+  "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
-流程:① 缺失则创建 .gitignore(排除 .co-engram/ 缓存)→ ② git fetch + 比对远端 → ③ git pull --rebase --autostash(冲突则 abort 并报告清单)→ ④ git add -A + commit(无变更跳过)→ ⑤ git push(无 remote 自动降级为 commit-only)。
+流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
 
-何时调用:
-- 用户说"保存记忆"、"提交记忆"、"同步到远端"、"push 一下"
-- 用户在一段密集写入后想显式落盘
-- 用户怀疑远端有更新,想先合并
-- dryRun=true:用户想看当前有哪些未提交变更
+何时调用:用户说"保存/提交/push 记忆";密集写入后显式落盘;dryRun=true 预览未提交变更。
 
-何时不调用:
-- 用户只想本地保存等自动 markDirty(无需主动 push)
-- 仓库不是 git(会抛错带初始化指引)
-
-返回:{ repoPath, gitignoreCreated, pulled: { ok, upToDate?, conflicts? }, committed: { ok, sha?, filesChanged, nothingToCommit? }, pushed: { ok, skipped?, reason? }, summary }。冲突时 pulled.ok=false + conflicts 数组,工具中止后续阶段。`,
+返回:{ pulled:{ok,upToDate?,conflicts?}, committed:{ok,sha?,filesChanged,nothingToCommit?}, pushed:{ok,skipped?,reason?}, summary }。冲突时 pulled.ok=false + conflicts 数组,工具中止后续阶段。`,
   "tool.engram_list_paths.agent": `展示记忆仓库的物理目录树,让你在搜索前先建立全局认知。
 
 每节点带 engramCount(子树累计)。用它了解记忆集中在哪些领域、项目,再决定搜什么。

@@ -30,16 +30,16 @@ function makeAll25Tools(): readonly Tool[] {
 // ============================================================
 
 describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
-  it("minimal = 11 (8 核心 + 3 proposal 处理)", () => {
-    expect(PROFILE_TOOL_SETS.minimal.size).toBe(11);
+  it("minimal = 12 (8 核心 + 3 proposal 处理 + engram_sync)", () => {
+    expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 17 (含 engram_synthesize)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(17);
+  it("standard = 18 (含 engram_synthesize)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(18);
   });
 
-  it("full = 28 (25 native + 2 repo-health + 1 synthesize)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(28);
+  it("full = 29 (25 native + 2 repo-health + 1 synthesize + engram_sync)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(29);
   });
 
   it("PROFILE_TOOL_COUNTS 与 SETS size 一致", () => {
@@ -182,20 +182,20 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(28);
+    expect(filtered.length).toBe(29);
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
-  it("minimal 过滤到 11 个", () => {
+  it("minimal 过滤到 12 个", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "minimal");
-    expect(filtered.length).toBe(11);
+    expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 17 个(含 engram_synthesize)", () => {
+  it("standard 过滤到 18 个(含 engram_synthesize)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(17);
+    expect(filtered.length).toBe(18);
   });
 
   it("minimal 不含 engram_delete", () => {

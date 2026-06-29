@@ -113,9 +113,9 @@ describe("adaptTool", () => {
 // ============================================================
 
 describe("adaptAllTools", () => {
-  it("批量适配 28 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2 + synthesize 1）", () => {
+  it("批量适配 29 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2 + synthesize 1 + engram_sync 1）", () => {
     const { tools } = createCoEngramTools({ dataRoot: tmpDir });
-    expect(tools.length).toBe(28);
+    expect(tools.length).toBe(29);
     expect(tools.map((t) => t.name).sort()).toEqual([
       "close_learning_loop",
       "contradiction_resolve",
@@ -135,6 +135,7 @@ describe("adaptAllTools", () => {
       "engram_report_failure",
       "engram_restore",
       "engram_search",
+      "engram_sync",
       "engram_synthesize",
       "engram_update",
       "get_evolution_lineage",
@@ -154,7 +155,7 @@ describe("adaptAllTools", () => {
 // ============================================================
 
 describe("openclaw.plugin.json manifest sync", () => {
-  it("contracts.tools 包含 registry 全部 28 个 native 工具 + 2 个 memory_* 兼容包装", () => {
+  it("contracts.tools 包含 registry 全部 29 个 native 工具 + 2 个 memory_* 兼容包装", () => {
     const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
       contracts: { tools: string[] };
     };
@@ -172,8 +173,8 @@ describe("openclaw.plugin.json manifest sync", () => {
     expect(manifestNames.has("memory_search")).toBe(true);
     expect(manifestNames.has("memory_get")).toBe(true);
 
-    // 总数:28 native + 2 memory_* = 30
-    expect(manifest.contracts.tools.length).toBe(30);
+    // 总数:29 native + 2 memory_* = 31
+    expect(manifest.contracts.tools.length).toBe(31);
   });
 });
 
@@ -182,10 +183,10 @@ describe("openclaw.plugin.json manifest sync", () => {
 // ============================================================
 
 describe("registerCoEngramTools", () => {
-  it("注册 30 个工具到 host(28 原生 + 2 memory_* 兼容)", () => {
+  it("注册 31 个工具到 host(29 原生 + 2 memory_* 兼容)", () => {
     const host = createMemoryHost();
     registerCoEngramTools(host, { dataRoot: tmpDir });
-    expect(host.tools.size).toBe(30);
+    expect(host.tools.size).toBe(31);
   });
 
   it("enabled=false 时不注册工具", () => {
@@ -198,7 +199,7 @@ describe("registerCoEngramTools", () => {
     const newRoot = join(tmpDir, "fresh-data");
     const host = createMemoryHost();
     registerCoEngramTools(host, { dataRoot: newRoot });
-    expect(host.tools.size).toBe(30);
+    expect(host.tools.size).toBe(31);
   });
 
   it("注册的工具可被调用", async () => {

@@ -8,6 +8,7 @@
 
 export * from "./types.js";
 export * from "./json-schemas.js";
+export * from "./tool-profile.js";
 export * from "./adapter.js";
 export * from "./plugin-entry.js";
 export * from "./maintenance-runtime.js";
