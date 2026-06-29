@@ -1,8 +1,20 @@
 # Tool Reference
 
-Co-Engram exposes 28 native tools. All are accessible via MCP (`mcp__co-engram__<name>`) or the OpenClaw plugin API. Under `@co-engram/openclaw`, two additional wrappers (`memory_search`, `memory_get`) are registered for OpenClaw's memory plugin contract — they call into `engram_search` / `engram_get` internally.
+Co-Engram exposes 29 native tools. All are accessible via MCP (`mcp__co-engram__<name>`) or the OpenClaw plugin API. Under `@co-engram/openclaw`, two additional wrappers (`memory_search`, `memory_get`) are registered for OpenClaw's memory plugin contract — they call into `engram_search` / `engram_get` internally.
 
 This page lists every native tool with its required inputs. Optional fields are omitted for brevity — see the Zod schema in source for the full surface.
+
+## Tool profiles
+
+Tools are grouped into three profiles so LLM token cost scales with what you actually need. Set via `CO_ENGRAM_TOOLS_PROFILE` env var (Claude Code MCP) or plugin config (OpenClaw). The counts below are computed from source via `PROFILE_TOOL_COUNTS` and asserted by contract tests, so they cannot silently drift.
+
+| Profile   | Count | Audience                                                                            |
+| --------- | ----- | ----------------------------------------------------------------------------------- |
+| `minimal` | 12    | Read/write core only — chat agents that just recall + record.                       |
+| `standard`| 19    | Default. Adds repository health (`engram_doctor`, `engram_list_paths`, `engram_audit_query`) + proposals + verification. |
+| `full`    | 29    | Everything, including contradiction arbitration, evolution lineage, and skill introspection. |
+
+`skill_invoke` exists in source but is **experimental** — it is not in any profile by default because the skill body execution is a P0 stub. Use `skill_get` (read-only metadata) which is in `full`.
 
 ## Engrams
 
@@ -210,9 +222,11 @@ Read skill metadata.
 
 **Required inputs:** `id: string`
 
-### `skill_invoke`
+### `skill_invoke` (experimental — not in any default profile)
 
 Invoke a skill (procedural memory). The skill body is a template; the engine resolves template variables against `args` and returns the rendered steps.
+
+> **⚠️ Experimental:** This tool's `execute` currently returns a `[P0 stub]` placeholder — the template resolution is not yet implemented. It is intentionally excluded from `minimal` / `standard` / `full` profiles to prevent the LLM from calling it and mistaking the stub string for a real result. To opt in for prototyping, build a custom profile that adds `skill_invoke` explicitly.
 
 **Required inputs:**
 
@@ -341,6 +355,34 @@ Reject a proposal temporarily (default 30 days, then it can re-appear if the top
 ## Repository health (in `standard` profile)
 
 These tools help an LLM (or a human) inspect the physical layout of the memory repo and self-heal common drift (moved files, renamed titles, orphan markdown). They use the `engram-index.json` cache for fast incremental scans, and are part of the `standard` tool profile — no need to switch to `full` to use them.
+
+### `engram_audit_query`
+
+Query the audit log (team-memory's event history, `audit.jsonl`). Surfaces the data that `AuditLog.query` already exposes internally so an agent or user can answer "what happened to this engram?" without opening the viewer or reading the file directly.
+
+**Optional inputs:**
+
+- `engramId: string` — filter to one engram's full history
+- `action: AuditAction` — filter by event type (`create`, `update`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`, `noise_filtered`, `necessity_rejected`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`)
+- `since: string` (ISO 8601, inclusive), `until: string` (ISO 8601, exclusive)
+- `limit: number` (default 100, max 1000)
+
+**Returns:**
+
+```ts
+{
+  events: Array<{
+    ts: string,          // ISO 8601 timestamp
+    actor: "user" | "system" | "llm-arbiter",
+    action: AuditAction,
+    engramId?: string,
+    metadata: Record<string, unknown>
+  }>,
+  count: number          // === events.length
+}
+```
+
+Events are returned in chronological order. Common use cases: "who reinforced this and when?", "why did this engram's importance jump?", "what was the verdict on the last merge conflict?"
 
 ### `engram_doctor`
 

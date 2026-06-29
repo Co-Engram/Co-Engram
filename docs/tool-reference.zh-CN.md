@@ -1,8 +1,20 @@
 # 工具参考
 
-Co-Engram 提供 28 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
+Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
 
 本页逐一列出每个原生工具及其必填输入。为简洁起见,省略了可选字段 —— 完整字段以源码中的 Zod schema 为准。
+
+## 工具 profile(Tool profiles)
+
+工具按用途分成三档 profile,让 LLM token 占用按需扩展。通过 `CO_ENGRAM_TOOLS_PROFILE` 环境变量(Claude Code MCP)或插件配置(OpenClaw)切换。下表的计数由 `PROFILE_TOOL_COUNTS` 从源码自动计算,并由契约测试断言,不会发生静默漂移。
+
+| Profile   | 计数 | 适用场景                                                                            |
+| --------- | ---- | ----------------------------------------------------------------------------------- |
+| `minimal` | 12   | 仅核心读写 —— 只做回忆 + 记录的对话 agent。                                          |
+| `standard`| 19   | 默认值。加仓库健康(`engram_doctor`、`engram_list_paths`、`engram_audit_query`)+ 提案 + 验证。 |
+| `full`    | 29   | 全部,包括矛盾裁决、演化谱系、技能元信息查看。                                          |
+
+`skill_invoke` 在源码里存在,但是**实验性**的——默认不在任何 profile 里,因为 skill body 的执行逻辑目前是 P0 占位实现。如需查看 skill 元信息,使用 `skill_get`(只读,在 `full` profile)。
 
 ## Engrams
 
@@ -210,9 +222,11 @@ Co-Engram 提供 28 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **必填输入:** `id: string`
 
-### `skill_invoke`
+### `skill_invoke`(实验性 —— 不在任何默认 profile 中)
 
 调用一个 skill(程序性记忆)。skill 正文是一个模板;引擎会用 `args` 解析其中的模板变量,并返回渲染后的步骤。
+
+> **⚠️ 实验性:** 本工具的 `execute` 目前返回 `[P0 stub]` 占位字符串 —— 模板解析逻辑尚未实现。为避免 LLM 误调用并把占位字符串当成真实结果,默认从 `minimal` / `standard` / `full` 三个 profile 中排除。如需原型试用,请构造自定义 profile 并显式添加 `skill_invoke`。
 
 **必填输入:**
 
@@ -341,6 +355,34 @@ Co-Engram 提供 28 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 ## 仓库健康检查(`standard` profile 下)
 
 这些工具帮助 LLM(或人类)检视 memory 仓库的物理布局,并自愈常见的漂移(文件移动、标题重命名、孤立的 Markdown)。它们基于 `engram-index.json` 缓存做快速增量扫描,属于 `standard` 工具 profile 的一部分 —— 无需切换到 `full` 即可使用。
+
+### `engram_audit_query`
+
+查询审计日志(team-memory 的事件历史,即 `audit.jsonl`)。把 `AuditLog.query` 内部已暴露的数据透出给 agent 或用户,这样无需打开 viewer 或直接读文件就能回答"这个 engram 发生了什么?"。
+
+**可选输入:**
+
+- `engramId: string` —— 过滤某个 engram 的完整历史
+- `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`)
+- `since: string`(ISO 8601,包含)、`until: string`(ISO 8601,不包含)
+- `limit: number`(默认 100,最大 1000)
+
+**返回值:**
+
+```ts
+{
+  events: Array<{
+    ts: string,          // ISO 8601 timestamp
+    actor: "user" | "system" | "llm-arbiter",
+    action: AuditAction,
+    engramId?: string,
+    metadata: Record<string, unknown>
+  }>,
+  count: number          // === events.length
+}
+```
+
+事件按时间升序返回。常见用法:"谁在什么时候强化了这个 engram?"、"为什么这个 engram 的 importance 跳变?"、"上次合并冲突的裁决是什么?"。
 
 ### `engram_doctor`
 
