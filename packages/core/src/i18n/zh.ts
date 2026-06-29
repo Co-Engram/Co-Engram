@@ -1298,6 +1298,32 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>生命周期</strong>",
   "viewer.help.conceptLifecycleDesc":
     "<code>draft → active → archived → forgotten</code>。遗忘的文件仍在仓库,但默认不召回。维护周期会自动评估并迁移状态。",
+  "viewer.help.rulesTitle": "强化机制与规则参数(默认值)",
+  "viewer.help.rulesIntro":
+    "记忆的 importance 分数会随使用反馈演化。下面是真实的默认参数(可在源码 ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG 找到),用 config.json 或对应配置项可覆盖。",
+  "viewer.help.ruleLtp":
+    "<strong>LTP(长时程增强)</strong>:每次有效检索(effective=1),importance += <code>ltpGain</code>(默认 <code>0.02</code>)。10 次有效检索约能把 0.5 提升到 0.7。",
+  "viewer.help.ruleLtd":
+    "<strong>LTD(长时程削弱)</strong>:每次失败使用,importance -= <code>ltdPenalty</code>(默认 <code>0.03</code>);累积失败超过 <code>failureThreshold</code>(默认 <code>3</code>)次后,按 <code>failureEscalation</code>(默认 <code>1.5</code>)倍率额外惩罚。",
+  "viewer.help.ruleHebbian":
+    "<strong>Hebbian 邻居扩散</strong>:强化一条记忆时,直接相连(通过 synapse)的邻居得到 <code>ltpGain × hebbianRatio</code>(默认 <code>hebbianRatio = 0.5</code>)的增益,contradicts 关系除外。",
+  "viewer.help.ruleWeights":
+    "<strong>三因子检索权重</strong>:score = α·relevance + β·recency + γ·importance(默认 α=0.5 / β=0.3 / γ=0.2)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / decayHalfLifeDays)</code> 衰退。",
+  "viewer.help.ruleWindows":
+    "<strong>观察窗口(observation window)</strong>:engram 被检索命中后开启一段观察期;窗口期内回来 reinforce 计为有效(LTP),反馈 failure 计为失败(LTD),过期关闭则本次命中无效。按 kind 默认长度:observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d。多 kind 取最长。",
+  "viewer.help.stateMachineTitle": "验证状态机(5 档)",
+  "viewer.help.stateMachineIntro":
+    "记忆可信度的 5 档状态:未验证 → 似合理 → 较可能 → 已验证 → 已反驳。升级条件默认值见下;降级由 LTD 与失败累积触发。已反驳的记忆默认不参与检索。",
+  "viewer.help.stateUnverified":
+    "<strong>未验证</strong>(默认状态):新创建记忆从这里起步。",
+  "viewer.help.statePlausible":
+    "<strong>似合理</strong>:至少 <code>1</code> 条 evidence(derives_from synapse)。",
+  "viewer.help.stateProbable":
+    "<strong>较可能</strong>:至少 <code>2</code> 条 evidence 且来自 ≥2 个不同 domainTags。",
+  "viewer.help.stateVerified":
+    "<strong>已验证</strong>:至少 <code>3</code> 条 evidence、≥2 个 domainTags、且创建满 <code>7</code> 天(时间稳定性)。",
+  "viewer.help.stateRefuted":
+    "<strong>已反驳</strong>:被 contradiction_resolve 标记为失败方;默认从检索结果中排除。",
   "viewer.help.tabsTitle": "各 tab 用途",
   "viewer.help.tabStats":
     "<strong>统计</strong>—总览仪表盘:按类型/状态/族分布,显示团队贡献者和 top 标签。顶部搜索框做全文检索。",

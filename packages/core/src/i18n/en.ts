@@ -1347,6 +1347,32 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>Lifecycle</strong>",
   "viewer.help.conceptLifecycleDesc":
     "<code>draft → active → archived → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
+  "viewer.help.rulesTitle": "Reinforcement rules & default parameters",
+  "viewer.help.rulesIntro":
+    "Memory importance evolves with use feedback. Below are the real defaults (see ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG in source); override via config.json or the matching config keys.",
+  "viewer.help.ruleLtp":
+    "<strong>LTP (Long-Term Potentiation)</strong>: per effective retrieval (effective=1), importance += <code>ltpGain</code> (default <code>0.02</code>). ~10 effective retrievals raise 0.5 to ~0.7.",
+  "viewer.help.ruleLtd":
+    "<strong>LTD (Long-Term Depression)</strong>: per failed use, importance -= <code>ltdPenalty</code> (default <code>0.03</code>; once cumulative failures exceed <code>failureThreshold</code> (default <code>3</code>), an extra <code>failureEscalation</code> (default <code>1.5</code>) multiplier applies).",
+  "viewer.help.ruleHebbian":
+    "<strong>Hebbian neighbor spread</strong>: when a memory is reinforced, direct neighbors (via synapse) gain <code>ltpGain × hebbianRatio</code> (default <code>hebbianRatio = 0.5</code>); contradicts edges excluded.",
+  "viewer.help.ruleWeights":
+    "<strong>Three-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance (defaults α=0.5 / β=0.3 / γ=0.2). recency follows Ebbinghaus half-life <code>0.5^(ageDays / decayHalfLifeDays)</code>.",
+  "viewer.help.ruleWindows":
+    "<strong>Observation window</strong>: opened when an engram is retrieved; reinforce within window → effective (LTP); report failure → failed use (LTD); expiry closes the hit as inconclusive. Default length by kind: observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d. Multi-kind uses max.",
+  "viewer.help.stateMachineTitle": "Verification state machine (5 levels)",
+  "viewer.help.stateMachineIntro":
+    "Memory credibility: unverified → plausible → probable → verified → refuted. Default upgrade conditions below; downgrade driven by LTD and cumulative failures. Refuted memories are excluded from retrieval by default.",
+  "viewer.help.stateUnverified":
+    "<strong>unverified</strong> (default): new memories start here.",
+  "viewer.help.statePlausible":
+    "<strong>plausible</strong>: at least <code>1</code> evidence (derives_from synapse).",
+  "viewer.help.stateProbable":
+    "<strong>probable</strong>: at least <code>2</code> evidence from ≥2 distinct domainTags.",
+  "viewer.help.stateVerified":
+    "<strong>verified</strong>: at least <code>3</code> evidence, ≥2 domains, and created ≥ <code>7</code> days ago (temporal stability).",
+  "viewer.help.stateRefuted":
+    "<strong>refuted</strong>: marked as the losing side by contradiction_resolve; excluded from retrieval by default.",
   "viewer.help.tabsTitle": "Tabs",
   "viewer.help.tabStats":
     "<strong>Stats</strong> — overview dashboard: distribution by kind/status/family, contributors and top tags. Top search box does full-text retrieval.",
