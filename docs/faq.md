@@ -19,19 +19,19 @@ Common causes:
 
 ### Q: `/mcp` shows 0 tools despite connection success
 
-The OpenClaw manifest's `contracts.tools` array is missing tool names. If you built from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 30 entries (28 native + 2 `memory_*` wrappers). The loader silently drops undeclared tools. A manifest-sync test in `packages/openclaw-plugin/test/adapter.test.ts` guards this against drift.
+The OpenClaw manifest's `contracts.tools` array is missing tool names. If you built from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 31 entries (29 native + 2 `memory_*` wrappers). The loader silently drops undeclared tools. A manifest-sync test in `packages/openclaw-plugin/test/adapter.test.ts` guards this against drift.
 
 ### Q: A tool call returns `MCP error -32602: Tool <name> not found`
 
-**First check whether your current profile exposes that tool.** The three profiles are defined in [`packages/claude-code-mcp/src/tool-profile.ts`](../packages/claude-code-mcp/src/tool-profile.ts) (`PROFILE_TOOL_SETS`):
+**First check whether your current profile exposes that tool.** The three profiles are defined in [`packages/core/src/tools/tool-profile.ts`](../packages/core/src/tools/tool-profile.ts) (`PROFILE_TOOL_SETS`, single source for both hosts). Counts are derived via `PROFILE_TOOL_COUNTS` from `.size`, so they cannot silently drift.
 
 | Profile              | Tools | Includes                                                                                                                                                                                                                                                                                                                                  |
 | -------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minimal`            | 11    | engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / **engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal** (proposal triage is included so the maintenance engine's auto-generated candidates can always be closed-loop handled) |
-| `standard` (default) | 16    | everything in minimal + engram_delete / close_learning_loop / contradiction_resolve / engram_doctor / engram_list_paths                                                                                                                                                                                                                   |
-| `full`               | 27    | all native tools                                                                                                                                                                                                                                                                                                                          |
+| `minimal`            | 12    | engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / **engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal** (proposal triage is included so the maintenance engine's auto-generated candidates can always be closed-loop handled) / `engram_sync` |
+| `standard` (default) | 19    | everything in minimal + `engram_delete` / `close_learning_loop` / `contradiction_resolve` / `engram_doctor` / `engram_list_paths` / `engram_synthesize` / `engram_audit_query`                                                                                                                                                             |
+| `full`               | 29    | all native tools except the experimental `skill_invoke` (P0 stub)                                                                                                                                                                                                                                                                         |
 
-`engram_list_paths` / `engram_doctor` are only available in standard and above; same for `close_learning_loop` / `contradiction_resolve`. **The proposal triad (`engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`) is exposed in every profile as of 2026-06** — by design, so candidates the maintenance engine auto-generates can always be triaged regardless of profile, preventing the "visible but unactionable" contradiction.
+`engram_list_paths` / `engram_doctor` / `engram_synthesize` / `engram_audit_query` are only available in standard and above; same for `close_learning_loop` / `contradiction_resolve`. **The proposal triad (`engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`) is exposed in every profile as of 2026-06** — by design, so candidates the maintenance engine auto-generates can always be triaged regardless of profile, preventing the "visible but unactionable" contradiction.
 
 If you're on `minimal` profile and an instruction told you to call `engram_doctor` / `engram_list_paths` / `close_learning_loop` (which are filtered out), the server correctly returns "Tool not found" — this is expected, not a bug.
 
@@ -229,6 +229,21 @@ The LLM evaluator was called but failed, and fell back to the rule-based evaluat
 - LLM didn't return valid JSON → switch to a model that reliably outputs JSON
 
 The rule-based fallback keeps the proposal engine always-available, but you lose the LLM's semantic judgment and `suggestedTitle` draft.
+
+### Q: Startup warns `viewer.port=... from persisted config is deprecated`
+
+The persisted `~/team-memory/.co-engram/config.json` is shared across both hosts — if you point Claude Code and OpenClaw at the same data repo and both read a hardcoded `viewer.port`, they collide. The deprecation nudges you toward host-specific overrides:
+
+- **Claude Code**: set env `CO_ENGRAM_VIEWER_PORT=18799` (or leave unset to use the default)
+- **OpenClaw**: set env `CO_ENGRAM_VIEWER_PORT=18899` (distinct port, avoids collision when both hosts run simultaneously)
+
+The persisted value still works as a fallback for this release; the warning is informational, not a failure.
+
+### Q: Startup warns `engram <id>: aliases field stripped`
+
+The `aliases` frontmatter field is a legacy field — Co-Engram now uses the file name (slug) as the wikilink target, so `aliases` no longer has any effect. The store prints a one-line warning when it strips a non-empty `aliases` array during read (previously this was silent, which confused users who had manually added aliases).
+
+To silence the warning: delete the `aliases:` field from the engram's frontmatter. Running `engram_doctor` once will bulk-rewrite all engrams and clean the field across the repo.
 
 ### Q: My Claude Code auto-memory isn't syncing to co-engram
 

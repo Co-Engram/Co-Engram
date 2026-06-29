@@ -14,7 +14,7 @@ flowchart LR
 
 - OpenClaw scans the `extensions/` directory for packages with `openclaw.extensions` in their `package.json`
 - The plugin entry (default export) must be an object with a `register(api)` method
-- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for each of the 28 native tools plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers (30 total)
+- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for each of the 29 native tools plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers (31 total)
 - The manifest `openclaw.plugin.json` declares `kind: "memory"` (making Co-Engram the primary memory plugin, mutually exclusive with `memory-core`) and lists every tool name under `contracts.tools`
 
 ## Installation
@@ -112,7 +112,7 @@ rm ~/team-memory/.co-engram/prompt-signals.json
 # (or wait for the next light maintenance tick)
 ```
 
-If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all 30 tools still work, the LLM just won't get the guided "Memory Recall" section.
+If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all 31 tools still work, the LLM just won't get the guided "Memory Recall" section.
 
 ### Memory Proposals
 
@@ -169,6 +169,8 @@ plugins:
 
 The plugin will dynamically import `@co-engram/claude-code` and start its viewer. If the package is missing, the plugin logs a warning and continues without the viewer.
 
+> **`viewerConfig.port` is deprecated.** Persisted `port` lives in `~/team-memory/.co-engram/config.json`, which is shared with the Claude Code host — setting it from both sides causes collisions. Prefer the env var `CO_ENGRAM_VIEWER_PORT` when running OpenClaw (default OpenClaw viewer port is `18899`, distinct from Claude Code's `18799`). The persisted value still works as a fallback for this release; the server prints a one-line warning at startup when it kicks in.
+
 ### `maintenanceConfig` sub-fields
 
 | Field             | Type                         | Default                  |
@@ -198,7 +200,7 @@ Expected:
     "status": "loaded",
     "activated": true,
     "toolNames": [
-      "engram_create", "engram_get", ...  // 30 tools total (28 native + memory_search + memory_get)
+      "engram_create", "engram_get", ...  // 31 tools total (29 native + memory_search + memory_get)
     ]
   }
 }

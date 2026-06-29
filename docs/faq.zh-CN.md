@@ -19,19 +19,19 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 ### 问:`/mcp` 显示已连接成功,但工具数为 0
 
-OpenClaw manifest 的 `contracts.tools` 数组缺少工具名。如果你是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 30 个条目(28 个原生工具 + 2 个 `memory_*` 包装器)。加载器会静默丢弃未声明的工具。`packages/openclaw-plugin/test/adapter.test.ts` 中有一个 manifest 同步测试,用于防止出现不一致。
+OpenClaw manifest 的 `contracts.tools` 数组缺少工具名。如果你是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 31 个条目(29 个原生工具 + 2 个 `memory_*` 包装器)。加载器会静默丢弃未声明的工具。`packages/openclaw-plugin/test/adapter.test.ts` 中有一个 manifest 同步测试,用于防止出现不一致。
 
 ### 问:调用某工具时报 `MCP error -32602: Tool <name> not found`
 
-**先检查当前 profile 是否暴露了该工具。** 三档 profile 的工具集见 [`packages/claude-code-mcp/src/tool-profile.ts`](../packages/claude-code-mcp/src/tool-profile.ts) 中的 `PROFILE_TOOL_SETS`:
+**先检查当前 profile 是否暴露了该工具。** 三档 profile 的工具集见 [`packages/core/src/tools/tool-profile.ts`](../packages/core/src/tools/tool-profile.ts) 中的 `PROFILE_TOOL_SETS`(双宿主单一源)。计数通过 `PROFILE_TOOL_COUNTS` 用 `.size` 自动算出,不会静默漂移。
 
-| Profile           | 工具数 | 包含                                                                                                                                                                                                                                                                            |
-| ----------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `minimal`         | 11     | engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / **engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal**(proposal 处理三件套,保证维护引擎产生的待审核候选始终能闭环) |
-| `standard` (默认) | 16     | minimal 全部 + engram_delete / close_learning_loop / contradiction_resolve / engram_doctor / engram_list_paths                                                                                                                                                                  |
-| `full`            | 27     | 全部原生工具                                                                                                                                                                                                                                                                    |
+| Profile           | 工具数 | 包含                                                                                                                                                                                                                                                                              |
+| ----------------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minimal`         | 12     | engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / **engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal**(proposal 处理三件套,保证维护引擎产生的待审核候选始终能闭环)/ `engram_sync` |
+| `standard` (默认) | 19     | minimal 全部 + `engram_delete` / `close_learning_loop` / `contradiction_resolve` / `engram_doctor` / `engram_list_paths` / `engram_synthesize` / `engram_audit_query`                                                                                                              |
+| `full`            | 29     | 全部原生工具(实验性的 `skill_invoke` 除外,P0 占位实现)                                                                                                                                                                                                                          |
 
-`engram_list_paths` / `engram_doctor` 只在 standard 及以上暴露;`close_learning_loop` / `contradiction_resolve` 也是。**proposal 处理三件套(`engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`)自 2026-06 起在所有 profile 下都暴露** —— 设计目的是让维护引擎自动产生的待审核候选在任何 profile 下都能闭环处理,不再出现"看得到但处理不了"的矛盾。
+`engram_list_paths` / `engram_doctor` / `engram_synthesize` / `engram_audit_query` 只在 standard 及以上暴露;`close_learning_loop` / `contradiction_resolve` 也是。**proposal 处理三件套(`engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`)自 2026-06 起在所有 profile 下都暴露** —— 设计目的是让维护引擎自动产生的待审核候选在任何 profile 下都能闭环处理,不再出现"看得到但处理不了"的矛盾。
 
 如果你在 `minimal` profile 下被指令引导调用了 `engram_doctor` / `engram_list_paths` / `close_learning_loop` 等不暴露的工具,server 会正确返回 "Tool not found" —— 这是预期行为,不是 bug。
 
@@ -229,6 +229,21 @@ grep '"necessity_rejected"' ~/team-memory/.co-engram/audit.jsonl | tail -10
 - LLM 返回的不是合法 JSON → 升级到能稳定输出 JSON 的模型
 
 规则版兜底保证了 proposal engine 始终可用,但你失去了 LLM 的语义判断能力和 `suggestedTitle` 草稿。
+
+### 问:启动时警告 `viewer.port=... from persisted config is deprecated`
+
+持久化的 `~/team-memory/.co-engram/config.json` 在两个宿主间共享 —— 如果你让 Claude Code 和 OpenClaw 同时指向同一个 data repo,且都读到一个硬编码的 `viewer.port`,就会冲突。这个废弃提示引导你改用宿主各自的覆盖方式:
+
+- **Claude Code**:设 env `CO_ENGRAM_VIEWER_PORT=18799`(或不设,用默认值)
+- **OpenClaw**:设 env `CO_ENGRAM_VIEWER_PORT=18899`(独立端口,避免两宿主同时运行时冲突)
+
+持久化值本次发布仍作 fallback 生效;这行警告只是提示,不是故障。
+
+### 问:启动时警告 `engram <id>: aliases field stripped`
+
+`aliases` frontmatter 字段是历史遗留 —— Co-Engram 现在用文件名(slug)作为 wikilink 目标,`aliases` 不再生效。store 在读取时遇到非空 `aliases` 数组会先打印一行警告再剥离(以前静默剥离,让手动加过 `aliases` 的用户很困惑)。
+
+要消除警告:把 engram frontmatter 里的 `aliases:` 字段删掉。跑一次 `engram_doctor` 会批量重写所有 engram,清理整个仓库的该字段。
 
 ### 问:Claude Code 的 auto-memory 没有同步到 co-engram
 
