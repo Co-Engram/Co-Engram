@@ -9,4 +9,6 @@
 export * from "./register.js";
 export * from "./tool-profile.js";
 export * from "./maintenance-runtime.js";
+export { buildServerInstructions } from "./instructions.js";
+export type { InstructionSessionState } from "./instructions.js";
 export * from "@co-engram/viewer";

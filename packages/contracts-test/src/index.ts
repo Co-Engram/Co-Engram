@@ -55,10 +55,8 @@ export {
  * help 文案两端一致性测试
  *
  * 验证 viewer help tab / mcp instructions / openclaw prompt-builder 三处 surface
- * 对同一概念的解释一致(都引用 CONCEPT_DICTIONARY)。
- *
- * Task 2.5 实现。
+ * 对同一概念的解释一致(都引用同一术语,无概念漂移)。
  */
-export async function runHelpTextContractTests(): Promise<ContractResult> {
-  return { passed: true, diffs: [] };
-}
+export {
+  runHelpTextContractTests,
+} from "./help-contract.js";
