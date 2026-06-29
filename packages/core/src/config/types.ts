@@ -91,6 +91,66 @@ export interface ServerSectionConfig {
 }
 
 /**
+ * Reinforcement 子系统在 config.json 中的配置
+ *
+ * 与 `packages/core/src/reinforcement/config.ts` 的 `ReinforcementConfig` 对齐,
+ * 但本接口所有字段可选(由 loader 用 DEFAULT_CONFIG 补齐)。
+ *
+ * 用户在 config.json 中只需写需要调整的字段,其余自动用 spec 6.2 默认值。
+ */
+export interface ReinforcementSectionConfig {
+  /** 每次 effective=1 检索的 importance 增益(默认 0.02) */
+  readonly ltpGain?: number;
+  /** 每次失败使用的 importance 削弱(默认 0.03) */
+  readonly ltdPenalty?: number;
+  /** Hebbian 邻居强化系数 ∈ [0,1](默认 0.5) */
+  readonly hebbianRatio?: number;
+  /** 失败累积阈值(默认 3) */
+  readonly failureThreshold?: number;
+  /** 阈值之上的额外惩罚倍率(默认 1.5) */
+  readonly failureEscalation?: number;
+}
+
+/**
+ * 三因子检索权重在 config.json 中的配置
+ *
+ * 与 `packages/core/src/retrieval/scoring.ts` 的 `ThreeFactorWeights` 对齐,
+ * 字段名改用语义化命名(relevance/recency/importance)以便用户理解。
+ *
+ * 用户在 config.json 中只需写需要调整的字段,其余自动用 spec 3.7 默认值
+ * (α=0.5, β=0.3, γ=0.2)。
+ */
+export interface ScoringSectionConfig {
+  /** relevance 权重(语义/关键词匹配,默认 0.5) */
+  readonly relevance?: number;
+  /** recency 权重(艾宾浩斯衰退,默认 0.3) */
+  readonly recency?: number;
+  /** importance 权重(价值,默认 0.2) */
+  readonly importance?: number;
+}
+
+/**
+ * 观察窗口覆盖(按 engram kind 分别配置)
+ *
+ * 与 `packages/core/src/observability/effectiveness-tracker.ts` 的
+ * `DEFAULT_EFFECTIVENESS_WINDOWS` 对齐。值为毫秒。
+ *
+ * 用户在 config.json 中只需写需要调整的 kind,其余自动用默认值。
+ */
+export interface ObservationWindowSectionConfig {
+  /** observation kind 窗口(默认 6h) */
+  readonly observation?: number;
+  /** fact kind 窗口(默认 24h) */
+  readonly fact?: number;
+  /** pattern kind 窗口(默认 48h) */
+  readonly pattern?: number;
+  /** procedure kind 窗口(默认 48h) */
+  readonly procedure?: number;
+  /** hypothesis kind 窗口(默认 7d) */
+  readonly hypothesis?: number;
+}
+
+/**
  * Auto-memory 同步子系统配置(Claude Code MCP 专用)
  *
  * Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护一份
@@ -189,6 +249,12 @@ export interface TeamMemoryConfig {
   readonly server?: ServerSectionConfig;
   /** Auto-memory 同步子系统配置(Claude Code MCP 专用,OpenClaw 忽略) */
   readonly autoMemorySync?: AutoMemorySyncSectionConfig;
+  /** Reinforcement 子系统配置(LTP/LTD/Hebbian 参数,源码 DEFAULT_CONFIG) */
+  readonly reinforcement?: ReinforcementSectionConfig;
+  /** 三因子检索权重配置(源码 DEFAULT_WEIGHTS α=0.5 β=0.3 γ=0.2) */
+  readonly search?: ScoringSectionConfig;
+  /** 观察窗口覆盖(按 engram kind,源码 DEFAULT_EFFECTIVENESS_WINDOWS) */
+  readonly observation?: ObservationWindowSectionConfig;
 }
 
 // Re-export 引擎用的子系统类型(供 main 等调用方使用)

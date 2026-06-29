@@ -9,11 +9,17 @@ import type {
   AutoMemorySyncSectionConfig,
   EffectivenessSectionConfig,
   MaintenanceSectionConfig,
+  ObservationWindowSectionConfig,
   ProposalsSectionConfig,
+  ReinforcementSectionConfig,
+  ScoringSectionConfig,
   ServerSectionConfig,
   ViewerSectionConfig,
 } from "./types.js";
 import type { TrashMaintenanceConfig } from "../maintenance/types.js";
+import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_ENGINE_CONFIG } from "../reinforcement/config.js";
+import { DEFAULT_WEIGHTS } from "../retrieval/scoring.js";
+import { DEFAULT_EFFECTIVENESS_WINDOWS } from "../observability/effectiveness-tracker.js";
 
 /**
  * Maintenance 默认值
@@ -116,3 +122,46 @@ export const DEFAULT_TRASH_CONFIG: Readonly<Required<TrashMaintenanceConfig>> =
     afterDays: 30,
     purgeAfterDays: 365,
   };
+
+/**
+ * Reinforcement 默认值(从源码 DEFAULT_CONFIG 单一来源派生)
+ *
+ * 避免在 config 层重复硬编码 0.02/0.03/0.5/3/1.5。源码改默认值时,
+ * config 层自动跟随。
+ */
+export const DEFAULT_REINFORCEMENT_SECTION: Readonly<
+  Required<ReinforcementSectionConfig>
+> = {
+  ltpGain: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.ltpGain,
+  ltdPenalty: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.ltdPenalty,
+  hebbianRatio: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.hebbianRatio,
+  failureThreshold: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.failureThreshold,
+  failureEscalation: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.failureEscalation,
+};
+
+/**
+ * 三因子检索权重默认值(从源码 DEFAULT_WEIGHTS 派生)
+ *
+ * 字段名映射:relevance ← alpha, recency ← beta, importance ← gamma。
+ * 源码改默认值时,config 层自动跟随。
+ */
+export const DEFAULT_SEARCH_SECTION: Readonly<Required<ScoringSectionConfig>> = {
+  relevance: DEFAULT_WEIGHTS.alpha,
+  recency: DEFAULT_WEIGHTS.beta,
+  importance: DEFAULT_WEIGHTS.gamma,
+};
+
+/**
+ * 观察窗口默认值(从源码 DEFAULT_EFFECTIVENESS_WINDOWS 单一来源派生)
+ *
+ * 5 种 engram kind 各自的窗口长度(毫秒)。源码改默认值时,config 层自动跟随。
+ */
+export const DEFAULT_OBSERVATION_SECTION: Readonly<
+  Required<ObservationWindowSectionConfig>
+> = {
+  observation: DEFAULT_EFFECTIVENESS_WINDOWS.observation,
+  fact: DEFAULT_EFFECTIVENESS_WINDOWS.fact,
+  pattern: DEFAULT_EFFECTIVENESS_WINDOWS.pattern,
+  procedure: DEFAULT_EFFECTIVENESS_WINDOWS.procedure,
+  hypothesis: DEFAULT_EFFECTIVENESS_WINDOWS.hypothesis,
+};

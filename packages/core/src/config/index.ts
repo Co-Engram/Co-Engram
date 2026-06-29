@@ -19,7 +19,10 @@ import {
   DEFAULT_AUTO_MEMORY_SYNC_CONFIG,
   DEFAULT_EFFECTIVENESS_CONFIG,
   DEFAULT_MAINTENANCE_CONFIG,
+  DEFAULT_OBSERVATION_SECTION,
   DEFAULT_PROPOSALS_CONFIG,
+  DEFAULT_REINFORCEMENT_SECTION,
+  DEFAULT_SEARCH_SECTION,
   DEFAULT_SERVER_CONFIG,
   DEFAULT_TRASH_CONFIG,
   DEFAULT_VIEWER_CONFIG,
@@ -34,6 +37,9 @@ export type {
   ViewerSectionConfig,
   ServerSectionConfig,
   AutoMemorySyncSectionConfig,
+  ReinforcementSectionConfig,
+  ScoringSectionConfig,
+  ObservationWindowSectionConfig,
 } from "./types.js";
 export type {
   MaintenanceConfig,
@@ -64,6 +70,9 @@ export function createDefaultConfig(): TeamMemoryConfig {
     viewer: { ...DEFAULT_VIEWER_CONFIG },
     server: { ...DEFAULT_SERVER_CONFIG },
     autoMemorySync: { ...DEFAULT_AUTO_MEMORY_SYNC_CONFIG },
+    reinforcement: { ...DEFAULT_REINFORCEMENT_SECTION },
+    search: { ...DEFAULT_SEARCH_SECTION },
+    observation: { ...DEFAULT_OBSERVATION_SECTION },
   };
 }
 
@@ -115,6 +124,15 @@ function fillDefaults(raw: Readonly<TeamMemoryConfig>): TeamMemoryConfig {
           : {}),
       };
     })(),
+    reinforcement: {
+      ...DEFAULT_REINFORCEMENT_SECTION,
+      ...(raw.reinforcement ?? {}),
+    },
+    search: { ...DEFAULT_SEARCH_SECTION, ...(raw.search ?? {}) },
+    observation: {
+      ...DEFAULT_OBSERVATION_SECTION,
+      ...(raw.observation ?? {}),
+    },
   };
 }
 
@@ -134,6 +152,9 @@ function needsNormalize(raw: Readonly<TeamMemoryConfig>): boolean {
   if (raw.server === undefined) return true;
   if (raw.autoMemorySync === undefined) return true;
   if (raw.maintenance?.trash === undefined) return true;
+  if (raw.reinforcement === undefined) return true;
+  if (raw.search === undefined) return true;
+  if (raw.observation === undefined) return true;
   // deprecated 字段:存在则触发 normalize 让 fillDefaults 丢弃
   if (raw.viewer?.port !== undefined) return true;
   return false;
@@ -151,6 +172,33 @@ export function normalizeConfig(
   raw: Readonly<TeamMemoryConfig> | undefined,
 ): TeamMemoryConfig {
   const base = raw ?? createDefaultConfig();
+  return fillDefaults(base);
+}
+
+/**
+ * 加载 config(用户友好入口,Task 1.5)
+ *
+ * 接受 partial config(可省略 version / 任意子系统字段),
+ * 用 {@link createDefaultConfig} + {@link fillDefaults} 补齐所有默认值。
+ *
+ * 与 {@link normalizeConfig} 区别:
+ *   - `normalizeConfig(raw)` 假设 raw 是从磁盘读出的完整 config(可能字段缺失)
+ *   - `loadConfig(partial)` 假设 partial 是用户/程序化构造的 override
+ *
+ * 行为等价:两者都返回"所有子系统字段齐全"的完整 config。
+ *
+ * @example
+ *   loadConfig({ reinforcement: { ltpGain: 0.05 } })
+ *   // → { version: 1, ..., reinforcement: { ltpGain: 0.05, ltdPenalty: 0.03, ... }, ... }
+ */
+export function loadConfig(
+  partial: Readonly<Partial<TeamMemoryConfig>> = {},
+): TeamMemoryConfig {
+  const base: TeamMemoryConfig = {
+    ...createDefaultConfig(),
+    ...(partial as Readonly<TeamMemoryConfig>),
+    version: 1,
+  };
   return fillDefaults(base);
 }
 
