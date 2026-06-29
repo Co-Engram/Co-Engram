@@ -57,6 +57,7 @@ import type {
 import { isStableEngramId } from "../types/repository-types.js";
 import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import { computeSynapseId } from "../types/synapse-id.js";
+import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   safeJoinWithinRoot,
   isPathWithinRoot,
@@ -474,6 +475,13 @@ export class EngramRepository {
     });
     this.updateIndexEntry(entry);
 
+    // Task 3.4 Phase B:engram 创建后 emit,让 prompt-signals cache 失效并 debounced rebuild
+    safeEmit({
+      type: "engram_created",
+      engramId: stableId,
+      at: new Date().toISOString(),
+    });
+
     return this.readEngram(stableId);
   }
 
@@ -824,6 +832,12 @@ export class EngramRepository {
       language: this.language,
     });
     this.refreshObsidianLinks(input.from, input.to);
+    // Task 3.4 Phase B:synapse 创建影响 graph 结构,触发 prompt-signals rebuild
+    safeEmit({
+      type: "synapse_created",
+      engramId: input.from,
+      at: new Date().toISOString(),
+    });
     return result;
   }
 
@@ -1119,6 +1133,12 @@ export class EngramRepository {
    */
   updateVerificationStatus(id: string, status: VerificationStatus): void {
     this.mutateFrontmatter(id, (fm) => ({ ...fm, verificationStatus: status }));
+    // Task 3.4 Phase B:验证状态变化影响 prompt 的 lowConfidenceTopics
+    safeEmit({
+      type: "engram_verified",
+      engramId: id,
+      at: new Date().toISOString(),
+    });
   }
 
   /**
@@ -1342,6 +1362,9 @@ export class EngramRepository {
         autoFixed: true,
       });
     }
+
+    // Task 3.4 Phase B:doctor 完成后 emit(doctor 可能 sweep/forget,engram 集合变化)
+    safeEmit({ type: "doctor_completed", at: new Date().toISOString() });
 
     return {
       startedAt,

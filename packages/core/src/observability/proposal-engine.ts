@@ -34,6 +34,7 @@ import { dirname, join } from "node:path";
 import type { EngramRepository } from "../storage/repository.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput } from "../types/engram.js";
+import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   RuleBasedNecessityEvaluator,
   prefilterMessage,
@@ -315,6 +316,13 @@ export class ProposalEngine {
       metadata: { entityId, occurrences: target.occurrences },
     });
 
+    // Task 3.4 Phase B:proposal accepted → 新 engram 已创建,触发 prompt-signals rebuild
+    safeEmit({
+      type: "proposal_accepted",
+      engramId: engram.id,
+      at: new Date().toISOString(),
+    });
+
     return engram.id;
   }
 
@@ -351,6 +359,12 @@ export class ProposalEngine {
       actor: "user",
       action: "dismiss",
       metadata: { entityId, reason, dismissedUntil },
+    });
+
+    // Task 3.4 Phase B:proposal dismissed → pendingCount 变化,触发 prompt-signals rebuild
+    safeEmit({
+      type: "proposal_dismissed",
+      at: new Date().toISOString(),
     });
   }
 

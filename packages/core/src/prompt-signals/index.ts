@@ -23,4 +23,7 @@ export {
   PromptSignalBus,
   type PromptSignalEvent,
   type PromptSignalEventType,
+  getGlobalPromptSignalBus,
+  resetGlobalPromptSignalBus,
+  safeEmit,
 } from "./event-bus.js";

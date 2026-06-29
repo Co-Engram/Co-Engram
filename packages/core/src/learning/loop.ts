@@ -21,6 +21,7 @@ import {
   DEFAULT_FORGET_THRESHOLD,
 } from "../reinforcement/ltd.js";
 import { reinforceRelated } from "../reinforcement/related.js";
+import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   DEFAULT_CONFIG,
   type ReinforcementConfig,
@@ -182,6 +183,17 @@ export function closeLearningLoop(
   }
 
   const finalEngram = repo.readEngram(input.engramId);
+
+  // Task 3.4 Phase B:闭合学习回路是 prompt-signals 的关键触发点——
+  // success/partial → engram_reinforced;failure → engram_failed
+  // (R13 实证:用户刚 confirm 的记忆,prompt 没反应,因为 prompt-builder
+  // 注册时固定了 snapshot,要等 maintenance light stage 才刷新)
+  safeEmit({
+    type:
+      input.outcome === "failure" ? "engram_failed" : "engram_reinforced",
+    engramId: input.engramId,
+    at: nowIso,
+  });
 
   return {
     engramId: input.engramId,

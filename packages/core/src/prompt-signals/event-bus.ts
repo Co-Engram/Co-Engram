@@ -91,3 +91,56 @@ export class PromptSignalBus {
     };
   }
 }
+
+// ============================================================
+// Task 3.4 Phase B:进程级 singleton bus
+// ============================================================
+
+/**
+ * 进程级 singleton PromptSignalBus
+ *
+ * 设计权衡:
+ *   - 选 singleton 而非 DI:repository / proposalEngine / closeLearningLoop
+ *     都是高频核心路径,加 bus 参数会污染所有调用方签名。
+ *   - 进程内一致即可:prompt-signals 是宿主进程内部的派生缓存,
+ *     不跨进程、不持久化,singleton 不会引入全局状态污染问题。
+ *   - 测试隔离:resetGlobalPromptSignalBus() 让每个 test 拿干净 bus。
+ *
+ * 用法:
+ *   import { getGlobalPromptSignalBus } from ".../prompt-signals";
+ *   getGlobalPromptSignalBus().emit({ type: "engram_created", engramId, at });
+ */
+let globalPromptSignalBus: PromptSignalBus | null = null;
+
+export function getGlobalPromptSignalBus(): PromptSignalBus {
+  if (globalPromptSignalBus === null) {
+    globalPromptSignalBus = new PromptSignalBus();
+  }
+  return globalPromptSignalBus;
+}
+
+/**
+ * 测试辅助:重置 singleton bus(让每个 test 隔离)
+ *
+ * 生产代码不应调用。cache.dispose() 不会自动调用此函数——
+ * 进程退出即清理,无需手动 reset。
+ */
+export function resetGlobalPromptSignalBus(): void {
+  if (globalPromptSignalBus !== null) {
+    globalPromptSignalBus = null;
+  }
+}
+
+/**
+ * 安全 emit:任何异常都吞掉(bus 不应阻塞业务路径)
+ *
+ * 失败场景:listener 抛错(EventEmitter 默认会 uncaught),bus 写审计落盘失败,等。
+ * prompt signals 是派生数据,丢失一次刷新无影响——下次事件触发会再 rebuild。
+ */
+export function safeEmit(event: PromptSignalEvent): void {
+  try {
+    getGlobalPromptSignalBus().emit(event);
+  } catch {
+    // intentional:bus 失败不阻塞业务
+  }
+}
