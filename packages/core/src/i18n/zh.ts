@@ -111,7 +111,9 @@ export const zh = {
 - 还没调过 engram_search(先搜索)
 - engram ID 来自过时的对话(重新搜索验证)
 
-返回:完整内容 + 元数据(创建时间、重要性、truthScore、强化次数)+ 相关 engram ID 列表。`,
+返回:完整内容 + 元数据(创建时间、重要性、truthScore、强化次数)+ 相关 engram ID 列表。
+
+概念:{{concept:engram|userExplanation}}`,
   "tool.engram_create.agent": `为重要的团队知识创建新记忆(engram)。
 
 何时调用:
@@ -161,7 +163,10 @@ export const zh = {
 - 两条记忆无关
 - 不确定关系类型(默认用 'related_to')
 
-返回:synapse ID + from/to engram ID。常见类型:extends、contradicts、related_to、caused_by。`,
+返回:synapse ID + from/to engram ID。常见类型:extends、contradicts、related_to、caused_by。
+
+副作用(SIDE EFFECTS):
+- kind="contradicts":自动给双方 engram 写 contradicted audit 事件(可被 engram_audit_query 查到),并触发矛盾解决流程。`,
   "tool.engram_reinforce.agent": `标记某条记忆被有效使用(正向强化)。
 
 何时调用:

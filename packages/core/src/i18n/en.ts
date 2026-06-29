@@ -111,7 +111,9 @@ WHEN NOT TO CALL:
 - You haven't called engram_search yet (search first)
 - The engram ID is from an outdated conversation (re-search to verify)
 
-RETURNS: Full content + metadata (createdAt, importance, truthScore, reinforcementCount) + related engram IDs (synapses).`,
+RETURNS: Full content + metadata (createdAt, importance, truthScore, reinforcementCount) + related engram IDs (synapses).
+
+CONCEPT: {{concept:engram|userExplanation}}`,
   "tool.engram_create.agent": `Create a new memory (engram) for important team knowledge.
 
 WHEN TO CALL:
@@ -161,7 +163,10 @@ WHEN NOT TO CALL:
 - The two memories are unrelated
 - You're unsure of the relationship kind (use 'related_to' as default)
 
-RETURNS: Synapse ID + from/to engram IDs. Common kinds: extends, contradicts, related_to, caused_by.`,
+RETURNS: Synapse ID + from/to engram IDs. Common kinds: extends, contradicts, related_to, caused_by.
+
+SIDE EFFECTS:
+- kind="contradicts": automatically writes contradicted audit events to both engrams (queryable via engram_audit_query) and triggers the contradiction resolution flow.`,
   "tool.engram_reinforce.agent": `Mark a memory as effectively used (positive reinforcement).
 
 WHEN TO CALL:

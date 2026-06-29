@@ -9,6 +9,8 @@
 import type { Language, StringKey, TranslationDict } from "./types.js";
 import { en } from "./en.js";
 import { zh } from "./zh.js";
+import { CONCEPT_DICTIONARY } from "../concepts/dictionary.js";
+import type { ConceptId } from "../concepts/types.js";
 
 // 配置相关 API 已迁至 @co-engram/core/config。这里保留 re-export 以向后兼容。
 export {
@@ -120,10 +122,49 @@ export function localizeToolDescription(
     layer === "user" ? `tool.${toolName}` : `tool.${toolName}.${layer}`;
   const dict = DICTIONARIES[language] as Readonly<Record<string, string>>;
   const translated = dict[key];
-  if (translated) return translated;
-  // fallback 顺序:目标语言找不到 → 英文 → 原始
-  const enDict = en as Readonly<Record<string, string>>;
-  return enDict[key] ?? fallback ?? toolName;
+  const resolved =
+    translated ??
+    // fallback 顺序:目标语言找不到 → 英文 → 原始
+    (en as Readonly<Record<string, string>>)[key] ??
+    fallback ??
+    toolName;
+  return expandConceptPlaceholders(resolved, language);
+}
+
+/**
+ * 展开 `{{concept:ID|field}}` 占位符为 CONCEPT_DICTIONARY 对应字段
+ *
+ * 让工具描述 / mcp instructions / prompt-builder 共享同一份概念解释,
+ * 避免概念漂移(fix-2 的 help-contract 抓到的 synapse/proposal 漂移即此问题)。
+ *
+ * 路径支持点号嵌套(如 `userExplanation.zh`)。当解析结果本身是 `{zh, en}` 双语对象时,
+ * 按当前 language 自动选 —— 让 placeholder 在 zh / en 描述里都能用同一形式
+ * `{{concept:engram|userExplanation}}`,无需为每种语言写不同占位符。
+ *
+ * 解析失败的占位符渲染为 `[unknown concept: ID]`,便于在测试 / 用户反馈中发现拼写错误。
+ */
+export function expandConceptPlaceholders(
+  text: string,
+  language: Language,
+): string {
+  return text.replace(
+    /\{\{concept:([a-z_]+)\|([a-zA-Z_.]+)\}\}/g,
+    (_, id: string, path: string) => {
+      const entry = (CONCEPT_DICTIONARY as Readonly<Record<string, unknown>>)[
+        id
+      ];
+      if (!entry) return `[unknown concept: ${id}]`;
+      const value = path.split(".").reduce<unknown>(
+        (obj, key) => (obj as Record<string, unknown>)?.[key],
+        entry,
+      );
+      if (value && typeof value === "object" && "zh" in value && "en" in value) {
+        const localized = (value as { zh: unknown; en: unknown })[language];
+        return typeof localized === "string" ? localized : "";
+      }
+      return typeof value === "string" ? value : "";
+    },
+  );
 }
 
 /**
