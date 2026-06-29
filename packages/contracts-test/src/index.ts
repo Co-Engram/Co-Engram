@@ -46,12 +46,10 @@ export {
  * config schema 字段语义对称性测试
  *
  * 验证 host-only / deprecated 字段两端都识别 metadata(不会静默忽略 / 静默丢弃)。
- *
- * Task 2.4 实现。
  */
-export async function runConfigSchemaContractTests(): Promise<ContractResult> {
-  return { passed: true, diffs: [] };
-}
+export {
+  runConfigSchemaContractTests,
+} from "./config-contract.js";
 
 /**
  * help 文案两端一致性测试

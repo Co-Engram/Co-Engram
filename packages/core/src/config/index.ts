@@ -119,7 +119,11 @@ function fillDefaults(raw: Readonly<TeamMemoryConfig>): TeamMemoryConfig {
 }
 
 /**
- * 检测 raw config 是否需要规范化(字段缺失)
+ * 检测 raw config 是否需要规范化(字段缺失 / 含 deprecated 字段)
+ *
+ * 含 deprecated 字段(如 viewer.port)时也返回 true,让 fillDefaults 丢弃。
+ * 否则 loader 会原样返回 raw config,deprecated 字段残留导致两宿主共享
+ * persisted config 时抢同一端口。
  */
 function needsNormalize(raw: Readonly<TeamMemoryConfig>): boolean {
   if (raw.maintenance === undefined) return true;
@@ -130,6 +134,8 @@ function needsNormalize(raw: Readonly<TeamMemoryConfig>): boolean {
   if (raw.server === undefined) return true;
   if (raw.autoMemorySync === undefined) return true;
   if (raw.maintenance?.trash === undefined) return true;
+  // deprecated 字段:存在则触发 normalize 让 fillDefaults 丢弃
+  if (raw.viewer?.port !== undefined) return true;
   return false;
 }
 
