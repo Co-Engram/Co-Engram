@@ -49,11 +49,11 @@ export class GraphBuilder {
     for (const { fromId, synapse } of allSynapses) {
       // 确保 from 和 to 都有邻接表项
       if (!outgoingAdjacency[fromId]) outgoingAdjacency[fromId] = [];
-      if (!incomingAdacencyHelper(incomingAdjacency, fromId))
+      if (!incomingAdjacencyHelper(incomingAdjacency, fromId))
         incomingAdjacency[fromId] = [];
 
       if (!outgoingAdjacency[synapse.to]) outgoingAdjacency[synapse.to] = [];
-      if (!incomingAdacencyHelper(incomingAdjacency, synapse.to))
+      if (!incomingAdjacencyHelper(incomingAdjacency, synapse.to))
         incomingAdjacency[synapse.to] = [];
 
       edges.push({
@@ -112,7 +112,7 @@ export class GraphBuilder {
 }
 
 /** 辅助：检查 incomingAdjacency 是否有 key（避免 hasOwnProperty 调用） */
-function incomingAdacencyHelper(
+function incomingAdjacencyHelper(
   adj: Record<string, string[]>,
   key: string,
 ): boolean {
