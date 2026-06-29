@@ -37,12 +37,10 @@ export {
  *
  * 验证 zh / en 字典 key parity,扫描源码中残留的 hard-coded `language === "zh" ? ...`
  * ternary(应为 i18n key 引用)。
- *
- * Task 2.3 实现。
  */
-export async function runI18nContractTests(): Promise<ContractResult> {
-  return { passed: true, diffs: [] };
-}
+export {
+  runI18nContractTests,
+} from "./i18n-contract.js";
 
 /**
  * config schema 字段语义对称性测试

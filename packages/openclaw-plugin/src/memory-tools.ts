@@ -17,6 +17,7 @@
 import {
   DEFAULT_LANGUAGE,
   localizeToolDescription,
+  translatePrompt,
   type ToolContext,
   type Language,
   type EngramDigest,
@@ -122,7 +123,7 @@ const CONTENT_SUMMARY_LIMIT = 500;
 
 function toErrorResult(error: unknown, language: Language): ToolExecuteResult {
   const message = error instanceof Error ? error.message : String(error);
-  const prefix = language === "zh" ? "错误" : "Error";
+  const prefix = translatePrompt(language, "error.prefix");
   return {
     content: [{ type: "text", text: `${prefix}: ${message}` }],
     details: { ok: false, error: message },

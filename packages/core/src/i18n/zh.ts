@@ -860,6 +860,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "common.unknown": "未知",
   "common.totalCount": "共 ${n} 条",
 
+  // 错误提示(error.<name>)—— user-visible 错误前缀与消息模板
+  "error.prefix": "错误",
+  "error.uri_missing_id": "URI 缺少 {id} 变量",
+  "error.engram_not_found": "engram \"${id}\" 不存在",
+
   // 衰退可视化(decay.<name>)
   "decay.daysToNext": "距下次降级还剩 ${days} 天",
   "decay.forgotten": "已遗忘",

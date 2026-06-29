@@ -16,6 +16,7 @@
 
 import { ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { translatePrompt } from "@co-engram/core";
 import type { Engram, Language, ToolContext } from "@co-engram/core";
 
 const LIST_LIMIT = 10;
@@ -102,14 +103,14 @@ async function readCallback(
   if (!id) {
     return errorRead(
       uri.toString(),
-      language === "zh" ? "URI 缺少 {id} 变量" : "URI missing {id} variable",
+      translatePrompt(language, "error.uri_missing_id"),
     );
   }
 
   if (!ctx.repository.exists(id)) {
     return errorRead(
       uri.toString(),
-      language === "zh" ? `engram "${id}" 不存在` : `engram "${id}" not found`,
+      translatePrompt(language, "error.engram_not_found", { id }),
     );
   }
 

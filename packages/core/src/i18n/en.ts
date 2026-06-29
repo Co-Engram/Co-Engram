@@ -866,6 +866,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "common.unknown": "Unknown",
   "common.totalCount": "${n} total",
 
+  // Error messages (error.<name>) — user-visible error prefix and message templates
+  "error.prefix": "Error",
+  "error.uri_missing_id": "URI missing {id} variable",
+  "error.engram_not_found": "engram \"${id}\" not found",
+
   // Decay visualization (decay.<name>)
   "decay.daysToNext": "${days} days to next downgrade",
   "decay.forgotten": "Forgotten",
