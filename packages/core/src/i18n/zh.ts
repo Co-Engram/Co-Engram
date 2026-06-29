@@ -442,7 +442,9 @@ export const zh = {
 - 想读陈述性记忆(用 engram_search / engram_get)
 
 返回:Skill 元信息(name、description、template kind、parameters)。`,
-  "tool.skill_invoke.agent": `带参数调用一个 skill(程序性记忆)。
+  "tool.skill_invoke.agent": `⚠ 实验性占位(EXPERIMENTAL STUB)——当前返回占位字符串,不真实执行技能;真正的模板执行在 P1 实现。
+
+带参数调用一个 skill(程序性记忆)。
 
 何时调用:
 - 用户要求执行已知的程序性模板
@@ -453,7 +455,7 @@ export const zh = {
 - 没有已注册 skill 的一次性任务
 - 没先查 skill_get(可能没选对 skill)
 
-返回:Skill 执行结果(取决于模板)。`,
+返回:Skill 执行结果(取决于模板)。P0 阶段 output 字段形如 "[P0 stub] Skill X invoked with args: ..."。`,
   "tool.memory_search.agent": `用自然语言搜索团队记忆。返回相关记忆片段及相关性分数。
 
 何时调用:

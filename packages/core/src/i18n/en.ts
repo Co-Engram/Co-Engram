@@ -442,7 +442,9 @@ WHEN NOT TO CALL:
 - For declarative memory (use engram_search / engram_get)
 
 RETURNS: Skill metadata (name, description, template kind, parameters).`,
-  "tool.skill_invoke.agent": `Invoke a skill (procedural memory) with parameters.
+  "tool.skill_invoke.agent": `⚠ EXPERIMENTAL STUB — currently returns a placeholder string, does not actually execute the skill; real template execution lands in P1.
+
+Invoke a skill (procedural memory) with parameters.
 
 WHEN TO CALL:
 - User asks to execute a known procedural template
@@ -453,7 +455,7 @@ WHEN NOT TO CALL:
 - For one-off tasks without a registered skill
 - Without first checking skill_get (you may not have the right skill)
 
-RETURNS: Skill execution result (template-specific).`,
+RETURNS: Skill execution result (template-specific). At P0 the output field looks like "[P0 stub] Skill X invoked with args: ...".`,
   "tool.memory_search.agent": `Search team memory using natural language. Returns relevant memory snippets with relevance scores.
 
 WHEN TO CALL:

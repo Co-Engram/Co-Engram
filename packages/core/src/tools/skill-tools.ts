@@ -63,7 +63,7 @@ export const skillGetTool: Tool<SkillGetToolInput, Skill> = {
 export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   name: "skill_invoke",
   description:
-    "调用一个 Skill（程序性记忆）。P0 阶段是框架；具体模板执行（tool-sequence / prompt-template）在 P1 实现。",
+    "⚠ 实验性占位(EXPERIMENTAL STUB)——当前返回占位字符串,不真实执行技能;真正的模板执行在 P1 实现。调用一个 Skill(程序性记忆)。",
   inputSchema: SkillInvokeInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<SkillInvokeToolInput>(
