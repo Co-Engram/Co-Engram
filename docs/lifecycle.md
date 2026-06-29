@@ -344,7 +344,7 @@ Stage timing and thresholds can be overridden via env vars or config.
 
 ---
 
-## 6. Tool → Lifecycle Mapping (standard profile, 17 tools)
+## 6. Tool → Lifecycle Mapping (standard profile subset)
 
 > For full signatures see [Tool Reference](./tool-reference.md).
 
@@ -520,7 +520,7 @@ File moved to .trash/2026-06/
 - [Concepts](./concepts.md) — Entity definitions and fields
 - [Architecture](./architecture.md) — Multi-layer design and data flow
 - [Maintenance Engine](./maintenance-engine.md) — light/deep/rem stage details
-- [Tool Reference](./tool-reference.md) — All 28 tools with full signatures
+- [Tool Reference](./tool-reference.md) — All 29 tools with full signatures
 - [Claude Code Integration](./host-claude-code.md)
 - [OpenClaw Integration](./host-openclaw.md)
 - [Observability](./observability.md) — Audit log, viewer
@@ -532,6 +532,6 @@ File moved to .trash/2026-06/
 The thresholds, enum counts, and pipeline timings in this document are pinned by
 **executable doc tests** at [`packages/core/test/lifecycle-doc.test.ts`](../packages/core/test/lifecycle-doc.test.ts).
 If any value drifts (e.g. `DEFAULT_FORGET_THRESHOLD` changes from 5 to something else,
-or the AuditAction enum grows past 17 values), the test fails and forces a doc update.
+or the AuditAction enum grows past 25 values), the test fails and forces a doc update.
 
 Run with: `pnpm --filter @co-engram/core test test/lifecycle-doc.test.ts`

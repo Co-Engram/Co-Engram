@@ -62,7 +62,7 @@ A **procedural** memory — "how to do something". Complementary to engrams (whi
 - `trigger` — when this skill should activate
 - `args` — expected input shape
 
-**Tools:** `skill_get`, `skill_invoke`. The engine resolves template variables against caller-supplied `args` and renders the step list; skills themselves are authored as YAML files under `skills/`.
+**Tools:** `skill_get` (read-only metadata, in `full` profile), `skill_invoke` (experimental — not in any default profile because template resolution is a P0 stub). Skills themselves are authored as YAML files under `skills/`.
 
 ## Signal
 

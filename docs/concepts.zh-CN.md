@@ -62,7 +62,7 @@
 - `trigger` — 何时激活该 skill
 - `args` — 预期的输入形状
 
-**工具:** `skill_get`、`skill_invoke`。引擎会根据调用方提供的 `args` 解析模板变量,并渲染步骤列表;skill 本身以 YAML 文件形式编写,位于 `skills/` 下。
+**工具:** `skill_get`(只读元数据,在 `full` profile 中)、`skill_invoke`(实验性 —— 不在任何默认 profile 中,因为模板解析目前是 P0 占位实现)。skill 本身以 YAML 文件形式编写,位于 `skills/` 下。
 
 ## Signal
 

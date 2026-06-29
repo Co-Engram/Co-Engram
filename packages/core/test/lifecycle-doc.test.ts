@@ -121,9 +121,10 @@ describe("docs/lifecycle §4.2 Proposal pipeline", () => {
   });
 });
 
-describe("docs/lifecycle §6 Tool → Lifecycle mapping (17 tools in standard profile)", () => {
-  it("standard profile 暴露 17 个工具", () => {
-    // 这里只列出与生命周期强相关的工具子集;完整 17 工具列表由 tool-profile 维护
+describe("docs/lifecycle §6 Tool → Lifecycle mapping (lifecycle-relevant subset of standard profile)", () => {
+  it("standard profile 暴露 19 个工具;lifecycle 表只列其中影响生命周期的子集", () => {
+    // 这里只列出与生命周期强相关的工具子集;完整 19 工具列表由 tool-profile 维护。
+    // 数值 19 由 PROFILE_TOOL_SETS.standard.size 自动算出(防漂移),见 tool-profile.ts。
     const lifecycleTools = [
       "engram_create",
       "engram_update",
@@ -142,7 +143,7 @@ describe("docs/lifecycle §6 Tool → Lifecycle mapping (17 tools in standard pr
       "engram_synthesize",
     ] as const;
     expect(lifecycleTools.length).toBeGreaterThan(10);
-    expect(lifecycleTools.length).toBeLessThanOrEqual(17);
+    expect(lifecycleTools.length).toBeLessThanOrEqual(19);
   });
 });
 
@@ -200,8 +201,10 @@ describe("docs/lifecycle §8.4 Trash sweep", () => {
   });
 });
 
-describe("docs/lifecycle §6 audit actions: 17 enum values", () => {
-  it("AuditAction 恰好 17 种(13 状态变更 + 4 有效性信号)", () => {
+describe("docs/lifecycle §6 audit actions: 25 enum values", () => {
+  it("AuditAction 恰好 25 种(13 状态变更 + 4 有效性信号 + 2 proposal 过滤 + 6 git merge driver)", () => {
+    // 与 src/observability/audit-log.ts 中的 AuditAction 联合类型保持同步。
+    // 改源码时此列表必须同步更新,否则 lifecycle.md §10 描述会漂移。
     const actions: AuditAction[] = [
       // 状态变更(13)
       "create",
@@ -222,7 +225,18 @@ describe("docs/lifecycle §6 audit actions: 17 enum values", () => {
       "retrieve_effective",
       "retrieve_inconclusive",
       "contradicted",
+      // proposal engine 过滤(2)
+      "noise_filtered",
+      "necessity_rejected",
+      // git merge driver 事件(3)
+      "merge_resolved",
+      "merge_backup_failed",
+      "merge_conflict_escalated",
+      // git merge driver LLM 仲裁事件(3)
+      "merge_llm_arbitrated",
+      "merge_llm_arbitrated_escalated",
+      "merge_llm_arbitrated_failed",
     ];
-    expect(actions).toHaveLength(17);
+    expect(actions).toHaveLength(25);
   });
 });

@@ -341,7 +341,7 @@ rpe       = actual - expected
 
 ---
 
-## 6. 工具 → 生命周期映射(standard profile,17 工具)
+## 6. 工具 → 生命周期映射(standard profile 子集)
 
 > 完整工具签名见 [工具参考](./tool-reference.zh-CN.md)。
 
@@ -517,7 +517,7 @@ engram_report_failure 多次触发后 failedUses ≥ 5
 - [核心概念](./concepts.zh-CN.md) — 实体定义与字段
 - [架构](./architecture.zh-CN.md) — 多层设计与数据流
 - [维护引擎](./maintenance-engine.zh-CN.md) — light/deep/rem 阶段细节
-- [工具参考](./tool-reference.zh-CN.md) — 28 个工具完整签名
+- [工具参考](./tool-reference.zh-CN.md) — 29 个工具完整签名
 - [Claude Code 集成](./host-claude-code.zh-CN.md)
 - [OpenClaw 集成](./host-openclaw.zh-CN.md)
 - [可观测性](./observability.zh-CN.md) — 审计日志、viewer
@@ -529,6 +529,6 @@ engram_report_failure 多次触发后 failedUses ≥ 5
 本文档中的阈值、枚举数、管线时长等关键数值,由**可执行文档测试**自动校验,
 位于 [`packages/core/test/lifecycle-doc.test.ts`](../packages/core/test/lifecycle-doc.test.ts)。
 任何数值漂移(例如 `DEFAULT_FORGET_THRESHOLD` 从 5 改为其他值,或 AuditAction
-枚举增长超过 17 种),测试会失败,强制同步更新文档。
+枚举增长超过 25 种),测试会失败,强制同步更新文档。
 
 运行:`pnpm --filter @co-engram/core test test/lifecycle-doc.test.ts`
