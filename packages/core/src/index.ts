@@ -8,6 +8,7 @@
  */
 
 export * from "./types/index.js";
+export * from "./concepts/index.js";
 export * from "./storage/index.js";
 export * from "./index/index.js";
 export * from "./graph/index.js";
