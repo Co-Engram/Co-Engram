@@ -200,6 +200,202 @@ function tokenizeForTrivial(text: string): string[] {
   return tokens;
 }
 
+// ============================================================
+// 对话内务检测(conversational artifact detection)
+//
+// 5 类信号识别"对话过程中重复出现、但本质是过程产物、不应固化为团队记忆"
+// 的内容。这类内容长半衰期为零——任务完成即失效。
+//
+// 根本共性:内容描述"这次会话本身的进行状态",而非"会话之外的领域事实"。
+// ============================================================
+
+/**
+ * 对话时态信号词(将来/进行/刚过去 + 第一人称动作)
+ *
+ * 命中 ≥2 个不同短语 → 视为"对话时态主导"(描述一次性任务流)
+ */
+const CONVERSATIONAL_TENSE_PHRASES = new Set([
+  // 中文
+  "我会",
+  "我打算",
+  "我将",
+  "我们即将",
+  "正在",
+  "现已",
+  "已完成",
+  "接下来",
+  "下一步",
+  "马上",
+  "稍后",
+  "即将",
+  // 英文
+  "i'll",
+  "i will",
+  "i'm going to",
+  "currently",
+  "just finished",
+  "next step",
+  "about to",
+  "in progress",
+]);
+
+/**
+ * 指代依赖词(脱离当前上下文即失效)
+ *
+ * 命中 ≥2 个不同词 → 视为"指代依赖"(内容无法独立成立)
+ */
+const DEICTIC_REFS = new Set([
+  // 中文
+  "上面",
+  "刚才",
+  "下一步",
+  "这个",
+  "那个",
+  "这里",
+  "那里",
+  "前面",
+  "后面",
+  "接下来",
+  "本次",
+  "刚刚",
+  "等会",
+  // 英文
+  "above",
+  "earlier",
+  "previous",
+  "mentioned",
+  "following",
+]);
+
+/**
+ * 自我元层短语(LLM 描述自身行为 / 向用户请求输入 / 等待决策)
+ *
+ * 命中 ≥1 个 → 视为"自我元层"(强信号——这是对话协议本身,不是知识)
+ */
+const SELF_META_PHRASES = new Set([
+  // 中文
+  "我推荐",
+  "我建议",
+  "我的推荐",
+  "我的分析",
+  "我的判断",
+  "我的方案",
+  "我倾向",
+  "我认为",
+  "等你确认",
+  "请你决定",
+  "请提供",
+  "让我先",
+  // 英文
+  "i recommend",
+  "i suggest",
+  "my recommendation",
+  "my analysis",
+  "please provide",
+  "let me",
+  "i think",
+  "waiting for",
+]);
+
+/** markdown 表格签名:`| 字段 | 值 |` + `|---|---|` */
+const MARKDOWN_TABLE_RE =
+  /\|[\s\w一-鿿]+\|[\s\w一-鿿]+\|[\s\S]*?\|[-:\s|]+\|/;
+
+/** 完整 commit SHA(40 位 hex)— 强信号,要求完整长度避免误判短 hex */
+const COMMIT_SHA_FULL_RE = /\b[0-9a-f]{40}\b/i;
+
+/** ULID(01 + 24 位 base32)— co-engram 内部 ID 的强特征 */
+const ULID_RE = /01[A-Z0-9]{24}/;
+
+/** 凭证 token(GitHub PAT / Bearer)— 强信号 */
+const TOKEN_RE = /ghp_[A-Za-z0-9]{20,}|Bearer\s+[A-Za-z0-9_-]{10,}/i;
+
+/** 命令字面量(≥20 字符的反引号包裹串,反复出现说明在回显命令而非陈述事实) */
+const COMMAND_LITERAL_RE = /`[^`\n]{20,}`/g;
+
+/** 选项枚举标记(方案 A / 选项 1 / Option 1 / G1 / (A) 并列) */
+const ENUMERATED_OPTION_RE =
+  /(?:方案|选项)\s*[A-Z一二三四五六七八九\d]+|Option\s*\d+|[Gg]\d+|[（(][A-Z][）)]/g;
+
+/** 对话内务检测结果 */
+export interface ConversationalArtifactVerdict {
+  /** 是否为对话内务产物 */
+  readonly artifact: boolean;
+  /** 命中的信号列表(展示给用户审批时参考) */
+  readonly reasons: readonly string[];
+}
+
+/**
+ * 检测内容是否为"对话内务产物"(conversational artifact)
+ *
+ * 5 类信号:
+ *   1. `tense_dominated` - 对话时态主导(≥2 个时态短语命中)
+ *   2. `deictic_refs` - 指代依赖(≥2 个指代词命中)
+ *   3. `process_signature:<sub>` - 过程输出签名(table / sha / ulid / token / command,任一命中)
+ *   4. `enumerated_options` - 选项枚举结构(≥2 个并列标记命中)
+ *   5. `self_meta` - 自我元层(≥1 个自我元层短语命中,强信号)
+ *
+ * 任一信号命中 → `artifact=true`
+ *
+ * 设计哲学:
+ *   - 真正该记的内容跨会话稳定、不依赖指代、是领域事实
+ *   - 过程产物描述"这次会话本身的进行状态",任务完成即失效
+ *   - 把"长半衰期为零"的内容挡在 proposal pipeline 之外
+ *
+ * 用于:
+ *   - L1 `prefilterMessage` 入口直接拒(零成本,样本不进聚类)
+ *   - L2 `RuleBasedNecessityEvaluator` 防御性兜底(L1 万一漏检)
+ */
+export function isConversationalArtifact(
+  content: string,
+): ConversationalArtifactVerdict {
+  const lower = content.toLowerCase();
+  const reasons: string[] = [];
+
+  // 1. 对话时态主导
+  let tenseHits = 0;
+  for (const phrase of CONVERSATIONAL_TENSE_PHRASES) {
+    if (lower.includes(phrase)) tenseHits++;
+  }
+  if (tenseHits >= 2) reasons.push("tense_dominated");
+
+  // 2. 指代依赖
+  let deicticHits = 0;
+  for (const word of DEICTIC_REFS) {
+    if (lower.includes(word)) deicticHits++;
+  }
+  if (deicticHits >= 2) reasons.push("deictic_refs");
+
+  // 3. 过程输出签名
+  const sigReasons: string[] = [];
+  if (MARKDOWN_TABLE_RE.test(content)) sigReasons.push("table");
+  if (COMMIT_SHA_FULL_RE.test(content)) sigReasons.push("sha");
+  if (ULID_RE.test(content)) sigReasons.push("ulid");
+  if (TOKEN_RE.test(content)) sigReasons.push("token");
+  const cmdMatches = content.match(COMMAND_LITERAL_RE);
+  if (cmdMatches) {
+    const cmdTotal = cmdMatches.reduce((s, m) => s + m.length, 0);
+    if (cmdTotal / content.length >= 0.5) sigReasons.push("command");
+  }
+  if (sigReasons.length > 0) {
+    reasons.push(`process_signature:${sigReasons.join("+")}`);
+  }
+
+  // 4. 选项枚举
+  const optMatches = content.match(ENUMERATED_OPTION_RE);
+  if (optMatches && optMatches.length >= 2) reasons.push("enumerated_options");
+
+  // 5. 自我元层(强信号,单次命中即拒)
+  for (const phrase of SELF_META_PHRASES) {
+    if (lower.includes(phrase)) {
+      reasons.push("self_meta");
+      break;
+    }
+  }
+
+  return { artifact: reasons.length > 0, reasons };
+}
+
 /**
  * Layer 1 预过滤单条消息
  *
@@ -259,6 +455,18 @@ export function prefilterMessage(
       accepted: false,
       rule: "low_density",
       reason: `only ${meaningful} meaningful tokens`,
+    };
+  }
+
+  // 对话内务产物(配置表/命令回显/选项枚举/自我元层/指代依赖等)
+  // 这类内容在对话过程中高频重复出现,但长半衰期为零,不该固化为团队记忆。
+  // 见 isConversationalArtifact 文档。
+  const artifact = isConversationalArtifact(trimmed);
+  if (artifact.artifact) {
+    return {
+      accepted: false,
+      rule: "conversational_artifact",
+      reason: `conversational bookkeeping (${artifact.reasons.join(", ")})`,
     };
   }
 
@@ -452,9 +660,28 @@ export class RuleBasedNecessityEvaluator implements NecessityEvaluator {
       };
     }
 
+    // 6. 对话内务产物(L1 已挡,这是 L2 防御性兜底:防止 L1 万一漏检时
+    //    cluster 累积到阈值仍能拦截)。超过 50% 的 sample 是内务产物 → 拒
+    const artifactSamples = samples.filter(
+      (s) => isConversationalArtifact(s).artifact,
+    );
+    if (artifactSamples.length / samples.length >= 0.5) {
+      const allReasons = new Set<string>();
+      for (const s of artifactSamples) {
+        for (const r of isConversationalArtifact(s).reasons) {
+          allReasons.add(r);
+        }
+      }
+      return {
+        necessary: false,
+        rule: "conversational_artifact",
+        reason: `${artifactSamples.length}/${samples.length} samples are conversational artifacts (${[...allReasons].join(", ")})`,
+      };
+    }
+
     return {
       necessary: true,
-      reason: `Passed 5 rule checks: ${uniqueSet.size} unique samples, avg ${avgLen.toFixed(0)} chars, ${avgTokens.toFixed(1)} tokens`,
+      reason: `Passed 6 rule checks: ${uniqueSet.size} unique samples, avg ${avgLen.toFixed(0)} chars, ${avgTokens.toFixed(1)} tokens`,
     };
   }
 }

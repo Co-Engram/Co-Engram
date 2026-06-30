@@ -1259,27 +1259,134 @@ CO_ENGRAM.on('health', async function() {
   }
   html += '</div>';
 
-  // 检查项列表
+  // 检查项列表 — warn/error 渲染为可展开 details(默认折叠)
   html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.checks')) + '</h3>';
   if (!snap.checks || !snap.checks.length) {
     html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.empty')) + '</div>';
   } else {
     html += '<ul class="health-check-list">';
     for (const c of snap.checks) {
-      html += '<li class="health-check-item">'
-        + badgeHtml(c.status)
-        + '<div class="health-check-body">'
-        + '<div class="health-check-label">' + CO_ENGRAM.escapeHtml(c.label) + '</div>'
-        + '<div class="health-check-message">' + CO_ENGRAM.escapeHtml(c.message) + '</div>'
-        + (c.detail ? '<pre class="health-check-detail">' + CO_ENGRAM.escapeHtml(c.detail) + '</pre>' : '')
-        + '</div></li>';
+      const isProblem = (c.status === 'warn' || c.status === 'error');
+      const hasStructured = isProblem && (c.whyI18nKey || c.fix);
+      if (hasStructured) {
+        // warn/error + 有结构化指引 → 可展开卡片
+        const whyText = c.whyI18nKey ? T.t(c.whyI18nKey) : '';
+        const whyBlock = whyText
+          ? '<div class="health-why-block"><div class="health-why-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.why')) + '</div><div class="health-why-text">' + CO_ENGRAM.escapeHtml(whyText) + '</div></div>'
+          : '';
+        let fixBlock = '';
+        if (c.fix) {
+          const desc = T.t(c.fix.descriptionI18nKey);
+          const cmdRow = c.fix.command
+            ? '<div class="health-fix-cmd-row"><code class="health-fix-cmd">' + CO_ENGRAM.escapeHtml(c.fix.command) + '</code>'
+              + '<button class="btn-mini" onclick="CO_ENGRAM._copyHealthCmd(this, ' + JSON.stringify(c.fix.command) + ')">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.copyCommand')) + '</button></div>'
+            : '';
+          const toolLine = c.fix.tool
+            ? '<div class="health-fix-tool">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.orCallTool')) + ': <code>' + CO_ENGRAM.escapeHtml(c.fix.tool) + (c.fix.argsHint ? ' ' + CO_ENGRAM.escapeHtml(c.fix.argsHint) : '') + '</code></div>'
+            : '';
+          fixBlock = '<div class="health-fix-block"><div class="health-fix-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.howToFix')) + '</div><div class="health-fix-desc">' + CO_ENGRAM.escapeHtml(desc) + '</div>' + cmdRow + toolLine + '</div>';
+        }
+        const detailBlock = c.detail ? '<pre class="health-check-detail">' + CO_ENGRAM.escapeHtml(c.detail) + '</pre>' : '';
+        html += '<li class="health-check-item health-check-problem">'
+          + '<details class="health-check-details">'
+          + '<summary>'
+          + badgeHtml(c.status)
+          + '<div class="health-check-body">'
+          + '<div class="health-check-label">' + CO_ENGRAM.escapeHtml(c.label) + '</div>'
+          + '<div class="health-check-message">' + CO_ENGRAM.escapeHtml(c.message) + '</div>'
+          + '</div>'
+          + '<span class="health-check-expand-hint">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.expand')) + '</span>'
+          + '</summary>'
+          + '<div class="health-check-expand-body">'
+          + whyBlock
+          + fixBlock
+          + detailBlock
+          + '</div>'
+          + '</details>'
+          + '</li>';
+      } else {
+        // ok/info 或无结构化指引 → 原样扁平渲染
+        html += '<li class="health-check-item">'
+          + badgeHtml(c.status)
+          + '<div class="health-check-body">'
+          + '<div class="health-check-label">' + CO_ENGRAM.escapeHtml(c.label) + '</div>'
+          + '<div class="health-check-message">' + CO_ENGRAM.escapeHtml(c.message) + '</div>'
+          + (c.detail ? '<pre class="health-check-detail">' + CO_ENGRAM.escapeHtml(c.detail) + '</pre>' : '')
+          + '</div></li>';
+      }
     }
     html += '</ul>';
   }
   html += '</div>';
 
+  // doctor 联动卡片(深度排查,默认不调 API,用户点按钮才加载)
+  html += '<div class="card health-doctor-card">'
+    + '<div class="health-doctor-head">'
+    + '<div><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.title')) + '</h3>'
+    + '<div class="muted" style="margin-top:.25rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.subtitle')) + '</div></div>'
+    + '<button class="btn" onclick="CO_ENGRAM._healthDoctorScan()">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.runScan')) + '</button>'
+    + '</div>'
+    + '<div id="health-doctor-body"><div class="muted" style="margin-top:.75rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.noPending')) + '</div></div>'
+    + '</div>';
+
   root.innerHTML = html;
 });
+
+CO_ENGRAM._copyHealthCmd = async function(btn, cmd) {
+  try {
+    await navigator.clipboard.writeText(cmd);
+  } catch (e) {
+    // fallback for non-secure contexts
+    const ta = document.createElement('textarea');
+    ta.value = cmd;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } catch (_) {}
+    document.body.removeChild(ta);
+  }
+  const orig = btn.textContent;
+  btn.textContent = CO_ENGRAM_T.t('viewer.health.check.commandCopied');
+  setTimeout(function() { btn.textContent = orig; }, 1500);
+};
+
+CO_ENGRAM._healthDoctorScan = async function() {
+  const body = document.getElementById('health-doctor-body');
+  if (!body) return;
+  const T = CO_ENGRAM_T;
+  body.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.loading')) + '</div>';
+  let report;
+  try { report = await CO_ENGRAM.apiGet('/api/doctor?incremental=false'); }
+  catch (e) { body.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>'; return; }
+
+  const pending = (report.issues || []).filter(function(i) { return !i.autoFixed; });
+  const autoFixed = (report.issues || []).filter(function(i) { return i.autoFixed; });
+
+  let html = '<div class="health-doctor-kpis">'
+    + '<div class="health-doctor-kpi"><strong>' + (report.autoFixesApplied ?? 0) + '</strong>' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.autoFixed')) + '</div>'
+    + '<div class="health-doctor-kpi"><strong>' + (report.pendingManualReview ?? 0) + '</strong>' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.pendingReview')) + '</div>'
+    + '</div>';
+
+  if (!pending.length) {
+    html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.empty')) + '</div>';
+  } else {
+    for (const issue of pending) {
+      const na = issue.nextAction;
+      const naHtml = na
+        ? '<div class="health-doctor-nextaction">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.nextAction')) + ': <code>' + CO_ENGRAM.escapeHtml(na.tool) + (na.argsHint ? ' ' + CO_ENGRAM.escapeHtml(na.argsHint) : '') + '</code>'
+          + (na.explanation ? '<br><span style="opacity:.8">' + CO_ENGRAM.escapeHtml(na.explanation) + '</span>' : '')
+          + '</div>'
+        : '';
+      html += '<div class="health-doctor-issue">'
+        + '<div class="health-doctor-issue-kind">' + CO_ENGRAM.escapeHtml(issue.kind) + (issue.path ? ' · ' + CO_ENGRAM.escapeHtml(issue.path) : '') + '</div>'
+        + '<div class="health-doctor-issue-msg">' + CO_ENGRAM.escapeHtml(issue.message) + '</div>'
+        + naHtml
+        + '</div>';
+    }
+  }
+  body.innerHTML = html;
+};
 
 CO_ENGRAM._healthRefresh = async function() {
   const root = document.getElementById('health-content');

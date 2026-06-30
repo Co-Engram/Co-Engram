@@ -25,6 +25,47 @@ export interface HealthCheck {
   readonly message: string;
   /** 可选详情(展开看) */
   readonly detail?: string;
+  /**
+   * 警告含义说明(只在 warn/error 时填;ok/info 留空)
+   *
+   * 结构化对齐:i18n key `viewer.health.why.<checkId>` —— viewer 端按当前
+   * 语言渲染,core 不耦合文案。例如 checkId='merge_driver' 时 viewer 翻译表里
+   * 有 `viewer.health.why.merge_driver = "未配置时,多人协作合并分支会引发
+   * engram frontmatter 冲突,需手工解决"`。
+   */
+  readonly whyI18nKey?: string;
+  /**
+   * 修复指引(结构化,只在 warn/error 时填)
+   *
+   * 与 doctor 的 `DoctorNextAction` 区别:nextAction 给 LLM agent(含 argsHint),
+   * `fix` 给人(含可复制命令)。两者刻意区分,不混用。
+   */
+  readonly fix?: HealthCheckFix;
+}
+
+/** 健康检查的修复指引(给 viewer UI 用) */
+export interface HealthCheckFix {
+  /**
+   * 修复描述 i18n key(viewer 端按语言渲染)
+   *
+   * 例如 checkId='merge_driver' → `viewer.health.fix.merge_driver.description`
+   */
+  readonly descriptionI18nKey: string;
+  /**
+   * 可执行的 shell 命令(可选,UI 提供"复制命令"按钮)
+   *
+   * 不通过 i18n key —— 命令跨语言一致。例如 `co-engram init`、
+   * `git init && git add -A && git commit -m initial`。
+   */
+  readonly command?: string;
+  /**
+   * 对应的 co-engram 工具名(可选,UI 显示工具名 + argsHint)
+   *
+   * 例如 `engram_list_proposals`、`engram_doctor`。
+   */
+  readonly tool?: string;
+  /** 工具参数提示(配合 tool 用) */
+  readonly argsHint?: string;
 }
 
 /** 完整状态快照 */
@@ -165,6 +206,11 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
       label: "Data Root",
       status: "error",
       message: `目录不存在: ${dataRoot}`,
+      whyI18nKey: "viewer.health.why.data_root_missing",
+      fix: {
+        descriptionI18nKey: "viewer.health.fix.data_root_missing.description",
+        command: `mkdir -p ${dataRoot} && co-engram init --path ${dataRoot}`,
+      },
     });
   } else if (!isEngramWarehouse) {
     checks.push({
@@ -173,6 +219,11 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
       status: "error",
       message: `不是 co-engram 仓库(缺 .co-engram/config.json)`,
       detail: `运行 'co-engram init --path ${dataRoot}' 初始化,或换一个已存在的仓库路径。`,
+      whyI18nKey: "viewer.health.why.data_root_not_warehouse",
+      fix: {
+        descriptionI18nKey: "viewer.health.fix.data_root_not_warehouse.description",
+        command: `co-engram init --path ${dataRoot}`,
+      },
     });
   } else {
     checks.push({
@@ -191,15 +242,31 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
         label: "Config",
         status: "error",
         message: ".co-engram/config.json 读取失败",
+        whyI18nKey: "viewer.health.why.config_unreadable",
+        fix: {
+          descriptionI18nKey: "viewer.health.fix.config_unreadable.description",
+          command: `co-engram init --path ${dataRoot}`,
+        },
       });
     } else {
       const lang = config["language"];
       const createdBy = config["defaultCreatedBy"];
+      const ok = !!(lang && createdBy);
       checks.push({
         id: "config",
         label: "Config",
-        status: lang && createdBy ? "ok" : "warn",
+        status: ok ? "ok" : "warn",
         message: `language=${String(lang ?? "(missing)")}, defaultCreatedBy=${String(createdBy ?? "(missing)")}`,
+        ...(ok
+          ? {}
+          : {
+              whyI18nKey: "viewer.health.why.config_missing_fields",
+              fix: {
+                descriptionI18nKey:
+                  "viewer.health.fix.config_missing_fields.description",
+                command: `co-engram config set language zh && co-engram config set defaultCreatedBy <你的名字>`,
+              },
+            }),
       });
     }
   }
@@ -229,6 +296,12 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
           label: `Index: ${label}`,
           status: "warn",
           message: "缺失(将在下次访问时重建)",
+          whyI18nKey: "viewer.health.why.index_missing",
+          fix: {
+            descriptionI18nKey: "viewer.health.fix.index_missing.description",
+            tool: "engram_doctor",
+            argsHint: "{ incremental: false }",
+          },
         });
       } else {
         checks.push({
@@ -243,12 +316,22 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
 
   // 候选提案
   if (dataRootExists && isEngramWarehouse) {
+    const overThreshold = proposals.pending > 5;
     checks.push({
       id: "proposals",
       label: "Proposals",
-      status: proposals.pending > 5 ? "warn" : "info",
+      status: overThreshold ? "warn" : "info",
       message: `${proposals.pending} 个待处理 / ${proposals.total} 总计`,
       detail: proposals.pending > 0 ? "调 engram_list_proposals 审核,或忽略。" : undefined,
+      ...(overThreshold
+        ? {
+            whyI18nKey: "viewer.health.why.proposals_pending_high",
+            fix: {
+              descriptionI18nKey: "viewer.health.fix.proposals_pending_high.description",
+              tool: "engram_list_proposals",
+            },
+          }
+        : {}),
     });
   }
 
@@ -261,14 +344,29 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
         status: "warn",
         message: "不是 git 仓库(无版本历史,丢失无法恢复)",
         detail: "运行 'cd <dataRoot> && git init' 初始化。",
+        whyI18nKey: "viewer.health.why.git_not_repo",
+        fix: {
+          descriptionI18nKey: "viewer.health.fix.git_not_repo.description",
+          command: `cd ${dataRoot} && git init`,
+        },
       });
     } else if (git.dirty) {
+      const overThreshold = git.uncommittedCount > 10;
       checks.push({
         id: "git",
         label: "Git",
-        status: git.uncommittedCount > 10 ? "warn" : "info",
+        status: overThreshold ? "warn" : "info",
         message: `${git.uncommittedCount} 个未提交变更`,
         detail: "co-engram 不会自动 commit;手动 commit 或配置 hook。",
+        ...(overThreshold
+          ? {
+              whyI18nKey: "viewer.health.why.git_dirty_high",
+              fix: {
+                descriptionI18nKey: "viewer.health.fix.git_dirty_high.description",
+                tool: "engram_sync",
+              },
+            }
+          : {}),
       });
     } else {
       checks.push({
@@ -289,6 +387,12 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
         status: "warn",
         message: "未配置 git merge driver(多人协作时 engram 合并会冲突)",
         detail: mergeDriver.detail,
+        whyI18nKey: "viewer.health.why.merge_driver_missing",
+        fix: {
+          descriptionI18nKey: "viewer.health.fix.merge_driver_missing.description",
+          command: "co-engram git enable",
+          tool: "engram_sync",
+        },
       });
     } else {
       checks.push({

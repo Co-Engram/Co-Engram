@@ -1805,4 +1805,167 @@ div.vis-tooltip {
   word-break: break-word;
   color: var(--muted, #94a3b8);
 }
+
+/* warn/error 可展开 details(problem 卡片) */
+.health-check-problem {
+  flex-direction: column;
+}
+.health-check-details > summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  cursor: pointer;
+  list-style: none;
+}
+.health-check-details > summary::-webkit-details-marker {
+  display: none;
+}
+.health-check-details[open] > summary {
+  margin-bottom: 0.5rem;
+}
+.health-check-expand-hint {
+  margin-left: auto;
+  align-self: center;
+  color: var(--muted, #94a3b8);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.health-check-details[open] .health-check-expand-hint::after {
+  content: " ▾";
+}
+.health-check-details:not([open]) .health-check-expand-hint::after {
+  content: " ▸";
+}
+.health-check-expand-body {
+  padding: 0.5rem 0 0 0;
+  margin-left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.health-why-block,
+.health-fix-block {
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.06);
+  border-left: 3px solid rgba(148, 163, 184, 0.35);
+}
+.health-fix-block {
+  border-left-color: rgba(94, 234, 212, 0.5);
+}
+.health-why-label,
+.health-fix-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted, #94a3b8);
+  margin-bottom: 0.3rem;
+}
+.health-why-text {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--fg);
+}
+.health-fix-desc {
+  font-size: 0.85rem;
+  color: var(--fg);
+  margin-bottom: 0.45rem;
+}
+.health-fix-cmd-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.health-fix-cmd {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  background: rgba(15, 23, 42, 0.45);
+  padding: 0.4rem 0.55rem;
+  border-radius: 4px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  word-break: break-all;
+  color: #5eead4;
+}
+.btn-mini {
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 4px;
+  background: rgba(94, 234, 212, 0.12);
+  border: 1px solid rgba(94, 234, 212, 0.3);
+  color: #5eead4;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn-mini:hover {
+  background: rgba(94, 234, 212, 0.22);
+}
+.health-fix-tool {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--muted, #94a3b8);
+}
+.health-fix-tool code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #c084fc;
+}
+
+/* doctor 联动卡片 */
+.health-doctor-card {
+  margin-top: 1rem;
+}
+.health-doctor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.health-doctor-kpis {
+  display: flex;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  flex-wrap: wrap;
+}
+.health-doctor-kpi {
+  padding: 0.45rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 0.85rem;
+}
+.health-doctor-kpi strong {
+  margin-right: 0.3rem;
+  font-size: 1rem;
+}
+.health-doctor-issue {
+  padding: 0.6rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(250, 204, 21, 0.06);
+  border-left: 3px solid rgba(250, 204, 21, 0.4);
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+.health-doctor-issue-kind {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted, #94a3b8);
+}
+.health-doctor-issue-msg {
+  margin: 0.2rem 0 0.4rem 0;
+  color: var(--fg);
+  line-height: 1.45;
+}
+.health-doctor-nextaction {
+  font-size: 0.8rem;
+  color: var(--muted, #94a3b8);
+}
+.health-doctor-nextaction code {
+  color: #5eead4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
 `;

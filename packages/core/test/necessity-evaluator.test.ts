@@ -4,9 +4,148 @@ import {
   RuleBasedNecessityEvaluator,
   LlmNecessityEvaluator,
   prefilterMessage,
+  isConversationalArtifact,
   type LlmClient,
   type NecessityInput,
 } from "../src/observability/necessity-evaluator.js";
+
+// ============================================================
+// isConversationalArtifact(对话内务检测)
+// ============================================================
+
+describe("isConversationalArtifact", () => {
+  describe("5 类信号正检测", () => {
+    it("tense_dominated: ≥2 个对话时态短语命中", () => {
+      const v = isConversationalArtifact(
+        "我会先做 A,然后做 B,接下来检查 C,马上开始执行",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons).toContain("tense_dominated");
+    });
+
+    it("deictic_refs: ≥2 个指代词命中", () => {
+      const v = isConversationalArtifact(
+        "上面提到的那个方法,这里有问题,前面已经说过了",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons).toContain("deictic_refs");
+    });
+
+    it("process_signature:table — markdown 表格", () => {
+      const v = isConversationalArtifact(
+        "确认配置:\n| 项 | 值 |\n|---|---|\n| Remote | origin |\n| Branch | master |",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons.some((r) => r.startsWith("process_signature:"))).toBe(
+        true,
+      );
+      expect(v.reasons.join(",")).toMatch(/table/);
+    });
+
+    it("process_signature:sha — 完整 commit SHA", () => {
+      const v = isConversationalArtifact(
+        "landed in commit 7a5fc2b7928e6c4af8a14d1b9d33e1f7c2b4a8e5 last week",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons.join(",")).toMatch(/sha/);
+    });
+
+    it("process_signature:ulid — co-engram ULID", () => {
+      const v = isConversationalArtifact(
+        "memory id 01KWC3W55HD0MSN6ECCF5040MJ was created just now",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons.join(",")).toMatch(/ulid/);
+    });
+
+    it("process_signature:token — GitHub PAT", () => {
+      const v = isConversationalArtifact(
+        "using token ghp_abcdefghijklmnopqrstuvwxyz in the URL",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons.join(",")).toMatch(/token/);
+    });
+
+    it("process_signature:command — 命令字面量占消息 50%+", () => {
+      const v = isConversationalArtifact(
+        "run this: `git -c http.proxy=http://proxysz.zte.com.cn:80 push origin master`",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons.join(",")).toMatch(/command/);
+    });
+
+    it("enumerated_options: 方案 A/B/C 并列", () => {
+      const v = isConversationalArtifact(
+        "方案 A 是快速但粗糙,方案 B 是慢但严谨,方案 C 是折中",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons).toContain("enumerated_options");
+    });
+
+    it("enumerated_options: G1/G2/G3 标记", () => {
+      const v = isConversationalArtifact(
+        "G1 是轻量规则补强,G2 是中度规则,G3 是 LLM 启发式补强",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons).toContain("enumerated_options");
+    });
+
+    it("self_meta: 强信号,单次命中即拒", () => {
+      const v = isConversationalArtifact(
+        "我推荐 G1+G2+G3 三层联动,等你确认方向后开始执行",
+      );
+      expect(v.artifact).toBe(true);
+      expect(v.reasons).toContain("self_meta");
+    });
+
+    it("复合信号: 配置表 + 指代 + 自我元层同时命中(用户原始例子)", () => {
+      const v = isConversationalArtifact(
+        "确认 push 配置:\n| 项 | 值 |\n|---|---|\n| Remote | https://github.com/yang/Co-Engram.git |\n| Token | ghp_abc |\n\n我推荐走代理方案,等你确认。",
+      );
+      expect(v.artifact).toBe(true);
+      // 至少命中 2 类信号
+      expect(v.reasons.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("负向(真正的领域事实不被误判)", () => {
+    it("跨会话稳定的部署事实 → 不是内务产物", () => {
+      const v = isConversationalArtifact(
+        "ZTE 内网机器 push 到 github.com 必须走 HTTP 代理 + PAT,SSH 22/443 全被封禁",
+      );
+      expect(v.artifact).toBe(false);
+      expect(v.reasons).toEqual([]);
+    });
+
+    it("co-engram 架构事实 → 不是内务产物", () => {
+      const v = isConversationalArtifact(
+        "co-engram 是跨宿主插件,core 和 viewer 在两个 host 之间共享同一份契约",
+      );
+      expect(v.artifact).toBe(false);
+    });
+
+    it("英文领域事实 → 不是内务产物", () => {
+      const v = isConversationalArtifact(
+        "co-engram default source path is fixed by CLAUDE.md and applies to all read/write/test operations across sessions",
+      );
+      expect(v.artifact).toBe(false);
+    });
+
+    it("单条时态短语(不达阈值)→ 不视为时态主导", () => {
+      const v = isConversationalArtifact(
+        "we should always configure github actions for typescript ci pipelines",
+      );
+      expect(v.artifact).toBe(false);
+    });
+
+    it("单条指代词(不达阈值)→ 不视为指代依赖", () => {
+      const v = isConversationalArtifact(
+        "this module exports the proposal engine and its supporting utilities",
+      );
+      expect(v.artifact).toBe(false);
+    });
+  });
+});
 
 // ============================================================
 // prefilterMessage (Layer 1)
@@ -82,6 +221,41 @@ describe("prefilterMessage (Layer 1)", () => {
   it("正常有内容消息 → 通过", () => {
     const v = prefilterMessage(
       "we should configure github actions for typescript ci pipelines",
+      "user",
+    );
+    expect(v.accepted).toBe(true);
+  });
+
+  it("对话内务产物(配置表)→ 拒绝(rule=conversational_artifact)", () => {
+    const v = prefilterMessage(
+      "确认 push 配置:\n| 项 | 值 |\n|---|---|\n| Remote | origin |\n| Branch | master |",
+      "assistant",
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.rule).toBe("conversational_artifact");
+  });
+
+  it("对话内务产物(选项枚举 + 自我元层)→ 拒绝(rule=conversational_artifact)", () => {
+    const v = prefilterMessage(
+      "我推荐方案 A,但方案 B 也行,等你确认方向",
+      "assistant",
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.rule).toBe("conversational_artifact");
+  });
+
+  it("对话内务产物(进度报告 + 指代)→ 拒绝(rule=conversational_artifact)", () => {
+    const v = prefilterMessage(
+      "正在处理刚才提到的那个问题,接下来会检查这里的其他项",
+      "assistant",
+    );
+    expect(v.accepted).toBe(false);
+    expect(v.rule).toBe("conversational_artifact");
+  });
+
+  it("跨会话稳定的领域事实 → 通过(不被误判为内务产物)", () => {
+    const v = prefilterMessage(
+      "ZTE 内网机器 push 到 github.com 必须走 HTTP 代理 proxysz.zte.com.cn:80 加 PAT 认证",
       "user",
     );
     expect(v.accepted).toBe(true);
@@ -190,7 +364,21 @@ describe("RuleBasedNecessityEvaluator (Layer 2)", () => {
       ]),
     );
     expect(v.necessary).toBe(true);
-    expect(v.reason).toMatch(/Passed 5 rule checks/);
+    expect(v.reason).toMatch(/Passed 6 rule checks/);
+  });
+
+  it("对话内务产物占 ≥50% samples → 拒绝(rule=conversational_artifact, L2 兜底)", async () => {
+    // L1 已挡这类内容,本测试验证 L2 防御性兜底(L1 万一漏检)
+    const v = await evaluator.evaluate(
+      makeInput([
+        "确认配置表:\n| 项 | 值 |\n|---|---|\n| A | a |\n| B | b |",
+        "另一个配置表:\n| 字段 | 值 |\n|---|---|\n| X | x |",
+        "we should configure github actions for typescript ci pipelines",
+        "we should set up github actions for typescript continuous integration",
+      ]),
+    );
+    expect(v.necessary).toBe(false);
+    expect(v.rule).toBe("conversational_artifact");
   });
 
   it("提供 reason 给用户审批时参考", async () => {

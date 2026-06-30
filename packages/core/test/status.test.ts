@@ -10,6 +10,7 @@ import {
 } from "../src/status/status.js";
 import { writeTeamMemoryConfig } from "../src/config/index.js";
 import { EngramRepository } from "../src/storage/repository.js";
+import { zh, en } from "../src/i18n/index.js";
 
 let tmpDir: string;
 
@@ -274,5 +275,120 @@ describe("computeStatus / JSON 可序列化", () => {
     expect(parsed.dataRoot).toBe(snapshot.dataRoot);
     expect(parsed.stats.total).toBe(snapshot.stats.total);
     expect(parsed.checks.length).toBe(snapshot.checks.length);
+  });
+});
+
+// ============================================================
+// 结构化修复指引:每个 warn/error check 必须填 whyI18nKey + fix
+// 防回归:viewer 端依赖这些字段渲染「为什么 / 怎么修」展开区块。
+// 如果某 check 漏填,UI 上警告就没解释、没修复指引——回到本次改进前的状态。
+// ============================================================
+describe("computeStatus / 结构化 why/fix 字段", () => {
+  it("data_root missing → error check 含 whyI18nKey + fix.command", () => {
+    const snapshot = computeStatus(join(tmpDir, "nonexistent"));
+    const dataRootCheck = snapshot.checks.find((c) => c.id === "data_root");
+    expect(dataRootCheck?.status).toBe("error");
+    expect(dataRootCheck?.whyI18nKey).toBeTruthy();
+    expect(dataRootCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\./);
+    expect(dataRootCheck?.fix).toBeDefined();
+    expect(dataRootCheck?.fix?.command).toBeTruthy();
+    expect(dataRootCheck?.fix?.descriptionI18nKey).toMatch(/^viewer\.health\.fix\./);
+  });
+
+  it("data_root not warehouse → error check 含 whyI18nKey + fix", () => {
+    const snapshot = computeStatus(tmpDir); // tmpDir 存在但不是 warehouse
+    const dataRootCheck = snapshot.checks.find((c) => c.id === "data_root");
+    expect(dataRootCheck?.status).toBe("error");
+    expect(dataRootCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.data_root_not_warehouse/);
+    expect(dataRootCheck?.fix?.command).toContain("co-engram init");
+  });
+
+  it("config unreadable → error check 含 whyI18nKey + fix", async () => {
+    await initWarehouse(tmpDir);
+    writeFileSync(join(tmpDir, ".co-engram", "config.json"), "{ invalid json");
+    const snapshot = computeStatus(tmpDir);
+    const configCheck = snapshot.checks.find((c) => c.id === "config");
+    expect(configCheck?.status).toBe("error");
+    expect(configCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.config_unreadable/);
+    expect(configCheck?.fix?.command).toBeTruthy();
+  });
+
+  it("config 缺 language 或 defaultCreatedBy → warn check 含 whyI18nKey + fix", async () => {
+    // 只写 defaultCreatedBy,缺 language
+    mkdirSync(join(tmpDir, ".co-engram"), { recursive: true });
+    await writeTeamMemoryConfig(tmpDir, {
+      version: 1,
+      language: "zh",
+      defaultCreatedBy: "test",
+      createdAt: new Date().toISOString(),
+      initializedBy: "test",
+    });
+    // 覆盖 config 让 language 字段消失
+    writeFileSync(
+      join(tmpDir, ".co-engram", "config.json"),
+      JSON.stringify({ version: 1, defaultCreatedBy: "test" }),
+    );
+    const snapshot = computeStatus(tmpDir);
+    const configCheck = snapshot.checks.find((c) => c.id === "config");
+    expect(configCheck?.status).toBe("warn");
+    expect(configCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.config_missing_fields/);
+    expect(configCheck?.fix).toBeDefined();
+  });
+
+  it("索引文件缺失 → warn check 含 whyI18nKey + fix.tool=engram_doctor", async () => {
+    await initWarehouse(tmpDir);
+    const snapshot = computeStatus(tmpDir);
+    const digestCheck = snapshot.checks.find((c) => c.id === "index_digestJsonl");
+    expect(digestCheck?.status).toBe("warn");
+    expect(digestCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.index_missing/);
+    expect(digestCheck?.fix?.tool).toBe("engram_doctor");
+  });
+
+  it("非 git 仓库 → warn check 含 whyI18nKey + fix.command", async () => {
+    await initWarehouse(tmpDir);
+    const snapshot = computeStatus(tmpDir);
+    const gitCheck = snapshot.checks.find((c) => c.id === "git");
+    expect(gitCheck?.status).toBe("warn");
+    expect(gitCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.git_not_repo/);
+    expect(gitCheck?.fix?.command).toContain("git init");
+  });
+
+  it("未配置 merge driver → warn check 含 whyI18nKey + fix", async () => {
+    await initWarehouse(tmpDir, { git: true });
+    const snapshot = computeStatus(tmpDir);
+    const mergeCheck = snapshot.checks.find((c) => c.id === "merge_driver");
+    expect(mergeCheck?.status).toBe("warn");
+    expect(mergeCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.merge_driver_missing/);
+    expect(mergeCheck?.fix?.command).toContain("co-engram git enable");
+  });
+
+  it("ok/info check 不需要 whyI18nKey / fix(留空)", async () => {
+    await initWarehouse(tmpDir, { git: true });
+    // 让 data_root 是 ok 状态
+    const snapshot = computeStatus(tmpDir);
+    const dataRootCheck = snapshot.checks.find((c) => c.id === "data_root");
+    expect(dataRootCheck?.status).toBe("ok");
+    expect(dataRootCheck?.whyI18nKey).toBeUndefined();
+    expect(dataRootCheck?.fix).toBeUndefined();
+  });
+
+  it("whyI18nKey 在 zh / en 翻译表里都有对应键(无渲染时回退到 key 本身)", async () => {
+    await initWarehouse(tmpDir);
+    const snapshot = computeStatus(tmpDir);
+    const problemChecks = snapshot.checks.filter(
+      (c) => c.status === "warn" || c.status === "error",
+    );
+    expect(problemChecks.length).toBeGreaterThan(0);
+    for (const c of problemChecks) {
+      if (c.whyI18nKey) {
+        expect(zh[c.whyI18nKey as keyof typeof zh], `zh.${c.whyI18nKey} 缺翻译`).toBeTruthy();
+        expect(en[c.whyI18nKey as keyof typeof en], `en.${c.whyI18nKey} 缺翻译`).toBeTruthy();
+      }
+      if (c.fix?.descriptionI18nKey) {
+        const k = c.fix.descriptionI18nKey as keyof typeof zh;
+        expect(zh[k], `zh.${k} 缺翻译`).toBeTruthy();
+        expect(en[k], `en.${k} 缺翻译`).toBeTruthy();
+      }
+    }
   });
 });
