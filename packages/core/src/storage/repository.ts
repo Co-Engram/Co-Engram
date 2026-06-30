@@ -293,6 +293,29 @@ export class EngramRepository {
     this.persistIndex(index);
   }
 
+  /**
+   * 清理索引中所有指向 relativePath 的孤儿 entry,返回清理数量。
+   *
+   * 触发场景:外部(用户 rm / git 操作 / 进程异常)删除 engram 文件后,
+   * engram-index.json 仍保留旧 ULID 的 entry。下一次 createEngram 写入
+   * 同 path 的新 ULID 会留下永不消失的孤儿,导致 listEngrams / viewer
+   * 显示"重影"(同一文件被两个 ULID 引用)。
+   *
+   * 同 path 出现多条 entry 本身就是不变量破坏 —— 此处发现即清。多数调用
+   * 不会命中,N=0 时是 O(|index|) 扫一次,可接受。
+   */
+  private purgeStaleIndexEntriesForPath(relativePath: string): number {
+    const index = this.getIndex();
+    const stale: StableEngramId[] = [];
+    for (const [id, entry] of index.entries) {
+      if (entry.path === relativePath) stale.push(id);
+    }
+    for (const id of stale) {
+      this.deleteIndexEntry(id);
+    }
+    return stale.length;
+  }
+
   // ─── Cross-process watcher ─────────────────────────────────────────────
 
   /**
@@ -421,6 +444,12 @@ export class EngramRepository {
     if (existsSync(absolutePath)) {
       throw new Error(`Engram already exists at ${relativePath}`);
     }
+
+    // 自愈:外部 rm / git 操作可能让 engram-index.json 残留指向同 path
+    // 但磁盘已无文件的孤儿 entry。新 ULID 写入后会留下永不消失的"重影"
+    // (listEngrams / viewer 显示重复节点)。在写入前清理。engram_doctor
+    // 是手动巡检版本,此处是写入路径的自动防线。
+    this.purgeStaleIndexEntriesForPath(relativePath);
 
     const hasExplicitDomainTags = input.domainTags.length > 0;
     const frontmatter: EngramFrontmatter = {

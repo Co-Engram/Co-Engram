@@ -76,6 +76,42 @@ describe("EngramRepository — Engram CRUD", () => {
     ).toThrow(/already exists/);
   });
 
+  it("createEngram 自愈:同 path 的孤儿索引项在写入前被清理", () => {
+    // 模拟真实 bug 场景:外部(用户 rm / git 操作 / 进程异常)删了磁盘文件,
+    // 但 engram-index.json 仍保留旧 ULID 的 entry。下一次 createEngram 写入
+    // 同 path 应当清掉孤儿,而不是留下永不消失的"重影"。
+    const first = repo.createEngram({
+      title: "A",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "alice",
+      pathHint: "a.md",
+    });
+    expect(repo.listEngrams().length).toBe(1);
+
+    // 外部删除磁盘文件,索引项残留(不走 repo.deleteEngram,所以索引不清)
+    rmSync(join(tmpDir, "a.md"));
+    expect(existsSync(join(tmpDir, "a.md"))).toBe(false);
+    // 索引里 ULID A 还在(孤儿)
+    expect(repo.listEngrams().length).toBe(1);
+
+    // 新写入同 path:existsSync 通过(磁盘无文件),触发自愈清孤儿
+    const second = repo.createEngram({
+      title: "B",
+      content: "y",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "alice",
+      pathHint: "a.md",
+    });
+
+    // 索引只剩新 ULID,listEngrams 不再显示重影
+    expect(repo.listEngrams().length).toBe(1);
+    expect(repo.listEngrams()[0]!.id).toBe(second.id);
+    expect(() => repo.readEngram(first.id)).toThrow();
+  });
+
   it("readEngram 读回创建的数据", () => {
     const created = repo.createEngram({
       title: "Test Engram",
