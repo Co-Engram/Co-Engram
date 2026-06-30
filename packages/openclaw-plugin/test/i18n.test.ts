@@ -66,14 +66,16 @@ describe("OpenClaw adapter i18n / adaptTool", () => {
     expect(desc.description).toContain("在两条记忆之间创建有类型的连接");
   });
 
-  it("未传 language 时所有 29 个工具的描述与传 zh 一致", () => {
+  it("未传 language 时所有原生工具的描述与传 zh 一致", () => {
     const registry = createToolRegistry();
     const tools = registry.list();
     const ctx = makeFakeCtx();
     const defaultDescs = adaptAllTools(tools, ctx);
     const zhDescs = adaptAllTools(tools, ctx, "zh");
-    expect(defaultDescs.length).toBe(29);
-    expect(zhDescs.length).toBe(29);
+    // 不硬编码数字 —— 跟 registry 注册总数走,避免新增工具时遗漏更新(此前 29 → 30 drift)。
+    // registry 含 skill_invoke P0 stub,即便 profile 不暴露它也仍在 registry 里。
+    expect(defaultDescs.length).toBe(tools.length);
+    expect(zhDescs.length).toBe(tools.length);
     for (let i = 0; i < defaultDescs.length; i++) {
       expect(defaultDescs[i]!.description).toBe(zhDescs[i]!.description);
     }
@@ -106,8 +108,10 @@ describe("OpenClaw plugin i18n / registerCoEngramTools", () => {
   it("language=zh 时注册的工具描述是中文(LLM 字典优先)", () => {
     const { api, tools } = makeFakeApi();
     registerCoEngramTools(api, { dataRoot: tmpDir, language: "zh" });
-    // 29 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 31
-    expect(tools.length).toBe(31);
+    // 原生工具数跟 registry 走(当前 30,含 skill_invoke P0 stub),
+    // + 2 OpenClaw 兼容(memory_search/memory_get wrapper)。不硬编码避免 drift。
+    const expected = createToolRegistry().list().length + 2;
+    expect(tools.length).toBe(expected);
     const create = tools.find((t) => t.name === "engram_create");
     expect(create?.description).toContain("创建新记忆");
     expect(create?.description).toContain("何时调用");
@@ -116,8 +120,8 @@ describe("OpenClaw plugin i18n / registerCoEngramTools", () => {
   it("language=en 时注册的工具描述是英文(LLM 字典优先)", () => {
     const { api, tools } = makeFakeApi();
     registerCoEngramTools(api, { dataRoot: tmpDir, language: "en" });
-    // 29 原生工具 + 2 OpenClaw 兼容(memory_search/memory_get) = 31
-    expect(tools.length).toBe(31);
+    const expected = createToolRegistry().list().length + 2;
+    expect(tools.length).toBe(expected);
     const create = tools.find((t) => t.name === "engram_create");
     expect(create?.description).toContain("Create a new memory");
     expect(create?.description).toContain("WHEN TO CALL");
