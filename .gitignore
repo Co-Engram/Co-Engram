@@ -42,6 +42,10 @@ team-memory/
 # Codegraph local index
 .codegraph/
 
+# /loop session-local artifacts (analysis state, ad-hoc bench scripts)
+.loop-progress.json
+proposal-bench.mjs
+
 # Example build outputs
 examples/*/dist/
 examples/*/node_modules/
