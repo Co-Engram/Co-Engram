@@ -24,7 +24,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { registerCoEngramTools } from "@co-engram/openclaw";
 import type { CoEngramPluginHostApi, OpenClawToolDescriptor } from "@co-engram/openclaw";
 import { createCoEngramMcpServer } from "@co-engram/claude-code";
-import { createToolRegistry, localizeToolDescription, DEFAULT_LANGUAGE } from "@co-engram/core";
+import { createToolRegistry, localizeToolDescription, DEFAULT_LANGUAGE, PROFILE_TOOL_SETS } from "@co-engram/core";
 
 let tmpDir: string;
 
@@ -75,17 +75,18 @@ async function startMcpClient(
 // ============================================================
 
 describe("cross-host contract / 工具集对称性", () => {
-  it("OpenClaw 暴露 28 native + 2 兼容 = 30 个工具", () => {
+  it("OpenClaw 暴露全部 native + 2 兼容 = registry 全集 + 2 个工具", () => {
+    const nativeCount = createToolRegistry().list().length;
     const host = createMemoryOpenClawHost();
     registerCoEngramTools(host, { dataRoot: tmpDir, language: "en", startMaintenance: false });
-    expect(host.tools.size).toBe(30);
+    expect(host.tools.size).toBe(nativeCount + 2);
   });
 
-  it("Claude Code MCP full profile 暴露 28 个 native 工具(不含 memory_search/memory_get)", async () => {
+  it("Claude Code MCP full profile 暴露全部 native 工具(= registry 全集,不含 memory_search/memory_get)", async () => {
     const { client } = await startMcpClient(tmpDir, { language: "en", profile: "full" });
     const tools = await client.listTools();
     const names = new Set(tools.tools.map((t) => t.name));
-    expect(names.size).toBe(28);
+    expect(names.size).toBe(createToolRegistry().list().length);
     expect(names.has("memory_search")).toBe(false);
     expect(names.has("memory_get")).toBe(false);
   });
@@ -106,19 +107,21 @@ describe("cross-host contract / 工具集对称性", () => {
     expect(ocNativeNames).toEqual(mcpNames);
   });
 
-  it("core registry 工具数 = 28(MCP full profile 的真相源)", () => {
-    const registry = createToolRegistry();
-    expect(registry.list().length).toBe(28);
+  it("core registry 工具数 = MCP full profile 的真相源", async () => {
+    const registrySize = createToolRegistry().list().length;
+    const { client } = await startMcpClient(tmpDir, { language: "en", profile: "full" });
+    const tools = await client.listTools();
+    expect(tools.tools.length).toBe(registrySize);
   });
 
-  it("MCP standard profile 暴露 17 个工具,minimal 暴露 11 个", async () => {
+  it("MCP standard / minimal profile 工具数与 PROFILE_TOOL_SETS 一致", async () => {
     const std = await startMcpClient(tmpDir, { language: "en", profile: "standard" });
     const stdTools = await std.client.listTools();
-    expect(stdTools.tools.length).toBe(17);
+    expect(stdTools.tools.length).toBe(PROFILE_TOOL_SETS.standard.size);
 
     const min = await startMcpClient(tmpDir, { language: "en", profile: "minimal" });
     const minTools = await min.client.listTools();
-    expect(minTools.tools.length).toBe(11);
+    expect(minTools.tools.length).toBe(PROFILE_TOOL_SETS.minimal.size);
   });
 });
 

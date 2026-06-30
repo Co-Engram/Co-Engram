@@ -181,33 +181,33 @@ WHEN NOT TO CALL:
 - The task failed or the memory was wrong (use engram_report_failure instead)
 
 RETURNS: Memory's strength score increased + effective-use count incremented.`,
-  "tool.engram_report_failure.agent": `Report a "retrieval that led to a wrong answer" — a failed use (cumulative LTD weakening).
+  "tool.engram_report_failure.agent": `Report a retrieval that produced a wrong answer (cumulative LTD weakening).
 
 WHEN TO CALL:
-- A retrieved memory led you to give a wrong answer or take a wrong path
-- User feedback says "this is wrong", but you're unsure whether the memory itself is now invalid or just didn't fit this case
+- A retrieved memory led you to a wrong answer or wrong path
+- User says "this is wrong" but you're unsure if the memory itself is invalid or just didn't fit
 
 WHEN NOT TO CALL:
-- Code/decision/constraint has definitively changed and the memory's fact no longer holds → use engram_delete (deterministic invalidation, immediate)
-- The memory is just incomplete (use engram_update)
+- Fact definitively changed → use engram_delete (immediate)
+- Memory is just incomplete (use engram_update)
 - You're not sure (ask the user first)
 
-Mechanism: this is cumulative negative feedback — a single call only drops importance a little (typically −0.03) and the memory stays in the retrieval pool; after several accumulations a maintenance cycle may auto-refute it. Deterministic factual invalidation should NOT go this route — use engram_delete directly.`,
-  "tool.engram_delete.agent": `Permanently delete a memory (immediate invalidation, irreversible).
+Mechanism: cumulative negative feedback — one call drops importance only slightly (typically −0.03); after several accumulations a maintenance cycle may auto-refute it. Deterministic invalidation should NOT go this route.
 
-⚠️ Irreversible operation: unless the user has already explicitly instructed deletion (e.g. "remove that memory about X"), you MUST confirm with the user before calling.
+RETURNS: { ok: true, importance, failureCount } + audit recorded.`,
+  "tool.engram_delete.agent": `Permanently delete a memory (immediate, irreversible).
+
+⚠️ Unless the user has explicitly instructed deletion, you MUST confirm before calling.
 
 WHEN TO CALL:
 - User explicitly asks to delete ("remove that memory about X")
-- Memory is duplicated and you're keeping only one (confirm which one stays)
-- Memory contains sensitive info that should not persist
-- The fact has definitively become invalid: code/decision/constraint has changed AND you have hard evidence (runtime verification or explicit user statement — not speculation). This "deterministic invalidation" does NOT go through cumulative engram_report_failure — delete directly
+- Memory is duplicated (keep one) or contains sensitive info that should not persist
+- Fact definitively invalid: code/decision/constraint changed AND you have hard evidence (runtime verification or user statement, not speculation). Bypasses cumulative engram_report_failure — delete directly
 
 WHEN NOT TO CALL:
-- The retrieval merely produced a wrong answer (use engram_report_failure, cumulative negative feedback)
-- The factual change is only speculated, not verified by running code or stated by the user (verify first or ask)
+- Retrieval merely produced a wrong answer (use engram_report_failure, cumulative)
+- Factual change is only speculated, not verified (verify first)
 - User is ambiguous ("forget that" — confirm what they mean)
-- For bulk cleanup (use CLI instead)
 
 RETURNS: { deleted: true } or error if not found.`,
   "tool.close_learning_loop.agent": `Close the verification loop on a memory after confirming its correctness.
@@ -370,12 +370,12 @@ WHEN TO CALL:
 - Soft removal before considering permanent deletion
 
 WHEN NOT TO CALL:
-- The retrieval merely produced a wrong answer (use engram_report_failure, cumulative negative feedback)
-- The fact has definitively become invalid (use engram_delete, immediate)
+- Retrieval merely produced a wrong answer (use engram_report_failure, cumulative)
+- Fact definitively invalid (use engram_delete, immediate)
 - User is ambiguous (confirm what they want forgotten)
-- You want to keep the memory searchable (use engram_archive instead)
+- You want it still searchable (use engram_archive instead)
 
-RETURNS: { forgotten: true } + reason recorded. Default sweep pipeline: .trash/ after 30 days, physical delete after another 365 days.`,
+RETURNS: { forgotten: true } + reason recorded. Sweep: .trash/ after 30 days, physical delete after another 365 days.`,
   "tool.engram_recompute_importance.agent": `Recompute a memory's multi-dimensional importance score.
 
 WHEN TO CALL:
