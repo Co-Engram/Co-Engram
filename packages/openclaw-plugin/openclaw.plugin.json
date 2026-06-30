@@ -36,6 +36,7 @@
       "engram_doctor",
       "engram_list_paths",
       "engram_synthesize",
+      "engram_audit_query",
       "engram_sync"
     ]
   },

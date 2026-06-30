@@ -14,7 +14,7 @@ import {
   type OpenClawToolDescriptor,
   type CoEngramPluginHostApi,
 } from "../src/index.js";
-import { detectGitAuthor } from "@co-engram/core";
+import { createToolRegistry, detectGitAuthor } from "@co-engram/core";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MANIFEST_PATH = join(__dirname, "..", "openclaw.plugin.json");
@@ -113,14 +113,14 @@ describe("adaptTool", () => {
 // ============================================================
 
 describe("adaptAllTools", () => {
-  it("批量适配 29 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2 + synthesize 1 + engram_sync 1）", () => {
+  it("批量适配所有原生工具(registry 当前 30 个,含 skill_invoke stub + engram_audit_query)", () => {
     const { tools } = createCoEngramTools({ dataRoot: tmpDir });
-    expect(tools.length).toBe(29);
     expect(tools.map((t) => t.name).sort()).toEqual([
       "close_learning_loop",
       "contradiction_resolve",
       "engram_accept_proposal",
       "engram_archive",
+      "engram_audit_query",
       "engram_create",
       "engram_delete",
       "engram_dismiss_proposal",
@@ -147,6 +147,8 @@ describe("adaptAllTools", () => {
       "synapse_list",
       "upgrade_verification",
     ]);
+    // 数字不硬编码,跟列表长度走 —— 列表本身是 regression guard,防止工具被无意移除。
+    expect(tools.length).toBe(30);
   });
 });
 
@@ -155,7 +157,7 @@ describe("adaptAllTools", () => {
 // ============================================================
 
 describe("openclaw.plugin.json manifest sync", () => {
-  it("contracts.tools 包含 registry 全部 29 个 native 工具 + 2 个 memory_* 兼容包装", () => {
+  it("contracts.tools 包含 registry 全部 native 工具 + 2 个 memory_* 兼容包装", () => {
     const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as {
       contracts: { tools: string[] };
     };
@@ -163,7 +165,7 @@ describe("openclaw.plugin.json manifest sync", () => {
     const registryNames = new Set(tools.map((t) => t.name));
     const manifestNames = new Set(manifest.contracts.tools);
 
-    // manifest 必须覆盖所有 registry 工具(regression: doctor/list_paths 曾被遗漏)
+    // manifest 必须覆盖所有 registry 工具(regression: doctor/list_paths/audit_query 曾被遗漏)
     const missingInManifest = [...registryNames].filter(
       (n) => !manifestNames.has(n),
     );
@@ -173,8 +175,8 @@ describe("openclaw.plugin.json manifest sync", () => {
     expect(manifestNames.has("memory_search")).toBe(true);
     expect(manifestNames.has("memory_get")).toBe(true);
 
-    // 总数:29 native + 2 memory_* = 31
-    expect(manifest.contracts.tools.length).toBe(31);
+    // 总数跟 registry 走 + 2 memory_* wrapper,避免新工具加入时再次 drift。
+    expect(manifest.contracts.tools.length).toBe(registryNames.size + 2);
   });
 });
 
@@ -183,10 +185,12 @@ describe("openclaw.plugin.json manifest sync", () => {
 // ============================================================
 
 describe("registerCoEngramTools", () => {
-  it("注册 31 个工具到 host(29 原生 + 2 memory_* 兼容)", () => {
+  it("注册全部工具到 host(registry native + 2 memory_* 兼容包装)", () => {
     const host = createMemoryHost();
     registerCoEngramTools(host, { dataRoot: tmpDir });
-    expect(host.tools.size).toBe(31);
+    // 不硬编码数字 —— createToolRegistry 的工具数 + 2 wrapper,避免 drift。
+    const expected = createToolRegistry().list().length + 2;
+    expect(host.tools.size).toBe(expected);
   });
 
   it("enabled=false 时不注册工具", () => {
@@ -199,7 +203,8 @@ describe("registerCoEngramTools", () => {
     const newRoot = join(tmpDir, "fresh-data");
     const host = createMemoryHost();
     registerCoEngramTools(host, { dataRoot: newRoot });
-    expect(host.tools.size).toBe(31);
+    const expected = createToolRegistry().list().length + 2;
+    expect(host.tools.size).toBe(expected);
   });
 
   it("注册的工具可被调用", async () => {
