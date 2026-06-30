@@ -59,6 +59,17 @@ window.CO_ENGRAM_T = (function() {
     return t('decay.daysToNext', { days: days });
   }
 
+  // 把裸浮点 score 格式化为 '0.72 · 高' 形式:
+  //   - 2 位小数(杀 0.018000000000000002 类浮点噪声)
+  //   - band: ≥0.7 high / ≥0.3 medium / <0.3 low(与 core formatScoreField 阈值一致)
+  //   - null/undefined/NaN 返回 '—'
+  function formatScoreBand(value) {
+    if (value === null || value === undefined || Number.isNaN(value)) return '—';
+    var rounded = Math.round(value * 100) / 100;
+    var band = rounded >= 0.7 ? 'high' : rounded >= 0.3 ? 'medium' : 'low';
+    return rounded.toFixed(2) + ' · ' + t('viewer.scoreBand.' + band);
+  }
+
   function currentLang() {
     return LANG;
   }
@@ -70,6 +81,7 @@ window.CO_ENGRAM_T = (function() {
     sectionLabel: sectionLabel,
     actionLabel: actionLabel,
     decayLabel: decayLabel,
+    formatScoreBand: formatScoreBand,
     currentLang: currentLang,
   };
 })();

@@ -181,28 +181,32 @@ export const zh = {
 - 任务失败或记忆错了(用 engram_report_failure)
 
 返回:记忆的强度分数增加 + 有效使用计数 +1。`,
-  "tool.engram_report_failure.agent": `报告某条记忆错误或过时(负向强化)。
+  "tool.engram_report_failure.agent": `上报一次"召回后导致错误答案"的失败使用(LTD 累积式削弱)。
 
 何时调用:
-- 用户说"不对"、"我们改了"、"过时了"
-- 取回的记忆导致了错误答案
-- 代码或现实和记忆矛盾
+- 召回了某条记忆,但其内容导致你给出错误答案或走错路径
+- 用户反馈"这条不对",但你不确定是这条记忆整体失效还是只是本次不适用
 
 何时不调用:
+- 代码/决策/约束已确定变更,记忆描述的事实已不成立 → 用 engram_delete(确定性失效,立即)
 - 记忆只是不完整(用 engram_update)
 - 不确定(先问用户)
 
-返回:记忆的失败次数增加 + 强度分数下降。可能在后续维护周期自动驳回。`,
-  "tool.engram_delete.agent": `永久删除一条记忆(谨慎使用)。
+机制说明:这是累积式负反馈 —— 单次调用只让 importance 下降一点(典型 −0.03),记忆仍在检索池里;多次累积后,维护周期可能自动驳回。确定性事实失效不要走这条路,直接 engram_delete。`,
+  "tool.engram_delete.agent": `永久删除一条记忆(立即失效,不可恢复)。
+
+⚠️ 不可逆操作:除非用户已明确指示删除(如"删掉关于 X 的记忆"),否则调用前必须先向用户确认。
 
 何时调用:
 - 用户明确要删除("删掉关于 X 的那条记忆")
-- 记忆重复了,只保留一条
+- 记忆重复了,只保留一条(确认哪条保留)
 - 记忆含敏感信息不应保留
+- 事实已确定失效:代码/决策/约束已确定变更,且你已通过运行验证或用户明确陈述获得确凿证据(不能基于推测)。这种"确定性失效"不走累积式 engram_report_failure,直接 delete
 
 何时不调用:
-- 记忆只是过时(用 engram_report_failure,让维护 refute)
-- 用户表述模糊("忘掉那个"— 确认含义)
+- 只是召回后答案不准(用 engram_report_failure,累积式负反馈)
+- 事实变更仅是推测、未经运行验证或用户陈述(先验证或问用户)
+- 用户表述模糊("忘掉那个" — 确认含义)
 - 批量清理(用 CLI)
 
 返回:{ deleted: true } 或未找到错误。`,
@@ -366,7 +370,8 @@ export const zh = {
 - 在考虑永久删除前的软移除
 
 何时不调用:
-- 记忆只是过时(用 engram_report_failure,让维护处理)
+- 只是召回后答案不准(用 engram_report_failure,累积式负反馈)
+- 事实已确定失效(用 engram_delete,立即)
 - 用户表述模糊(确认要遗忘什么)
 - 想保持可搜索(用 engram_archive 代替)
 
@@ -694,7 +699,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "prompt.memory.writing":
     '创建/更新记忆(engram_create / engram_update)时:createdBy 留空让系统自动用 git user.name 作为作者标识。**不要主动填 "claude-code" / "openclaw" / "AIOS" / "assistant" / "system" 等工具名或通用词**——团队里人人都用 Claude Code,标 "claude-code" 等于没标作者,audit log 失去追溯价值。createdBy 标记的是"人",不是"工具"。仅当用户明确要求特定作者标识(如团队名、外部系统名)时才显式传 createdBy。',
   "prompt.memory.when_to_reinforce":
-    "何时调用 engram_reinforce:由你**自主判断**——当你引用的记忆确实帮助完成了任务、内容被实际采纳进答案、或成功指导了决策时,对该 engram 调 engram_reinforce(id, effectiveness) 强化。effectiveness 取值:1.0=完全有效、0.7=大部分有效、0.4=仅作为背景参考。引用错误或过时时调 engram_report_failure。co-engram 是自进化系统,你的强化信号是 importance 评分的关键输入——主动调用,不要等待用户提示。同时**诚实评估**:仅沾边不要给高分,过度强化会让低价值记忆淹没高价值记忆。",
+    "何时调用 engram_reinforce:由你**自主判断**——当你引用的记忆确实帮助完成了任务、内容被实际采纳进答案、或成功指导了决策时,对该 engram 调 engram_reinforce(id, effectiveness) 强化。effectiveness 取值:1.0=完全有效、0.7=大部分有效、0.4=仅作为背景参考。引用错误时调 engram_report_failure(累积式负反馈);事实已确定变更时调 engram_delete(立即失效、不可恢复,默认先向用户确认)。co-engram 是自进化系统,你的强化信号是 importance 评分的关键输入——主动调用,不要等待用户提示。同时**诚实评估**:仅沾边不要给高分,过度强化会让低价值记忆淹没高价值记忆。",
   "prompt.memory.proposal_reminder":
     "待处理提案:${count} 条候选记忆待审阅。调用 engram_list_proposals 查看,engram_accept_proposal 入库,或 engram_dismiss_proposal 忽略。",
   "prompt.memory.frequent_topics":
@@ -1179,6 +1184,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.detail.dim.network": "网络:",
   "viewer.detail.dim.temporal": "时间:",
   "viewer.detail.dim.composite": "复合:",
+  "viewer.scoreBand.high": "高",
+  "viewer.scoreBand.medium": "中",
+  "viewer.scoreBand.low": "低",
   "viewer.detail.searching": "Searching...",
   "viewer.detail.searchNoMatch": "无匹配结果",
   "viewer.detail.searchFailed": "Search failed: ${err}",

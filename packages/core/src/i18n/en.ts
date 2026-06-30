@@ -181,27 +181,31 @@ WHEN NOT TO CALL:
 - The task failed or the memory was wrong (use engram_report_failure instead)
 
 RETURNS: Memory's strength score increased + effective-use count incremented.`,
-  "tool.engram_report_failure.agent": `Report a memory as wrong or outdated (negative reinforcement).
+  "tool.engram_report_failure.agent": `Report a "retrieval that led to a wrong answer" — a failed use (cumulative LTD weakening).
 
 WHEN TO CALL:
-- User says "that's not right" / "we changed that" / "outdated"
-- A retrieved memory led to a wrong answer
-- Code or reality contradicts the memory
+- A retrieved memory led you to give a wrong answer or take a wrong path
+- User feedback says "this is wrong", but you're unsure whether the memory itself is now invalid or just didn't fit this case
 
 WHEN NOT TO CALL:
+- Code/decision/constraint has definitively changed and the memory's fact no longer holds → use engram_delete (deterministic invalidation, immediate)
 - The memory is just incomplete (use engram_update)
 - You're not sure (ask the user first)
 
-RETURNS: Memory's failure count increased + strength score decreased. May trigger automatic refutation in a later maintenance cycle.`,
-  "tool.engram_delete.agent": `Permanently delete a memory (use with caution).
+Mechanism: this is cumulative negative feedback — a single call only drops importance a little (typically −0.03) and the memory stays in the retrieval pool; after several accumulations a maintenance cycle may auto-refute it. Deterministic factual invalidation should NOT go this route — use engram_delete directly.`,
+  "tool.engram_delete.agent": `Permanently delete a memory (immediate invalidation, irreversible).
+
+⚠️ Irreversible operation: unless the user has already explicitly instructed deletion (e.g. "remove that memory about X"), you MUST confirm with the user before calling.
 
 WHEN TO CALL:
 - User explicitly asks to delete ("remove that memory about X")
-- Memory is duplicated and you're keeping only one
+- Memory is duplicated and you're keeping only one (confirm which one stays)
 - Memory contains sensitive info that should not persist
+- The fact has definitively become invalid: code/decision/constraint has changed AND you have hard evidence (runtime verification or explicit user statement — not speculation). This "deterministic invalidation" does NOT go through cumulative engram_report_failure — delete directly
 
 WHEN NOT TO CALL:
-- Memory is just outdated (use engram_report_failure, let maintenance refute it)
+- The retrieval merely produced a wrong answer (use engram_report_failure, cumulative negative feedback)
+- The factual change is only speculated, not verified by running code or stated by the user (verify first or ask)
 - User is ambiguous ("forget that" — confirm what they mean)
 - For bulk cleanup (use CLI instead)
 
@@ -366,7 +370,8 @@ WHEN TO CALL:
 - Soft removal before considering permanent deletion
 
 WHEN NOT TO CALL:
-- Memory is just outdated (use engram_report_failure, let maintenance handle it)
+- The retrieval merely produced a wrong answer (use engram_report_failure, cumulative negative feedback)
+- The fact has definitively become invalid (use engram_delete, immediate)
 - User is ambiguous (confirm what they want forgotten)
 - You want to keep the memory searchable (use engram_archive instead)
 
@@ -694,7 +699,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "prompt.memory.writing":
     'When creating/updating memories (engram_create / engram_update): leave createdBy blank to let the system auto-resolve to git user.name. **Do NOT fill in tool names or generic words like "claude-code" / "openclaw" / "AIOS" / "assistant" / "system"** — everyone on the team uses Claude Code, so tagging "claude-code" is no author at all and breaks audit log traceability. createdBy marks the *human*, not the *tool*. Only pass createdBy explicitly when the user requests a specific authorship tag (team name, external system name, etc.).',
   "prompt.memory.when_to_reinforce":
-    "When to call engram_reinforce: use your **own judgment** — when a cited memory actually helped complete the task, was adopted into your answer, or successfully guided a decision, call engram_reinforce(id, effectiveness) on it. effectiveness: 1.0=fully useful, 0.7=mostly useful, 0.4=background reference only. Call engram_report_failure when the memory was wrong or stale. co-engram is a self-evolving system: your reinforcement signal is the primary input to importance scoring — call it proactively, do not wait for the user to prompt you. But **be honest**: do not give high scores for tangential references — over-reinforcing lets low-value memories drown out high-value ones.",
+    "When to call engram_reinforce: use your **own judgment** — when a cited memory actually helped complete the task, was adopted into your answer, or successfully guided a decision, call engram_reinforce(id, effectiveness) on it. effectiveness: 1.0=fully useful, 0.7=mostly useful, 0.4=background reference only. Call engram_report_failure when the memory was wrong (cumulative negative feedback); call engram_delete when the fact has definitively changed (immediate, irreversible — confirm with the user first by default). co-engram is a self-evolving system: your reinforcement signal is the primary input to importance scoring — call it proactively, do not wait for the user to prompt you. But **be honest**: do not give high scores for tangential references — over-reinforcing lets low-value memories drown out high-value ones.",
   "prompt.memory.proposal_reminder":
     "Pending proposals: ${count} memory candidate(s) awaiting review. Call engram_list_proposals to inspect, engram_accept_proposal to record, or engram_dismiss_proposal to suppress.",
   "prompt.memory.frequent_topics":
@@ -1224,6 +1229,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.detail.dim.network": "Network:",
   "viewer.detail.dim.temporal": "Temporal:",
   "viewer.detail.dim.composite": "Composite:",
+  "viewer.scoreBand.high": "High",
+  "viewer.scoreBand.medium": "Medium",
+  "viewer.scoreBand.low": "Low",
   "viewer.detail.searching": "Searching...",
   "viewer.detail.searchNoMatch": "No matches",
   "viewer.detail.searchFailed": "Search failed: ${err}",

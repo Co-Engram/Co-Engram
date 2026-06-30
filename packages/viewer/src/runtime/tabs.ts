@@ -311,7 +311,7 @@ window.CO_ENGRAM_ENGRAMS = {
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('lastEffectiveAt') + '>' + T.fieldLabel('lastEffective') + '</span><span title="' + CO_ENGRAM.escapeHtml(d.lastEffectiveAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(d.lastEffectiveAt)) + '</span></div>'
       : '';
     const scoreLine = (d.reinforcementScore !== undefined && d.reinforcementScore !== 0)
-      ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('reinforcementScore') + '>' + T.fieldLabel('reinforcementScore') + '</span>' + (d.reinforcementScore || 0).toFixed(2) + '</div>'
+      ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('reinforcementScore') + '>' + T.fieldLabel('reinforcementScore') + '</span>' + T.formatScoreBand(d.reinforcementScore) + '</div>'
       : '';
     const valueSection = (valenceLine || sourceLine || verifLine || decayLine || evidenceLine || lastEffLine || scoreLine)
       ? '<h3>' + T.sectionLabel('valueAssessment') + '</h3>' + valenceLine + sourceLine + verifLine + decayLine + evidenceLine + lastEffLine + scoreLine
@@ -326,7 +326,7 @@ window.CO_ENGRAM_ENGRAMS = {
         + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.project') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.project')) + '</span>' + (iv.project || 0).toFixed(2)
         + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.network') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.network')) + '</span>' + (iv.network || 0).toFixed(2)
         + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.temporal') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.temporal')) + '</span>' + (iv.temporal || 0).toFixed(2)
-        + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.composite')) + '</span>' + (iv.composite || 0).toFixed(2) + '</div>'
+        + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.composite')) + '</span>' + T.formatScoreBand(iv.composite) + '</div>'
       : '';
 
     // 记忆产生情境段(可选)— section 标题已说明,内嵌 field-label 冗余,直接渲染内容
@@ -350,7 +350,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '</div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(d.title) + '</h2>'
       + '<div class="field"><span class="chip kind-' + d.kind + '"' + CO_ENGRAM.tip('kind.' + d.kind) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', d.kind)) + '</span> '
-      + CO_ENGRAM.importanceBar(d.importance) + ' <span class="kpi-sub"' + CO_ENGRAM.tip('importance') + '>' + T.fieldLabel('importance') + ' ' + (d.importance || 0).toFixed(2) + '</span></div>'
+      + CO_ENGRAM.importanceBar(d.importance) + ' <span class="kpi-sub"' + CO_ENGRAM.tip('importance') + '>' + T.fieldLabel('importance') + ' ' + T.formatScoreBand(d.importance) + '</span></div>'
       + '<div class="field"><span class="field-label">' + T.fieldLabel('id') + '</span><code>' + id + '</code></div>'
       + (tags ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + '</span>' + tags + '</div>' : '')
       + (ctxTags ? '<div class="field"><span class="field-label">' + T.fieldLabel('contextTags') + '</span>' + ctxTags + '</div>' : '')
@@ -361,7 +361,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + ' <span class="field-label"' + CO_ENGRAM.tip('failedUses') + '>' + T.fieldLabel('failures') + '</span>' + (d.failedUses || 0) + '</div>'
       + '<div class="field"><span class="field-label">' + T.fieldLabel('creator') + '</span>' + CO_ENGRAM.escapeHtml(d.createdBy || '')
       + ' <span class="field-label">' + T.fieldLabel('time') + '</span>' + createdAtDisplay + '</div>'
-      + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + (d.confidence || 0).toFixed(2)
+      + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + T.formatScoreBand(d.confidence)
       + ' <span class="field-label"' + CO_ENGRAM.tip('status.' + (d.status || 'active')) + '>' + T.fieldLabel('status') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('status', d.status))
       + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness)) + '</div>'
       + valueSection
