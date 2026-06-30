@@ -355,16 +355,111 @@ export interface GitPushResult {
   readonly reason?: string;
   /** push 到的 remote 名称(如 "origin") */
   readonly remote?: string;
+  /** 实际生效的 push 模式:direct = 普通 push;gerrit-review = 走 refs/for/<branch> review */
+  readonly mode?: "direct" | "gerrit-review";
+  /** 仅在 direct 拒绝后自动 fallback 到 gerrit-review 成功时为 true */
+  readonly autoFallback?: true;
 }
 
 /**
- * `git push` —— 推送当前分支到配置的 upstream。
+ * 检测 stderr 是否是 Gerrit 对受保护分支的拒绝特征。
  *
- * 不带 refspec(让 git 用 push.default 配置),完全尊重用户 .git/config。
- * 这意味着:
- *   - GitHub/GitLab 用户推到 origin/<branch>
- *   - ZTE/Gerrit 用户若 .git/config 配置了 `push = refs/heads/*:refs/for/*`
- *     会自动走 review;否则直接 push 到 master(由用户配置决定)
+ * Gerrit 对 master 等受保护分支的直接 push 返回 "prohibited by Gerrit"
+ * 或 "need 'Push' rights"。命中后可 fallback 到 `refs/for/<branch>` 走 review。
+ */
+export function isGerritRejection(stderr: string): boolean {
+  return /prohibited by Gerrit|need ['"]Push['"] rights/i.test(stderr);
+}
+
+/**
+ * 用 `refs/for/<branch>` refspec 推送(Gerrit code-review 流程)。
+ *
+ * spawnSync + 数组参数,与 commitFiles 安全模型一致:branch 名含特殊字符
+ * 也按字面传递给 git,不经 shell 解释。
+ */
+function tryGerritReviewPush(
+  repoPath: string,
+  remote: string,
+  branch: string,
+): { ok: true } | { ok: false; reason: string } {
+  const result = spawnSync("git", ["push", remote, `HEAD:refs/for/${branch}`], {
+    cwd: repoPath,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (result.status === 0) {
+    return { ok: true };
+  }
+  const stderr = (result.stderr ?? "").trim();
+  return {
+    ok: false,
+    reason: `gerrit-review push to refs/for/${branch} failed: ${stderr || `exit status ${result.status ?? "unknown"}`}`,
+  };
+}
+
+/**
+ * push 失败的统一处理:若 stderr 命中 Gerrit 拒绝特征,fallback 到 review refspec。
+ *
+ * execSync 失败时 Error.stderr 含 git 原始 stderr(encoding=utf8 时为 string),
+ * 兜底用 err.message。返回带 mode/autoFallback 标记的 GitPushResult。
+ */
+function handlePushFailure(
+  repoPath: string,
+  remote: string,
+  err: unknown,
+  directLabel: string,
+): GitPushResult {
+  const errStderr = (err as { stderr?: unknown }).stderr;
+  const stderr =
+    typeof errStderr === "string"
+      ? errStderr
+      : Buffer.isBuffer(errStderr)
+        ? errStderr.toString("utf8")
+        : "";
+  const msg = err instanceof Error ? err.message : String(err);
+  const combined = stderr.trim() || msg;
+
+  if (isGerritRejection(combined)) {
+    const branch = getCurrentBranch(repoPath);
+    const review = tryGerritReviewPush(repoPath, remote, branch);
+    if (review.ok) {
+      return {
+        ok: true,
+        skipped: false,
+        remote,
+        mode: "gerrit-review",
+        autoFallback: true,
+      };
+    }
+    return {
+      ok: false,
+      skipped: false,
+      remote,
+      mode: "gerrit-review",
+      reason: review.reason,
+    };
+  }
+  return {
+    ok: false,
+    skipped: false,
+    remote,
+    mode: "direct",
+    reason: `${directLabel}: ${combined}`,
+  };
+}
+
+/**
+ * `git push` —— 推送当前分支,失败时若检测到 Gerrit 拒绝则自动 fallback 到 review。
+ *
+ * 行为:
+ *   - 有 upstream → `git push`(尊重 push.default 配置)
+ *   - 无 upstream → `git push --set-upstream <remote> <branch>`
+ *   - 任一路径失败且 stderr 命中 Gerrit 拒绝特征 → 自动重试
+ *     `git push <remote> HEAD:refs/for/<branch>`(spawnSync 数组参数,防注入)
+ *
+ * 兼容 GitHub / GitLab / Gerrit / 内部 Git 服务,不硬编码 URL 或 refspec。
+ * Gerrit 用户无需手动配置 .git/config 的 `push = refs/heads/*:refs/for/*`,
+ * 检测到 direct push 被拒即自动走 review(返回 mode="gerrit-review", autoFallback=true)。
  *
  * 不抛错 —— 返回结构化结果让工具层向用户报告。
  */
@@ -411,15 +506,14 @@ export function pushRepo(repoPath: string): GitPushResult {
         stdio: "pipe",
         encoding: "utf8",
       });
-      return { ok: true, skipped: false, remote };
+      return { ok: true, skipped: false, remote, mode: "direct" };
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        ok: false,
-        skipped: false,
+      return handlePushFailure(
+        repoPath,
         remote,
-        reason: `push --set-upstream failed: ${msg}`,
-      };
+        err,
+        `push --set-upstream ${remote} ${branch} failed`,
+      );
     }
   }
 
@@ -430,15 +524,9 @@ export function pushRepo(repoPath: string): GitPushResult {
       stdio: "pipe",
       encoding: "utf8",
     });
-    return { ok: true, skipped: false, remote };
+    return { ok: true, skipped: false, remote, mode: "direct" };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return {
-      ok: false,
-      skipped: false,
-      remote,
-      reason: `push rejected: ${msg}`,
-    };
+    return handlePushFailure(repoPath, remote, err, "push rejected");
   }
 }
 

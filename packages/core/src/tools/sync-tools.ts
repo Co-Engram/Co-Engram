@@ -102,9 +102,21 @@ export interface SyncPushPhase {
   readonly skipped: boolean;
   readonly reason?: string;
   readonly remote?: string;
+  /** 实际生效的 push 模式;fallback 成功时为 "gerrit-review" */
+  readonly mode?: "direct" | "gerrit-review";
+  /** 仅在 direct 拒绝后自动 fallback 到 gerrit-review 成功时为 true */
+  readonly autoFallback?: true;
 }
 
 export interface EngramSyncResult {
+  /**
+   * 整体成功/失败机器判断位。
+   *
+   * pull 失败或 push 失败(非 skipped)→ false;push skipped(无 remote / push=false)
+   * 视为预期降级,不影响 ok。让 host adapter 据此决定是否给用户追加高亮提示,
+   * 不必解析 summary 字符串。
+   */
+  readonly ok: boolean;
   /** 仓库绝对路径(=dataRoot) */
   readonly repoPath: string;
   /** 本次是否新建了 .gitignore(dryRun 时为 false,只预测) */
@@ -183,6 +195,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
         untrackCacheRequested,
       });
       return {
+        ok: true,
         repoPath,
         gitignoreCreated: false,
         cacheUntracked: false,
@@ -216,6 +229,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
       if (!r.ok && r.conflicts) {
         const fileList = r.conflicts.join(", ");
         return {
+          ok: false,
           repoPath,
           gitignoreCreated,
           cacheUntracked,
@@ -262,6 +276,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
     }
 
     return {
+      ok: computeOverallOk(pulled, pushed),
       repoPath,
       gitignoreCreated,
       cacheUntracked,
@@ -283,6 +298,8 @@ function toSyncPushPhase(r: GitPushResult): SyncPushPhase {
     skipped: r.skipped,
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
     ...(r.remote !== undefined ? { remote: r.remote } : {}),
+    ...(r.mode !== undefined ? { mode: r.mode } : {}),
+    ...(r.autoFallback === true ? { autoFallback: true } : {}),
   };
 }
 
@@ -334,6 +351,17 @@ function buildSummary(
   opts: { readonly cacheUntracked: boolean; readonly trackedCacheCount: number },
 ): string {
   const parts: string[] = [];
+  const pushFailed = pushed !== undefined && !pushed.skipped && !pushed.ok;
+
+  // push 失败时提到最前,避免被前面的"成功"段掩盖(partial-success masking):
+  // 挑剔用户看漏末尾的 push failed 会以为整体成功。
+  if (pushFailed) {
+    parts.push(`push failed: ${pushed!.reason ?? "unknown"}`);
+    parts.push(
+      `local commit ${committed?.sha?.slice(0, 8) ?? "?"} saved — manual push or gerrit review (refs/for/<branch>) required`,
+    );
+  }
+
   if (opts.cacheUntracked) {
     parts.push(
       `untracked ${opts.trackedCacheCount} .co-engram/* file(s) (teammates pulling will see git delete these on disk)`,
@@ -359,16 +387,33 @@ function buildSummary(
       );
     }
   }
-  if (pushed) {
+  if (pushed && !pushFailed) {
     if (pushed.skipped) {
       parts.push(`push skipped (${pushed.reason ?? "unknown"})`);
-    } else if (!pushed.ok) {
-      parts.push(`push failed: ${pushed.reason ?? "unknown"}`);
+    } else if (pushed.autoFallback) {
+      parts.push(
+        `pushed via gerrit-review (refs/for/<branch>, auto-fallback) to ${pushed.remote ?? "origin"}`,
+      );
     } else {
       parts.push(`pushed to ${pushed.remote ?? "origin"}`);
     }
   }
   return parts.join("; ") + ".";
+}
+
+/**
+ * 整体成功/失败判定:pull 失败或 push 失败(非 skipped)→ false。
+ *
+ * push skipped 是预期降级(无 remote / push=false),不算失败。
+ * committed 阶段现状总是 ok=true(无变更时 nothingToCommit 但 ok 仍 true),不影响判定。
+ */
+function computeOverallOk(
+  pulled: SyncPullPhase | undefined,
+  pushed: SyncPushPhase | undefined,
+): boolean {
+  if (pulled && !pulled.ok) return false;
+  if (pushed && !pushed.ok && !pushed.skipped) return false;
+  return true;
 }
 
 // ============================================================
