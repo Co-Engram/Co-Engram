@@ -20,6 +20,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import { stripDerivedSection } from "../storage/obsidian-links.js";
 import type {
   SynapseResolutionState,
   ContradictionVerdict,
@@ -271,7 +272,12 @@ function appendEvidence(
 }
 
 function mergeContent(a: string, b: string): string {
-  return `${a}\n\n---\n\n[merged from contradiction]\n${b}`;
+  // readEngram.content 含 Obsidian 派生段(<!-- co-engram-derived:synapses --> 起到文件末尾),
+  // 而本函数返回后会经过 removeOutgoingSynapse → regenerateObsidianLinks → stripDerivedSection,
+  // 该 strip 按 marker 截断,不先剥离 a/b 各自的旧派生段,b 的派生 marker 之后合并进来的内容会被一并丢弃。
+  const cleanA = stripDerivedSection(a);
+  const cleanB = stripDerivedSection(b);
+  return `${cleanA}\n\n---\n\n[merged from contradiction]\n${cleanB}`;
 }
 
 function mergeSummary(a: string, b: string): string {

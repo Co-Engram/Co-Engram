@@ -64,7 +64,7 @@ function sortEdges(a: ResolvedEdge, b: ResolvedEdge): number {
  *
  * 不存在 marker 时返回原 content(去尾空白)。
  */
-function stripDerivedSection(content: string): string {
+export function stripDerivedSection(content: string): string {
   const idx = content.indexOf(DERIVED_SYNAPSES_MARKER);
   if (idx < 0) return content.replace(/\n+$/, "");
   return content.slice(0, idx).replace(/\n+$/, "");
