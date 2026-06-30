@@ -107,11 +107,12 @@ describe("registerCoEngramTool", () => {
 // ============================================================
 
 describe("MCP end-to-end", () => {
-  it("tools/list 返回 29 个工具（P0 12 + P1 5 + P2 3 + P3 2 + M1 proposal 3 + repo-health 2 + synthesize 1 + engram_sync 1）", async () => {
+  it("tools/list 返回全部 native 工具（profile=full 应等于 registry 全集）", async () => {
     const { client, cleanup } = await startClient(tmpDir);
     try {
       const list = await client.listTools();
-      expect(list.tools.length).toBe(29);
+      // 数字不硬编码 —— registry 增减工具时本断言自动跟随,避免再次 drift。
+      expect(list.tools.length).toBe(createToolRegistry().list().length);
       const names = list.tools.map((t) => t.name).sort();
       expect(names).toContain("engram_create");
       expect(names).toContain("engram_reinforce");

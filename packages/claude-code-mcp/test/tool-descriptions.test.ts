@@ -30,7 +30,7 @@ describe("agent layer descriptions / 完整性", () => {
   const standardTools = Array.from(PROFILE_TOOL_SETS.standard);
   const describedTools = new Set(listAgentDescribedTools());
 
-  it("17 个 standard profile 工具全部有 agent 层描述", () => {
+  it("standard profile 工具全部有 agent 层描述", () => {
     for (const name of standardTools) {
       expect(
         describedTools.has(name),
@@ -46,7 +46,7 @@ describe("agent layer descriptions / 完整性", () => {
         `standard tool "${name}" missing from agent layer`,
       ).toBe(true);
     }
-    // 实际覆盖全部 30 个工具(17 standard + 13 full-only/兼容)
+    // 数字不硬编码 —— standard profile 工具集可能增减,跟 PROFILE_TOOL_SETS 派生。
     expect(describedTools.size).toBeGreaterThanOrEqual(standardTools.length);
   });
 

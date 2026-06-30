@@ -13,6 +13,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createCoEngramMcpServer } from "../src/register.js";
 import { buildLocalizedProposalPrompt } from "../src/mcp-server.js";
+import { createToolRegistry } from "@co-engram/core";
 
 let tmpDir: string;
 
@@ -110,14 +111,16 @@ describe("MCP i18n / 工具描述本地化", () => {
     }
   });
 
-  it("29 个工具在两种语言下都有非空 description", async () => {
+  it("全部 native 工具在两种语言下都有非空 description（profile=full 应等于 registry 全集）", async () => {
     const enClient = await startClient("en");
     const zhClient = await startClient("zh");
     try {
       const enList = await enClient.client.listTools();
       const zhList = await zhClient.client.listTools();
-      expect(enList.tools.length).toBe(29);
-      expect(zhList.tools.length).toBe(29);
+      // 数字不硬编码 —— registry 增减工具时本断言自动跟随,避免再次 drift。
+      const expected = createToolRegistry().list().length;
+      expect(enList.tools.length).toBe(expected);
+      expect(zhList.tools.length).toBe(expected);
       for (const t of enList.tools) {
         expect(t.description?.length, `${t.name} en desc`).toBeGreaterThan(10);
       }

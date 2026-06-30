@@ -74,6 +74,8 @@ export const zh = {
     "列出记忆仓库的目录树,每节点带累计记忆数,用于搜索前先建立全局认知。",
   "tool.engram_sync":
     "手动触发记忆仓库的 pull → commit → push 全链路同步。让用户主动掌控提交时机(与系统自动标记脏数据相对)。冲突时不自动解决,清晰报告让用户决策。",
+  "tool.engram_audit_query":
+    "查询 audit 审计日志(团队记忆的事件历史,audit.jsonl)。把 AuditLog.query() 暴露给 LLM agent,无需离开对话即可查看任意 engram 或动作类的修改时间线。",
 
   // ===== OpenClaw 兼容 memory 工具(2 个) =====
   "tool.memory_search":
@@ -315,6 +317,19 @@ export const zh = {
 - 用户想要某条 engram(用 engram_get)
 
 返回:嵌套 { path, engramCount, children } 树,根为 '/'。可选 maxDepth(1-10,默认 5)。`,
+  "tool.engram_audit_query.agent": `查询 audit 审计日志(audit.jsonl),返回匹配的事件。
+
+何时调用:
+- "这个 engram 的修改历史"(谁创建 / reinforce / contradicted)
+- 调试 importance 异常(reinforce / report_failure 序列)
+- 复盘 proposal 处理(propose → accept/dismiss)
+- 排查 merge 冲突解决
+
+何时不调用:
+- 想看 engram 当前状态(用 engram_get)
+- 想看有效性图表(打开 viewer 网页 UI)
+
+返回:{ events: AuditEvent[], count }。按时间正序;每条含 ts / actor / action / engramId / metadata。`,
   // 13 个原未覆盖工具的 agent 描述
   "tool.engram_archive.agent": `归档记忆(移出默认检索,但保留数据可恢复)。
 

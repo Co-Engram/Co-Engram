@@ -74,6 +74,8 @@ export const en: TranslationDict = {
     "List the memory repo's directory tree with cumulative memory count per node, for orienting before searching.",
   "tool.engram_sync":
     "Manually trigger a full memory sync: pull (rebase) → commit → push. Gives the user explicit control over when memories are persisted to the remote, as opposed to the automatic dirty-marking. Conflicts are reported, not auto-resolved. Degrades to commit-only when no remote is configured. Compatible with any git host (GitHub / GitLab / Gerrit / internal).",
+  "tool.engram_audit_query":
+    "Query the audit log (team memory event history, audit.jsonl). Surfaces AuditLog.query() to LLM agents so they can inspect the modification timeline of any engram or action class without leaving the chat.",
 
   // ===== OpenClaw-compatible memory tools (2) =====
   "tool.memory_search":
@@ -315,6 +317,19 @@ WHEN NOT TO CALL:
 - User wants a specific engram (use engram_get)
 
 RETURNS: Nested { path, engramCount, children } tree rooted at '/'. Optional maxDepth (1-10, default 5).`,
+  "tool.engram_audit_query.agent": `Query the audit log (audit.jsonl) and return matching events.
+
+WHEN TO CALL:
+- "modification history of this engram" (who created / reinforced / contradicted)
+- Debugging importance anomalies (reinforce / report_failure sequence)
+- Reviewing proposal triage (propose → accept/dismiss)
+- Investigating merge conflict resolution
+
+WHEN NOT TO CALL:
+- Want current engram state (use engram_get)
+- Want effectiveness charts (open viewer web UI)
+
+RETURNS: { events: AuditEvent[], count }. Chronological order; each has ts / actor / action / engramId / metadata.`,
   // 13 new agent descriptions for previously-uncovered tools
   "tool.engram_archive.agent": `Archive a memory (exclude from default retrieval, but preserve data).
 
