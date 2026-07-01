@@ -819,7 +819,7 @@ describe("GET /api/path-tree", () => {
 // ============================================================
 
 describe("GET /api/doctor", () => {
-  it("空仓库返回空报告", async () => {
+  it("空仓库返回空报告(可能含 infra-doctor 重建索引的 fix)", async () => {
     const ctx = makeCtx(tmpDir);
     await withViewer(ctx, undefined, async (port) => {
       const res = await makeRequest(port, "/api/doctor");
@@ -827,7 +827,12 @@ describe("GET /api/doctor", () => {
       const data = JSON.parse(res.body);
       expect(data.enabled).toBe(true);
       expect(data.report.totalEngrams).toBe(0);
-      expect(data.report.fixes).toEqual([]);
+      // infra-doctor preflight 会自动重建缺失的派生索引(digest.jsonl / graph.json)
+      // 空仓库首次跑会产 1 个 index_rebuilt fix,这是预期行为
+      const engramFileFixes = data.report.fixes.filter(
+        (f: { kind: string }) => !["index_rebuilt", "merge_driver_installed"].includes(f.kind),
+      );
+      expect(engramFileFixes).toEqual([]);
       expect(data.report.pendingManualReview).toEqual([]);
     });
   });

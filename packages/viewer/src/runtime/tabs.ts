@@ -1379,7 +1379,7 @@ CO_ENGRAM._healthDoctorScan = async function() {
           + '</div>'
         : '';
       html += '<div class="health-doctor-issue">'
-        + '<div class="health-doctor-issue-kind">' + CO_ENGRAM.escapeHtml(issue.kind) + (issue.path ? ' · ' + CO_ENGRAM.escapeHtml(issue.path) : '') + '</div>'
+        + '<div class="health-doctor-issue-kind">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.doctor.fixKind.' + issue.kind) !== ('viewer.health.doctor.fixKind.' + issue.kind) ? T.t('viewer.health.doctor.fixKind.' + issue.kind) : issue.kind) + (issue.path ? ' · ' + CO_ENGRAM.escapeHtml(issue.path) : '') + '</div>'
         + '<div class="health-doctor-issue-msg">' + CO_ENGRAM.escapeHtml(issue.message) + '</div>'
         + naHtml
         + '</div>';

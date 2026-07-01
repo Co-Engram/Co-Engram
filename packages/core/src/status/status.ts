@@ -363,7 +363,7 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
               whyI18nKey: "viewer.health.why.git_dirty_high",
               fix: {
                 descriptionI18nKey: "viewer.health.fix.git_dirty_high.description",
-                tool: "engram_sync",
+                command: `cd ${dataRoot} && git status`,
               },
             }
           : {}),

@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
+import { runInfraDoctor } from "../storage/infra-doctor.js";
 
 // ============================================================
 // engram_doctor
@@ -64,18 +65,26 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
           "engram_doctor requires a Repository — inject `repository` into ToolContext",
         );
       }
+      // 基础设施自愈 preflight:补齐 runDoctor 不覆盖的层(派生索引 + merge driver)
+      // 让 engram_doctor 真正成为"一键自愈"工具,匹配 computeStatus 给出的 fix.tool=engram_doctor 承诺
+      const dataRoot = ctx.repository.rootPath;
+      const infra = runInfraDoctor({ repo: ctx.repository, dataRoot });
+
       const report = ctx.repository.runDoctor({
         incremental: parsed.incremental,
       });
+
+      // infra fixes 放头部(基础设施层先于文件层)
+      const combinedFixes = [...infra.fixes, ...report.fixes];
 
       return {
         startedAt: report.startedAt,
         finishedAt: report.finishedAt,
         totalEngrams: report.totalEngrams,
         totalSynapses: report.totalSynapses,
-        autoFixesApplied: report.fixes.length,
+        autoFixesApplied: combinedFixes.length,
         pendingManualReview: report.pendingManualReview.length,
-        issues: [...report.fixes, ...report.pendingManualReview].map((i) => ({
+        issues: [...combinedFixes, ...report.pendingManualReview].map((i) => ({
           kind: i.kind,
           stableId: i.stableId,
           path: i.path,

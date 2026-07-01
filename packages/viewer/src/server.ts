@@ -56,6 +56,7 @@ import {
   detectAnomalies,
   applyDataRootChange,
   computeStatus,
+  runInfraDoctor,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 
@@ -922,7 +923,14 @@ async function routeApi(
       return;
     }
     const incremental = url.searchParams.get("incremental") === "1";
+    // 基础设施自愈 preflight:让"运行 doctor 扫描"按钮真正能消除 status 告警
+    // (补齐 digest.jsonl / graph.json / merge driver 这三类 runDoctor 不覆盖的修复)
+    const infra = runInfraDoctor({
+      repo: ctx.repository,
+      dataRoot: ctx.repository.rootPath,
+    });
     const report = ctx.repository.runDoctor({ incremental });
+    const combinedFixes = [...infra.fixes, ...report.fixes];
     respondJson(res, 200, {
       enabled: true,
       report: {
@@ -930,7 +938,7 @@ async function routeApi(
         finishedAt: report.finishedAt,
         totalEngrams: report.totalEngrams,
         totalSynapses: report.totalSynapses,
-        fixes: report.fixes,
+        fixes: combinedFixes,
         pendingManualReview: report.pendingManualReview,
       },
     });

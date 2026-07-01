@@ -25,12 +25,16 @@ afterEach(() => {
 });
 
 describe("engram_doctor tool", () => {
-  it("空仓库返回空 report", () => {
+  it("空仓库返回空 report(可能含 infra-doctor 重建索引的 fix)", () => {
     const result = engramDoctorTool.execute({}, ctx);
     expect(result.totalEngrams).toBe(0);
     expect(result.totalSynapses).toBe(0);
-    expect(result.autoFixesApplied).toBe(0);
-    expect(result.issues).toEqual([]);
+    // infra-doctor preflight 会在派生索引缺失时自动重建,空仓库首次跑会产 1 个 index_rebuilt fix
+    // 这里只断言没有 engram 文件层的 fix
+    const engramFileFixes = result.issues.filter(
+      (i) => !["index_rebuilt", "merge_driver_installed"].includes(i.kind),
+    );
+    expect(engramFileFixes).toEqual([]);
   });
 
   it("检测已存在 engram", () => {

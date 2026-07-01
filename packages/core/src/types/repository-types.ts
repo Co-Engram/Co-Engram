@@ -107,7 +107,9 @@ export interface DoctorIssue {
     | "dangling_synapse" // synapse 引用不存在的 engram
     | "duplicate_id" // 两文件 id 重复
     | "duplicate_engram" // 相似度 > 0.95
-    | "obsidian_view_stale"; // frontmatter.aliases 缺失 或 派生段与 synapse 不一致
+    | "obsidian_view_stale" // frontmatter.aliases 缺失 或 派生段与 synapse 不一致
+    | "index_rebuilt" // digest.jsonl / graph.json 缺失,被 infra-doctor 全量重建
+    | "merge_driver_installed"; // merge driver 未配置,被 infra-doctor 自动 onboard
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;
