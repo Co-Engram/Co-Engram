@@ -340,6 +340,7 @@ export async function generateHypotheses(
         createdAt: nowIso,
         updatedAt: nowIso,
         retrievalWeight: 0.7,
+        visibility: "public",
       };
       repo.addOutgoingSynapse(newEngram.id, synapse);
     }

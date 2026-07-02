@@ -163,6 +163,26 @@ function deriveAutoSummary(content: string | undefined, title: string): string {
 }
 
 /**
+ * Synapse visibility 继承规则:取两端 engram 的最严。
+ *
+ * 严格度排序:`private` > `restricted` > `team` > `public`。
+ * 任一端是 private,synapse 整条就按 private 处理(保守策略)。
+ */
+const VIS_STRICTNESS: Record<EngramVisibility, number> = {
+  public: 0,
+  team: 1,
+  restricted: 2,
+  private: 3,
+};
+
+function maxVisibility(
+  a: EngramVisibility,
+  b: EngramVisibility,
+): EngramVisibility {
+  return VIS_STRICTNESS[a] >= VIS_STRICTNESS[b] ? a : b;
+}
+
+/**
  * EngramRepository — per-edge synapse + ULID stable id + 单文件 engram
  *
  * 所有读取方法接受 stable id (ULID)。从 path 读 engram 用 readEngramByPath。
@@ -514,12 +534,21 @@ export class EngramRepository {
     return this.readEngram(stableId);
   }
 
-  /** 默认路径:{domainTags.join('/')/}{slug}.md */
+  /**
+   * 默认路径:{domainTags.join('/')/}{slug}.md
+   *
+   * private engram 自动落 `private/` 子目录(被 .gitignore 隔离出团队仓库)。
+   * 注意:本函数只用于「无 pathHint」场景;调用方传 pathHint 时直接尊重用户路径,
+   * 不会自动加 private 前缀(避免 `private/private/...` 双前缀)。
+   */
   private deriveDefaultPath(input: EngramCreateInput): string {
     const slug = slugify(input.title);
     const domains = input.domainTags.length > 0 ? input.domainTags : [];
     const parts = [...domains, `${slug}.md`];
-    return parts.join("/");
+    const basePath = parts.join("/");
+    return input.visibility === "private"
+      ? `private/${basePath}`
+      : basePath;
   }
 
   /**
@@ -644,10 +673,20 @@ export class EngramRepository {
       oldFrontmatter.slug === undefined
         ? slugify(newTitle)
         : oldFrontmatter.slug;
-    const newPath =
-      newSlugUnlocked !== oldSlug
-        ? this.rebuildPath(relativePath, newSlugUnlocked)
-        : relativePath;
+
+    // 处理 visibility 变化:public/team/restricted ↔ private → 路径前缀调整
+    // (private engram 落 `private/` 子目录,变更 visibility 时同步迁移路径)
+    const oldVisibility = oldFrontmatter.visibility ?? "public";
+    const visibilityChanged = newVisibility !== oldVisibility;
+
+    // slug + visibility 都可能触发 rename,正交串联应用
+    let newPath = relativePath;
+    if (newSlugUnlocked !== oldSlug) {
+      newPath = this.rebuildPath(newPath, newSlugUnlocked);
+    }
+    if (visibilityChanged) {
+      newPath = this.rebuildPathForVisibility(newPath, newVisibility);
+    }
 
     const newFile: EngramFile = {
       frontmatter: newFrontmatter,
@@ -657,10 +696,15 @@ export class EngramRepository {
     if (newPath !== relativePath) {
       const newAbsolutePath = join(this.config.rootPath, newPath);
       if (existsSync(newAbsolutePath)) {
-        throw new Error(`Slug rename conflict: ${newPath} already exists`);
+        // 原子性保证:目标已存在就报错,不动旧文件
+        throw new Error(`Rename conflict: ${newPath} already exists`);
       }
       writeEngramFile(newAbsolutePath, newFile, this.language);
       rmSync(absolutePath);
+      // 旧路径孤儿 index entry 清理(原 updateEngram 漏了这一步):
+      // rename 后旧 path 的反向 entry(path → stableId)若不清理,会留下
+      // 「磁盘无文件但 index 有记录」的孤儿,listEngrams / viewer 会显示重影。
+      this.purgeStaleIndexEntriesForPath(relativePath);
     } else {
       writeEngramFile(absolutePath, newFile, this.language);
     }
@@ -682,6 +726,27 @@ export class EngramRepository {
     const parts = oldRelativePath.split("/");
     parts[parts.length - 1] = `${newSlug}.md`;
     return parts.join("/");
+  }
+
+  /**
+   * 调整路径的 visibility 前缀(不改动 basename):
+   * - `'private'` → 加 `private/` 前缀(若已含则幂等返回原值)
+   * - 其他(`'public'`/`'team'`/`'restricted'`) → 移除 `private/` 前缀(若不含则幂等返回)
+   *
+   * 用于 updateEngram 中 visibility 变更时的路径迁移。
+   * 注意:仅处理前缀,basename 由 rebuildPath 负责,两者正交可串联应用。
+   */
+  private rebuildPathForVisibility(
+    path: string,
+    visibility: EngramVisibility,
+  ): string {
+    const PRIVATE_PREFIX = "private/";
+    if (visibility === "private") {
+      return path.startsWith(PRIVATE_PREFIX) ? path : `${PRIVATE_PREFIX}${path}`;
+    }
+    return path.startsWith(PRIVATE_PREFIX)
+      ? path.slice(PRIVATE_PREFIX.length)
+      : path;
   }
 
   /**
@@ -848,6 +913,22 @@ export class EngramRepository {
 
   /** 创建 synapse(idempotent) */
   createSynapse(input: SynapseCreateInput): Synapse {
+    // 继承最严 visibility:取 from/to 两端 engram 的 max(private > restricted > team > public)
+    // 端点查不到(已删/无效 id)时降级 'public',不阻塞 synapse 创建
+    let fromVis: EngramVisibility = "public";
+    let toVis: EngramVisibility = "public";
+    try {
+      fromVis = this.readEngram(input.from).visibility ?? "public";
+    } catch {
+      // from engram 不存在或不可读,降级 public
+    }
+    try {
+      toVis = this.readEngram(input.to).visibility ?? "public";
+    } catch {
+      // to engram 不存在或不可读,降级 public
+    }
+    const inheritedVisibility = maxVisibility(fromVis, toVis);
+
     const result = upsertSynapse(this.config.rootPath, {
       from: input.from,
       to: input.to,
@@ -858,6 +939,7 @@ export class EngramRepository {
       createdBy: input.createdBy,
       sourceSemantic: input.sourceSemantic,
       targetSemantic: input.targetSemantic,
+      visibility: inheritedVisibility,
       language: this.language,
     });
     this.refreshObsidianLinks(input.from, input.to);
@@ -913,6 +995,9 @@ export class EngramRepository {
       sourceSemantic: target.sourceSemantic,
       targetSemantic: target.targetSemantic,
       resolutionState: target.resolutionState,
+      // 保守策略:不因端点 visibility 提升而自动调整 synapse visibility,
+      // 保留原值。Phase 1.5 可加 recomputeSynapseVisibility(engramId)。
+      visibility: target.visibility ?? "public",
       language: this.language,
     });
     this.refreshObsidianLinks(target.from, target.to);

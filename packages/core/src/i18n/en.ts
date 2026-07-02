@@ -119,17 +119,19 @@ CONCEPT: {{concept:engram|userExplanation}}`,
   "tool.engram_create.agent": `Create a new memory (engram) for important team knowledge.
 
 WHEN TO CALL:
-- User explicitly states a preference ("from now on, use arrow functions")
+- User states a durable preference ("from now on, use arrow functions")
 - User makes a design decision with rationale ("we'll use PostgreSQL because X")
 - User shares a bug lesson ("this failed because Y, remember to check Z")
 - User corrects an outdated memory ("actually, we switched to X")
 
 WHEN NOT TO CALL:
-- For trivial / throwaway information ("the weather is nice")
-- For information already in CLAUDE.md or project README
-- For information the user is just asking about (use engram_search instead)
+- Trivial / throwaway info ("the weather is nice")
+- Already in CLAUDE.md or project README
+- User is just asking (use engram_search instead)
 
-RETURNS: Created engram ID + version. Existing duplicates auto-detected.`,
+⚠️ visibility='private' for personal credentials/paths/device-specific info (ADB serials/tokens/machine-local prefs) → file lands under private/, gitignored, never enters team repo.
+
+RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
 
 WHEN TO CALL:
@@ -140,6 +142,8 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - The new info contradicts the old (use engram_create + contradiction_resolve instead)
 - The memory is fine as-is (don't update just to refresh timestamp)
+
+⚠️ Changing visibility migrates file path (private → private/<domainTags>/; other → <domainTags>/); atomic, fails on conflict, stableId preserved.
 
 RETURNS: Updated engram + new version number.`,
   "tool.engram_list.agent": `Browse all memories (paginated), newest first.
@@ -732,6 +736,20 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.health.tip": "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
   "viewer.tab.config.tip": "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
   "viewer.tab.help.tip": "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
+
+  // Engram visibility badges / filters / tips
+  "viewer.engram.visibilityBadge.private": "Private",
+  "viewer.engram.visibilityBadge.public": "Public",
+  "viewer.engram.visibilityBadge.team": "Team",
+  "viewer.engram.visibilityBadge.restricted": "Restricted",
+  "viewer.engram.filter.all": "All",
+  "viewer.engram.filter.team": "Team",
+  "viewer.engram.filter.private": "Private only",
+  "tip.engram.gitIsolation":
+    "Private engrams (🔒) are isolated via .gitignore and never enter the team git repo; local agents can still index/search them.",
+  "tip.engram.visibilityEdit":
+    "Changing visibility triggers file path migration (public/team/restricted → <domainTags>/, private → private/<domainTags>/); fails on path conflict, original file untouched.",
+
   "viewer.health.title": "Warehouse Health",
   "viewer.health.subtitle": "One-glance diagnostic — surfaces silent failures before they bite.",
   "viewer.health.overall": "Overall",

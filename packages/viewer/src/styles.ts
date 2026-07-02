@@ -375,6 +375,47 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 .chip.kind-pattern { background: rgba(167, 139, 250, 0.12); color: var(--kind-pattern); border-color: rgba(167, 139, 250, 0.25); }
 .chip.kind-procedure { background: rgba(251, 146, 60, 0.12); color: var(--kind-procedure); border-color: rgba(251, 146, 60, 0.25); }
 .chip.kind-hypothesis { background: rgba(244, 63, 94, 0.12); color: var(--kind-hypothesis); border-color: rgba(244, 63, 94, 0.25); }
+
+/* Engram visibility badge(详情面板显示)—— private 用警告色突出 */
+.visibility-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  background: var(--chip-bg);
+  color: var(--fg);
+}
+.visibility-badge.visibility-public {
+  background: rgba(148, 163, 184, 0.10);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+.visibility-badge.visibility-team {
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.25);
+}
+.visibility-badge.visibility-restricted {
+  background: rgba(251, 191, 36, 0.10);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.25);
+}
+.visibility-badge.visibility-private {
+  background: rgba(244, 63, 94, 0.12);
+  color: #f43f5e;
+  border-color: rgba(244, 63, 94, 0.30);
+}
+/* 列表卡片标题前的 🔒 图标 */
+.lock-icon {
+  display: inline-block;
+  margin-right: 0.2rem;
+  font-size: 0.85em;
+  cursor: help;
+}
 .chip.dot::before {
   content: '';
   display: inline-block;

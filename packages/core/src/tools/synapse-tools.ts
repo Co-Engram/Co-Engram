@@ -78,6 +78,7 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
       retrievalWeight: parsed.weight,
       sourceSemantic: parsed.sourceSemantic,
       targetSemantic: parsed.targetSemantic,
+      visibility: "public",
     };
 
     const stored = ctx.repository.addOutgoingSynapse(parsed.from, synapse);

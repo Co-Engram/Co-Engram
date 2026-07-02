@@ -6,7 +6,7 @@
  * @module @co-engram/core/types
  */
 
-import type { EngramId, SynapseId } from "./engram.js";
+import type { EngramId, EngramVisibility, SynapseId } from "./engram.js";
 
 /**
  * Synapse kind（12 种，5 族）
@@ -76,6 +76,25 @@ export interface Synapse {
 
   /** 裁决状态（仅 contradicts synapse 使用，spec §3.9） */
   readonly resolutionState?: SynapseResolutionState;
+
+  /**
+   * 可见性（继承自端点 engram,取两端最严）。
+   *
+   * 严格度排序:`private` > `restricted` > `team` > `public`。
+   *
+   * 取向:**保守策略**——只要有一端是 private,synapse 整条就按 private 处理。
+   * 这是为了防止「private 端点的关联结构」通过 synapse 文件
+   * `synapses/{kind}/{id}.yaml` 泄露到团队仓库。
+   *
+   * **注意**:synapse 文件落在 `synapses/` 目录(非 `private/`),即
+   * 物理上仍会进团队仓库;此字段是**逻辑标记**,用于:
+   * 1. 检索层根据 viewer/user 的权限过滤
+   * 2. sync 层在 Phase 2 可决定是否把含 private 的 synapse 也加入隔离
+   *
+   * **保守策略**:端点 visibility 提升后,synapse 自身 visibility 字段**不自动
+   * 更新**(可能比端点更严),Phase 1.5 可加 recomputeSynapseVisibility。
+   */
+  readonly visibility: EngramVisibility;
 }
 
 /** Synapse 证据 */

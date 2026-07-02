@@ -130,6 +130,11 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<option value="importance-desc">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.sortImportance')) + '</option>'
       + '<option value="retrievalCount-desc">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.sortRetrievals')) + '</option>'
       + '</select></label>'
+      + '<label' + CO_ENGRAM.tip('engram.gitIsolation') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.all')) + ' <select id="engrams-visibility" onchange="CO_ENGRAM_ENGRAMS.applyFilter()">'
+      + '<option value="">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.all')) + '</option>'
+      + '<option value="team">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.team')) + '</option>'
+      + '<option value="private">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.private')) + '</option>'
+      + '</select></label>'
       + '<span class="spacer"></span>'
       + '<div class="view-toggle" role="group" aria-label="' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card') + ' / ' + T.t('engrams.view.tree')) + '">'
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'card' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'card\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card')) + '</button>'
@@ -157,6 +162,7 @@ window.CO_ENGRAM_ENGRAMS = {
     const cache = CO_ENGRAM._engramsCache || [];
     const q = ((document.getElementById('engrams-q') || {}).value || '').toLowerCase();
     const kind = (document.getElementById('engrams-kind') || {}).value || '';
+    const visibility = (document.getElementById('engrams-visibility') || {}).value || '';
     const sort = ((document.getElementById('engrams-sort') || {}).value || 'createdAt-desc').split('-');
     const [sortKey, sortDir] = sort;
     const T = CO_ENGRAM_T;
@@ -164,6 +170,11 @@ window.CO_ENGRAM_ENGRAMS = {
 
     let filtered = cache.filter(e => {
       if (kind && e.kind !== kind) return false;
+      // visibility 过滤:
+      // - 'team' → 显示 public/team/restricted(团队可见的非 private)
+      // - 'private' → 仅显示 visibility === 'private'
+      if (visibility === 'private' && e.visibility !== 'private') return false;
+      if (visibility === 'team' && e.visibility === 'private') return false;
       if (q) {
         const title = (e.title || '').toLowerCase();
         const tags = (e.domainTags || []).join(' ').toLowerCase();
@@ -205,8 +216,12 @@ window.CO_ENGRAM_ENGRAMS = {
       const createdCell = e.createdAt
         ? '<span title="' + CO_ENGRAM.escapeHtml(e.createdAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(e.createdAt)) + '</span>'
         : '';
+      // private engram 卡片显示 🔒 提示已隔离出团队 git
+      const privateIcon = e.visibility === 'private'
+        ? '<span class="lock-icon"' + CO_ENGRAM.tip('engram.gitIsolation') + '>🔒</span> '
+        : '';
       return '<div class="card">'
-        + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + CO_ENGRAM.escapeHtml(e.title) + '</div>'
+        + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + privateIcon + CO_ENGRAM.escapeHtml(e.title) + '</div>'
         + '<div><span class="chip kind-' + e.kind + '"' + kindTip + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span> '
         + CO_ENGRAM.importanceBar(e.importance) + '</div>'
         + '<div class="card-meta">'
@@ -363,7 +378,9 @@ window.CO_ENGRAM_ENGRAMS = {
       + ' <span class="field-label">' + T.fieldLabel('time') + '</span>' + createdAtDisplay + '</div>'
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + T.formatScoreBand(d.confidence)
       + ' <span class="field-label"' + CO_ENGRAM.tip('status.' + (d.status || 'active')) + '>' + T.fieldLabel('status') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('status', d.status))
-      + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness)) + '</div>'
+      + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness))
+      + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span><span class="visibility-badge visibility-' + (d.visibility || 'public') + '">' + (d.visibility === 'private' ? '🔒 ' : '') + CO_ENGRAM.escapeHtml(T.enumLabel('visibility', d.visibility || 'public')) + '</span>'
+      + '</div>'
       + valueSection
       + ivSection
       + encSection;
@@ -389,7 +406,9 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.confidenceLabel')) + '</label><input id="ef-confidence-range" type="range" min="0" max="1" step="0.01" value="' + (d.confidence || 0) + '" oninput="document.getElementById(\\'ef-confidence\\').value=this.value"><input id="ef-confidence" type="number" min="0" max="1" step="0.01" value="' + (d.confidence || 0) + '" oninput="document.getElementById(\\'ef-confidence-range\\').value=this.value" style="width:80px;margin-left:0.5rem"></div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.tagsLabel')) + '</label><input id="ef-tags" type="text" value="' + CO_ENGRAM.escapeHtml((d.domainTags || []).join(', ')) + '"></div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.ctxTagsLabel')) + '</label><input id="ef-ctx-tags" type="text" value="' + CO_ENGRAM.escapeHtml((d.contextTags || []).join(', ')) + '"></div>'
-      + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibilityLabel')) + '</label><select id="ef-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select></div>'
+      + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibilityLabel')) + '</label><select id="ef-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select>'
+      + '<div class="kpi-sub"' + CO_ENGRAM.tip('engram.visibilityEdit') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.tip.visibilityEdit')) + '</div>'
+      + '</div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.contentLabel')) + ' '
       + '<button type="button" class="btn secondary mini" id="ef-preview-toggle" onclick="CO_ENGRAM_ENGRAMS.togglePreview()">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.preview')) + '</button>'
       + '<span id="ef-content-mode" class="kpi-sub">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.editMode')) + '</span></label>'

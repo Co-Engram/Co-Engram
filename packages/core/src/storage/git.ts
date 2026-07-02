@@ -604,6 +604,11 @@ export const DEFAULT_CO_ENGRAM_GITIGNORE = `# co-engram 仓库默认 .gitignore
 # 整个 .co-engram/ 目录不入库(派生数据 + 行为缓存 + 审计日志,可重新生成)
 .co-engram/
 
+# Private engrams(visibility='private')—— 用户私人记忆,不入团队仓库
+# 本机 agent 仍可索引/检索;只在 git sync 层隔离。
+# 用户若想保留 private engram 的 git 历史,可在 private/ 子目录建独立 git 仓库。
+private/
+
 # Obsidian 用户态(每台机器不同)
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
@@ -629,6 +634,40 @@ export function ensureGitignore(repoPath: string): boolean {
     return false;
   }
   writeFileSync(gitignorePath, DEFAULT_CO_ENGRAM_GITIGNORE, "utf8");
+  return true;
+}
+
+/**
+ * 向已存在的 .gitignore 追加规则(幂等)。
+ *
+ * 用于让历史已存在的 .gitignore 升级,补上新规则(如 `private/`)。
+ * 与 `ensureGitignore` 互补:后者只处理"文件不存在"场景。
+ *
+ * 幂等性:若 .gitignore 已含相同 rule 行(忽略首尾空白),不重复追加。
+ *
+ * @returns true 表示本次追加,false 表示已含该 rule 或 .gitignore 不存在。
+ */
+export function appendToGitignore(repoPath: string, rule: string): boolean {
+  const gitignorePath = join(repoPath, ".gitignore");
+  if (!existsSync(gitignorePath)) {
+    return false;
+  }
+  const content = readFileSync(gitignorePath, "utf8");
+  // 逐行比对,trim 后相等视为已含(避免末尾空白差异导致重复)
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    if (line.trim() === rule.trim()) {
+      return false;
+    }
+  }
+  // 追加:确保前一个空行存在,避免粘连上一行
+  const prefix = content.endsWith("\n") ? "" : "\n";
+  const separator = content.trim().length === 0 ? "" : "\n";
+  writeFileSync(
+    gitignorePath,
+    `${content}${prefix}${separator}${rule}\n`,
+    "utf8",
+  );
   return true;
 }
 
@@ -701,6 +740,74 @@ export function countTrackedCoEngramCache(repoPath: string): number {
 }
 
 /**
+ * 把 `private/` 目录从 git index 移除(磁盘文件保留)。
+ *
+ * `private/` 已加入 DEFAULT_CO_ENGRAM_GITIGNORE,新文件自动跳过;
+ * 但历史 commit 已 track 的 `private/*.md` 仍会被 commit,需显式 untrack。
+ *
+ * **重要副作用(比 `.co-engram/` 更危险):** private engram 是用户私人记忆,
+ * commit 描述是"删除这些文件"。协作者 pull 时,他们本地 `private/*.md` 也会被
+ * git 删除 —— 而 private 通常**不可再生**(用户的个人凭据/路径/偏好)。
+ *
+ * 调用方必须:
+ * 1. dryRun 预览,明确告知"会从 git 移除 N 个 private 文件";
+ * 2. 让用户显式 opt-in(不能默认执行);
+ * 3. 提示用户:本机磁盘文件保留,但跨机历史已被抹去。
+ *
+ * @returns 移除的文件数(0 = 本来就没 track 或失败)。
+ */
+export function untrackPrivateDir(repoPath: string): number {
+  let trackedRaw = "";
+  try {
+    trackedRaw = execSync("git ls-files private/", {
+      cwd: repoPath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+  } catch {
+    return 0;
+  }
+  const tracked = trackedRaw
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (tracked.length === 0) {
+    return 0;
+  }
+  try {
+    execSync("git rm -r --cached --quiet private/", {
+      cwd: repoPath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    return tracked.length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 只读检测:`private/` 下已 tracked 的文件数(不修改 index)。
+ *
+ * 用于 dryRun 预测 + 工具层判断是否需要提示用户 opt-in untrack。
+ */
+export function countTrackedPrivateDir(repoPath: string): number {
+  try {
+    const raw = execSync("git ls-files private/", {
+      cwd: repoPath,
+      stdio: "pipe",
+      encoding: "utf8",
+    });
+    return raw
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
  * 读取 .gitignore 内容(用于诊断/展示)。不存在返回 null。
  */
 export function readGitignore(repoPath: string): string | null {
@@ -711,4 +818,18 @@ export function readGitignore(repoPath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 只读检测:.gitignore 是否已含指定 rule(逐行 trim 后比对)。
+ *
+ * 与 `appendToGitignore` 的检测逻辑镜像,但不写盘。
+ * 用于 dryRun 预测:engram_sync 在只读模式下判断是否需要追加 private/。
+ */
+export function gitignoreContainsRule(repoPath: string, rule: string): boolean {
+  const content = readGitignore(repoPath);
+  if (!content) return false;
+  return content
+    .split(/\r?\n/)
+    .some((line) => line.trim() === rule.trim());
 }

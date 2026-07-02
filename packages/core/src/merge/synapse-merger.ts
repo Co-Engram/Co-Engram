@@ -339,5 +339,12 @@ function reconstructSynapse(record: Record<string, unknown>): Synapse {
     sourceSemantic: record.sourceSemantic as string | undefined,
     targetSemantic: record.targetSemantic as string | undefined,
     resolutionState: record.resolutionState as Synapse["resolutionState"],
+    visibility:
+      record.visibility === "private" ||
+      record.visibility === "team" ||
+      record.visibility === "restricted" ||
+      record.visibility === "public"
+        ? (record.visibility as Synapse["visibility"])
+        : "public",
   };
 }

@@ -22,7 +22,7 @@ import {
 import { dirname, join, basename } from "node:path";
 import { parse, stringify } from "yaml";
 
-import type { EngramId, SynapseId } from "../types/engram.js";
+import type { EngramId, EngramVisibility, SynapseId } from "../types/engram.js";
 import type {
   Synapse,
   SynapseKind,
@@ -108,6 +108,14 @@ export function parseSynapseFile(raw: string): SynapseFile {
     sourceSemantic: s.sourceSemantic,
     targetSemantic: s.targetSemantic,
     resolutionState: s.resolutionState,
+    // 旧 synapse 文件(visibility 字段引入前)无此字段,兜底 'public'
+    visibility:
+      s.visibility === "private" ||
+      s.visibility === "team" ||
+      s.visibility === "restricted" ||
+      s.visibility === "public"
+        ? s.visibility
+        : "public",
   };
 }
 
@@ -163,6 +171,12 @@ export function upsertSynapse(
     sourceSemantic?: string;
     targetSemantic?: string;
     resolutionState?: SynapseResolutionState;
+    /**
+     * synapse 可见性,取两端 engram 的最严(`private` > `restricted` > `team` > `public`)。
+     * 调用方(repository.createSynapse)负责计算并传入。
+     * 已存在的 synapse 重新 upsert 时,若未提供 visibility,沿用 existing.visibility。
+     */
+    visibility?: EngramVisibility;
     now?: string;
     language?: Language;
   },
@@ -215,6 +229,7 @@ export function upsertSynapse(
     sourceSemantic: params.sourceSemantic ?? existing?.sourceSemantic,
     targetSemantic: params.targetSemantic ?? existing?.targetSemantic,
     resolutionState: params.resolutionState ?? existing?.resolutionState,
+    visibility: params.visibility ?? existing?.visibility ?? "public",
   };
 
   writeSynapseFile(absolutePath, merged, language);

@@ -21,10 +21,12 @@ import { z } from "zod";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
 import {
+  appendToGitignore,
   commitFiles,
   countTrackedCoEngramCache,
   ensureGitignore,
   getGitStatusShort,
+  gitignoreContainsRule,
   hasRemote,
   isGitRepo,
   pullRepo,
@@ -121,6 +123,14 @@ export interface EngramSyncResult {
   readonly repoPath: string;
   /** 本次是否新建了 .gitignore(dryRun 时为 false,只预测) */
   readonly gitignoreCreated: boolean;
+  /**
+   * 本次是否向已存在的 .gitignore 追加了 `private/` 规则。
+   *
+   * 用于历史仓库升级:旧 .gitignore 没有 private/ 行,engram_sync 自动补上。
+   * 与 gitignoreCreated 互斥(新建的 .gitignore 模板已含 private/,无需再追加)。
+   * dryRun 时为 false,只预测。
+   */
+  readonly privateGitignoreAppended: boolean;
   /** 本次是否把 .co-engram/ 从 git index 移除(磁盘保留) */
   readonly cacheUntracked: boolean;
   /** 当前 .co-engram/ 下已被 git track 的文件数(用于让用户判断是否需要 untrackCache) */
@@ -170,8 +180,9 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
     const dryRun = parsed.dryRun === true;
     const untrackCacheRequested = parsed.untrackCache === true;
 
-    // 只读检测:已有 .gitignore?已 tracked 缓存数?
+    // 只读检测:已有 .gitignore?已含 private/ 规则?已 tracked 缓存数?
     const gitignoreExists = existsSync(join(repoPath, ".gitignore"));
+    const privateRulePresent = gitignoreContainsRule(repoPath, "private/");
     const trackedCacheCount = countTrackedCoEngramCache(repoPath);
 
     // 1. dryRun:完全只读 —— 不创建 .gitignore、不动 git index
@@ -186,11 +197,15 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
         ? allFiles.filter((f) => !f.startsWith(".co-engram/"))
         : allFiles;
       const wouldCreateGitignore = !gitignoreExists;
+      // 历史 .gitignore 不含 private/ 时,本次 sync 会追加(用于让用户预知)
+      const wouldAppendPrivate =
+        gitignoreExists && !privateRulePresent;
       const summary = buildDryRunSummary({
         effectiveCount: effectiveFiles.length,
         pull,
         push,
         wouldCreateGitignore,
+        wouldAppendPrivate,
         trackedCacheCount,
         untrackCacheRequested,
       });
@@ -198,6 +213,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
         ok: true,
         repoPath,
         gitignoreCreated: false,
+        privateGitignoreAppended: false,
         cacheUntracked: false,
         trackedCacheCount,
         changedFiles: effectiveFiles,
@@ -205,8 +221,13 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
       };
     }
 
-    // 2. 非 dryRun:执行 .gitignore + 可选 untrack
+    // 2. 非 dryRun:执行 .gitignore + 追加 private/ 规则(若缺) + 可选 untrack
     const gitignoreCreated = ensureGitignore(repoPath);
+    // 历史仓库升级:.gitignore 已存在但缺 private/ 行 → 追加
+    // (ensureGitignore 新建的 .gitignore 模板已含 private/,此处追加 noop)
+    const privateGitignoreAppended = gitignoreCreated
+      ? false
+      : appendToGitignore(repoPath, "private/");
     let cacheUntracked = false;
     if (untrackCacheRequested) {
       const removed = untrackCoEngramCache(repoPath);
@@ -232,6 +253,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
           ok: false,
           repoPath,
           gitignoreCreated,
+          privateGitignoreAppended,
           cacheUntracked,
           trackedCacheCount,
           pulled,
@@ -279,6 +301,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
       ok: computeOverallOk(pulled, pushed),
       repoPath,
       gitignoreCreated,
+      privateGitignoreAppended,
       cacheUntracked,
       trackedCacheCount,
       pulled,
@@ -287,6 +310,7 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
       summary: buildSummary(pulled, committed, pushed, {
         cacheUntracked,
         trackedCacheCount,
+        privateGitignoreAppended,
       }),
     };
   },
@@ -320,6 +344,7 @@ function buildDryRunSummary(opts: {
   readonly pull: boolean;
   readonly push: boolean;
   readonly wouldCreateGitignore: boolean;
+  readonly wouldAppendPrivate: boolean;
   readonly trackedCacheCount: number;
   readonly untrackCacheRequested: boolean;
 }): string {
@@ -328,7 +353,12 @@ function buildDryRunSummary(opts: {
     `dry-run: ${opts.effectiveCount} file(s) would be committed (pull=${opts.pull}, push=${opts.push})`,
   );
   if (opts.wouldCreateGitignore) {
-    parts.push(".gitignore would be created (excludes .co-engram/)");
+    parts.push(".gitignore would be created (excludes .co-engram/ + private/)");
+  }
+  if (opts.wouldAppendPrivate) {
+    parts.push(
+      "private/ would be appended to existing .gitignore (isolates visibility='private' engrams from team git)",
+    );
   }
   if (opts.trackedCacheCount > 0) {
     if (opts.untrackCacheRequested) {
@@ -348,7 +378,11 @@ function buildSummary(
   pulled: SyncPullPhase | undefined,
   committed: SyncCommitPhase | undefined,
   pushed: SyncPushPhase | undefined,
-  opts: { readonly cacheUntracked: boolean; readonly trackedCacheCount: number },
+  opts: {
+    readonly cacheUntracked: boolean;
+    readonly trackedCacheCount: number;
+    readonly privateGitignoreAppended: boolean;
+  },
 ): string {
   const parts: string[] = [];
   const pushFailed = pushed !== undefined && !pushed.skipped && !pushed.ok;
@@ -362,6 +396,11 @@ function buildSummary(
     );
   }
 
+  if (opts.privateGitignoreAppended) {
+    parts.push(
+      "appended private/ to .gitignore (visibility='private' engrams now isolated from team git)",
+    );
+  }
   if (opts.cacheUntracked) {
     parts.push(
       `untracked ${opts.trackedCacheCount} .co-engram/* file(s) (teammates pulling will see git delete these on disk)`,

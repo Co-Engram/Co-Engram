@@ -343,6 +343,7 @@ export async function runRemDreaming(
           createdAt: timestamp,
           updatedAt: timestamp,
           retrievalWeight: 0.8,
+          visibility: "public",
         };
         repo.addOutgoingSynapse(patternEngram.id, synapse);
       }

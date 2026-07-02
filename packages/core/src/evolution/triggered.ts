@@ -243,6 +243,7 @@ export function onEngramCreated(
           createdAt: nowIso,
           updatedAt: nowIso,
           retrievalWeight: cfg.newSynapseWeight,
+          visibility: "public",
         });
       }
       reshapings.push({

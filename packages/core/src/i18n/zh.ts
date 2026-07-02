@@ -129,6 +129,8 @@ export const zh = {
 - CLAUDE.md 或项目 README 已有的信息
 - 用户只是在询问的信息(用 engram_search)
 
+⚠️ visibility:含个人凭据/路径/设备特定信息(如 ADB 序列号、个人 token、本机偏好)时设 'private',文件落 private/ 子目录被 .gitignore 隔离,不入团队仓库但本机仍可检索。默认 'public'。
+
 返回:创建的 engram ID + 版本号。自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
 
@@ -140,6 +142,8 @@ export const zh = {
 何时不调用:
 - 新信息和旧的矛盾(用 engram_create + contradiction_resolve)
 - 记忆没问题(不要为了刷新时间戳而更新)
+
+⚠️ 改 visibility 触发文件路径迁移(private → private/<domainTags>/;其他 → <domainTags>/);原子性,冲突失败,stableId 不变。
 
 返回:更新后的 engram + 新版本号。`,
   "tool.engram_list.agent": `浏览所有记忆(分页),最新优先。
@@ -734,6 +738,20 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.health.tip": "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
   "viewer.tab.config.tip": "配置:dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
   "viewer.tab.help.tip": "使用说明:概念释义、端口与 dataRoot、Claude Code 与 OpenClaw 双宿主说明",
+
+  // 记忆可见性徽章 / 过滤 / 提示
+  "viewer.engram.visibilityBadge.private": "私有",
+  "viewer.engram.visibilityBadge.public": "公开",
+  "viewer.engram.visibilityBadge.team": "团队",
+  "viewer.engram.visibilityBadge.restricted": "受限",
+  "viewer.engram.filter.all": "全部",
+  "viewer.engram.filter.team": "团队",
+  "viewer.engram.filter.private": "仅私有",
+  "tip.engram.gitIsolation":
+    "私有记忆(🔒)通过 .gitignore 隔离,不进团队 git 仓库;本机所有 agent 仍可索引/检索。",
+  "tip.engram.visibilityEdit":
+    "改 visibility 会触发文件路径迁移(public/team/restricted → <domainTags>/,private → private/<domainTags>/);路径冲突时失败,原文件不动。",
+
   "viewer.health.title": "仓库健康",
   "viewer.health.subtitle": "一眼诊断——把静默失败提前暴露出来。",
   "viewer.health.overall": "总体",
@@ -779,7 +797,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.check.commandCopied": "已复制",
   "viewer.health.check.orCallTool": "或调用工具",
   "viewer.health.check.commitNow": "立即提交",
-  "viewer.health.check.commitMessagePrompt": "请输入提交说明(可编辑后确认)",
+  "viewer.health.check.commitMessagePrompt": "请输入提交说明（可编辑后确认）",
   "viewer.health.check.commitDefaultMessage": "chore(memory): 同步 engram 变更",
   "viewer.health.check.commitSuccess": "已提交 {files} 个文件 · {branch}@{hash}",
   "viewer.health.check.commitNothing": "工作区已经是干净的,无需提交。",

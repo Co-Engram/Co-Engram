@@ -391,6 +391,7 @@ export const engramSynthesizeTool: Tool<
         createdAt: timestamp,
         updatedAt: timestamp,
         retrievalWeight: 0.8,
+        visibility: "public",
       };
       const stored = ctx.repository.addOutgoingSynapse(
         patternEngram.id,
