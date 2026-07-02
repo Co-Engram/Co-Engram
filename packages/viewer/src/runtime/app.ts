@@ -153,7 +153,12 @@ const CO_ENGRAM = (function() {
   // === Markdown 渲染(用于 engram/synapse 内容显示)===
   // marked.parse 把 markdown 转 HTML,DOMPurify.sanitize 消毒后返回。
   // 限定 ALLOWED_TAGS 防止 XSS(engram 内容来自 LLM/用户,可能含恶意脚本)。
-  // 两个 vendor lib 都通过 vendor/*.ts inline,完全离线。
+  // 两个 vendor lib 都通过 vendor 模块 inline,完全离线。
+  //
+  // P0-8 加固:除 ALLOWED_TAGS 外,显式 FORBID_TAGS 高危标签 + 限制 URI 协议。
+  // 此前配置虽有 ALLOWED_TAGS allowlist,但 href/src 属性未限协议,
+  // a-href with javascript: protocol or img onerror handler 等仍可绕过。
+  // 现在加 ALLOWED_URI_REGEXP,只允许 http(s)/mailto/相对路径/页面内锚点。
   function renderMarkdown(md) {
     if (md == null) return '';
     var input = String(md);
@@ -173,7 +178,13 @@ const CO_ENGRAM = (function() {
           'img', 'span'
         ],
         ALLOWED_ATTR: ['href', 'title', 'src', 'alt'],
-        ALLOW_DATA_ATTR: false
+        ALLOW_DATA_ATTR: false,
+        // 显式禁止高危标签(双保险:即使 allowlist 漏配也无法绕过)
+        FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'svg', 'math'],
+        // URI 协议白名单:拒绝 javascript: / data: / vbscript: / file: 等
+        // 允许:http(s):, mailto:, 页面内锚点(#/path), 无协议相对路径(abc, ./abc)
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|#\/[\w-]*$|[^:]*$)/i,
+        ALLOW_UNKNOWN_PROTOCOLS: false
       });
     } catch (e) {
       console.error('[co-engram] markdown render failed:', e);

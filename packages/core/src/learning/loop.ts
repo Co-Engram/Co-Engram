@@ -14,6 +14,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import type { AuditLog } from "../observability/audit-log.js";
 import { recordRetrievalSuccess } from "../reinforcement/ltp.js";
 import {
   recordRetrievalFailure,
@@ -98,6 +99,14 @@ export function closeLearningLoop(
       outcome: LearningOutcome,
       effectiveness: number,
     ) => void;
+    /**
+     * P0-1 修复:auditLog 注入。若提供,则:
+     *   - 写 learning_loop_{success/partial/failure} audit(此前完全不写)
+     *   - 透传给 reinforceRelated,让邻居联动也写 reinforce audit(P0-9)
+     */
+    readonly auditLog?: AuditLog;
+    /** 宿主标识(透传到 audit entry) */
+    readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
   } = {},
 ): CloseLearningLoopResult {
   if (!repo.exists(input.engramId)) {
@@ -167,10 +176,44 @@ export function closeLearningLoop(
         importanceDelta,
         config,
         nowIso,
+        {
+          // P0-9 修复:透传 auditLog + triggeredBy,让邻居联动可观察
+          auditLog: options.auditLog,
+          triggeredBy: input.engramId,
+          triggerTool: "close_learning_loop",
+          host: options.host,
+        },
       );
       reinforcedNeighborIds = relatedResult.reinforcedNeighborIds;
       skipped = relatedResult.skipped;
     }
+  }
+
+  // P0-1 修复:写 close_learning_loop 事件 audit(此前完全不写)
+  // 用 outcome 区分 success/partial/failure,让 audit lifecycle 完整可追溯
+  if (options.auditLog) {
+    options.auditLog.append({
+      actor: "user",
+      action:
+        input.outcome === "success"
+          ? "learning_loop_success"
+          : input.outcome === "partial"
+            ? "learning_loop_partial"
+            : "learning_loop_failure",
+      engramId: input.engramId,
+      host: options.host,
+      metadata: {
+        outcome: input.outcome,
+        effectiveness,
+        importanceDelta,
+        reportedBy: input.reportedBy,
+        reason: input.reason,
+        shouldArchive,
+        shouldForget,
+        hebbianTriggered: reinforcedNeighborIds.length > 0,
+        reinforcedNeighborIds,
+      },
+    });
   }
 
   // Provenance 奖惩（P2 3.7 stub）

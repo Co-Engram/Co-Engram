@@ -84,12 +84,27 @@ export function recordRetrievalSuccess(
  *
  * 用于 Hebbian 间接强化（邻居得到增益时），
  * 或外部队列触发的批量强化（如 Dreaming 周期）。
+ *
+ * P0-9 修复:Hebbian 邻居联动此前是"幽灵强化" —— 只改 importance,但
+ * effectiveRetrievals / retrievalCount / reinforcementScore 全为 0,且
+ * audit_log 无任何 reinforce 记录。新增 `withStats` 选项让邻居联动也走
+ * 完整统计更新(语义上,邻居被"间接有效检索")。
  */
 export function reinforceEngram(
   repo: EngramRepository,
   id: string,
   amount: number,
   nowIso: string = new Date().toISOString(),
+  options: {
+    /**
+     * 是否同时更新 retrievalCount/effectiveRetrievals/reinforcementScore。
+     * 默认 false(向后兼容:Dreaming 周期批量强化不应污染检索统计)。
+     * Hebbian 邻居联动应传 true(P0-9:让邻居统计字段可观察)。
+     */
+    readonly withStats?: boolean;
+    /** 邻居联动的 effectiveness 值(默认 = amount,即把 importance 增益视作 effectiveness) */
+    readonly effectiveness?: number;
+  } = {},
 ): { id: string; importanceDelta: number; importance: number } {
   if (!repo.exists(id)) {
     throw new Error(`Engram not found: ${id}`);
@@ -97,10 +112,23 @@ export function reinforceEngram(
   if (amount < 0) {
     throw new Error(`amount must be >= 0, got ${amount}`);
   }
-  repo.bumpRetrievalStats(id, {
-    importanceDelta: amount,
-    lastEffectiveAt: nowIso,
-  });
+  const withStats = options.withStats ?? false;
+  const effectiveness = options.effectiveness ?? amount;
+  if (withStats) {
+    repo.bumpRetrievalStats(id, {
+      retrievedDelta: 1,
+      effectiveDelta: 1,
+      reinforcementDelta: effectiveness,
+      importanceDelta: amount,
+      lastRetrievedAt: nowIso,
+      lastEffectiveAt: nowIso,
+    });
+  } else {
+    repo.bumpRetrievalStats(id, {
+      importanceDelta: amount,
+      lastEffectiveAt: nowIso,
+    });
+  }
   const updated = repo.readEngram(id);
   return {
     id,

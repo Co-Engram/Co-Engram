@@ -51,6 +51,10 @@ export type AuditAction =
   | "propose"
   | "accept"
   | "dismiss"
+  // close_learning_loop 闭环事件(P0-1:此前完全不写 audit)
+  | "learning_loop_success"
+  | "learning_loop_partial"
+  | "learning_loop_failure"
   // 有效性信号(只有 contradicted 仍写入;retrieve_* 不再写,见模块注释)
   | "retrieve_hit"
   | "retrieve_effective"
@@ -85,6 +89,12 @@ export interface AuditEntry {
   readonly query?: string;
   /** 检索分数(仅 retrieve_hit) */
   readonly score?: number;
+  /**
+   * 触发宿主标识(P0-4:此前 AuditActor 只有 user/llm/system,无法区分 claude-code-mcp
+   * vs openclaw-plugin)。ToolContext 注入 host 后,所有 append 自动带上,
+   * 便于跨宿主行为审计与归因。
+   */
+  readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
   /** 任意附加元数据 */
   readonly metadata?: Readonly<Record<string, unknown>>;
 }

@@ -87,6 +87,50 @@ export interface EngramCreateResult {
   readonly reason?: string;
   readonly confidence?: number;
   readonly candidatesConsidered?: number;
+  /**
+   * 可选:内容安全警告(P0-8 配套)。
+   *
+   * 检测 content/title 含 `<script>` / `javascript:` / `<iframe>` / `on\w+=`
+   * 等潜在 XSS 向量时,工具不阻断创建,但返回警告让调用方知道内容可能
+   * 在 viewer 中受限或被 sanitize 后展示。
+   */
+  readonly warnings?: readonly string[];
+}
+
+/**
+ * 检测 engram 内容/title 是否含潜在 XSS 向量(P0-8 配套,非阻断)。
+ *
+ * 不阻断创建的原因:engram 是知识载体,代码片段 legitimately 含 `<script>`
+ * 等字符串(如"调试 XSS 时用 `<script>alert(1)</script>` 复现")。
+ * 阻断会破坏正常使用。改为返回 warnings,让调用方知道 viewer 渲染时
+ * 会被 DOMPurify sanitize。
+ */
+function detectUnsafeEngramContent(input: {
+  readonly title: string;
+  readonly content: string;
+  readonly summary?: string;
+}): readonly string[] {
+  const warnings: string[] = [];
+  const haystack = `${input.title}\n${input.content}${
+    input.summary ? `\n${input.summary}` : ""
+  }`;
+  const patterns: readonly { readonly re: RegExp; readonly label: string }[] = [
+    { re: /<script\b/i, label: "<script> tag" },
+    { re: /<iframe\b/i, label: "<iframe> tag" },
+    { re: /<object\b/i, label: "<object> tag" },
+    { re: /<embed\b/i, label: "<embed> tag" },
+    { re: /\bjavascript:/i, label: "javascript: protocol" },
+    { re: /\bvbscript:/i, label: "vbscript: protocol" },
+    { re: /\bon\w+\s*=/i, label: "inline event handler (onX=)" },
+  ];
+  for (const { re, label } of patterns) {
+    if (re.test(haystack)) {
+      warnings.push(
+        `Content contains ${label}; viewer will sanitize before display.`,
+      );
+    }
+  }
+  return warnings;
 }
 
 export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
@@ -101,6 +145,12 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
         input,
       );
       const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+      // P0-8 配套:检测 XSS 向量(非阻断),让调用方知道 viewer 会 sanitize
+      const warnings = detectUnsafeEngramContent({
+        title: parsed.title,
+        content: parsed.content,
+        ...(parsed.summary ? { summary: parsed.summary } : {}),
+      });
 
       if (parsed.dedupe !== false) {
         const dedupResult = checkDuplicateSync(
@@ -134,6 +184,7 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
             reason: dedupResult.reason,
             confidence: dedupResult.confidence,
             candidatesConsidered: dedupResult.candidatesConsidered,
+            ...(warnings.length > 0 ? { warnings } : {}),
           };
         }
 
@@ -155,6 +206,7 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
             reason: dedupResult.reason,
             confidence: dedupResult.confidence,
             candidatesConsidered: dedupResult.candidatesConsidered,
+            ...(warnings.length > 0 ? { warnings } : {}),
           };
         }
       }
@@ -192,6 +244,7 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
         id: engram.id,
         verdict: "NEW",
         candidatesConsidered: 0,
+        ...(warnings.length > 0 ? { warnings } : {}),
       };
     },
   };
@@ -738,6 +791,13 @@ export const engramReinforceTool: Tool<
       direct.importanceDelta,
       DEFAULT_REINFORCEMENT_CONFIG,
       nowIso,
+      // P0-9 修复:透传 auditLog + triggeredBy,让邻居联动也写 reinforce audit
+      {
+        auditLog: ctx.auditLog,
+        triggeredBy: parsed.id,
+        triggerTool: "engram_reinforce",
+        host: ctx.host,
+      },
     );
     // M1: 关闭观察窗口并标记为 effective（有效性信号）
     ctx.effectivenessTracker?.closeAsEffective(parsed.id);
@@ -745,6 +805,7 @@ export const engramReinforceTool: Tool<
       actor: "user",
       action: "reinforce",
       engramId: parsed.id,
+      host: ctx.host,
       metadata: { effectiveness: parsed.effectiveness, note: parsed.note },
     });
     // 数值字段经 formatScoreField 封装:raw 2 位小数(杀浮点噪声如
@@ -1015,13 +1076,18 @@ export const contradictionResolveTool: Tool<
       ContradictionResolveInputSchema,
       input,
     );
-    const result = manualResolveContradiction(ctx.repository, {
-      fromId: parsed.fromId,
-      synapseId: parsed.synapseId,
-      verdict: parsed.verdict,
-      rationale: parsed.rationale,
-      resolvedBy: parsed.resolvedBy,
-    });
+    const result = manualResolveContradiction(
+      ctx.repository,
+      {
+        fromId: parsed.fromId,
+        synapseId: parsed.synapseId,
+        verdict: parsed.verdict,
+        rationale: parsed.rationale,
+        resolvedBy: parsed.resolvedBy,
+      },
+      // P0-5 修复:透传 auditLog + host,让 merge_resolved audit 写入
+      { auditLog: ctx.auditLog, host: ctx.host },
+    );
     return {
       fromId: parsed.fromId,
       synapseId: parsed.synapseId,
@@ -1057,13 +1123,19 @@ export const closeLearningLoopTool: Tool<
       CloseLearningLoopInputSchema,
       input,
     );
-    const result = closeLearningLoop(ctx.repository, {
-      engramId: parsed.engramId,
-      outcome: parsed.outcome,
-      effectiveness: parsed.effectiveness,
-      reason: parsed.reason,
-      reportedBy: parsed.reportedBy,
-    });
+    const result = closeLearningLoop(
+      ctx.repository,
+      {
+        engramId: parsed.engramId,
+        outcome: parsed.outcome,
+        effectiveness: parsed.effectiveness,
+        reason: parsed.reason,
+        reportedBy: parsed.reportedBy,
+      },
+      // P0-1 修复:透传 auditLog + host,让 learning_loop_* audit 写入
+      // P0-9 修复:auditLog 同时透传给 reinforceRelated,邻居联动也写 audit
+      { auditLog: ctx.auditLog, host: ctx.host },
+    );
     return {
       engramId: result.engramId,
       outcome: result.outcome,

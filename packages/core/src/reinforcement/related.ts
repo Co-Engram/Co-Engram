@@ -12,13 +12,22 @@
  *
  * 与 ltp.ts 的关系：
  *   - ltp.recordRetrievalSuccess：直接强化单个 engram
- *   - related.reinforceRelated：触发 ltp 后，对邻居做 reinforceEngram（不更新统计）
+ *   - related.reinforceRelated：触发 ltp 后，对邻居做 reinforceEngram
+ *
+ * P0-9 修复:此前邻居联动是"幽灵强化" —— 邻居 importance 被改但
+ *   (a) effectiveRetrievals/retrievalCount/reinforcementScore 全为 0
+ *   (b) audit_log 无任何 reinforce 记录(查 action:reinforce, engramId:B 永远空)
+ *   (c) 也不知道是哪个 engram 触发的联动
+ * 现在通过 options.auditLog + options.triggeredBy 让联动可观察:
+ *   - reinforceEngram 传 withStats:true 让统计字段同步更新
+ *   - auditLog.append({action:"reinforce", engramId:邻居, metadata:{triggeredBy, sourceImportanceDelta, ...}})
  *
  * @module @co-engram/core/reinforcement
  */
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { SynapseKind } from "../types/synapse.js";
+import type { AuditLog } from "../observability/audit-log.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
 import { reinforceEngram } from "./ltp.js"; // 无循环依赖：ltp.ts 不 import related.ts
 
@@ -36,6 +45,26 @@ export interface ReinforceRelatedResult {
   readonly importanceDeltaPerNeighbor: number;
 }
 
+/** reinforceRelated 的可选参数 */
+export interface ReinforceRelatedOptions {
+  /**
+   * 触发此次联动的源 engram id(等于 reinforceRelated 的 engramId 参数)。
+   * 用于 audit metadata,让邻居能追溯"我为什么被强化"。
+   */
+  readonly triggeredBy?: string;
+  /**
+   * 触发此次联动的工具/路径(如 "reinforce" / "close_learning_loop")。
+   * 用于 audit metadata,便于过滤不同来源的联动。
+   */
+  readonly triggerTool?: string;
+  /**
+   * 若提供,对每个被强化的邻居写一条 reinforce audit(解决 P0-9 幽灵强化)。
+   */
+  readonly auditLog?: AuditLog;
+  /** 宿主标识(透传到 audit entry) */
+  readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
+}
+
 /**
  * 对邻居执行 Hebbian 强化
  *
@@ -44,6 +73,7 @@ export interface ReinforceRelatedResult {
  * @param baseImportanceDelta - 原始 engram 得到的 importanceDelta
  * @param config - 配置（可选）
  * @param nowIso - 当前时间
+ * @param options - P0-9 修复:可选 auditLog + triggeredBy,让联动可观察
  */
 export function reinforceRelated(
   repo: EngramRepository,
@@ -51,6 +81,7 @@ export function reinforceRelated(
   baseImportanceDelta: number,
   config: ReinforcementConfig = DEFAULT_CONFIG,
   nowIso: string = new Date().toISOString(),
+  options: ReinforceRelatedOptions = {},
 ): ReinforceRelatedResult {
   if (!repo.exists(engramId)) {
     throw new Error(`Engram not found: ${engramId}`);
@@ -75,6 +106,8 @@ export function reinforceRelated(
   // 收集 outgoing + incoming 邻居
   const all = repo.collectAllSynapses();
   const neighborIds = new Set<string>();
+  /** 记录每个邻居关联的 synapse id,用于 audit metadata 追溯 */
+  const neighborSynapseMap = new Map<string, string>();
   let skipped = 0;
 
   for (const { fromId, synapse } of all) {
@@ -85,9 +118,11 @@ export function reinforceRelated(
     if (fromId === engramId) {
       // 我是 from，邻居是 to
       neighborIds.add(synapse.to);
+      neighborSynapseMap.set(synapse.to, synapse.id);
     } else if (synapse.to === engramId) {
       // 我是 to，邻居是 from
       neighborIds.add(fromId);
+      neighborSynapseMap.set(fromId, synapse.id);
     }
   }
 
@@ -102,8 +137,32 @@ export function reinforceRelated(
       skipped += 1;
       continue;
     }
-    reinforceEngram(repo, neighborId, neighborDelta, nowIso);
+    // P0-9 修复:邻居联动也更新统计字段,让 effectiveRetrievals/retrievalCount/
+    // reinforcementScore 可观察。语义上邻居被"间接有效检索"。
+    reinforceEngram(repo, neighborId, neighborDelta, nowIso, {
+      withStats: true,
+      effectiveness: neighborDelta,
+    });
     reinforced.push(neighborId);
+
+    // P0-9 修复:写邻居 audit,让联动可追溯
+    if (options.auditLog) {
+      options.auditLog.append({
+        actor: "system",
+        action: "reinforce",
+        engramId: neighborId,
+        host: options.host,
+        metadata: {
+          triggeredBy: options.triggeredBy ?? engramId,
+          triggerTool: options.triggerTool,
+          sourceEngramId: engramId,
+          synapseId: neighborSynapseMap.get(neighborId),
+          importanceDelta: neighborDelta,
+          effectiveness: neighborDelta,
+          hebbian: true,
+        },
+      });
+    }
   }
 
   return {

@@ -9,6 +9,7 @@
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { SynapseResolutionState } from "../types/synapse.js";
+import type { AuditLog } from "../observability/audit-log.js";
 import { detectContradictions } from "./detector.js";
 
 export interface AutoDegradeResult {
@@ -94,7 +95,18 @@ export interface ManualResolveInput {
 export function manualResolveContradiction(
   repo: EngramRepository,
   input: ManualResolveInput,
-  options: { now?: Date; persist?: boolean } = {},
+  options: {
+    readonly now?: Date;
+    readonly persist?: boolean;
+    /**
+     * P0-5 修复:auditLog 注入。若提供,则写 merge_resolved audit(此前 enum 有值
+     * 但代码从不调用)。让"谁在什么时候基于什么 rationale 把哪条 engram 判定
+     * 为 superseded"完整可追溯 —— 这是 co-engram 最重要的决策类型审计。
+     */
+    readonly auditLog?: AuditLog;
+    /** 宿主标识(透传到 audit entry) */
+    readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
+  } = {},
 ): { resolved: boolean; finalStatus: SynapseResolutionState["status"] } {
   const now = options.now ?? new Date();
   const persist = options.persist ?? true;
@@ -122,6 +134,31 @@ export function manualResolveContradiction(
 
   if (persist) {
     repo.updateSynapseResolution(input.fromId, input.synapseId, nextState);
+
+    // P0-5 修复:写 merge_resolved audit(enum 有值但代码从未调用,经典 fail-silent)
+    if (options.auditLog) {
+      options.auditLog.append({
+        actor: "user",
+        action: "merge_resolved",
+        engramId: input.fromId,
+        host: options.host,
+        metadata: {
+          synapseId: input.synapseId,
+          fromId: input.fromId,
+          toId: synapse.to,
+          verdict: input.verdict,
+          rationale: input.rationale,
+          resolvedBy: input.resolvedBy,
+          phase: nextState.phase,
+          // 便于 audit_query(action: merge_resolved, engramId) 直接追溯
+          // "某个 engram 是否被判定为 superseded"
+          supersededEngramId:
+            input.verdict === "keep_old" ? input.fromId : synapse.to,
+          winningEngramId:
+            input.verdict === "keep_old" ? synapse.to : input.fromId,
+        },
+      });
+    }
   }
 
   return { resolved: true, finalStatus: "resolved" };
