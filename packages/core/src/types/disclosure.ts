@@ -59,6 +59,13 @@ export interface SearchFilter {
   readonly createdAfter?: string;
   readonly createdBefore?: string;
   readonly minImportance?: number;
+  /**
+   * 情境标签过滤(P0-3 修复:此前 interface / Zod schema / matchesFilter 三方都缺
+   * contextTags 字段,Zod 默认 strip unknown keys 导致用户传入被静默吞,所有
+   * engram 都通过 filter)。语义:engram.contextTags 与 filter.contextTags 有
+   * 交集则通过(与 domainTags 同语义)。
+   */
+  readonly contextTags?: readonly string[];
 }
 
 /** 检索请求 */

@@ -8,6 +8,20 @@
  */
 
 import { z } from "zod";
+import { normalizeUlid } from "./normalization.js";
+
+/**
+ * ULID canonical 字段(P1-78 修复:ULID 大小写敏感未规范化)
+ *
+ * ULID 规范本身大小写不敏感,但 co-engram 创建时返回大写;工具入口若用户/LLM
+ * 传小写(某些 markdown 渲染器、URL encoder、shell 变量展开会转小写),会
+ * 返回 INVALID_ID。统一在 schema 层 transform 解决所有工具的 id/synapseId/
+ * fromId/toId 字段。
+ */
+const ulidField = z
+  .string()
+  .min(1)
+  .transform((s) => normalizeUlid(s));
 
 // ============================================================
 // 基础枚举
@@ -124,7 +138,7 @@ export const EngramGetTierSchema = z.enum([
 ]);
 
 export const EngramGetInputSchema = z.object({
-  id: z.string().min(1),
+  id: ulidField,
   tier: EngramGetTierSchema.default("digest"),
   /** tier='auto' 时使用的 token 预算；省略则用默认 4K */
   contextBudget: z
@@ -171,7 +185,7 @@ export const EngramDeleteInputSchema = z.object({
 // ============================================================
 
 export const EngramReinforceInputSchema = z.object({
-  id: z.string().min(1),
+  id: ulidField,
   /** 有效性 [0,1]，1=完全有效，0.5=部分有效 */
   effectiveness: z.number().min(0).max(1).default(1),
   /** 可选：有效性说明（供审计） */
@@ -216,17 +230,25 @@ export const EngramForgetInputSchema = z.object({
 // engram_search
 // ============================================================
 
-export const SearchFilterSchema = z.object({
-  domainTags: z.array(z.string()).optional(),
-  kinds: z.array(z.string()).optional(),
-  status: z.array(z.string()).optional(),
-  freshness: z.array(z.string()).optional(),
-  emotionalValence: z.array(z.string()).optional(),
-  createdBy: z.array(z.string()).optional(),
-  createdAfter: z.string().optional(),
-  createdBefore: z.string().optional(),
-  minImportance: z.number().min(0).max(1).optional(),
-});
+export const SearchFilterSchema = z
+  .object({
+    domainTags: z.array(z.string()).optional(),
+    kinds: z.array(z.string()).optional(),
+    status: z.array(z.string()).optional(),
+    freshness: z.array(z.string()).optional(),
+    emotionalValence: z.array(z.string()).optional(),
+    createdBy: z.array(z.string()).optional(),
+    createdAfter: z.string().optional(),
+    createdBefore: z.string().optional(),
+    minImportance: z.number().min(0).max(1).optional(),
+    // P0-3 修复:此前 contextTags 字段在 SearchFilter interface / Zod schema /
+    // matchesFilter 三方都缺失,用户传入被 Zod 默认 strip 静默吞掉
+    contextTags: z.array(z.string()).optional(),
+  })
+  // P0-3 修复:.strict() 拒绝 unknown keys(此前默认 strip 让所有 filter 字段错写
+  // 都被静默吞,导致调试困难)。同 Tier 0 在 engram_search / engram_list /
+  // engram_audit_query 三个工具启用;其他工具用既有 validateInput(向后兼容)
+  .strict();
 
 // ============================================================
 // engram_recompute_importance（P2：多维重要性）
@@ -261,8 +283,8 @@ export const ContradictionVerdictSchema = z.enum([
 ]);
 
 export const ContradictionResolveInputSchema = z.object({
-  fromId: z.string().min(1),
-  synapseId: z.string().min(1),
+  fromId: ulidField,
+  synapseId: ulidField,
   /** 裁决选项（必填） */
   verdict: ContradictionVerdictSchema,
   /** 必填依据（供审计） */

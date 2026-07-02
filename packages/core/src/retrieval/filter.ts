@@ -26,6 +26,14 @@ export function matchesFilter(
     }
   }
 
+  // P0-3 修复:contextTags 此前在 SearchFilter 三方缺失,现在补齐
+  // 语义与 domainTags 一致:engram.contextTags 与 filter.contextTags 有交集则通过
+  if (filter.contextTags && filter.contextTags.length > 0) {
+    if (!filter.contextTags.some((t) => line.contextTags.includes(t))) {
+      return false;
+    }
+  }
+
   if (filter.kinds && filter.kinds.length > 0) {
     if (!filter.kinds.some((k) => line.kinds.includes(k))) {
       return false;
