@@ -166,6 +166,9 @@ export function createCoEngramContext(
     repository,
     searchOrchestrator,
     signalSink,
+    // P0-4:双宿主契约不一致修复——OpenClaw 侧注入 host 标识,
+    // 透传到 audit entry,让跨宿主行为审计能区分来源。
+    host: "openclaw-plugin",
     ...(auditLog ? { auditLog } : {}),
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(proposalEngine ? { proposalEngine } : {}),

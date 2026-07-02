@@ -87,6 +87,15 @@ export interface ToolContext {
    * 宿主在会话结束后据此判断是否需要 git commit。
    */
   markDirty?: () => void;
+  /**
+   * 宿主标识(P0-4:双宿主契约不一致修复)。
+   *
+   * 由 host adapter 在构造 ToolContext 时注入(claude-code-mcp 或 openclaw-plugin)。
+   * 工具在 auditLog.append 时透传,让 AuditEntry.host 字段记录来源宿主,
+   * 便于跨宿主行为审计与归因。未注入时 audit entry 的 host 字段为 undefined
+   * (向后兼容:旧调用路径不强制要求)。
+   */
+  readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
 }
 
 /**

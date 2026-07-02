@@ -213,6 +213,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     repository,
     searchOrchestrator,
     signalSink,
+    // P0-4:双宿主契约不一致修复——MCP 侧注入 host 标识,
+    // 透传到 audit entry,让跨宿主行为审计能区分来源。
+    host: "claude-code-mcp",
     ...(auditLog ? { auditLog } : {}),
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(proposalEngine ? { proposalEngine } : {}),

@@ -148,16 +148,57 @@ function renderListResult(
         ? ` (score: ${(item["score"] as number).toFixed(2)})`
         : "";
 
+    // P0-4 修复:此前 OpenClaw render 丢弃 importance/freshness/contextTags/createdBy,
+    // 让 agent 看不到记忆的"权重/新鲜度/情境标签/作者"四项关键元数据,只能看 id+title+tags。
+    // 现在补齐:与 engram_list/engram_search 的 DigestLine 字段对齐,优先读顶层,缺失时
+    // 兜底读 metadata(memory_search 形状)。
+    const importance = readNumberField(item["importance"], meta["importance"]);
+    const freshness = readStringField(item["freshness"], meta["freshness"]);
+    const rawContextTags = Array.isArray(item["contextTags"])
+      ? item["contextTags"]
+      : Array.isArray(meta["contextTags"])
+        ? meta["contextTags"]
+        : [];
+    const contextTags =
+      rawContextTags.length > 0 ? rawContextTags.map(String).join(", ") : "";
+    const createdBy = readStringField(item["createdBy"], meta["createdBy"]);
+
     lines.push(`${i + 1}. **${title}**${score}`);
     lines.push(`   - id: \`${id}\``);
     if (kind) lines.push(`   - kind: ${kind}`);
     if (tags) lines.push(`   - tags: ${tags}`);
+    if (contextTags) lines.push(`   - contextTags: ${contextTags}`);
+    if (importance !== null) {
+      lines.push(`   - importance: ${importance.toFixed(2)}`);
+    }
+    if (freshness) lines.push(`   - freshness: ${freshness}`);
+    if (createdBy) lines.push(`   - createdBy: ${createdBy}`);
     if (summary) lines.push(`   - summary: ${summary}`);
   }
 
   lines.push("");
   lines.push("用户想看某条的完整内容时,根据 id 调 engram_get 或 memory_get。");
   return lines.join("\n");
+}
+
+/** 防御性读字符串字段(支持顶层或嵌套 metadata),都不是字符串返回空 */
+function readStringField(
+  primary: unknown,
+  fallback: unknown,
+): string {
+  if (typeof primary === "string" && primary.length > 0) return primary;
+  if (typeof fallback === "string" && fallback.length > 0) return fallback;
+  return "";
+}
+
+/** 防御性读数字字段(支持顶层或嵌套 metadata),都不是有限数字返回 null */
+function readNumberField(
+  primary: unknown,
+  fallback: unknown,
+): number | null {
+  if (typeof primary === "number" && Number.isFinite(primary)) return primary;
+  if (typeof fallback === "number" && Number.isFinite(fallback)) return fallback;
+  return null;
 }
 
 /** 渲染 engram_get 各 tier 结果 */
