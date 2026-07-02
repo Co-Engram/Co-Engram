@@ -362,6 +362,24 @@ describe("computeStatus / 结构化 why/fix 字段", () => {
     expect(mergeCheck?.fix?.command).toContain("co-engram git enable");
   });
 
+  it("git 仓库 + >10 未提交变更 → warn check 含 whyI18nKey + fix.tool=commit", async () => {
+    await initWarehouse(tmpDir, { git: true });
+    // 制造 11 个未提交文件,触发 overThreshold 分支
+    for (let i = 0; i < 11; i++) {
+      writeFileSync(join(tmpDir, `file-${i}.md`), `# file ${i}\n`);
+    }
+    const snapshot = computeStatus(tmpDir);
+    const gitCheck = snapshot.checks.find((c) => c.id === "git");
+    expect(gitCheck?.status).toBe("warn");
+    expect(gitCheck?.whyI18nKey).toMatch(/^viewer\.health\.why\.git_dirty_high/);
+    expect(gitCheck?.fix).toBeDefined();
+    // tool=commit 让 viewer 渲染「立即提交」按钮(POST /api/commit 一键落盘)
+    expect(gitCheck?.fix?.tool).toBe("commit");
+    // command 同时给出完整 commit 命令,作为复制执行的 fallback
+    expect(gitCheck?.fix?.command).toContain("git add -A");
+    expect(gitCheck?.fix?.command).toContain("git commit");
+  });
+
   it("ok/info check 不需要 whyI18nKey / fix(留空)", async () => {
     await initWarehouse(tmpDir, { git: true });
     // 让 data_root 是 ok 状态

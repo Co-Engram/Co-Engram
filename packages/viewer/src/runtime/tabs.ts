@@ -1277,14 +1277,19 @@ CO_ENGRAM.on('health', async function() {
         let fixBlock = '';
         if (c.fix) {
           const desc = T.t(c.fix.descriptionI18nKey);
+          // tool === 'commit' 时渲染「立即提交」按钮(POST /api/commit),其余 tool 走原"或调用工具"行
+          const isCommitAction = c.fix.tool === 'commit';
+          const primaryBtn = isCommitAction
+            ? '<div class="health-fix-action-row"><button class="btn" onclick="CO_ENGRAM._healthCommitNow(this)">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.commitNow')) + '</button></div>'
+            : '';
           const cmdRow = c.fix.command
             ? '<div class="health-fix-cmd-row"><code class="health-fix-cmd">' + CO_ENGRAM.escapeHtml(c.fix.command) + '</code>'
               + '<button class="btn-mini" onclick="CO_ENGRAM._copyHealthCmd(this, ' + JSON.stringify(c.fix.command) + ')">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.copyCommand')) + '</button></div>'
             : '';
-          const toolLine = c.fix.tool
+          const toolLine = c.fix.tool && !isCommitAction
             ? '<div class="health-fix-tool">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.orCallTool')) + ': <code>' + CO_ENGRAM.escapeHtml(c.fix.tool) + (c.fix.argsHint ? ' ' + CO_ENGRAM.escapeHtml(c.fix.argsHint) : '') + '</code></div>'
             : '';
-          fixBlock = '<div class="health-fix-block"><div class="health-fix-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.howToFix')) + '</div><div class="health-fix-desc">' + CO_ENGRAM.escapeHtml(desc) + '</div>' + cmdRow + toolLine + '</div>';
+          fixBlock = '<div class="health-fix-block"><div class="health-fix-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.check.howToFix')) + '</div><div class="health-fix-desc">' + CO_ENGRAM.escapeHtml(desc) + '</div>' + primaryBtn + cmdRow + toolLine + '</div>';
         }
         const detailBlock = c.detail ? '<pre class="health-check-detail">' + CO_ENGRAM.escapeHtml(c.detail) + '</pre>' : '';
         html += '<li class="health-check-item health-check-problem">'
@@ -1349,6 +1354,40 @@ CO_ENGRAM._copyHealthCmd = async function(btn, cmd) {
   const orig = btn.textContent;
   btn.textContent = CO_ENGRAM_T.t('viewer.health.check.commandCopied');
   setTimeout(function() { btn.textContent = orig; }, 1500);
+};
+
+CO_ENGRAM._healthCommitNow = async function(btn) {
+  const T = CO_ENGRAM_T;
+  const defaultMsg = T.t('viewer.health.check.commitDefaultMessage');
+  const message = window.prompt(T.t('viewer.health.check.commitMessagePrompt'), defaultMsg);
+  if (message === null) return; // 用户取消
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '...';
+  try {
+    const resp = await CO_ENGRAM.apiJson('/api/commit', 'POST', { message });
+    if (!resp.ok) {
+      window.alert(T.t('viewer.health.check.commitFailed', { error: resp.error || 'unknown' }));
+      return;
+    }
+    if (resp.nothingToCommit) {
+      window.alert(T.t('viewer.health.check.commitNothing'));
+    } else {
+      const c = resp.commit || {};
+      window.alert(T.t('viewer.health.check.commitSuccess', {
+        files: String(c.filesChanged ?? 0),
+        branch: c.branch || '',
+        hash: (c.hash || '').slice(0, 7),
+      }));
+    }
+    // 刷新 Health tab 让 warn 消失
+    await CO_ENGRAM._healthRefresh();
+  } catch (e) {
+    window.alert(T.t('viewer.health.check.commitFailed', { error: e.message || String(e) }));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
 };
 
 CO_ENGRAM._healthDoctorScan = async function() {

@@ -769,7 +769,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.fix.index_missing.description": "运行自愈扫描重建索引(或忽略,下次工具调用会自动重建):",
   "viewer.health.fix.proposals_pending_high.description": "调出待处理列表逐条审核(accept 固化 / dismiss 驳回):",
   "viewer.health.fix.git_not_repo.description": "初始化 git 仓库以获得版本历史:",
-  "viewer.health.fix.git_dirty_high.description": "手动提交或调用同步工具落盘:",
+  "viewer.health.fix.git_dirty_high.description": "一键提交所有 engram 变更,或复制命令手动执行:",
   "viewer.health.fix.merge_driver_missing.description": "自动配置 git merge driver(幂等):",
 
   // 健康栏 UI 资源(展开/收起、复制命令、调工具、doctor 联动卡片)
@@ -778,6 +778,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.check.copyCommand": "复制命令",
   "viewer.health.check.commandCopied": "已复制",
   "viewer.health.check.orCallTool": "或调用工具",
+  "viewer.health.check.commitNow": "立即提交",
+  "viewer.health.check.commitMessagePrompt": "请输入提交说明(可编辑后确认)",
+  "viewer.health.check.commitDefaultMessage": "chore(memory): 同步 engram 变更",
+  "viewer.health.check.commitSuccess": "已提交 {files} 个文件 · {branch}@{hash}",
+  "viewer.health.check.commitNothing": "工作区已经是干净的,无需提交。",
+  "viewer.health.check.commitFailed": "提交失败:{error}",
   "viewer.health.check.expand": "展开详情",
   "viewer.health.check.collapse": "收起",
   "viewer.health.doctor.title": "自愈扫描建议",

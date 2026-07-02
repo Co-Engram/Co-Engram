@@ -363,7 +363,9 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
               whyI18nKey: "viewer.health.why.git_dirty_high",
               fix: {
                 descriptionI18nKey: "viewer.health.fix.git_dirty_high.description",
-                command: `cd ${dataRoot} && git status`,
+                command: `cd ${dataRoot} && git add -A && git commit -m "chore(memory): sync engram updates"`,
+                // tool="commit" 让 viewer 渲染「立即提交」按钮,POST /api/commit 一键落盘
+                tool: "commit",
               },
             }
           : {}),

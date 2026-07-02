@@ -57,6 +57,8 @@ import {
   applyDataRootChange,
   computeStatus,
   runInfraDoctor,
+  commitFiles,
+  isGitRepo,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 
@@ -978,6 +980,59 @@ async function routeApi(
       respondJson(res, 200, { ok: true });
     } catch (err) {
       // observe 失败不能影响 hook 调用方
+      respondJson(res, 200, {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return;
+  }
+
+  // POST /api/commit — 一键提交当前 dataRoot 里所有 engram 变更
+  //
+  // 解决场景:Health tab 检测到「N 个未提交变更」warn 后,用户期望一键落盘,
+  // 而不是手动复制命令到终端执行。co-engram dataRoot 是 team-memory 仓库,
+  // 里面就是 engram 文件,直接 commit 不侵犯用户代码工作。
+  //
+  // body: { message?: string } —— message 缺省时用 "chore(memory): sync engram updates"
+  // 出错时不抛 500,返回 { ok: false, error } 让前端展示。
+  if (path === "/api/commit" && req.method === "POST") {
+    if (!ctx.repository) {
+      respondJson(res, 200, { ok: false, error: "repository unavailable" });
+      return;
+    }
+    const repoPath = ctx.repository.rootPath;
+    if (!isGitRepo(repoPath)) {
+      respondJson(res, 200, {
+        ok: false,
+        error: "data root is not a git repo",
+      });
+      return;
+    }
+    try {
+      const body = await readJsonBodyAs<{ readonly message?: string }>(req);
+      const message =
+        typeof body?.message === "string" && body.message.trim().length > 0
+          ? body.message.trim()
+          : "chore(memory): sync engram updates";
+      const result = commitFiles({
+        repoPath,
+        files: [],
+        message,
+      });
+      if (result.filesChanged === 0) {
+        respondJson(res, 200, { ok: true, nothingToCommit: true });
+        return;
+      }
+      respondJson(res, 200, {
+        ok: true,
+        commit: {
+          hash: result.commitHash,
+          branch: result.branch,
+          filesChanged: result.filesChanged,
+        },
+      });
+    } catch (err) {
       respondJson(res, 200, {
         ok: false,
         error: err instanceof Error ? err.message : String(err),
