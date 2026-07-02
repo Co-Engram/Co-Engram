@@ -90,6 +90,15 @@ export function commitFiles(options: GitCommitOptions): GitCommitResult {
     initGitRepo(repoPath);
   }
 
+  // P0-7:中文路径默认被 git 用 <U+XXXX> 转义,changedFiles 显示为
+  // "\xxx\xxx\xxx" 不可读。在 commit 入口设 core.quotepath=false
+  // (local repo,不污染 global);失败不阻断 commit —— 这只是显示优化。
+  try {
+    runGitSpawn(repoPath, ["config", "core.quotepath", "false"]);
+  } catch {
+    // config 设置失败(如 .git/config 权限问题)不阻断 commit
+  }
+
   // Stage files —— 数组参数,文件名含空格 / 特殊字符都无需 shell 转义
   if (files.length > 0) {
     runGitSpawn(repoPath, ["add", ...files]);

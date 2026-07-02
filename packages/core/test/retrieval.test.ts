@@ -86,10 +86,13 @@ describe("FTS 索引", () => {
     expect(hits).toEqual([]);
   });
 
-  it("中文词级切分不产生 bigram 假阳性(Task 4.1)", () => {
-    // bigram 实现:"记忆系统设计" → 含 "忆系" 这个无意义 token
-    // Intl.Segmenter 词级切分:"记忆系统设计" → ["记忆", "系统", "设计"]
-    // 不会产生跨词边界的 token
+  it("中文词级切分 + 单字 fallback(P0-6 修订 Task 4.1)", () => {
+    // Task 4.1 原设计:Intl.Segmenter 词级切分,消除 bigram(N-gram 索引产物)假阳性。
+    // P0-6 修订:索引端 word-level segment 长度 > 1 时额外补单字 token,
+    //           让单字 query(如"记")能命中含该字的词(如"记忆系统")。
+    //           代价是 segmenter 不识别的 2 字 query(如"忆系")会跨词边界
+    //           匹配(单字 token 都在索引里),但用户极少查无意义 2 字组合,
+    //           而单字 query 极常见。FTS 真正消除假阳性需要 phrase matching。
     const lines = [
       makeLine({
         id: "a",
@@ -98,12 +101,13 @@ describe("FTS 索引", () => {
       }),
     ];
     const index = buildFtsIndex(lines);
-    // 搜 "忆系"(跨词边界的 bigram)——应无匹配
-    const falseHits = searchFts("忆系", index);
-    expect(falseHits).toEqual([]);
     // 搜真正的词——应匹配
     const realHits = searchFts("记忆", index);
     expect(realHits.length).toBeGreaterThan(0);
+    // P0-6 新断言:搜单字"记"——应命中含该字的文档(原 Task 4.1 修复前会失败)
+    const singleCharHits = searchFts("记", index);
+    expect(singleCharHits.length).toBeGreaterThan(0);
+    expect(singleCharHits[0].docId).toBe("a");
   });
 });
 

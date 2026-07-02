@@ -31,8 +31,20 @@ function getZhSegmenter(): Intl.Segmenter | null {
   return zhWordSegmenter;
 }
 
-/** Token 化结果 */
-function tokenize(text: string): string[] {
+/** Token 化结果
+ *
+ * mode 参数(P0-6 修复):
+ *   - 'index':索引阶段。word-level segment 长度 > 1 时,额外补单字 token,
+ *     让单字 query(如"团")能命中含该字的词(如"团队")。
+ *   - 'query':查询阶段。不补单字 token,但 segmenter 输出的 word-level
+ *     单字 token(如"调试"被切成["调","试"])正常加入。
+ *
+ * Task 4.1 anti-false-positive 的 trade-off(P0-6 修订):
+ *   索引端补单字后,segmenter 不识别的 2 字 query(如"忆系")会产生跨词
+ *   边界匹配(假阳性)。但用户极少查无意义 2 字组合,单字 query 极常见,
+ *   trade-off 划算。FTS 真正消除假阳性需要 phrase matching(未实现)。
+ */
+function tokenize(text: string, mode: "index" | "query" = "index"): string[] {
   if (!text) {
     return [];
   }
@@ -59,6 +71,17 @@ function tokenize(text: string): string[] {
         if (!seen.has(trimmed)) {
           seen.add(trimmed);
           tokens.push(trimmed);
+        }
+        // P0-6 修复(index 模式):word-level segment 额外补单字 token,
+        // 让单字 query(如"团")能命中含该字的词(如"团队")。
+        // 仅 index 模式拆字;query 模式不拆,避免膨胀 query token 集合。
+        if (mode === "index" && trimmed.length > 1) {
+          for (const ch of trimmed) {
+            if (/[一-龥ぁ-んァ-ン]/.test(ch) && !seen.has(ch)) {
+              seen.add(ch);
+              tokens.push(ch);
+            }
+          }
         }
       }
     } else {
@@ -104,7 +127,7 @@ export function buildFtsIndex(lines: Iterable<DigestLine>): FtsIndex {
       line.domainTags.join(" "),
       line.contextTags.join(" "),
     ].join(" ");
-    const tokens = new Set(tokenize(text));
+    const tokens = new Set(tokenize(text, "index"));
     docTokens.set(line.id, tokens);
 
     for (const token of tokens) {
@@ -141,7 +164,7 @@ export function searchFts(
   index: FtsIndex,
   limit = 50,
 ): FtsHit[] {
-  const queryTokens = tokenize(query);
+  const queryTokens = tokenize(query, "query");
   if (queryTokens.length === 0) {
     return [];
   }
@@ -163,9 +186,10 @@ export function searchFts(
       entry.score += 1;
       entry.matched.add(token);
 
-      // title 加权：如果 token 在 title 中
+      // title 加权：如果 token 在 title 中(用 index 模式 tokenize,
+      // 因为 doc.title 在索引阶段也用 index 模式,两端一致)
       const doc = index.docs.get(docId);
-      if (doc && tokenize(doc.title).includes(token)) {
+      if (doc && tokenize(doc.title, "index").includes(token)) {
         entry.score += 1;
       }
     }
