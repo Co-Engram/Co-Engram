@@ -131,6 +131,8 @@ export const zh = {
 
 ⚠️ visibility:含个人凭据/路径/设备特定信息(如 ADB 序列号、个人 token、本机偏好)时设 'private',文件落 private/ 子目录被 .gitignore 隔离,不入团队仓库但本机仍可检索。默认 'public'。
 
+⚠️ 与 Claude Code auto-memory 的关系:co-engram 启用后,所有记忆默认走本工具(visibility 字段已覆盖 auto-memory 所有用例——'private' = 个人记忆)。不要写到 ~/.claude/projects/.../memory/(auto-memory 文件层),该路径会被 AutoMemorySyncEngine 无差别推到团队库,丢失归属语义。仅当 co-engram 未启用时才用 auto-memory 兜底。
+
 返回:创建的 engram ID + 版本号。自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
 
@@ -744,11 +746,14 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.engram.visibilityBadge.public": "公开",
   "viewer.engram.visibilityBadge.team": "团队",
   "viewer.engram.visibilityBadge.restricted": "受限",
-  "viewer.engram.filter.all": "全部",
-  "viewer.engram.filter.team": "团队",
+  "viewer.engram.filter.visibility": "可见性",
+  "viewer.engram.filter.allVisibilities": "全部",
+  "viewer.engram.filter.team": "团队可见",
   "viewer.engram.filter.private": "仅私有",
   "tip.engram.gitIsolation":
     "私有记忆(🔒)通过 .gitignore 隔离,不进团队 git 仓库;本机所有 agent 仍可索引/检索。",
+  "tip.engram.gitIsolation.teamScope":
+    "公开 / 团队 / 受限三类记忆都会进团队 git 仓库;选此项即显示这三类。",
   "tip.engram.visibilityEdit":
     "改 visibility 会触发文件路径迁移(public/team/restricted → <domainTags>/,private → private/<domainTags>/);路径冲突时失败,原文件不动。",
 
@@ -939,6 +944,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "field.label.sourceType": "来源类型:",
   "field.label.verificationStatus": "验证状态:",
   "field.label.decayHalfLife": "衰退半衰期:",
+  "field.label.visibility": "可见性:",
 
   // 区段标题(section.<name>)
   "section.content": "内容",

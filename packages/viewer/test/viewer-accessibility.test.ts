@@ -206,6 +206,49 @@ describe("viewer 可访问性端到端", () => {
 });
 
 // ============================================================
+// HTML 标记:engram-tab visibility filter
+// 防 label/option 文案重复回归(tabs.ts:133 复制粘贴 bug)
+// ============================================================
+
+describe("HTML 标记:engram-tab visibility filter", () => {
+  it("中文模式:visibility label = 可见性,option = 全部,gitIsolation tip 挂在 private option 上", async () => {
+    const ctx = makeCtx(tmpDir);
+    const port = nextPort();
+    const runtime = await startViewerServer(ctx, { port, language: "zh" });
+    try {
+      const res = await makeRequest(port, "/");
+      // 新 i18n key 已打包
+      expect(res.body).toContain("viewer.engram.filter.visibility");
+      expect(res.body).toContain("viewer.engram.filter.allVisibilities");
+      expect(res.body).toContain("tip.engram.gitIsolation.teamScope");
+      // 旧 key viewer.engram.filter.all 必须完全清除(带引号断言,避免 allVisibilities 子串误判)
+      expect(res.body).not.toContain('"viewer.engram.filter.all"');
+      // label 中文文案
+      expect(res.body).toContain("可见性");
+      // team option 新文案:团队可见(比单字「团队」更清晰)
+      expect(res.body).toContain("团队可见");
+    } finally {
+      await runtime.stop();
+    }
+  });
+
+  it("英文模式:visibility label = Visibility,option = All,team = Team-visible", async () => {
+    const ctx = makeCtx(tmpDir);
+    const port = nextPort();
+    const runtime = await startViewerServer(ctx, { port, language: "en" });
+    try {
+      const res = await makeRequest(port, "/");
+      expect(res.body).toContain("viewer.engram.filter.visibility");
+      expect(res.body).not.toContain('"viewer.engram.filter.all"');
+      expect(res.body).toContain("Visibility");
+      expect(res.body).toContain("Team-visible");
+    } finally {
+      await runtime.stop();
+    }
+  });
+});
+
+// ============================================================
 // HTML 标记:health-tab 一键提交功能
 // 防 commit 端点 + health-tab JS 漏打包
 // ============================================================

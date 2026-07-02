@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { zh, en } from "@co-engram/core";
 import { renderSpaHtml } from "../src/index.js";
 
@@ -51,6 +54,7 @@ const VIEWER_RUNTIME_KEYS = [
   "field.label.sourceType",
   "field.label.verificationStatus",
   "field.label.decayHalfLife",
+  "field.label.visibility",
 
   // section titles
   "section.content",
@@ -145,6 +149,82 @@ describe("viewer i18n / dictionary coverage", () => {
           `zh.${key} 与 en.${key} 完全相同("${zhVal}"),可能漏改`,
         ).toBe(true);
       }
+    }
+  });
+});
+
+// ============================================================
+// 源码-字典一致性扫描
+//
+// 起因:viewer 的 `T.fieldLabel('visibility')` 调用长期暴露字面
+// `field.label.visibility` 给用户,因为字典漏译、白名单漏列。
+// 白名单是人工维护,易漏;此 describe 自动扫描 viewer 源码所有
+// fieldLabel/enumLabel 调用,断言字典里有对应翻译。
+// 下次再有人新加 fieldLabel('foo') 却忘了字典,CI 立刻失败。
+// ============================================================
+
+const VIEWER_SRC_DIR = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "src",
+);
+const TABS_SRC = readFileSync(join(VIEWER_SRC_DIR, "runtime", "tabs.ts"), "utf8");
+
+const FIELD_LABEL_CALLS = Array.from(
+  TABS_SRC.matchAll(/fieldLabel\(['"]([^'"]+)['"]\)/g),
+).map((m) => m[1]);
+const ENUM_LABEL_CALLS = Array.from(
+  TABS_SRC.matchAll(/enumLabel\(['"]([^'"]+)['"]/g),
+).map((m) => m[1]);
+
+describe("viewer i18n / 源码-字典一致性(自动扫描)", () => {
+  it("扫描器至少捕获到 1 个 fieldLabel 调用(防 regex 失效静默通过)", () => {
+    expect(FIELD_LABEL_CALLS.length).toBeGreaterThan(0);
+  });
+
+  it("扫描器至少捕获到 1 个 enumLabel 调用(防 regex 失效静默通过)", () => {
+    expect(ENUM_LABEL_CALLS.length).toBeGreaterThan(0);
+  });
+
+  it("每个 fieldLabel('xxx') 调用,字典里都有 field.label.xxx 翻译(zh + en)", () => {
+    const seen = new Set<string>();
+    for (const name of FIELD_LABEL_CALLS) {
+      seen.add(name);
+      const key = `field.label.${name}`;
+      const zhVal = zh[key as keyof typeof zh];
+      const enVal = en[key as keyof typeof en];
+      expect(
+        zhVal,
+        `zh.${key} 缺翻译(源码 tabs.ts 调用了 fieldLabel('${name}'))`,
+      ).toBeTruthy();
+      expect(
+        enVal,
+        `en.${key} 缺翻译(源码 tabs.ts 调用了 fieldLabel('${name}'))`,
+      ).toBeTruthy();
+      expect(zhVal, `zh.${key} 误填成 key 本身`).not.toBe(key);
+      expect(enVal, `en.${key} 误填成 key 本身`).not.toBe(key);
+    }
+    // sanity:扫描覆盖到已知必须存在的字段
+    expect(seen.has("visibility"), "fieldLabel('visibility') 应被源码调用").toBe(true);
+    expect(seen.has("id"), "fieldLabel('id') 应被源码调用").toBe(true);
+  });
+
+  it("每个 enumLabel('xxx', ...) 调用,字典里都有 enum.xxx.* 翻译(zh + en)", () => {
+    for (const category of ENUM_LABEL_CALLS) {
+      const zhHits = Object.keys(zh).filter((k) =>
+        k.startsWith(`enum.${category}.`),
+      );
+      const enHits = Object.keys(en).filter((k) =>
+        k.startsWith(`enum.${category}.`),
+      );
+      expect(
+        zhHits.length,
+        `zh.enum.${category}.* 至少有 1 个值(源码调用了 enumLabel('${category}', ...))`,
+      ).toBeGreaterThan(0);
+      expect(
+        enHits.length,
+        `en.enum.${category}.* 至少有 1 个值(源码调用了 enumLabel('${category}', ...))`,
+      ).toBeGreaterThan(0);
     }
   });
 });

@@ -131,6 +131,8 @@ WHEN NOT TO CALL:
 
 ⚠️ visibility='private' for personal credentials/paths/device-specific info (ADB serials/tokens/machine-local prefs) → file lands under private/, gitignored, never enters team repo.
 
+⚠️ Relation to Claude Code auto-memory: when co-engram is enabled, ALL memories go through this tool (the visibility field already covers every auto-memory use case — 'private' = personal memory). Do NOT write to ~/.claude/projects/.../memory/ (the auto-memory file layer) — AutoMemorySyncEngine pushes that path into the team repo unconditionally, losing ownership semantics. Fall back to auto-memory only when co-engram is not installed.
+
 RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
 
@@ -742,11 +744,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.engram.visibilityBadge.public": "Public",
   "viewer.engram.visibilityBadge.team": "Team",
   "viewer.engram.visibilityBadge.restricted": "Restricted",
-  "viewer.engram.filter.all": "All",
-  "viewer.engram.filter.team": "Team",
+  "viewer.engram.filter.visibility": "Visibility",
+  "viewer.engram.filter.allVisibilities": "All",
+  "viewer.engram.filter.team": "Team-visible",
   "viewer.engram.filter.private": "Private only",
   "tip.engram.gitIsolation":
     "Private engrams (🔒) are isolated via .gitignore and never enter the team git repo; local agents can still index/search them.",
+  "tip.engram.gitIsolation.teamScope":
+    "Public / Team / Restricted engrams all enter the team git repo; this option shows all three.",
   "tip.engram.visibilityEdit":
     "Changing visibility triggers file path migration (public/team/restricted → <domainTags>/, private → private/<domainTags>/); fails on path conflict, original file untouched.",
 
@@ -943,6 +948,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "field.label.sourceType": "Source type:",
   "field.label.verificationStatus": "Verification status:",
   "field.label.decayHalfLife": "Decay half-life:",
+  "field.label.visibility": "Visibility:",
 
   // Section titles (section.<name>)
   "section.content": "Content",
