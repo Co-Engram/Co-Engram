@@ -183,7 +183,7 @@ const CO_ENGRAM = (function() {
         FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input', 'button', 'svg', 'math'],
         // URI 协议白名单:拒绝 javascript: / data: / vbscript: / file: 等
         // 允许:http(s):, mailto:, 页面内锚点(#/path), 无协议相对路径(abc, ./abc)
-        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|#\/[\w-]*$|[^:]*$)/i,
+        ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|#\\/[\\w-]*$|[^:]*$)/i,
         ALLOW_UNKNOWN_PROTOCOLS: false
       });
     } catch (e) {

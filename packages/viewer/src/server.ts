@@ -385,6 +385,7 @@ async function routeApi(
         createdAt?: string;
         updatedAt?: string;
         retrievalCount?: number;
+        visibility?: string;
       } | null = null;
       try {
         full = ctx.repository.readEngram(entry.id);
@@ -398,6 +399,7 @@ async function routeApi(
         retrievalCount: full?.retrievalCount ?? 0,
         createdAt: full?.createdAt ?? "",
         updatedAt: full?.updatedAt ?? "",
+        visibility: full?.visibility ?? "public",
       };
     });
     // 排序:支持 createdAt / updatedAt / importance / retrievalCount / title
