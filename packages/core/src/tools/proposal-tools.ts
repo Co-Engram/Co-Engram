@@ -197,6 +197,7 @@ export const engramAcceptProposalTool: Tool<
       ...(parsed.content !== undefined ? { content: parsed.content } : {}),
       ...(parsed.domainTags !== undefined ? { domainTags: parsed.domainTags } : {}),
       ...(parsed.kind !== undefined ? { kind: parsed.kind } : {}),
+      ...(parsed.visibility !== undefined ? { visibility: parsed.visibility } : {}),
       createdBy,
     });
     return { engramId, entityId: parsed.entityId, status: "accepted" };

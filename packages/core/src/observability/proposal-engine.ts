@@ -33,7 +33,7 @@ import { dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { AuditLog } from "./audit-log.js";
-import type { EngramCreateInput } from "../types/engram.js";
+import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   RuleBasedNecessityEvaluator,
@@ -361,6 +361,7 @@ export class ProposalEngine {
       readonly domainTags?: readonly string[];
       readonly createdBy?: string;
       readonly kind?: EngramCreateInput["kind"];
+      readonly visibility?: EngramVisibility;
     },
   ): string {
     const proposals = this.readProposals();
@@ -397,9 +398,12 @@ export class ProposalEngine {
       ...(payload?.importance !== undefined
         ? { importance: payload.importance }
         : {}),
-      ...(payload?.visibility !== undefined
-        ? { visibility: payload.visibility }
-        : {}),
+      // visibility 优先级:caller input > proposal.payload > undefined(走 createEngram 默认 public)
+      ...(input.visibility !== undefined
+        ? { visibility: input.visibility }
+        : payload?.visibility !== undefined
+          ? { visibility: payload.visibility }
+          : {}),
       ...(payload?.decayHalfLifeDays !== undefined
         ? { decayHalfLifeDays: payload.decayHalfLifeDays }
         : {}),

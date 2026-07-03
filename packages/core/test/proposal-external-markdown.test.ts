@@ -237,4 +237,37 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
       engramAcceptProposalTool.execute({ entityId }, buildCtx()),
     ).toThrow(/already exists/);
   });
+
+  it("accept 时 caller 可传 visibility 覆盖默认 public", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "visibility-override.md",
+      title: "T",
+      content: "C",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute(
+      { entityId, visibility: "private" },
+      buildCtx(),
+    );
+
+    const engram = repo.readEngram(result.engramId);
+    expect(engram.visibility).toBe("private");
+  });
+
+  it("accept 不传 visibility 时默认 public", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "visibility-default.md",
+      title: "T",
+      content: "C",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute({ entityId }, buildCtx());
+    expect(repo.readEngram(result.engramId).visibility).toBe("public");
+  });
 });

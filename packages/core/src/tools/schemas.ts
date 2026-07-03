@@ -474,6 +474,12 @@ export const EngramAcceptProposalInputSchema = z.object({
   createdBy: z.string().min(1).optional(),
   /** 可选：engram kind(默认 fact;auto-memory 来源也可从 payload 兜底) */
   kind: EngramKindSchema.optional(),
+  /**
+   * 可选:engram 可见性(默认 public;LLM 在 content 含风险信号时应主动询问用户后传 "private")。
+   *
+   * 不传时:若 proposal.payload 自带 visibility 则兜底,否则走 createEngram 默认 public。
+   */
+  visibility: EngramVisibilitySchema.optional(),
 });
 
 export const EngramDismissProposalInputSchema = z.object({
