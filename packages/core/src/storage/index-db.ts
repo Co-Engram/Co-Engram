@@ -144,43 +144,75 @@ export class IndexDb {
    * - FTS5 不支持 ON CONFLICT,只能 delete + insert;否则会有重复倒排项。
    */
   upsertEngram(entry: EngramIndexEntry): void {
+    this.transaction(() => this.upsertEngramUnsafe(entry));
+  }
+
+  /**
+   * 内部 UPSERT(无事务包裹)。调用方必须已在外层 transaction 内。
+   *
+   * 单条写入走 upsertEngram;批量 cold start rebuild 走 rebuildFromEntries,
+   * 后者在单个 transaction 里循环调用本方法,避免每条都 BEGIN/COMMIT。
+   */
+  private upsertEngramUnsafe(entry: EngramIndexEntry): void {
+    this.prepare(`
+      INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        title = excluded.title,
+        kind = excluded.kind,
+        importance = excluded.importance,
+        confidence = excluded.confidence,
+        updated_at = excluded.updated_at,
+        content_size = excluded.content_size,
+        visibility = excluded.visibility,
+        status = excluded.status
+    `).run(
+      entry.id,
+      entry.title,
+      entry.kind,
+      entry.importance,
+      entry.confidence,
+      entry.updatedAt,
+      entry.contentSize,
+      entry.visibility,
+      entry.status,
+    );
+    // domains 全量替换
+    this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);
+    const insertDomain = this.prepare(
+      "INSERT OR IGNORE INTO engram_domains (engram_id, domain) VALUES (?, ?)",
+    );
+    for (const d of entry.domainTags) {
+      insertDomain.run(entry.id, d);
+    }
+    // FTS5 不支持 ON CONFLICT,delete + insert
+    this.prepare("DELETE FROM engram_fts WHERE id = ?").run(entry.id);
+    this.prepare(
+      "INSERT INTO engram_fts (id, title, summary, content_tokens) VALUES (?, ?, ?, ?)",
+    ).run(entry.id, entry.title, entry.summary, entry.contentTokens);
+  }
+
+  /**
+   * Cold start 重建:用 entries 全量替换 SQLite 索引内容。
+   *
+   * 用例:host 启动时检测到 .co-engram/index.db 缺失或损坏 → 扫描所有
+   * engrams/*.md → 调本方法一次性灌入。
+   *
+   * 实现:
+   * - 单个 transaction 内:DELETE engrams(CASCADE 清 domains + synapses)
+   *   + DELETE engram_fts(FTS 不参与外键,手动清)+ 批量 upsertEngramUnsafe。
+   * - 中途任一步失败 → rollback,SQLite 保持原状(数据可能旧但一致)。
+   * - 调用方决定是否清空 synapses:本方法不重建 synapses(它们由 synapse
+   *   create 路径单独维护),CASCADE 会把它们一并清掉,rebuild 期间 synapse
+   *   数据丢失是可接受的(可以从 markdown frontmatter 重新解析)。
+   */
+  rebuildFromEntries(entries: readonly EngramIndexEntry[]): void {
     this.transaction(() => {
-      this.prepare(`
-        INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          title = excluded.title,
-          kind = excluded.kind,
-          importance = excluded.importance,
-          confidence = excluded.confidence,
-          updated_at = excluded.updated_at,
-          content_size = excluded.content_size,
-          visibility = excluded.visibility,
-          status = excluded.status
-      `).run(
-        entry.id,
-        entry.title,
-        entry.kind,
-        entry.importance,
-        entry.confidence,
-        entry.updatedAt,
-        entry.contentSize,
-        entry.visibility,
-        entry.status,
-      );
-      // domains 全量替换
-      this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);
-      const insertDomain = this.prepare(
-        "INSERT OR IGNORE INTO engram_domains (engram_id, domain) VALUES (?, ?)",
-      );
-      for (const d of entry.domainTags) {
-        insertDomain.run(entry.id, d);
+      this.exec("DELETE FROM engrams");
+      this.exec("DELETE FROM engram_fts");
+      for (const e of entries) {
+        this.upsertEngramUnsafe(e);
       }
-      // FTS5 不支持 ON CONFLICT,delete + insert
-      this.prepare("DELETE FROM engram_fts WHERE id = ?").run(entry.id);
-      this.prepare(
-        "INSERT INTO engram_fts (id, title, summary, content_tokens) VALUES (?, ?, ?, ?)",
-      ).run(entry.id, entry.title, entry.summary, entry.contentTokens);
     });
   }
 
