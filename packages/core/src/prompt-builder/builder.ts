@@ -31,6 +31,37 @@ import type {
 export type { BuildPromptInput, PromptBuilder, PromptSignals };
 
 /**
+ * 构建可见性风险识别 section(常驻,Task 5)
+ *
+ * 在 LLM 调用 engram_create / engram_accept_proposal / engram_update 前,
+ * 若 content 含凭据 / 个人身份 / 内部信息 / 敏感信息 / 路径中的用户名等
+ * 风险信号,必须先询问用户是否设为 visibility: "private"。
+ *
+ * 该 section 不依赖任何工具可用性 —— 只要 base section 注入了(即任意
+ * memory 工具已注册),就跟着注入。这样保证两种 host adapter(claude-code-mcp
+ * 与 openclaw-plugin)在 LLM 看到记忆创建引导时,同步看到风险识别引导。
+ *
+ * 文案全部走 i18n(zh / en),见 `prompt.visibilityRisk.*`。
+ */
+function buildVisibilityRiskSection(language: Language): readonly string[] {
+  // 11 行:标题空行 + 标题 + guidance + 空行 + 5 个列表项 + 询问模板 + 原则。
+  // 行数契约由 prompt-builder.test.ts 固化(base N + 11)。
+  return [
+    "",
+    translatePrompt(language, "prompt.visibilityRisk.title"),
+    translatePrompt(language, "prompt.visibilityRisk.guidance"),
+    "",
+    `- ${translatePrompt(language, "prompt.visibilityRisk.credentials")}`,
+    `- ${translatePrompt(language, "prompt.visibilityRisk.personal")}`,
+    `- ${translatePrompt(language, "prompt.visibilityRisk.internal")}`,
+    `- ${translatePrompt(language, "prompt.visibilityRisk.sensitive")}`,
+    `- ${translatePrompt(language, "prompt.visibilityRisk.paths")}`,
+    translatePrompt(language, "prompt.visibilityRisk.template"),
+    translatePrompt(language, "prompt.visibilityRisk.principle"),
+  ];
+}
+
+/**
  * 构建基础 memory section(常驻部分)
  *
  * 包含:
@@ -150,6 +181,7 @@ export function buildCoEngramMemoryPrompt(
 
   const sections: readonly (readonly string[])[] = [
     buildBaseSection(language, input.availableTools),
+    buildVisibilityRiskSection(language),
     buildSignalsSection(input.signals, language),
     buildProposalSection(input.proposalCount ?? 0, language),
   ];

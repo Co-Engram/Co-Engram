@@ -397,7 +397,7 @@ Every engram is one Markdown file with YAML frontmatter. Fields are grouped by r
 | **Lifecycle**       | `status`                              | enum                   | `draft` \| `active` \| `archived` \| `forgotten`.                                                                                                         |
 |                     | `forcedFreshness`                     | enum (optional)        | `fresh` \| `aging` \| `stale` \| `forgotten`. Set by lifecycle tools to override derived freshness.                                                       |
 |                     | `decayHalfLifeDays`                   | number or null         | Ebbinghaus half-life in days. `null` = never decays.                                                                                                      |
-|                     | `visibility`                          | enum                   | `private` \| `team` \| `public`.                                                                                                                          |
+|                     | `visibility`                          | enum                   | `private` \| `team` \| `public`. The LLM proactively asks before storing credential / personal / internal / sensitive content; see [Memory visibility & risk recognition](#memory-visibility--risk-recognition). |
 | **Verification**    | `verificationStatus`                  | enum                   | `unverified` \| `plausible` \| `probable` \| `verified` \| `refuted`. Upgraded by the REM maintenance stage; can be force-set via `upgrade_verification`. |
 | **Context**         | `encodingContext`                     | string (optional)      | What the agent was doing when this engram was recorded.                                                                                                   |
 |                     | `perspective`                         | string (optional)      | Viewpoint label (multi-perspective retention).                                                                                                            |
@@ -444,6 +444,29 @@ In TS strict mode, readonly fields cannot be directly assigned. Use the
 const merged = Object.assign({}, ...parts)
 \`\`\`
 ```
+
+## Memory visibility & risk recognition
+
+Every engram has a `visibility` field:
+
+- **`public`** (default): enters the team repo, shared with all teammates.
+- **`team`**: visible to the team but treated separately when filtering.
+- **`private`**: local only — written under `private/<domainTags>/`, which `.gitignore` excludes from the team repo. Use for credentials, personal paths, device-specific info (ADB serials, host names, tokens).
+- **`restricted`**: policy-limited access (e.g., security-sensitive memories).
+
+Switching visibility is atomic and preserves the stableId; co-engram migrates the file path for you.
+
+**LLM risk recognition.** co-engram injects a "Visibility Risk Recognition" section into the LLM system prompt. Before calling `engram_create` / `engram_accept_proposal` / `engram_update`, the LLM checks the content for:
+
+- Credentials — API keys (`ghp_*`, `sk-*`, `xoxb-*`, `npm_*`, `AKIA*`, `AIza*`), password assignments (`password=`, `pwd:`), JWT (`eyJ...`), PEM private key headers.
+- Personal identity — email, phone, ID number, home address.
+- Internal info — intranet IPs (`10.*`, `172.16-31.*`, `192.168.*`), internal domains (e.g. `*.zte.intra`), internal project codenames.
+- Sensitive info — person names (especially in negative evaluations), customer codenames, business-sensitive data (revenue, user counts, unreleased roadmaps).
+- Usernames in absolute paths — `/home/<user>/`, `/Users/<user>/`, `C:\Users\<user>\`.
+
+When any signal is present, the LLM asks first: *"This memory contains [category] (example: ...). Suggest setting visibility: private (local-only, not in team repo). Approve?"* The principle is **better to over-ask than under-detect** — one redundant ask costs far less than one credential leak.
+
+The same content is available in the viewer Help tab under "Memory visibility & risk recognition".
 
 ## Synapse Schema
 

@@ -8,6 +8,9 @@ import {
   type PromptSignalSnapshot,
 } from "../src/prompt-signals/index.js";
 
+// visibilityRisk section 是常驻段(基线 +11 行:空行 + 标题 + 空 + guidance + 空
+// + 5 个列表项 + 空 + template + 空 + principle),所有"基础行数"断言都 +11。
+
 // ============================================================
 // helpers
 // ============================================================
@@ -51,7 +54,7 @@ describe("buildCoEngramMemoryPrompt / 基础行为", () => {
       availableTools: makeTools(["engram_search"]),
       language: "en",
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 
   it("engram_get 单独注册也触发注入", () => {
@@ -59,20 +62,20 @@ describe("buildCoEngramMemoryPrompt / 基础行为", () => {
       availableTools: makeTools(["engram_get"]),
       language: "en",
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 });
 
 describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", () => {
-  it("英文基础段含 4 行", () => {
+  it("英文基础段含 15 行(4 基础 + 11 visibilityRisk)", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       language: "en",
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 
-  it("中文基础段同样 4 行,但内容不同", () => {
+  it("中文基础段同样 15 行,但内容不同", () => {
     const enLines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       language: "en",
@@ -81,7 +84,7 @@ describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", ()
       availableTools: makeTools(["memory_search"]),
       language: "zh",
     });
-    expect(zhLines.length).toBe(4);
+    expect(zhLines.length).toBe(15);
     expect(enLines).not.toEqual(zhLines);
   });
 
@@ -102,7 +105,7 @@ describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", ()
 // ============================================================
 
 describe("buildCoEngramMemoryPrompt / signals 注入", () => {
-  it("空 signals(全空数组)只输出基础 4 行", () => {
+  it("空 signals(全空数组)只输出基础 15 行", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({
@@ -111,7 +114,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
         missedTopics: [],
       }),
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 
   it("topTags 非空时增加 1 行(frequent_topics)", () => {
@@ -119,7 +122,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ topTags: ["api", "design"] }),
     });
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
     expect(lines.some((l) => l.includes("api") && l.includes("design"))).toBe(
       true,
     );
@@ -130,7 +133,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ lowConfidenceTopics: ["risky-topic"] }),
     });
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
     expect(lines.some((l) => l.includes("risky-topic"))).toBe(true);
   });
 
@@ -139,7 +142,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ missedTopics: ["missed-one"] }),
     });
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
     expect(lines.some((l) => l.includes("missed-one"))).toBe(true);
   });
 
@@ -152,14 +155,14 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
         missedTopics: ["c"],
       }),
     });
-    expect(lines.length).toBe(7);
+    expect(lines.length).toBe(18);
   });
 
   it("signals=undefined 跳过 signals section", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 });
 
@@ -173,7 +176,7 @@ describe("buildCoEngramMemoryPrompt / proposal 提醒", () => {
       availableTools: makeTools(["memory_search"]),
       proposalCount: 0,
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 
   it("proposalCount>0 注入提醒", () => {
@@ -181,14 +184,14 @@ describe("buildCoEngramMemoryPrompt / proposal 提醒", () => {
       availableTools: makeTools(["memory_search"]),
       proposalCount: 3,
     });
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
   });
 
   it("未传 proposalCount 默认 0", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 });
 
@@ -205,7 +208,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
     const lines = builder({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
     expect(lines.some((l) => l.includes("调试"))).toBe(true);
   });
 
@@ -222,7 +225,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
       availableTools: makeTools(["memory_search"]),
     });
     expect(callCount).toBe(1);
-    expect(lines.length).toBe(5);
+    expect(lines.length).toBe(16);
   });
 
   it("proposalCountProvider 返回 0 不注入", () => {
@@ -233,7 +236,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
     const lines = builder({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBe(15);
   });
 
   it("工具未注册时 builder 返回空,即使 signals 非空", () => {
@@ -261,5 +264,71 @@ describe("createPromptBuilder / 工厂闭包", () => {
     const r1 = builder(params);
     const r2 = builder(params);
     expect(r1).not.toEqual(r2);
+  });
+});
+
+// ============================================================
+// 可见性风险识别 section(Task 5)
+// ============================================================
+
+describe("buildCoEngramMemoryPrompt / 可见性风险识别 section", () => {
+  it("包含可见性风险识别 section 标题(zh)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    });
+    const joined = lines.join("\n");
+    expect(joined).toMatch(/可见性风险识别|Visibility Risk Recognition/);
+  });
+
+  it("包含可见性风险识别 section 标题(en)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "en",
+    });
+    const joined = lines.join("\n");
+    expect(joined).toMatch(/可见性风险识别|Visibility Risk Recognition/);
+  });
+
+  it("包含凭据风险信号示例(ghp_)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    });
+    expect(lines.join("\n")).toContain("ghp_");
+  });
+
+  it("包含宁可多问 / over-ask 原则", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    });
+    expect(lines.join("\n")).toMatch(/宁可多问|over-ask/);
+  });
+
+  it("包含 5 类风险信号(credentials / personal / internal / sensitive / paths)", () => {
+    const zhLines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    }).join("\n");
+    expect(zhLines).toMatch(/凭据/);
+    expect(zhLines).toMatch(/个人身份/);
+    expect(zhLines).toMatch(/内部/);
+    expect(zhLines).toMatch(/敏感/);
+    expect(zhLines).toMatch(/绝对路径|用户名/);
+  });
+
+  it("visibilityRisk section 在 base 之后、signals 之前", () => {
+    // 用 signals 触发额外段,确认 visibilityRisk 出现在 signals 段之前
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+      signals: makeSnapshot({ topTags: ["MARKER_TAG_XYZ"] }),
+    });
+    const joined = lines.join("\n");
+    const riskIdx = joined.search(/可见性风险识别/);
+    const tagIdx = joined.indexOf("MARKER_TAG_XYZ");
+    expect(riskIdx).toBeGreaterThan(-1);
+    expect(tagIdx).toBeGreaterThan(riskIdx);
   });
 });

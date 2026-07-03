@@ -126,9 +126,9 @@ WHEN TO CALL:
 
 WHEN NOT TO CALL: trivial info / already in CLAUDE.md or README / just asking (use engram_search).
 
-⚠️ visibility='private' for personal credentials/paths/device-specific info (ADB serials, tokens) → file under private/, gitignored.
+⚠️ visibility='private' for credentials/paths/device-specific info (gitignored under private/). Do NOT write to ~/.claude/projects/.../memory/ — AutoMemorySyncEngine mirrors as pending proposals (visibility lost).
 
-⚠️ Claude Code auto-memory: do NOT write to ~/.claude/projects/.../memory/ — AutoMemorySyncEngine mirrors that path as **pending proposals** (require accept; visibility lost). Use this tool.
+**Visibility**: if content has credential/personal/internal/sensitive signals, ask whether visibility:"private".
 
 RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
@@ -143,6 +143,8 @@ WHEN NOT TO CALL:
 - The memory is fine as-is (don't update just to refresh timestamp)
 
 ⚠️ Changing visibility migrates file path (private → private/<domainTags>/; other → <domainTags>/); atomic, fails on conflict, stableId preserved.
+
+**Visibility**: if new content has risk signals and current is public/team, ask whether to downgrade to private.
 
 RETURNS: Updated engram + new version number.`,
   "tool.engram_list.agent": `Browse all memories (paginated), newest first.
@@ -261,6 +263,8 @@ WHEN NOT TO CALL:
 - You haven't reviewed it yet
 
 NOTE: title/content/domainTags optional for auto-memory / external-markdown (fallback to payload); conversation-source requires explicit title/content/domainTags.
+
+**Visibility**: if payload contains risk signals, ask whether to pass visibility: "private" before accepting.
 
 RETURNS: Created engram ID + proposal marked as accepted.`,
   "tool.engram_dismiss_proposal.agent": `Dismiss a pending memory proposal (reject the capture).
@@ -717,6 +721,25 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Recently missed topics (consider searching proactively): ${topics}. Past turns suggest these should have triggered memory_search but did not.",
   "prompt.memory.low_confidence_topics":
     "Low-confidence topics frequently retrieved: ${topics}. Consider close_learning_loop or upgrade_verification to strengthen these memories.",
+
+  // ===== Prompt · Visibility risk recognition (Task 5: LLM risk-signal contract) =====
+  "prompt.visibilityRisk.title": "## Visibility Risk Recognition",
+  "prompt.visibilityRisk.guidance":
+    "Before calling engram_create / engram_accept_proposal / engram_update, if content contains any of the following risk signals, **you MUST ask the user first** whether to set visibility: \"private\":",
+  "prompt.visibilityRisk.credentials":
+    "Credentials: API key (ghp_*, sk-*, xoxb-*, npm_*, AKIA*, AIza*), password assignment (password=, pwd:), JWT (eyJ...), PEM private key header",
+  "prompt.visibilityRisk.personal":
+    "Personal identity: email, phone, ID number, home address",
+  "prompt.visibilityRisk.internal":
+    "Internal info: intranet IP (10.*, 172.16-31.*, 192.168.*), internal domain (*.zte.intra), internal project codename",
+  "prompt.visibilityRisk.sensitive":
+    "Sensitive info: person names (esp. negative evaluations), customer codename, business-sensitive (revenue, user count, unreleased roadmap)",
+  "prompt.visibilityRisk.paths":
+    "Username in absolute paths (/home/<user>/, /Users/<user>/, C:\\\\Users\\\\<user>\\\\)",
+  "prompt.visibilityRisk.template":
+    "Template: \"This memory contains [category] (example: ...). Suggest setting visibility: private (local-only, not in team repo). Approve?\"",
+  "prompt.visibilityRisk.principle":
+    "**Better to over-ask than under-detect**. When uncertain, default to asking. One redundant ask costs far less than one credential leak.",
 
   // ===== Viewer UI strings =====
   "viewer.title": "Co-Engram",
@@ -1544,6 +1567,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "On repository inconsistency, call <code>engram_doctor</code> from the agent for a self-healing scan.",
   "viewer.help.tip5":
     "Numeric fields like <code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> show a band label (high / medium / low; thresholds ≥0.7 / ≥0.3 / <0.3) next to the raw 2-decimal value. The band is language-neutral in storage; the UI localizes it.",
+
+  // ===== Memory visibility =====
+  "viewer.help.visibilityTitle": "Memory visibility & risk recognition",
+  "viewer.help.visibilityBody":
+    "Every memory has a <code>visibility</code> field: <strong>public</strong> (default, enters team repo), <strong>team</strong> (team-visible), <strong>private</strong> (local-only; <code>private/</code> subfolder is gitignored, never committed), <strong>restricted</strong> (policy-limited). List / detail / proposal forms all show a badge and picker; the detail page has a one-click switcher (co-engram migrates the file path atomically and preserves stableId). <strong>LLM risk recognition</strong>: before calling <code>engram_create</code> / <code>engram_accept_proposal</code> / <code>engram_update</code>, if content contains credentials (API key, password, JWT, private key), personal identity, intranet info, business-sensitive data, or a username in an absolute path, the LLM will proactively ask whether to set <code>private</code>. The principle is <strong>better to over-ask than under-detect</strong> — one redundant ask costs far less than one credential leak.",
 
   // ===== Ports & data root =====
   "viewer.help.opsTitle": "Ports & data root",

@@ -2135,6 +2135,9 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tip5') + '</li>'
       + '</ul>'
 
+      + '<h3>' + T.t('viewer.help.visibilityTitle') + '</h3>'
+      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.visibilityBody') + '</p>'
+
       + '<h3>' + T.t('viewer.help.opsTitle') + '</h3>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsPorts') + '</p>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsDataRoot') + '</p>'

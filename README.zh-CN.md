@@ -397,7 +397,7 @@ flowchart TB
 | **生命周期** | `status`                              | 枚举                | `draft` \| `active` \| `archived` \| `forgotten`。                                                                                      |
 |              | `forcedFreshness`                     | 枚举(可选)          | `fresh` \| `aging` \| `stale` \| `forgotten`。由 lifecycle 工具显式覆盖派生值。                                                         |
 |              | `decayHalfLifeDays`                   | 数值或 null         | Ebbinghaus 半衰期(天)。`null` = 永不衰减。                                                                                              |
-|              | `visibility`                          | 枚举                | `private` \| `team` \| `public`。                                                                                                       |
+|              | `visibility`                          | 枚举                | `private` \| `team` \| `public`。LLM 在存储含凭据 / 个人 / 内部 / 敏感信息的记忆前会主动询问;详见[记忆可见性与风险识别](#记忆可见性与风险识别)。                              |
 | **验证**     | `verificationStatus`                  | 枚举                | `unverified` \| `plausible` \| `probable` \| `verified` \| `refuted`。REM 维护阶段会自动升级;也可通过 `upgrade_verification` 强制设置。 |
 | **上下文**   | `encodingContext`                     | 字符串(可选)        | 记录该 engram 时 agent 在做什么。                                                                                                       |
 |              | `perspective`                         | 字符串(可选)        | 视角标签(多视角保留)。                                                                                                                  |
@@ -444,6 +444,29 @@ TS strict 模式下,readonly 字段不能直接赋值。
 const merged = Object.assign({}, ...parts)
 \`\`\`
 ```
+
+## 记忆可见性与风险识别
+
+每条 engram 都有 `visibility` 字段:
+
+- **`public`**(默认):入团队仓库,所有队友可见。
+- **`team`**:团队可见,过滤时单独处理。
+- **`private`**:仅本地 —— 写入 `private/<domainTags>/` 子目录,`.gitignore` 排除该目录不入仓库。用于凭据、个人路径、设备特定信息(ADB 序列号、主机名、token)。
+- **`restricted`**:策略受限访问(如安全敏感记忆)。
+
+切换 visibility 是原子操作且保持 stableId 不变;co-engram 自动迁移文件路径。
+
+**LLM 风险识别**。co-engram 在 LLM 系统提示中注入「可见性风险识别」段。LLM 在调用 `engram_create` / `engram_accept_proposal` / `engram_update` 前,会检查 content 是否含:
+
+- 凭据 —— API key(`ghp_*`、`sk-*`、`xoxb-*`、`npm_*`、`AKIA*`、`AIza*`)、密码赋值(`password=`、`pwd:`)、JWT(`eyJ...`)、PEM 私钥头。
+- 个人身份 —— 邮箱、电话、身份证号、家庭住址。
+- 内部信息 —— 内网 IP(`10.*`、`172.16-31.*`、`192.168.*`)、内部域名(如 `*.zte.intra`)、内部项目代号。
+- 敏感信息 —— 人名(尤其负面评价)、客户代号、商业敏感数据(营收、用户数、未公开路线图)。
+- 绝对路径中的用户名 —— `/home/<用户名>/`、`/Users/<用户名>/`、`C:\Users\<用户名>\`。
+
+任意信号出现时,LLM 会先询问:「这条记忆含 [类别](示例:...)。建议设为 private(仅本地,不入团队仓库)。是否?」原则:**宁可多问,不可漏检** —— 一次多余询问的代价远低于一次凭据泄漏。
+
+查看器 Help tab 的「记忆可见性与风险识别」段有同样说明。
 
 ## Synapse Schema
 

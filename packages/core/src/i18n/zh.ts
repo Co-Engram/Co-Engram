@@ -133,6 +133,8 @@ export const zh = {
 
 ⚠️ 不要写到 ~/.claude/projects/.../memory/ —— AutoMemorySyncEngine 会把该路径镜像成 **待审批 proposal**(仍需 accept,visibility 归属已丢失)。请直接用本工具。
 
+**可见性**:若 content 含凭据 / 个人 / 内部 / 敏感信号(详见系统提示的「可见性风险识别」段),先询问是否 visibility: "private"。
+
 返回:创建的 engram ID + 版本号。自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
 
@@ -146,6 +148,8 @@ export const zh = {
 - 记忆没问题(不要为了刷新时间戳而更新)
 
 ⚠️ 改 visibility 触发文件路径迁移(private → private/<domainTags>/;其他 → <domainTags>/);原子性,冲突失败,stableId 不变。
+
+**可见性**:新 content 含风险信号且当前为 public/team 时,update 前询问是否同时降级 private。
 
 返回:更新后的 engram + 新版本号。`,
   "tool.engram_list.agent": `浏览所有记忆(分页),最新优先。
@@ -263,6 +267,8 @@ export const zh = {
 - 还没审核
 
 注意:auto-memory / external-markdown 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源仍需显式传。
+
+**可见性**:payload 含风险信号时,accept 前询问是否传 visibility: "private"。
 
 返回:创建的 engram ID + 候选标记为已接受。`,
   "tool.engram_dismiss_proposal.agent": `驳回待处理的候选(拒绝捕获)。
@@ -717,6 +723,25 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "最近遗漏的话题(建议主动搜索):${topics}。历史对话显示这些话题本应触发 memory_search 但未触发。",
   "prompt.memory.low_confidence_topics":
     "频繁被检索但低置信度的话题:${topics}。可考虑 close_learning_loop 或 upgrade_verification 来强化这些记忆。",
+
+  // ===== Prompt · 可见性风险识别(Task 5:LLM 风险信号契约) =====
+  "prompt.visibilityRisk.title": "## 可见性风险识别",
+  "prompt.visibilityRisk.guidance":
+    "在调用 engram_create / engram_accept_proposal / engram_update 前,若 content 含以下风险信号,**必须先询问用户**是否设为 visibility: \"private\":",
+  "prompt.visibilityRisk.credentials":
+    "凭据:API key(ghp_*、sk-*、xoxb-*、npm_*、AKIA*、AIza*)、密码赋值(password=、pwd:)、JWT(eyJ...)、PEM 私钥头",
+  "prompt.visibilityRisk.personal":
+    "个人身份:邮箱、电话、身份证号、家庭住址",
+  "prompt.visibilityRisk.internal":
+    "内部信息:内网 IP(10.*、172.16-31.*、192.168.*)、内部域名(*.zte.intra)、内部项目代号",
+  "prompt.visibilityRisk.sensitive":
+    "敏感信息:人名(尤其负面评价)、客户代号、商业敏感(营收、用户数、未公开路线图)",
+  "prompt.visibilityRisk.paths":
+    "绝对路径中的用户名(/home/<用户名>/、/Users/<用户名>/、C:\\\\Users\\\\<用户名>\\\\)",
+  "prompt.visibilityRisk.template":
+    "询问模板:\"这条记忆含 [类别](示例:...)。建议设为 private(仅本地,不入团队仓库)。是否?\"",
+  "prompt.visibilityRisk.principle":
+    "**宁可多问,不可漏检**。不确定时默认询问。一次多余的询问代价远低于一次凭据泄漏。",
 
   // ===== 查看器 UI =====
   "viewer.title": "Co-Engram",
@@ -1495,6 +1520,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "遇到仓库不一致,可在 agent 中调 <code>engram_doctor</code> 自愈扫描。",
   "viewer.help.tip5":
     "<code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> 等数值字段会在 2 位小数原始值旁显示等级标签(高 / 中 / 低;阈值 ≥0.7 / ≥0.3 / <0.3)。等级在存储层语言中立,由 UI 本地化。",
+
+  // ===== 记忆可见性 =====
+  "viewer.help.visibilityTitle": "记忆可见性与风险识别",
+  "viewer.help.visibilityBody":
+    "每条记忆有 <code>visibility</code> 字段:<strong>public</strong>(默认,入团队仓库)、<strong>team</strong>(团队可见)、<strong>private</strong>(仅本地,<code>private/</code> 子目录被 <code>.gitignore</code> 隔离,不入仓库)、<strong>restricted</strong>(策略受限)。列表 / 详情 / 提案表单都有徽章和选择器,详情页可一键切换(co-engram 自动迁移文件路径并保持 stableId)。<strong>LLM 风险识别</strong>:LLM 在调用 <code>engram_create</code> / <code>engram_accept_proposal</code> / <code>engram_update</code> 前,若 content 含凭据(API key、密码、JWT、私钥)、个人身份、内网信息、敏感商业信息或绝对路径中的用户名,会主动询问是否设为 <code>private</code>。原则是<strong>宁可多问,不可漏检</strong> —— 一次多余询问的代价远低于一次凭据泄漏。",
 
   // ===== 端口与数据根目录 =====
   "viewer.help.opsTitle": "端口与数据根目录",
