@@ -245,12 +245,12 @@ grep '"necessity_rejected"' ~/team-memory/.co-engram/audit.jsonl | tail -10
 
 要消除警告:把 engram frontmatter 里的 `aliases:` 字段删掉。跑一次 `engram_doctor` 会批量重写所有 engram,清理整个仓库的该字段。
 
-### 问:Claude Code 的 auto-memory 没有同步到 co-engram
+### 问:看不到 Claude Code auto-memory 的 pending proposal
 
 watcher 启动时会打印这一行日志:
 
 ```
-[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 proposed, 0 updated)
 ```
 
 如果看不到,按顺序排查:
@@ -259,15 +259,22 @@ watcher 启动时会打印这一行日志:
 - **被 config 关闭**:`.co-engram/config.json` 里 `autoMemorySync.enabled: false`。删掉这行或改回 `true`。
 - **`HOME` 未设置 / projects 根目录非默认**:watcher 默认走 `$HOME/.claude/projects`。如果 `$HOME` 为空,显式设 `CO_ENGRAM_CLAUDE_PROJECTS_ROOT=/home/you/.claude/projects`。
 - **宿主不对**:OpenClaw 不启动这个 watcher。必须用 `@co-engram/claude-code`(MCP server)才能享受同步。
-- **watcher 启动了但单条文件没同步**:watcher 去抖 500ms。如果你刚写完文件立刻 `engram_search`,稍等一下再看。同时 `MEMORY.md`(索引文件)按设计就被忽略 —— 只同步单独的 `.md` 文件。
+- **watcher 启动了但单条文件没同步**:watcher 去抖 500ms。如果你刚写完文件立刻 `engram_list_proposals`,稍等一下再看。同时 `MEMORY.md`(索引文件)按设计就被忽略 —— 只同步单独的 `.md` 文件。
 
-同步过来的记忆都带 `domainTag` `claude-code-auto-memory`,可以过滤:
+每条 pending proposal 都带 `source: "auto-memory"` 和预填 payload(`proposedTitle`、`proposedContent`、`proposedDomainTags`)。列出并分诊:
 
 ```
-engram_search({ query: "...", filter: { domainTags: ["claude-code-auto-memory"] } })
+engram_list_proposals({ includeAll: true })
 ```
 
-每条镜像还有 `encodingContext` `claude-code-auto-memory:<slug>`。在 Claude Code 里编辑源 memory → engram 的 content 被更新(保留强化/衰减统计);**删除源文件目前不会删除 engram**(想从检索里清掉,显式调 `engram_forget`)。
+随后 accept(创建 engram,无需重复填字段)或 dismiss:
+
+```
+engram_accept_proposal({ entityId: "am:<slug>" })
+engram_dismiss_proposal({ entityId: "am:<slug>" })
+```
+
+accept 之后,engram 会带 `domainTag` `claude-code-auto-memory`,可在 `engram_search` 里过滤。每条镜像 proposal 还带 `encodingContext` `claude-code-auto-memory:<slug>`。在 Claude Code 里编辑源 memory → 对应 **pending proposal** 的 payload 被更新;**已 accept 过的 proposal 不会被重开**。删除源文件目前不会删除 proposal/engram(想清掉,显式调 `engram_dismiss_proposal` / `engram_forget`)。
 
 ### 问:如何完全重置?
 

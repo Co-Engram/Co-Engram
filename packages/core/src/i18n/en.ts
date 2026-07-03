@@ -116,22 +116,19 @@ WHEN NOT TO CALL:
 RETURNS: Full content + metadata (createdAt, importance, truthScore, reinforcementCount) + related engram IDs (synapses).
 
 CONCEPT: {{concept:engram|userExplanation}}`,
-  "tool.engram_create.agent": `Create a new memory (engram) for important team knowledge.
+  "tool.engram_create.agent": `Create a new memory (engram) for important knowledge
 
 WHEN TO CALL:
-- User states a durable preference ("from now on, use arrow functions")
-- User makes a design decision with rationale ("we'll use PostgreSQL because X")
-- User shares a bug lesson ("this failed because Y, remember to check Z")
-- User corrects an outdated memory ("actually, we switched to X")
+- Durable preference ("from now on, use arrow functions")
+- Design decision with rationale ("we'll use PostgreSQL because X")
+- Bug lesson ("this failed because Y, remember to check Z")
+- Corrects an outdated memory ("actually, we switched to X")
 
-WHEN NOT TO CALL:
-- Trivial / throwaway info ("the weather is nice")
-- Already in CLAUDE.md or project README
-- User is just asking (use engram_search instead)
+WHEN NOT TO CALL: trivial info / already in CLAUDE.md or README / just asking (use engram_search).
 
-⚠️ visibility='private' for personal credentials/paths/device-specific info (ADB serials/tokens/machine-local prefs) → file lands under private/, gitignored, never enters team repo.
+⚠️ visibility='private' for personal credentials/paths/device-specific info (ADB serials, tokens) → file under private/, gitignored.
 
-⚠️ Relation to Claude Code auto-memory: when co-engram is enabled, ALL memories go through this tool (the visibility field already covers every auto-memory use case — 'private' = personal memory). Do NOT write to ~/.claude/projects/.../memory/ (the auto-memory file layer) — AutoMemorySyncEngine pushes that path into the team repo unconditionally, losing ownership semantics. Fall back to auto-memory only when co-engram is not installed.
+⚠️ Claude Code auto-memory: do NOT write to ~/.claude/projects/.../memory/ — AutoMemorySyncEngine mirrors that path as **pending proposals** (require accept; visibility lost). Use this tool.
 
 RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
@@ -251,16 +248,19 @@ WHEN NOT TO CALL:
 - No pending proposals (system prompt will show 0)
 - You just searched explicitly (use engram_search)
 
-RETURNS: List of proposals (title, similarity, sample message, proposal ID).`,
+RETURNS: List of proposals. Each carries \`source\` ("conversation" = chat clustering, "auto-memory" = Claude Code auto-memory file). Auto-memory proposals carry \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\` (full payload to write on accept) — accept directly without re-typing.`,
   "tool.engram_accept_proposal.agent": `Accept a pending memory proposal (convert it to a real engram).
 
 WHEN TO CALL:
 - User confirms a proposal is valid ("yes, save that")
 - You reviewed a proposal and it captures a real preference/decision
+- Auto-memory source (source="auto-memory"): full payload already attached — call with just \`entityId\` to accept as-is
 
 WHEN NOT TO CALL:
 - The proposal is wrong or low quality (use engram_dismiss_proposal)
 - You haven't reviewed it yet
+
+NOTE: title/content/domainTags are optional for auto-memory proposals (fallback to payload); conversation-source proposals still require explicit title/content/domainTags (payload empty).
 
 RETURNS: Created engram ID + proposal marked as accepted.`,
   "tool.engram_dismiss_proposal.agent": `Dismiss a pending memory proposal (reject the capture).

@@ -125,13 +125,13 @@ export const zh = {
 - 用户纠正过时记忆("其实我们已经改用 X 了")
 
 何时不调用:
-- 琐碎/一次性信息("天气不错")
-- CLAUDE.md 或项目 README 已有的信息
-- 用户只是在询问的信息(用 engram_search)
+- 琐碎/一次性信息
+- CLAUDE.md/README 已有的信息
+- 用户只是在询问(用 engram_search)
 
-⚠️ visibility:含个人凭据/路径/设备特定信息(如 ADB 序列号、个人 token、本机偏好)时设 'private',文件落 private/ 子目录被 .gitignore 隔离,不入团队仓库但本机仍可检索。默认 'public'。
+⚠️ visibility='private' 用于个人凭据/路径/设备特定信息(ADB 序列号、token、本机偏好),落 private/ 子目录被 .gitignore 隔离,不入团队仓库。
 
-⚠️ 与 Claude Code auto-memory 的关系:co-engram 启用后,所有记忆默认走本工具(visibility 字段已覆盖 auto-memory 所有用例——'private' = 个人记忆)。不要写到 ~/.claude/projects/.../memory/(auto-memory 文件层),该路径会被 AutoMemorySyncEngine 无差别推到团队库,丢失归属语义。仅当 co-engram 未启用时才用 auto-memory 兜底。
+⚠️ 不要写到 ~/.claude/projects/.../memory/ —— AutoMemorySyncEngine 会把该路径镜像成 **待审批 proposal**(仍需 accept,visibility 归属已丢失)。请直接用本工具。
 
 返回:创建的 engram ID + 版本号。自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
@@ -247,22 +247,24 @@ export const zh = {
 何时调用:
 - 系统提示显示"N 个候选记忆待处理"
 - 用户问"有什么候选"或"查看待处理记忆"
-- 定期清理已捕获但未确认的记忆
 
 何时不调用:
 - 没有待处理候选(系统提示会显示 0)
 - 刚刚显式搜索过(用 engram_search)
 
-返回:候选列表(标题、相似度、样本消息、proposal ID)。`,
+返回:候选列表。每条带 \`source\`("conversation" = 对话聚类 / "auto-memory" = Claude Code auto-memory 文件);auto-memory 来源还带 \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\`(accept 时落库的完整 payload),直接 accept 即可。`,
   "tool.engram_accept_proposal.agent": `接受待处理的候选(转成真正的 engram)。
 
 何时调用:
 - 用户确认候选有效("对,保存那个")
 - 你审核后认为候选捕获了真实偏好/决策
+- auto-memory 来源:候选已自带完整 payload,直接传 \`entityId\` 即可
 
 何时不调用:
 - 候选错误或质量低(用 engram_dismiss_proposal)
 - 还没审核
+
+注意:auto-memory 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源(payload 为空)仍需显式传。
 
 返回:创建的 engram ID + 候选标记为已接受。`,
   "tool.engram_dismiss_proposal.agent": `驳回待处理的候选(拒绝捕获)。

@@ -440,11 +440,29 @@ export const EngramListProposalsInputSchema = z.object({
 });
 
 export const EngramAcceptProposalInputSchema = z.object({
-  /** 簇 id（= proposal.entityId） */
+  /** 簇 id(= proposal.entityId;auto-memory 来源形如 `am:<slug>`) */
   entityId: z.string().min(1),
-  title: z.string().min(1).max(200),
-  content: z.string().min(1),
-  domainTags: z.array(z.string().min(1)).min(1),
+  /**
+   * 可选:engram 标题。
+   *
+   * conversation 来源 proposal 必填。
+   * auto-memory 来源 proposal 可省略 —— 缺失时从 proposal.payload.title 兜底。
+   */
+  title: z.string().min(1).max(200).optional(),
+  /**
+   * 可选:engram 内容。
+   *
+   * conversation 来源 proposal 必填。
+   * auto-memory 来源 proposal 可省略 —— 缺失时从 proposal.payload.content 兜底。
+   */
+  content: z.string().min(1).optional(),
+  /**
+   * 可选:engram domainTags。
+   *
+   * conversation 来源 proposal 必填。
+   * auto-memory 来源 proposal 可省略 —— 缺失时从 proposal.payload.domainTags 兜底。
+   */
+  domainTags: z.array(z.string().min(1)).min(1).optional(),
   /**
    * 可选：创建者标识。
    *
@@ -454,7 +472,7 @@ export const EngramAcceptProposalInputSchema = z.object({
    * 绕过了 ctx.defaultCreatedBy,导致采纳提案后的 engram 不走 git 身份解析。
    */
   createdBy: z.string().min(1).optional(),
-  /** 可选：engram kind（默认 fact） */
+  /** 可选：engram kind(默认 fact;auto-memory 来源也可从 payload 兜底) */
   kind: EngramKindSchema.optional(),
 });
 

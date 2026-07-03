@@ -441,18 +441,19 @@ async function main(): Promise<void> {
     }
   }
 
-  // Feature 3: Claude Code auto-memory → co-engram 同步
+  // Feature 3: Claude Code auto-memory → co-engram proposal 同步
   //
   // Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 维护一份自动记忆
   // (user/feedback/project/reference/pattern 类型)。本 watcher 把这份记忆同步为
-  // co-engram engram,让 co-engram 不必等用户手动调 engram_create 就能感知
-  // Claude Code 已捕获的偏好与决策。
+  // co-engram **proposal**(候选提案),让 co-engram 不必等用户手动调 engram_create
+  // 就能感知 Claude Code 已捕获的偏好与决策;同时,proposal 必须经 engram_accept_proposal
+  // 主动审批才落库为 engram,避免未审核内容直接污染检索池。
   //
   // 设计说明:
   //   - 默认 true(low-friction-defaults);config.autoMemorySync.enabled=false 或
   //     env CO_ENGRAM_AUTO_MEMORY_SYNC=0 可关闭
-  //   - 幂等:domainTag `claude-code-auto-memory` + encodingContext
-  //     `claude-code-auto-memory:<slug>`,slug 重复时只 update
+  //   - 幂等:entityId = `am:<slug>`(由 ProposalEngine.proposeAutoMemory 维护),
+  //     slug 重复且 payload 未变化时 no-change;payload 变化时 upsert
   //   - **仅在 Claude Code MCP 启动**:OpenClaw 没有"自动记忆写入器"的等价物,
   //     该 watcher 不在 openclaw-plugin 内启动(见 CLAUDE.md 双场景一致性规则)
   //   - 失败不阻塞 MCP server 启动(projectsRoot 不存在时 enabled=false)
@@ -472,32 +473,38 @@ async function main(): Promise<void> {
         process.env.CO_ENGRAM_CLAUDE_PROJECTS_ROOT ||
         (homeDir ? `${homeDir}/.claude/projects` : "");
       if (projectsRoot) {
-        const engine = new AutoMemorySyncEngine({
-          repository: ctx.repository,
-          defaultCreatedBy: defaultCreatedBy ?? "claude-code-auto-memory",
-          log: (msg) => process.stderr.write(`${msg}\n`),
-        });
-        const watcher = new AutoMemoryWatcher({
-          projectsRoot,
-          engine,
-          debounceMs: autoMemorySyncConfig?.debounceMs,
-          log: (msg) => process.stderr.write(`${msg}\n`),
-        });
-        const startResult = watcher.start();
-        if (startResult.enabled) {
-          const stats = startResult.initialSync;
+        if (!ctx.proposalEngine) {
           process.stderr.write(
-            `[co-engram] auto-memory sync: watching ${projectsRoot}` +
-              (stats
-                ? ` (initial: ${stats.files} files, ${stats.created} created, ${stats.updated} updated)`
-                : "") +
-              `\n`,
+            `[co-engram] auto-memory sync: disabled (ProposalEngine not available in ToolContext)\n`,
           );
-          stopAutoMemoryWatcher = () => watcher.stop();
         } else {
-          process.stderr.write(
-            `[co-engram] auto-memory sync: disabled (${startResult.reason ?? "unknown reason"})\n`,
-          );
+          const engine = new AutoMemorySyncEngine({
+            proposalEngine: ctx.proposalEngine,
+            defaultCreatedBy: defaultCreatedBy ?? "claude-code-auto-memory",
+            log: (msg) => process.stderr.write(`${msg}\n`),
+          });
+          const watcher = new AutoMemoryWatcher({
+            projectsRoot,
+            engine,
+            debounceMs: autoMemorySyncConfig?.debounceMs,
+            log: (msg) => process.stderr.write(`${msg}\n`),
+          });
+          const startResult = watcher.start();
+          if (startResult.enabled) {
+            const stats = startResult.initialSync;
+            process.stderr.write(
+              `[co-engram] auto-memory sync: watching ${projectsRoot}` +
+                (stats
+                  ? ` (initial: ${stats.files} files, ${stats.proposed} proposed, ${stats.updated} updated)`
+                  : "") +
+                `\n`,
+            );
+            stopAutoMemoryWatcher = () => watcher.stop();
+          } else {
+            process.stderr.write(
+              `[co-engram] auto-memory sync: disabled (${startResult.reason ?? "unknown reason"})\n`,
+            );
+          }
         }
       } else {
         process.stderr.write(

@@ -61,9 +61,36 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
+/** Proposal 来源:对话流聚类(auto)还是 Claude Code auto-memory 文件 */
+export type ProposalSource = "conversation" | "auto-memory";
+
+/**
+ * 预填的 engram 字段(auto-memory 来源专用)
+ *
+ * 对话流聚类的 proposal 不携带 payload —— 仅有 sampleQuotes/centroidExcerpt
+ * 片段,LLM 在 accept 时需自行具象化 title/content。
+ *
+ * auto-memory 来源的 proposal 携带完整 payload —— 文件本身已是完整内容,
+ * accept 时可直接用 payload 创建 engram,LLM 无需重复填表。
+ */
+export interface ProposalPayload {
+  readonly title: string;
+  readonly content: string;
+  readonly summary?: string;
+  readonly domainTags: readonly string[];
+  readonly contextTags?: readonly string[];
+  readonly kind: EngramCreateInput["kind"];
+  readonly createdBy?: string;
+  readonly sourceType?: EngramCreateInput["sourceType"];
+  readonly importance?: number;
+  readonly visibility?: EngramCreateInput["visibility"];
+  readonly decayHalfLifeDays?: number | null;
+  readonly encodingContext?: string;
+}
+
 /** 候选提案 */
 export interface Proposal {
-  /** 关联的 cluster id */
+  /** 关联的 cluster id 或 `am:<slug>`(auto-memory) */
   readonly entityId: string;
   /** 出现次数(snapshot) */
   readonly occurrences: number;
@@ -91,6 +118,25 @@ export interface Proposal {
   readonly necessityRule?: string;
   /** LLM 建议的标题(可作审批草稿) */
   readonly suggestedTitle?: string;
+  /** 来源标识:对话流聚类(默认,向前兼容)还是 auto-memory 文件 */
+  readonly source?: ProposalSource;
+  /** auto-memory 来源时的可读 slug(用于 list/audit 展示) */
+  readonly slug?: string;
+  /** 预填的 engram 字段(auto-memory 来源专用;conversation 来源恒为 undefined) */
+  readonly payload?: ProposalPayload;
+}
+
+/** auto-memory proposal 的 entityId 前缀(命名空间隔离,永不与对话聚类 `c<dim>-<hash>` 冲突) */
+export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
+
+/** 由 slug 构造 auto-memory proposal 的 entityId */
+export function autoMemoryEntityId(slug: string): string {
+  return `${AUTO_MEMORY_PROPOSAL_PREFIX}${slug}`;
+}
+
+/** 判断 entityId 是否来自 auto-memory */
+export function isAutoMemoryProposal(entityId: string): boolean {
+  return entityId.startsWith(AUTO_MEMORY_PROPOSAL_PREFIX);
 }
 
 /** Proposal Engine 配置 */
@@ -271,14 +317,18 @@ export class ProposalEngine {
   /**
    * 接受提案 → 创建 engram
    *
+   * 当 proposal 自带 payload(auto-memory 来源)且调用方未传 title/content/domainTags/kind 时,
+   * 从 payload 兜底 —— 这让 LLM 可直接 `accept(entityId)` 而无需重复填表。
+   * conversation 来源的 proposal(payload=undefined)仍要求调用方显式传 title/content。
+   *
    * @returns 新建的 engram id
    */
   accept(
     entityId: string,
     input: {
-      readonly title: string;
-      readonly content: string;
-      readonly domainTags: readonly string[];
+      readonly title?: string;
+      readonly content?: string;
+      readonly domainTags?: readonly string[];
       readonly createdBy?: string;
       readonly kind?: EngramCreateInput["kind"];
     },
@@ -289,13 +339,46 @@ export class ProposalEngine {
       throw new Error(`Proposal not found: ${entityId}`);
     }
 
-    const engram = this.repository.createEngram({
-      title: input.title,
-      content: input.content,
-      kind: input.kind ?? "fact",
-      domainTags: input.domainTags,
-      createdBy: input.createdBy ?? "proposal-engine",
-    });
+    // payload 兜底:auto-memory 来源的 proposal 已携带完整 engram 字段
+    const payload = target.payload;
+    const title = input.title ?? payload?.title;
+    const content = input.content ?? payload?.content;
+    const domainTags = input.domainTags ?? payload?.domainTags;
+    const kind = input.kind ?? payload?.kind ?? "fact";
+    if (!title || !content || !domainTags || domainTags.length === 0) {
+      throw new Error(
+        `accept requires title/content/domainTags (neither provided nor available in proposal.payload for entityId=${entityId})`,
+      );
+    }
+
+    const createInput: EngramCreateInput = {
+      title,
+      content,
+      kind,
+      domainTags,
+      createdBy: input.createdBy ?? payload?.createdBy ?? "proposal-engine",
+      ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
+      ...(payload?.contextTags !== undefined
+        ? { contextTags: payload.contextTags }
+        : {}),
+      ...(payload?.sourceType !== undefined
+        ? { sourceType: payload.sourceType }
+        : {}),
+      ...(payload?.importance !== undefined
+        ? { importance: payload.importance }
+        : {}),
+      ...(payload?.visibility !== undefined
+        ? { visibility: payload.visibility }
+        : {}),
+      ...(payload?.decayHalfLifeDays !== undefined
+        ? { decayHalfLifeDays: payload.decayHalfLifeDays }
+        : {}),
+      ...(payload?.encodingContext !== undefined
+        ? { encodingContext: payload.encodingContext }
+        : {}),
+    };
+
+    const engram = this.repository.createEngram(createInput);
 
     const updated: Proposal = {
       ...target,
@@ -306,14 +389,19 @@ export class ProposalEngine {
       proposals.map((p) => (p.entityId === entityId ? updated : p)),
     );
 
-    // 移除对应的 cluster(已转化)
+    // 移除对应的 cluster(已转化);auto-memory proposal 无对应 cluster,filter 是 noop
     this.writeClusters(this.readClusters().filter((c) => c.id !== entityId));
 
     this.auditLog.append({
       actor: "user",
       action: "accept",
       engramId: engram.id,
-      metadata: { entityId, occurrences: target.occurrences },
+      metadata: {
+        entityId,
+        occurrences: target.occurrences,
+        ...(target.source ? { source: target.source } : {}),
+        ...(target.slug ? { slug: target.slug } : {}),
+      },
     });
 
     // Task 3.4 Phase B:proposal accepted → 新 engram 已创建,触发 prompt-signals rebuild
@@ -324,6 +412,113 @@ export class ProposalEngine {
     });
 
     return engram.id;
+  }
+
+  /**
+   * 把 Claude Code auto-memory 文件作为 pending proposal 写入仓库
+   *
+   * 与 `observe()`(对话流聚类)不同的地方:
+   *   - 不走 embedder/cluster/necessity-evaluator 路径
+   *   - 文件本身已是完整内容,直接作为 payload 携带
+   *   - entityId 用 `am:<slug>` 命名空间,永不与对话聚类的 `c<dim>-<hash>` 冲突
+   *
+   * 幂等行为:
+   *   - 已 accepted → 跳过(避免重开已审批项;源文件变化不影响已落库的 engram)
+   *   - 已 pending 且 payload fingerprint 相同 → 跳过(no-change)
+   *   - 已 pending 且 payload 变化 → upsert(payload + lastSeenAt 更新)
+   *   - 不存在 → 创建 pending proposal
+   *
+   * @returns 写入动作(用于上层日志统计)
+   */
+  proposeAutoMemory(input: {
+    readonly slug: string;
+    readonly title: string;
+    readonly content: string;
+    readonly summary?: string;
+    readonly domainTags: readonly string[];
+    readonly contextTags?: readonly string[];
+    readonly kind: EngramCreateInput["kind"];
+    readonly createdBy?: string;
+    readonly sourceType?: EngramCreateInput["sourceType"];
+    readonly importance?: number;
+    readonly visibility?: EngramCreateInput["visibility"];
+    readonly decayHalfLifeDays?: number | null;
+    readonly encodingContext?: string;
+    readonly at?: string;
+  }): "proposed" | "updated" | "no-change" {
+    const entityId = autoMemoryEntityId(input.slug);
+    const now = input.at ?? new Date().toISOString();
+
+    const payload: ProposalPayload = {
+      title: input.title,
+      content: input.content,
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      domainTags: input.domainTags,
+      ...(input.contextTags !== undefined ? { contextTags: input.contextTags } : {}),
+      kind: input.kind,
+      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
+      ...(input.importance !== undefined ? { importance: input.importance } : {}),
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      ...(input.decayHalfLifeDays !== undefined
+        ? { decayHalfLifeDays: input.decayHalfLifeDays }
+        : {}),
+      ...(input.encodingContext !== undefined
+        ? { encodingContext: input.encodingContext }
+        : {}),
+    };
+
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") {
+      return "no-change";
+    }
+
+    if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
+      // payload 未变化 —— 不动 proposal,只刷新 lastSeenAt 也无意义(无样本聚合)
+      return "no-change";
+    }
+
+    if (existing) {
+      // pending 状态且 payload 变化 → upsert
+      const next: Proposal = {
+        ...existing,
+        sampleQuotes: [input.slug],
+        centroidExcerpt: input.slug,
+        lastSeenAt: now,
+        status: "pending",
+        dismissedUntil: undefined,
+        dismissReason: undefined,
+        payload,
+      };
+      this.writeProposals(
+        proposals.map((p) => (p.entityId === entityId ? next : p)),
+      );
+      return "updated";
+    }
+
+    // 新建
+    const proposal: Proposal = {
+      entityId,
+      occurrences: 1,
+      sampleQuotes: [input.slug],
+      centroidExcerpt: input.slug,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      createdAt: now,
+      status: "pending",
+      source: "auto-memory",
+      slug: input.slug,
+      payload,
+    };
+    this.writeProposals([...proposals, proposal]);
+    this.auditLog.append({
+      actor: "system",
+      action: "propose",
+      metadata: { entityId, source: "auto-memory", slug: input.slug },
+    });
+    return "proposed";
   }
 
   /**
@@ -869,4 +1064,33 @@ function writeJsonl(filePath: string, records: readonly unknown[]): void {
     records.map((r) => JSON.stringify(r)).join("\n") +
     (records.length > 0 ? "\n" : "");
   writeFileSync(filePath, content, "utf8");
+}
+
+/**
+ * 比较两个 ProposalPayload 是否等价(用于 proposeAutoMemory 的幂等判断)
+ *
+ * 逐字段比对,数值/字符串/数组/可选字段全匹配才返回 true。
+ */
+function payloadEqual(a: ProposalPayload, b: ProposalPayload): boolean {
+  if (a.title !== b.title) return false;
+  if (a.content !== b.content) return false;
+  if ((a.summary ?? "") !== (b.summary ?? "")) return false;
+  if (!arrayEqual(a.domainTags, b.domainTags)) return false;
+  if (!arrayEqual(a.contextTags ?? [], b.contextTags ?? [])) return false;
+  if (a.kind !== b.kind) return false;
+  if ((a.createdBy ?? "") !== (b.createdBy ?? "")) return false;
+  if ((a.sourceType ?? "") !== (b.sourceType ?? "")) return false;
+  if ((a.importance ?? -1) !== (b.importance ?? -1)) return false;
+  if ((a.visibility ?? "") !== (b.visibility ?? "")) return false;
+  if ((a.decayHalfLifeDays ?? -1) !== (b.decayHalfLifeDays ?? -1)) return false;
+  if ((a.encodingContext ?? "") !== (b.encodingContext ?? "")) return false;
+  return true;
+}
+
+function arrayEqual(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

@@ -245,12 +245,12 @@ The `aliases` frontmatter field is a legacy field — Co-Engram now uses the fil
 
 To silence the warning: delete the `aliases:` field from the engram's frontmatter. Running `engram_doctor` once will bulk-rewrite all engrams and clean the field across the repo.
 
-### Q: My Claude Code auto-memory isn't syncing to co-engram
+### Q: I don't see my Claude Code auto-memory as pending proposals
 
 The watcher should print this line at MCP startup:
 
 ```
-[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 proposed, 0 updated)
 ```
 
 If you don't see it, check in order:
@@ -259,15 +259,22 @@ If you don't see it, check in order:
 - **Disabled by config**: `autoMemorySync.enabled: false` in `.co-engram/config.json`. Delete the line or set to `true`.
 - **`HOME` not set / non-standard projects root**: the watcher falls back to `$HOME/.claude/projects`. If `$HOME` is empty, set `CO_ENGRAM_CLAUDE_PROJECTS_ROOT=/home/you/.claude/projects` explicitly.
 - **Wrong host**: OpenClaw doesn't run this watcher. You must use `@co-engram/claude-code` (the MCP server) for the sync to happen.
-- **Watcher started but file not picked up**: the watcher debounces 500ms. If you wrote a file and immediately checked `engram_search`, give it a beat. The watcher also ignores `MEMORY.md` (the index) by design — individual `.md` files are what get mirrored.
+- **Watcher started but file not picked up**: the watcher debounces 500ms. If you wrote a file and immediately checked `engram_list_proposals`, give it a beat. The watcher also ignores `MEMORY.md` (the index) by design — individual `.md` files are what get mirrored.
 
-Synced memories carry `domainTag` `claude-code-auto-memory`, so you can filter:
+Each pending proposal carries `source: "auto-memory"` and pre-populated payload (`proposedTitle`, `proposedContent`, `proposedDomainTags`). To list and triage:
 
 ```
-engram_search({ query: "...", filter: { domainTags: ["claude-code-auto-memory"] } })
+engram_list_proposals({ includeAll: true })
 ```
 
-Each mirror also has `encodingContext` `claude-code-auto-memory:<slug>`. Editing the source memory in Claude Code updates the engram's content (stats preserved); deleting the source file does NOT currently delete the engram (use `engram_forget` if you want it gone from retrieval).
+Then accept (creates the engram, no need to re-type fields) or dismiss:
+
+```
+engram_accept_proposal({ entityId: "am:<slug>" })
+engram_dismiss_proposal({ entityId: "am:<slug>" })
+```
+
+Once accepted, the engram carries `domainTag` `claude-code-auto-memory`, so you can filter in `engram_search`. Each mirrored proposal also has `encodingContext` `claude-code-auto-memory:<slug>`. Editing the source memory in Claude Code updates the corresponding **pending proposal's** payload; an already-accepted proposal is not reopened. Deleting the source file does NOT currently delete the proposal/engram (use `engram_dismiss_proposal` / `engram_forget` if you want it gone).
 
 ### Q: How do I completely reset?
 

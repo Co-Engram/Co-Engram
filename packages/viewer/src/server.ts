@@ -580,16 +580,20 @@ async function routeApi(
     }>(req);
     try {
       if (action === "accept") {
-        if (!body?.title || !body.content) {
-          respondJson(res, 400, { error: "accept requires title and content" });
-          return;
-        }
-        const engramId = ctx.proposalEngine.accept(entityId, {
-          title: body.title,
-          content: body.content,
-          domainTags: body.domainTags ?? [],
-          ...(body.createdBy ? { createdBy: body.createdBy } : {}),
-          ...(body.kind
+        // auto-memory 来源的 proposal 自带 payload,可省略 title/content/domainTags;
+        // conversation 来源必须显式传值。让 accept() 自行做兜底校验。
+        const acceptInput: {
+          readonly title?: string;
+          readonly content?: string;
+          readonly domainTags?: readonly string[];
+          readonly createdBy?: string;
+          readonly kind?: "fact" | "observation" | "pattern" | "procedure" | "hypothesis";
+        } = {
+          ...(body?.title ? { title: body.title } : {}),
+          ...(body?.content ? { content: body.content } : {}),
+          ...(body?.domainTags ? { domainTags: body.domainTags } : {}),
+          ...(body?.createdBy ? { createdBy: body.createdBy } : {}),
+          ...(body?.kind
             ? {
                 kind: body.kind as
                   | "fact"
@@ -599,9 +603,18 @@ async function routeApi(
                   | "hypothesis",
               }
             : {}),
-        });
-        respondJson(res, 200, { ok: true, action, engramId });
-        return;
+        };
+        try {
+          const engramId = ctx.proposalEngine.accept(entityId, acceptInput);
+          respondJson(res, 200, { ok: true, action, engramId });
+          return;
+        } catch (err) {
+          // accept 抛错时(包括 payload 兜底失败)给出可读 message
+          respondJson(res, 400, {
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return;
+        }
       }
       // dismiss
       ctx.proposalEngine.dismiss(entityId, body?.reason, body?.dismissDays);

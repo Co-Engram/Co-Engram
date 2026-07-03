@@ -15,6 +15,8 @@ import {
   newCluster,
   addToCluster,
   findBestMatch,
+  autoMemoryEntityId,
+  isAutoMemoryProposal,
   type Embedder,
   type TopicCluster,
 } from "../src/observability/proposal-engine.js";
@@ -541,5 +543,263 @@ describe("ProposalEngine.clear", () => {
     expect(engine.listAll()).toHaveLength(1);
     engine.clear();
     expect(engine.listAll()).toHaveLength(0);
+  });
+});
+
+// ============================================================
+// autoMemoryEntityId / isAutoMemoryProposal
+// ============================================================
+
+describe("autoMemoryEntityId", () => {
+  it("加 am: 前缀", () => {
+    expect(autoMemoryEntityId("low-friction-defaults")).toBe(
+      "am:low-friction-defaults",
+    );
+  });
+  it("空 slug 仍构造(实际场景由调用方保证 slug 非空)", () => {
+    expect(autoMemoryEntityId("")).toBe("am:");
+  });
+});
+
+describe("isAutoMemoryProposal", () => {
+  it("am: 前缀 → true", () => {
+    expect(isAutoMemoryProposal("am:some-slug")).toBe(true);
+  });
+  it("对话聚类 entityId → false", () => {
+    expect(isAutoMemoryProposal("c256-a1b2c3d4e5f6a1b2")).toBe(false);
+  });
+});
+
+// ============================================================
+// ProposalEngine.proposeAutoMemory
+// ============================================================
+
+describe("ProposalEngine.proposeAutoMemory", () => {
+  it("首次 propose → 创建 pending proposal,带 source/slug/payload", () => {
+    const action = engine.proposeAutoMemory({
+      slug: "test-slug",
+      title: "test-slug",
+      content: "test body",
+      summary: "test description",
+      domainTags: ["claude-code-auto-memory"],
+      contextTags: ["auto-sync"],
+      kind: "observation",
+      createdBy: "claude-code-auto-memory",
+      importance: 0.5,
+      encodingContext: "claude-code-auto-memory:test-slug",
+    });
+    expect(action).toBe("proposed");
+
+    const all = engine.listAll();
+    expect(all).toHaveLength(1);
+    const p = all[0]!;
+    expect(p.entityId).toBe("am:test-slug");
+    expect(p.source).toBe("auto-memory");
+    expect(p.slug).toBe("test-slug");
+    expect(p.status).toBe("pending");
+    expect(p.payload).toBeDefined();
+    expect(p.payload?.title).toBe("test-slug");
+    expect(p.payload?.content).toBe("test body");
+    expect(p.payload?.kind).toBe("observation");
+    expect(p.payload?.domainTags).toContain("claude-code-auto-memory");
+    expect(p.payload?.encodingContext).toBe(
+      "claude-code-auto-memory:test-slug",
+    );
+  });
+
+  it("相同 slug + 相同 payload → no-change,不重复写", () => {
+    engine.proposeAutoMemory({
+      slug: "stable-slug",
+      title: "stable",
+      content: "stable body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    const action = engine.proposeAutoMemory({
+      slug: "stable-slug",
+      title: "stable",
+      content: "stable body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()).toHaveLength(1);
+  });
+
+  it("相同 slug + payload 变化 → updated,payload 被替换", () => {
+    engine.proposeAutoMemory({
+      slug: "drift-slug",
+      title: "drift",
+      content: "v1 body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    const action = engine.proposeAutoMemory({
+      slug: "drift-slug",
+      title: "drift",
+      content: "v2 body", // 变化
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("updated");
+    expect(engine.listAll()).toHaveLength(1);
+    expect(engine.listAll()[0]!.payload?.content).toBe("v2 body");
+  });
+
+  it("accept 后再 propose → no-change,不重开已审批项", () => {
+    engine.proposeAutoMemory({
+      slug: "accepted-slug",
+      title: "accepted",
+      content: "body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    engine.accept("am:accepted-slug", {}); // payload 兜底
+    expect(engine.listAll()[0]!.status).toBe("accepted");
+
+    const action = engine.proposeAutoMemory({
+      slug: "accepted-slug",
+      title: "new title",
+      content: "new body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    // 已 accepted 的 proposal 不被覆盖
+    expect(engine.listAll()[0]!.status).toBe("accepted");
+    expect(engine.listAll()[0]!.payload?.title).toBe("accepted");
+  });
+
+  it("不同 slug → 独立 proposal", () => {
+    engine.proposeAutoMemory({
+      slug: "a",
+      title: "a",
+      content: "body a",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    engine.proposeAutoMemory({
+      slug: "b",
+      title: "b",
+      content: "body b",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    const all = engine.listAll();
+    expect(all).toHaveLength(2);
+    expect(all.map((p) => p.entityId).sort()).toEqual(["am:a", "am:b"]);
+  });
+
+  it("dismiss 后 payload 变化 → upsert 复活,清除 dismissedUntil/dismissReason", () => {
+    engine.proposeAutoMemory({
+      slug: "dismissed-slug",
+      title: "v1",
+      content: "body v1",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    engine.dismiss("am:dismissed-slug", "not relevant", 30);
+    expect(engine.listAll()[0]!.status).toBe("dismissed");
+    expect(engine.listAll()[0]!.dismissedUntil).toBeDefined();
+
+    // payload 变化 → 重新 pending
+    const action = engine.proposeAutoMemory({
+      slug: "dismissed-slug",
+      title: "v2",
+      content: "body v2",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("updated");
+    const p = engine.listAll()[0]!;
+    expect(p.status).toBe("pending");
+    expect(p.dismissedUntil).toBeUndefined();
+    expect(p.dismissReason).toBeUndefined();
+    expect(p.payload?.content).toBe("body v2");
+  });
+});
+
+// ============================================================
+// ProposalEngine.accept with payload 兜底
+// ============================================================
+
+describe("ProposalEngine.accept with payload fallback", () => {
+  it("auto-memory proposal + 调用方未传 title/content → 使用 payload", () => {
+    engine.proposeAutoMemory({
+      slug: "am-accept-slug",
+      title: "auto-title",
+      content: "auto-content",
+      summary: "auto-summary",
+      domainTags: ["claude-code-auto-memory", "extra"],
+      contextTags: ["auto-sync"],
+      kind: "pattern",
+      createdBy: "claude-code-auto-memory",
+      importance: 0.7,
+      encodingContext: "claude-code-auto-memory:am-accept-slug",
+    });
+
+    const engramId = engine.accept("am:am-accept-slug", {
+      createdBy: "test-user",
+    });
+    const engram = repo.readEngram(engramId);
+    expect(engram.title).toBe("auto-title");
+    expect(engram.content).toBe("auto-content");
+    expect(engram.summary).toBe("auto-summary");
+    expect(engram.kind).toBe("pattern");
+    expect(engram.domainTags).toEqual(["claude-code-auto-memory", "extra"]);
+    expect(engram.contextTags).toContain("auto-sync");
+    expect(engram.encodingContext).toBe(
+      "claude-code-auto-memory:am-accept-slug",
+    );
+    expect(engram.importance).toBe(0.7);
+    expect(engram.createdBy).toBe("test-user"); // 调用方覆盖 payload.createdBy
+  });
+
+  it("auto-memory proposal + 调用方覆盖 title → 用覆盖值,其他走 payload", () => {
+    engine.proposeAutoMemory({
+      slug: "override-slug",
+      title: "payload-title",
+      content: "payload-content",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    const engramId = engine.accept("am:override-slug", {
+      title: "overridden-by-llm",
+    });
+    const engram = repo.readEngram(engramId);
+    expect(engram.title).toBe("overridden-by-llm");
+    expect(engram.content).toBe("payload-content"); // 走 payload
+    expect(engram.kind).toBe("observation"); // 走 payload
+  });
+
+  it("conversation proposal(payload=undefined)+ 调用方未传 title → 抛错", async () => {
+    // 用 observe 制造一个 conversation proposal
+    for (const s of TS_CI_SAMPLES) {
+      await engine.observe({ role: "user", content: s });
+    }
+    const proposals = engine.listAll();
+    expect(proposals.length).toBeGreaterThan(0);
+    const convEntityId = proposals[0]!.entityId;
+    expect(isAutoMemoryProposal(convEntityId)).toBe(false);
+
+    expect(() => engine.accept(convEntityId, { createdBy: "u" })).toThrow(
+      /accept requires title\/content\/domainTags/,
+    );
+  });
+
+  it("conversation proposal + 调用方完整传 title/content/domainTags → 正常 accept", async () => {
+    for (const s of TS_CI_SAMPLES) {
+      await engine.observe({ role: "user", content: s });
+    }
+    const convEntityId = engine.listAll()[0]!.entityId;
+    const engramId = engine.accept(convEntityId, {
+      title: "manual title",
+      content: "manual content",
+      domainTags: ["domain"],
+      createdBy: "test-user",
+    });
+    const engram = repo.readEngram(engramId);
+    expect(engram.title).toBe("manual title");
+    expect(engram.content).toBe("manual content");
   });
 });

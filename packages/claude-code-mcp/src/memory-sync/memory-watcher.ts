@@ -35,7 +35,7 @@ export interface WatcherStartResult {
   /** 初始扫描统计(仅在 enabled=true 时有意义) */
   readonly initialSync?: {
     readonly files: number;
-    readonly created: number;
+    readonly proposed: number;
     readonly updated: number;
     readonly unchanged: number;
     readonly skipped: number;
@@ -105,7 +105,7 @@ export class AutoMemoryWatcher {
 
     this.log(
       `[memory-sync] initial scan: ${initialFiles.length} files, ` +
-        `${initialStats.created} created, ${initialStats.updated} updated, ` +
+        `${initialStats.proposed} proposed, ${initialStats.updated} updated, ` +
         `${initialStats.unchanged} unchanged, ${initialStats.skipped} skipped, ` +
         `${initialStats.failed} failed`,
     );
@@ -228,9 +228,9 @@ export class AutoMemoryWatcher {
           const files = this.collectMemoryFilesFromDir(dir);
           const parsed = this.parseAll(files);
           const stats = this.engine.syncBatch(parsed);
-          if (stats.created + stats.updated > 0) {
+          if (stats.proposed + stats.updated > 0) {
             this.log(
-              `[memory-sync] new project dir ${dir}: ${stats.created} created, ` +
+              `[memory-sync] new project dir ${dir}: ${stats.proposed} proposed, ` +
                 `${stats.updated} updated`,
             );
           }
@@ -256,9 +256,9 @@ export class AutoMemoryWatcher {
         const files = this.collectMemoryFilesFromDir(dir);
         const parsed = this.parseAll(files);
         const stats = this.engine.syncBatch(parsed);
-        if (stats.created + stats.updated > 0) {
+        if (stats.proposed + stats.updated > 0) {
           this.log(
-            `[memory-sync] ${dir}: ${stats.created} created, ` +
+            `[memory-sync] ${dir}: ${stats.proposed} proposed, ` +
               `${stats.updated} updated`,
           );
         }

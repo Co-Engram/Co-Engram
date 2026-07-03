@@ -153,9 +153,9 @@ or `engram_dismiss_proposal` to ignore.
 
 Claude Code surfaces this in the session banner. The LLM can then triage with the three proposal tools.
 
-### Auto-Memory Sync (Claude Code → Co-Engram)
+### Auto-Memory Sync (Claude Code → Co-Engram Proposals)
 
-Claude Code maintains its own auto-memory under `~/.claude/projects/<encoded-cwd>/memory/*.md` (typed: `user` / `feedback` / `project` / `reference` / `pattern`). Co-Engram watches this directory and **mirrors every memory into the team repo as an engram**, so insights the host already captured don't have to be re-typed via `engram_create`.
+Claude Code maintains its own auto-memory under `~/.claude/projects/<encoded-cwd>/memory/*.md` (typed: `user` / `feedback` / `project` / `reference` / `pattern`). Co-Engram watches this directory and **mirrors every memory into the team repo as a pending proposal** — not directly as an engram. The user (or LLM) then triages via `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`, exactly the same path as conversation-cluster proposals. This keeps auto-memory subject to the same review gate as every other capture path.
 
 **On by default** (low-friction). Disable with:
 
@@ -175,17 +175,19 @@ How it works:
 
 - On startup, scans every project's `memory/` directory under `~/.claude/projects/` and bulk-syncs existing files
 - A `fs.watch` watcher picks up new/updated `.md` files in real time (debounced 500ms)
-- Each memory becomes an engram with:
-  - `domainTag` `claude-code-auto-memory` (filterable in `engram_search`)
+- Each memory becomes a pending proposal (entityId `am:<slug>`) with payload pre-populated:
+  - `domainTag` `claude-code-auto-memory` (filterable in `engram_search` after accept)
   - `encodingContext` `claude-code-auto-memory:<slug>` (idempotency key)
+  - `source` `auto-memory` (distinguishes from `conversation` proposals)
 - Type mapping: `pattern` → `pattern`, `feedback` / `user` → `observation`, `project` / `reference` → `fact`
-- Renaming or rewriting a memory in Claude Code → existing engram's `content` is updated (stats preserved)
+- Accepting a proposal via `engram_accept_proposal({ entityId: "am:<slug>" })` creates the engram (no need to re-type title/content — the proposal carries them)
+- Editing a memory in Claude Code → the proposal's payload is updated (replaces the previous pending proposal); an already-accepted proposal is not reopened
 - `MEMORY.md` (the index file) is intentionally skipped
 
 Watch for this log line at MCP startup to confirm it's running:
 
 ```
-[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 proposed, 0 updated)
 ```
 
 OpenClaw doesn't have an equivalent auto-memory writer, so this subsystem is **claude-code-mcp only** — the openclaw-plugin does not start it.

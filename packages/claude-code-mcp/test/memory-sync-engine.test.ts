@@ -3,7 +3,13 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { EngramRepository } from "@co-engram/core";
+import {
+  EngramRepository,
+  AuditLog,
+  ProposalEngine,
+  DEFAULT_HASHER_EMBEDDER,
+  DEFAULT_HASHER_SIMILARITY_THRESHOLD,
+} from "@co-engram/core";
 import {
   AutoMemorySyncEngine,
   AUTO_MEMORY_DOMAIN_TAG,
@@ -16,13 +22,23 @@ import type { ParsedAutoMemory } from "../src/memory-sync/memory-parser.js";
 
 let tmpDir: string;
 let repo: EngramRepository;
+let audit: AuditLog;
+let proposalEngine: ProposalEngine;
 let engine: AutoMemorySyncEngine;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "co-engram-sync-engine-"));
   repo = new EngramRepository({ rootPath: tmpDir });
-  engine = new AutoMemorySyncEngine({
+  audit = new AuditLog(tmpDir);
+  proposalEngine = new ProposalEngine({
     repository: repo,
+    embedder: DEFAULT_HASHER_EMBEDDER,
+    auditLog: audit,
+    dataRoot: tmpDir,
+    config: { similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD },
+  });
+  engine = new AutoMemorySyncEngine({
+    proposalEngine,
     defaultCreatedBy: "test-user",
     log: () => {},
   });
@@ -94,89 +110,113 @@ describe("encodingContextFor", () => {
 });
 
 describe("AutoMemorySyncEngine.syncMemory", () => {
-  it("首次同步 → created,产生 engram 带 auto-memory domainTag + encodingContext", () => {
+  it("首次同步 → proposed,产生 pending proposal 带 source=auto-memory + slug + payload", () => {
     const result = engine.syncMemory(makeParsed());
-    expect(result.action).toBe("created");
-    expect(result.engramId).toBeDefined();
+    expect(result.action).toBe("proposed");
+    expect(result.entityId).toBe("am:test-slug");
 
-    const engram = repo.readEngram(result.engramId!);
-    expect(engram.domainTags).toContain(AUTO_MEMORY_DOMAIN_TAG);
-    expect(engram.encodingContext).toBe(
+    const pending = proposalEngine.listPending();
+    expect(pending).toHaveLength(1);
+    const p = pending[0]!;
+    expect(p.entityId).toBe("am:test-slug");
+    expect(p.source).toBe("auto-memory");
+    expect(p.slug).toBe("test-slug");
+    expect(p.status).toBe("pending");
+    expect(p.payload).toBeDefined();
+    expect(p.payload!.title).toBe("test-slug");
+    expect(p.payload!.content).toContain("test body content");
+    expect(p.payload!.domainTags).toContain(AUTO_MEMORY_DOMAIN_TAG);
+    expect(p.payload!.encodingContext).toBe(
       `${AUTO_MEMORY_ENCODING_PREFIX}test-slug`,
     );
-    expect(engram.createdBy).toBe("test-user");
+    expect(p.payload!.createdBy).toBe("test-user");
+    // 仍然没有 engram 被创建
+    expect(repo.listEngrams()).toHaveLength(0);
   });
 
-  it("type=pattern → engram.kind = pattern + importance=0.7", () => {
-    const result = engine.syncMemory(makeParsed({ type: "pattern" }));
-    const engram = repo.readEngram(result.engramId!);
-    expect(engram.kind).toBe("pattern");
-    expect(engram.importance).toBe(0.7);
+  it("type=pattern → payload.kind = pattern + importance=0.7", () => {
+    engine.syncMemory(makeParsed({ type: "pattern" }));
+    const p = proposalEngine.listPending()[0]!;
+    expect(p.payload!.kind).toBe("pattern");
+    expect(p.payload!.importance).toBe(0.7);
   });
 
-  it("type=feedback → engram.kind = observation + importance=0.5", () => {
-    const result = engine.syncMemory(makeParsed({ type: "feedback" }));
-    const engram = repo.readEngram(result.engramId!);
-    expect(engram.kind).toBe("observation");
-    expect(engram.importance).toBe(0.5);
+  it("type=feedback → payload.kind = observation + importance=0.5", () => {
+    engine.syncMemory(makeParsed({ type: "feedback" }));
+    const p = proposalEngine.listPending()[0]!;
+    expect(p.payload!.kind).toBe("observation");
+    expect(p.payload!.importance).toBe(0.5);
   });
 
-  it("相同内容第二次同步 → no-change,版本号不变", () => {
+  it("相同内容第二次同步 → no-change,payload 不变", () => {
     const first = engine.syncMemory(makeParsed());
-    const initialVersion = repo.readEngram(first.engramId!).version;
-    const initialUpdatedAt = repo.readEngram(first.engramId!).updatedAt;
+    expect(first.action).toBe("proposed");
 
     const second = engine.syncMemory(makeParsed());
     expect(second.action).toBe("no-change");
-    expect(second.engramId).toBe(first.engramId);
+    expect(second.entityId).toBe(first.entityId);
 
-    const after = repo.readEngram(second.engramId!);
-    expect(after.version).toBe(initialVersion);
-    expect(after.updatedAt).toBe(initialUpdatedAt);
+    // proposal 仍然只有 1 条
+    expect(proposalEngine.listAll()).toHaveLength(1);
+    // 仍然没有 engram
+    expect(repo.listEngrams()).toHaveLength(0);
   });
 
-  it("内容变化 → updated,version+1,但 createdBy/domainTags/encodingContext 不变", () => {
-    const first = engine.syncMemory(makeParsed());
-    const initialVersion = repo.readEngram(first.engramId!).version;
-    const initialCreatedAt = repo.readEngram(first.engramId!).createdAt;
+  it("内容变化 → updated,payload 被替换(尚未 accept 时)", () => {
+    engine.syncMemory(makeParsed());
 
     const second = engine.syncMemory(
       makeParsed({ body: "updated body content here" }),
     );
     expect(second.action).toBe("updated");
-    expect(second.engramId).toBe(first.engramId);
+    expect(second.entityId).toBe("am:test-slug");
 
-    const after = repo.readEngram(second.engramId!);
-    expect(after.version).toBe(initialVersion + 1);
-    expect(after.createdAt).toBe(initialCreatedAt);
-    expect(after.domainTags).toContain(AUTO_MEMORY_DOMAIN_TAG);
-    expect(after.encodingContext).toBe(
-      `${AUTO_MEMORY_ENCODING_PREFIX}test-slug`,
-    );
-    expect(after.content).toContain("updated body content here");
-  });
-
-  it("空内容 → skipped,不创建 engram", () => {
-    const result = engine.syncMemory(makeParsed({ description: "", body: "" }));
-    expect(result.action).toBe("skipped");
-    expect(result.engramId).toBeUndefined();
+    const p = proposalEngine.listAll()[0]!;
+    expect(p.payload!.content).toContain("updated body content here");
+    expect(p.status).toBe("pending");
     expect(repo.listEngrams()).toHaveLength(0);
   });
 
-  it("slug 相同但文件路径不同 → 视为同一 engram(只更新)", () => {
+  it("空内容 → skipped,不创建 proposal", () => {
+    const result = engine.syncMemory(makeParsed({ description: "", body: "" }));
+    expect(result.action).toBe("skipped");
+    expect(result.entityId).toBeUndefined();
+    expect(proposalEngine.listAll()).toHaveLength(0);
+    expect(repo.listEngrams()).toHaveLength(0);
+  });
+
+  it("slug 相同但文件路径不同 → 视为同一 proposal(只 update)", () => {
     const first = engine.syncMemory(makeParsed({ filePath: "/a.md" }));
     const second = engine.syncMemory(
       makeParsed({ filePath: "/b.md", body: "new body" }),
     );
     expect(second.action).toBe("updated");
-    expect(second.engramId).toBe(first.engramId);
+    expect(second.entityId).toBe(first.entityId);
+    expect(proposalEngine.listAll()).toHaveLength(1);
   });
 
-  it("slug 不同 → 创建独立 engram", () => {
-    const a = engine.syncMemory(makeParsed({ slug: "slug-a" }));
-    const b = engine.syncMemory(makeParsed({ slug: "slug-b" }));
-    expect(a.engramId).not.toBe(b.engramId);
-    expect(repo.listEngrams()).toHaveLength(2);
+  it("slug 不同 → 独立 proposal", () => {
+    engine.syncMemory(makeParsed({ slug: "slug-a" }));
+    engine.syncMemory(makeParsed({ slug: "slug-b" }));
+    expect(proposalEngine.listAll()).toHaveLength(2);
+    expect(repo.listEngrams()).toHaveLength(0);
+  });
+
+  it("accept 后再次同步同 slug → no-change,不重开已审批项", () => {
+    engine.syncMemory(makeParsed({ slug: "accepted-one" }));
+    proposalEngine.accept("am:accepted-one", { createdBy: "u" });
+    const engramId = repo.listEngrams()[0]!.id;
+    expect(repo.readEngram(engramId)!.content).toContain("test body content");
+    expect(proposalEngine.listAll()[0]!.status).toBe("accepted");
+
+    // 再次同步(内容变化)→ no-change,不被重开
+    const result = engine.syncMemory(
+      makeParsed({ slug: "accepted-one", body: "changed body" }),
+    );
+    expect(result.action).toBe("no-change");
+    expect(proposalEngine.listAll()[0]!.status).toBe("accepted");
+    // engram content 不变(accept 时落库的内容)
+    expect(repo.readEngram(engramId)!.content).toContain("test body content");
   });
 });
 
@@ -188,7 +228,7 @@ describe("AutoMemorySyncEngine.syncBatch", () => {
       makeParsed({ slug: "c", description: "", body: "" }),
     ];
     const stats = engine.syncBatch(memories);
-    expect(stats.created).toBe(2);
+    expect(stats.proposed).toBe(2);
     expect(stats.skipped).toBe(1);
     expect(stats.updated).toBe(0);
     expect(stats.unchanged).toBe(0);
@@ -200,22 +240,21 @@ describe("AutoMemorySyncEngine.syncBatch", () => {
     engine.syncBatch(memories);
     const stats = engine.syncBatch(memories);
     expect(stats.unchanged).toBe(2);
-    expect(stats.created).toBe(0);
+    expect(stats.proposed).toBe(0);
     expect(stats.updated).toBe(0);
   });
 
   it("错误计入 failed,不阻塞其他条目", () => {
-    // 通过模拟故障的 memory 触发异常:createEngram 在 slug 已有时再调 createEngram 会报 file exists
-    // 这里用 mock repo 触发异常:我们手动让一个已存在 slug 的 engram 文件路径冲突
-    const realCreate = repo.createEngram.bind(repo);
+    // 通过 mock proposalEngine 触发异常
+    const realPropose = proposalEngine.proposeAutoMemory.bind(proposalEngine);
     let callCount = 0;
-    repo.createEngram = ((input: Parameters<typeof realCreate>[0]) => {
+    proposalEngine.proposeAutoMemory = ((input: Parameters<typeof realPropose>[0]) => {
       callCount += 1;
       if (callCount === 2) {
         throw new Error("simulated failure");
       }
-      return realCreate(input);
-    }) as typeof realCreate;
+      return realPropose(input);
+    }) as typeof realPropose;
 
     const memories = [
       makeParsed({ slug: "a" }),
@@ -223,7 +262,7 @@ describe("AutoMemorySyncEngine.syncBatch", () => {
       makeParsed({ slug: "c" }),
     ];
     const stats = engine.syncBatch(memories);
-    expect(stats.created).toBe(2);
+    expect(stats.proposed).toBe(2);
     expect(stats.failed).toBe(1);
     expect(stats.errors).toHaveLength(1);
     expect(stats.errors[0]).toContain("b:");
@@ -231,39 +270,28 @@ describe("AutoMemorySyncEngine.syncBatch", () => {
 });
 
 describe("AutoMemorySyncEngine 跨实例幂等", () => {
-  it("新实例从仓库重建 slug cache,识别已存在的 slug", () => {
-    // 实例 1 同步
+  it("新实例看到已有 pending proposal,识别为 no-change 或 updated", () => {
     const engine1 = new AutoMemorySyncEngine({
-      repository: repo,
+      proposalEngine,
       defaultCreatedBy: "user1",
     });
     engine1.syncMemory(makeParsed({ slug: "persisted-slug" }));
-    expect(repo.listEngrams()).toHaveLength(1);
+    expect(proposalEngine.listAll()).toHaveLength(1);
 
-    // 实例 2(模拟进程重启)看到已有 engram,重建 cache,做 update
+    // 模拟进程重启:新 engine 实例共享同一 proposalEngine(共享同一份 proposals.jsonl)
     const engine2 = new AutoMemorySyncEngine({
-      repository: repo,
+      proposalEngine,
       defaultCreatedBy: "user2",
     });
+    // 内容变化 → updated(payload 替换)
     const result = engine2.syncMemory(
       makeParsed({ slug: "persisted-slug", body: "updated by engine2" }),
     );
     expect(result.action).toBe("updated");
-    expect(result.engramId).toBeDefined();
-    const engram = repo.readEngram(result.engramId!);
-    expect(engram.content).toContain("updated by engine2");
-    // createdBy 是创建者,不应被 update 改
-    expect(engram.createdBy).toBe("user1");
-  });
+    expect(result.entityId).toBe("am:persisted-slug");
 
-  it("resetCache 后下次 findBySlug 重新扫全库", () => {
-    engine.syncMemory(makeParsed({ slug: "cached-slug" }));
-    // cache 已构建
-    expect(engine.peekSlugCache()?.has("cached-slug")).toBe(true);
-    engine.resetCache();
-    expect(engine.peekSlugCache()).toBeUndefined();
-    // 再次同步相同 slug,会重建 cache 并识别
-    const result = engine.syncMemory(makeParsed({ slug: "cached-slug" }));
-    expect(result.action).toBe("no-change");
+    const p = proposalEngine.listAll()[0]!;
+    expect(p.payload!.content).toContain("updated by engine2");
+    expect(p.status).toBe("pending");
   });
 });

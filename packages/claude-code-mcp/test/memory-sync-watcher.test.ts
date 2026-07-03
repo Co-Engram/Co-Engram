@@ -9,13 +9,21 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { EngramRepository } from "@co-engram/core";
+import {
+  EngramRepository,
+  AuditLog,
+  ProposalEngine,
+  DEFAULT_HASHER_EMBEDDER,
+  DEFAULT_HASHER_SIMILARITY_THRESHOLD,
+} from "@co-engram/core";
 import { AutoMemorySyncEngine } from "../src/memory-sync/sync-engine.js";
 import { AutoMemoryWatcher } from "../src/memory-sync/memory-watcher.js";
 
 let tmpRoot: string;
 let projectsRoot: string;
 let repo: EngramRepository;
+let audit: AuditLog;
+let proposalEngine: ProposalEngine;
 let engine: AutoMemorySyncEngine;
 let watcher: AutoMemoryWatcher;
 
@@ -24,8 +32,16 @@ beforeEach(() => {
   projectsRoot = join(tmpRoot, "projects");
   mkdirSync(projectsRoot, { recursive: true });
   repo = new EngramRepository({ rootPath: join(tmpRoot, "memory-repo") });
-  engine = new AutoMemorySyncEngine({
+  audit = new AuditLog(tmpRoot);
+  proposalEngine = new ProposalEngine({
     repository: repo,
+    embedder: DEFAULT_HASHER_EMBEDDER,
+    auditLog: audit,
+    dataRoot: tmpRoot,
+    config: { similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD },
+  });
+  engine = new AutoMemorySyncEngine({
+    proposalEngine,
     defaultCreatedBy: "watcher-test",
     log: () => {},
   });
@@ -83,7 +99,7 @@ describe("AutoMemoryWatcher.start", () => {
     expect(result.reason).toContain("not a directory");
   });
 
-  it("初始扫描所有项目目录下的 .md 文件", () => {
+  it("初始扫描所有项目目录下的 .md 文件 → 全部生成 pending proposal(不创建 engram)", () => {
     const dir1 = makeProjectMemoryDir("project-A");
     const dir2 = makeProjectMemoryDir("project-B");
     writeMemory(dir1, "memory-a1.md", {
@@ -106,8 +122,10 @@ describe("AutoMemoryWatcher.start", () => {
     const result = watcher.start();
     expect(result.enabled).toBe(true);
     expect(result.initialSync?.files).toBe(3);
-    expect(result.initialSync?.created).toBe(3);
-    expect(repo.listEngrams()).toHaveLength(3);
+    expect(result.initialSync?.proposed).toBe(3);
+    // proposal 阶段不创建 engram
+    expect(repo.listEngrams()).toHaveLength(0);
+    expect(proposalEngine.listPending()).toHaveLength(3);
   });
 
   it("MEMORY.md 索引文件被忽略", () => {
@@ -121,7 +139,7 @@ describe("AutoMemoryWatcher.start", () => {
     watcher = new AutoMemoryWatcher({ projectsRoot, engine });
     const result = watcher.start();
     expect(result.initialSync?.files).toBe(1);
-    expect(repo.listEngrams()).toHaveLength(1);
+    expect(proposalEngine.listAll()).toHaveLength(1);
   });
 
   it("watcher 启动后注册了 projectsRoot + 各 memory 目录的监听", () => {
@@ -138,7 +156,7 @@ describe("AutoMemoryWatcher.start", () => {
 });
 
 describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
-  it("启动后新写入 .md → 触发增量同步,创建 engram", async () => {
+  it("启动后新写入 .md → 触发增量同步,生成新 proposal(不创建 engram)", async () => {
     const dir = makeProjectMemoryDir("proj");
     watcher = new AutoMemoryWatcher({
       projectsRoot,
@@ -146,7 +164,7 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
       debounceMs: 30,
     });
     watcher.start();
-    expect(repo.listEngrams()).toHaveLength(0);
+    expect(proposalEngine.listAll()).toHaveLength(0);
 
     writeMemory(dir, "after-start.md", {
       name: "after-start",
@@ -156,13 +174,17 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
     // 等待 debounce + IO 传播
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const all = repo.listEngrams();
-    expect(all.length).toBe(1);
-    const engram = repo.readEngram(all[0]!.id);
-    expect(engram.content).toContain("created after watcher started");
+    expect(repo.listEngrams()).toHaveLength(0); // 仍是 proposal,不是 engram
+    const pending = proposalEngine.listAll();
+    expect(pending.length).toBe(1);
+    expect(pending[0]!.source).toBe("auto-memory");
+    expect(pending[0]!.slug).toBe("after-start");
+    expect(pending[0]!.payload!.content).toContain(
+      "created after watcher started",
+    );
   });
 
-  it("已存在 engram 的 slug 收到内容更新 → updated", async () => {
+  it("已存在 pending proposal 的 slug 收到内容更新 → updated(payload 替换,仍未创建 engram)", async () => {
     const dir = makeProjectMemoryDir("proj");
     writeMemory(dir, "existing.md", {
       name: "existing",
@@ -174,9 +196,9 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
       debounceMs: 30,
     });
     watcher.start();
-    expect(repo.listEngrams()).toHaveLength(1);
-    const initialId = repo.listEngrams()[0]!.id;
-    const initialVersion = repo.readEngram(initialId).version;
+    expect(proposalEngine.listAll()).toHaveLength(1);
+    const entityId = proposalEngine.listAll()[0]!.entityId;
+    expect(entityId).toBe("am:existing");
 
     writeMemory(dir, "existing.md", {
       name: "existing",
@@ -184,9 +206,11 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
     });
     await new Promise((resolve) => setTimeout(resolve, 200));
 
-    const engram = repo.readEngram(initialId);
-    expect(engram.version).toBe(initialVersion + 1);
-    expect(engram.content).toContain("updated body");
+    const p = proposalEngine.listAll()[0]!;
+    expect(p.payload!.content).toContain("updated body");
+    expect(p.status).toBe("pending");
+    // 仍然没有 engram 被创建
+    expect(repo.listEngrams()).toHaveLength(0);
   });
 
   it("新项目目录被创建后 → 自动监听其 memory 子目录", async () => {
@@ -204,9 +228,9 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
     // 等待 projectsRoot watcher 检测到新目录 + 启动子目录 watcher + debounce
     await new Promise((resolve) => setTimeout(resolve, 300));
 
-    const all = repo.listEngrams();
-    expect(all.length).toBe(1);
-    expect(repo.readEngram(all[0]!.id).content).toContain("late body");
+    const pending = proposalEngine.listAll();
+    expect(pending.length).toBe(1);
+    expect(pending[0]!.payload!.content).toContain("late body");
   });
 
   it("stop() 清理所有 watcher", () => {
@@ -228,7 +252,7 @@ describe("AutoMemoryWatcher 增量同步(debounce 后)", () => {
 });
 
 describe("AutoMemoryWatcher 错误恢复", () => {
-  it("单个文件 YAML 损坏 → 跳过该文件,其他正常同步", () => {
+  it("单个文件 YAML 损坏 → 跳过该文件,其他正常生成 proposal", () => {
     const dir = makeProjectMemoryDir("proj");
     writeMemory(dir, "good.md", { name: "good", body: "good body" });
     writeFileSync(
@@ -244,7 +268,8 @@ body
     watcher = new AutoMemoryWatcher({ projectsRoot, engine });
     const result = watcher.start();
     expect(result.initialSync?.files).toBe(2);
-    expect(result.initialSync?.created).toBe(1);
-    expect(repo.listEngrams()).toHaveLength(1);
+    expect(result.initialSync?.proposed).toBe(1);
+    expect(proposalEngine.listAll()).toHaveLength(1);
+    expect(repo.listEngrams()).toHaveLength(0);
   });
 });

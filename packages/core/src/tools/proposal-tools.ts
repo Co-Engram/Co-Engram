@@ -6,12 +6,18 @@
  *   - engram_accept_proposal  接受提案 → 创建 engram
  *   - engram_dismiss_proposal 拒绝提案（带冷却期）
  *
+ * Proposal 有两种来源(由 `source` 字段区分):
+ *   - `conversation`：对话流聚类(ProposalEngine.observe)生成;payload=undefined,
+ *     accept 时必须显式传 title/content/domainTags
+ *   - `auto-memory`：Claude Code auto-memory 文件(AutoMemorySyncEngine)生成;
+ *     payload 携带完整 engram 字段,accept 时可省略 title/content/domainTags/kind
+ *
  * 详见 spec §2.2（候选提示机制）。
  *
  * @module @co-engram/core/tools
  */
 
-import type { Proposal } from "../observability/proposal-engine.js";
+import type { Proposal, ProposalSource } from "../observability/proposal-engine.js";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
 import {
@@ -39,13 +45,31 @@ export const engramListProposalsTool: Tool<
       lastSeenAt: string;
       createdAt: string;
       status: Proposal["status"];
+      source: ProposalSource;
+      slug?: string;
+      // auto-memory 来源时携带的预填字段(便于 LLM/用户判断是否直接 accept)
+      proposedTitle?: string;
+      proposedSummary?: string;
+      proposedKind?: string;
+      proposedDomainTags?: readonly string[];
+      proposedContextTags?: readonly string[];
+      proposedImportance?: number;
+      proposedVisibility?: string;
+      proposedEncodingContext?: string;
+      proposedSourceType?: string;
+      proposedDecayHalfLifeDays?: number | null;
+      proposedCreatedBy?: string;
+      // conversation 来源时携带的建议标题(LLM 具象化的草稿)
+      suggestedTitle?: string;
+      necessityReason?: string;
+      necessityRule?: string;
     }>;
     total: number;
   }
 > = {
   name: "engram_list_proposals",
   description:
-    "列出主题候选提案。当某主题在对话中被多次提及但无匹配 engram 时,系统会生成 pending 提案等待确认。默认只返回 pending;传 includeAll=true 可查看历史 accepted/dismissed。",
+    "列出主题候选提案。当某主题在对话中被多次提及但无匹配 engram 时,系统会生成 pending 提案等待确认。默认只返回 pending;传 includeAll=true 可查看历史 accepted/dismissed。每条提案带 source 字段(conversation=对话流聚类 / auto-memory=Claude Code auto-memory 文件);auto-memory 来源还带 proposedTitle/proposedContent/proposedDomainTags 等预填字段,可直接 accept 无需重复填表。",
   inputSchema: EngramListProposalsInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramListProposalsToolInput>(
@@ -59,16 +83,67 @@ export const engramListProposalsTool: Tool<
       ? ctx.proposalEngine.listAll()
       : ctx.proposalEngine.listPending();
     return {
-      proposals: all.map((p) => ({
-        entityId: p.entityId,
-        occurrences: p.occurrences,
-        sampleQuotes: p.sampleQuotes,
-        centroidExcerpt: p.centroidExcerpt,
-        firstSeenAt: p.firstSeenAt,
-        lastSeenAt: p.lastSeenAt,
-        createdAt: p.createdAt,
-        status: p.status,
-      })),
+      proposals: all.map((p) => {
+        const base: {
+          entityId: string;
+          occurrences: number;
+          sampleQuotes: readonly string[];
+          centroidExcerpt: string;
+          firstSeenAt: string;
+          lastSeenAt: string;
+          createdAt: string;
+          status: Proposal["status"];
+          source: ProposalSource;
+          slug?: string;
+          proposedTitle?: string;
+          proposedSummary?: string;
+          proposedKind?: string;
+          proposedDomainTags?: readonly string[];
+          proposedContextTags?: readonly string[];
+          proposedImportance?: number;
+          proposedVisibility?: string;
+          proposedEncodingContext?: string;
+          proposedSourceType?: string;
+          proposedDecayHalfLifeDays?: number | null;
+          proposedCreatedBy?: string;
+          suggestedTitle?: string;
+          necessityReason?: string;
+          necessityRule?: string;
+        } = {
+          entityId: p.entityId,
+          occurrences: p.occurrences,
+          sampleQuotes: p.sampleQuotes,
+          centroidExcerpt: p.centroidExcerpt,
+          firstSeenAt: p.firstSeenAt,
+          lastSeenAt: p.lastSeenAt,
+          createdAt: p.createdAt,
+          status: p.status,
+          source: p.source ?? "conversation",
+        };
+        if (p.slug) base.slug = p.slug;
+        if (p.suggestedTitle) base.suggestedTitle = p.suggestedTitle;
+        if (p.necessityReason) base.necessityReason = p.necessityReason;
+        if (p.necessityRule) base.necessityRule = p.necessityRule;
+        // payload 投影(仅 auto-memory 来源时填)
+        const payload = p.payload;
+        if (payload) {
+          base.proposedTitle = payload.title;
+          if (payload.summary) base.proposedSummary = payload.summary;
+          base.proposedKind = payload.kind;
+          base.proposedDomainTags = payload.domainTags;
+          if (payload.contextTags) base.proposedContextTags = payload.contextTags;
+          if (payload.importance !== undefined)
+            base.proposedImportance = payload.importance;
+          if (payload.visibility) base.proposedVisibility = payload.visibility;
+          if (payload.encodingContext)
+            base.proposedEncodingContext = payload.encodingContext;
+          if (payload.sourceType) base.proposedSourceType = payload.sourceType;
+          if (payload.decayHalfLifeDays !== undefined)
+            base.proposedDecayHalfLifeDays = payload.decayHalfLifeDays;
+          if (payload.createdBy) base.proposedCreatedBy = payload.createdBy;
+        }
+        return base;
+      }),
       total: all.length,
     };
   },
@@ -84,7 +159,7 @@ export const engramAcceptProposalTool: Tool<
 > = {
   name: "engram_accept_proposal",
   description:
-    "接受一个候选提案 → 系统自动创建对应 engram,并把提案标记为 accepted。后续相同主题不会再产生重复提案。",
+    "接受一个候选提案 → 系统自动创建对应 engram,并把提案标记为 accepted。后续相同主题不会再产生重复提案。auto-memory 来源(source='auto-memory')的提案自带 payload(title/content/domainTags/kind 等),可直接 accept 省略这些字段;conversation 来源必须显式传 title/content/domainTags。",
   inputSchema: EngramAcceptProposalInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramAcceptProposalToolInput>(
@@ -99,11 +174,11 @@ export const engramAcceptProposalTool: Tool<
     // 修复前 Zod schema `.default('proposal-engine')` 把这里写死,绕过了整条链。
     const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
     const engramId = ctx.proposalEngine.accept(parsed.entityId, {
-      title: parsed.title,
-      content: parsed.content,
-      domainTags: parsed.domainTags,
+      ...(parsed.title !== undefined ? { title: parsed.title } : {}),
+      ...(parsed.content !== undefined ? { content: parsed.content } : {}),
+      ...(parsed.domainTags !== undefined ? { domainTags: parsed.domainTags } : {}),
+      ...(parsed.kind !== undefined ? { kind: parsed.kind } : {}),
       createdBy,
-      kind: parsed.kind,
     });
     return { engramId, entityId: parsed.entityId, status: "accepted" };
   },

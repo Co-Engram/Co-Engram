@@ -153,9 +153,9 @@ or `engram_dismiss_proposal` to ignore.
 
 Claude Code 会在会话 banner 中显示此消息。随后 LLM 可借助三个候选工具进行分诊处理。
 
-### Auto-Memory 同步(Claude Code → Co-Engram)
+### Auto-Memory 同步(Claude Code → Co-Engram Proposal)
 
-Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护它自己的 auto-memory(类型:`user` / `feedback` / `project` / `reference` / `pattern`)。Co-Engram 会监听这个目录,**把每条记忆镜像成团队仓库里的 engram**,这样宿主已经捕获的洞察不必再手动调 `engram_create` 重写一遍。
+Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护它自己的 auto-memory(类型:`user` / `feedback` / `project` / `reference` / `pattern`)。Co-Engram 会监听这个目录,**把每条记忆镜像成团队仓库里的待审批 proposal(候选)** —— 而不是直接生成 engram。用户(或 LLM)随后通过 `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal` 分诊,与对话聚类 proposal 走的是同一条审批路径。这样 auto-memory 与其他捕获入口一视同仁,必须经过审批才能入库。
 
 **默认开启**(开箱即用)。关闭方式:
 
@@ -175,17 +175,19 @@ claude mcp add co-engram \
 
 - 启动时扫 `~/.claude/projects/` 下每个项目的 `memory/` 子目录,批量同步已存在的文件
 - `fs.watch` 监听器实时捕获新写入/更新的 `.md` 文件(去抖 500ms)
-- 每条记忆变为一个 engram,带:
-  - `domainTag` `claude-code-auto-memory`(可在 `engram_search` 里过滤)
+- 每条记忆变为一个 pending proposal(entityId 为 `am:<slug>`),自带预填 payload:
+  - `domainTag` `claude-code-auto-memory`(accept 后可在 `engram_search` 里过滤)
   - `encodingContext` `claude-code-auto-memory:<slug>`(幂等键)
+  - `source` `auto-memory`(区别于 `conversation` 聚类来源)
 - 类型映射:`pattern` → `pattern`、`feedback` / `user` → `observation`、`project` / `reference` → `fact`
-- 在 Claude Code 里改名或重写一条 memory → 对应 engram 的 `content` 被更新(保留强化/衰减等统计字段)
+- 通过 `engram_accept_proposal({ entityId: "am:<slug>" })` 创建 engram(无需重复填 title/content —— proposal 已自带)
+- 在 Claude Code 里编辑一条 memory → 对应 proposal 的 payload 被更新(替换原 pending proposal);已 accept 过的 proposal 不会被重开
 - `MEMORY.md`(索引文件)有意跳过
 
 MCP 启动时如果看到这行日志,说明 watcher 正在跑:
 
 ```
-[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 created, 0 updated)
+[co-engram] auto-memory sync: watching /home/you/.claude/projects (initial: 12 files, 5 proposed, 0 updated)
 ```
 
 OpenClaw 没有等价的 auto-memory 写入器,所以本子系统**仅 claude-code-mcp 启动** —— openclaw-plugin 不会启动它。
