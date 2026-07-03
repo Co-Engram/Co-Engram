@@ -108,6 +108,10 @@ import {
   regenerateObsidianLinks,
   checkObsidianView,
 } from "./obsidian-links.js";
+import {
+  IndexDb,
+  type EngramIndexEntry as SqliteEngramIndexEntry,
+} from "./index-db.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -265,10 +269,67 @@ export class EngramRepository {
    */
   private externalMarkdownHook: ExternalMarkdownHook | undefined;
 
+  private readonly config: RepositoryConfig;
+
   private readonly language: Language;
 
-  constructor(private readonly config: RepositoryConfig) {
+  /**
+   * 可选 SQLite 索引层(用于 FTS 召回 / 排序)。
+   *
+   * 由 host adapter(claude-code-mcp / openclaw-plugin)在装配阶段注入。
+   * 未注入时(向后兼容)所有写入路径行为不变;注入后,createEngram /
+   * updateEngram / deleteEngram / mutateFrontmatter 在文件落盘成功后会
+   * 透明地把 engram 投影 upsert / delete 到 SQLite。
+   *
+   * 写失败由调用方决定是否致命:本 repository 默认 fail-silent(SQLite 是
+   * 派生数据,文件源真理仍然有效;doctor 自愈 + cold start rebuild 最终会
+   * 修复 SQLite 与文件的不一致)。
+   */
+  private readonly indexDb?: IndexDb;
+
+  constructor(config: RepositoryConfig, indexDb?: IndexDb) {
+    this.config = config;
     this.language = config.language ?? DEFAULT_LANGUAGE;
+    this.indexDb = indexDb;
+  }
+
+  /**
+   * 把 EngramFrontmatter + content 投影成 EngramIndexEntry,同步到 SQLite。
+   *
+   * 字段映射决策:
+   *   - contentTokens = content 全文。FTS5 trigram 主要用于召回,词频统计
+   *     不影响排序;SQLite page cache 自管索引大小。content 通常 < 2KB,
+   *     直接全量灌入。
+   *   - updatedAt 由 ISO string 转 epoch ms(Date.parse),与 IndexDb 的
+   *     INTEGER 列对齐。
+   *   - status / visibility / kind 等 union 类型直接 stringify 落 VARCHAR。
+   *
+   * Fail-silent:SQLite 是派生层,任何写失败都不阻塞文件源真理。
+   */
+  private syncEngramToIndex(
+    frontmatter: EngramFrontmatter,
+    content: string,
+  ): void {
+    if (!this.indexDb) return;
+    const entry: SqliteEngramIndexEntry = {
+      id: frontmatter.id,
+      title: frontmatter.title,
+      kind: frontmatter.kind,
+      importance: frontmatter.importance ?? 0,
+      confidence: frontmatter.confidence ?? 0,
+      updatedAt: Date.parse(frontmatter.updatedAt),
+      contentSize: frontmatter.contentSize ?? 0,
+      visibility: frontmatter.visibility ?? "public",
+      status: frontmatter.status ?? "active",
+      domainTags: frontmatter.domainTags ?? [],
+      summary: frontmatter.summary ?? "",
+      contentTokens: content,
+    };
+    try {
+      this.indexDb.upsertEngram(entry);
+    } catch {
+      // 派生数据失败不阻塞;doctor + cold start rebuild 会修复
+    }
   }
 
   /** 当前写入语言(读取时自动兼容任意语言格式) */
@@ -733,6 +794,9 @@ export class EngramRepository {
     });
     this.updateIndexEntry(entry);
 
+    // Task 1.5:同步投影到 SQLite 索引层(若注入)
+    this.syncEngramToIndex(frontmatter, input.content);
+
     // Task 3.4 Phase B:engram 创建后 emit,让 prompt-signals cache 失效并 debounced rebuild
     safeEmit({
       type: "engram_created",
@@ -927,6 +991,9 @@ export class EngramRepository {
     });
     this.updateIndexEntry(entry);
 
+    // Task 1.5:同步投影到 SQLite 索引层(若注入)
+    this.syncEngramToIndex(newFrontmatter, newContent);
+
     return this.readEngram(stableId);
   }
 
@@ -987,6 +1054,17 @@ export class EngramRepository {
     const absolutePath = join(this.config.rootPath, relativePath);
     deleteEngramFile(absolutePath);
     this.deleteSynapsesTouching(stableId);
+
+    // Task 1.5:从 SQLite 索引层删除(若注入)。domains / synapses 由外键
+    // ON DELETE CASCADE 自动清,FTS 显式删;主表 + FTS 都包在 IndexDb 内部
+    // 事务里。
+    if (this.indexDb) {
+      try {
+        this.indexDb.deleteEngram(stableId);
+      } catch {
+        // 派生数据失败不阻塞
+      }
+    }
   }
 
   /**
@@ -1511,6 +1589,12 @@ export class EngramRepository {
         contentHash,
       }),
     );
+
+    // Task 1.5:同步投影到 SQLite(若注入)。mutateFrontmatter 被
+    // bumpRetrievalStats / updateLifecycle / updateImportanceVector /
+    // updateVerificationStatus 复用,会改 importance / status / updatedAt
+    // 等 SQLite 排序/过滤列,必须同步否则 SQLite 数据陈旧。
+    this.syncEngramToIndex(newFrontmatter, oldFile.content);
   }
 
   // ─── Doctor 自愈扫描 ───────────────────────────────────────────────────
