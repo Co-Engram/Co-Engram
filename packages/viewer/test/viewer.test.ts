@@ -1414,3 +1414,58 @@ describe("Task 3: proposals visibility selector (字符串断言)", () => {
     expect(TABS_RUNTIME).toMatch(/visibility.*!==.*'public'/);
   });
 });
+
+// ============================================================
+// Task 4:详情页 visibility 切换 UI(字符串断言)
+// ============================================================
+//
+// 详情页已有 renderVisibilityBadge 渲染当前 visibility(Task 1);
+// 但用户切换 visibility 必须进 edit form 才能改 —— 体验偏重。
+// Task 4 在详情页徽章下方加 <details> 折叠的快捷切换 UI:
+//   - <select name="visibility"> 4 个选项(public/team/private/restricted)
+//   - 切换按钮调用 CO_ENGRAM_ENGRAMS.updateVisibility(id)
+//   - updateVisibility 调 PATCH /api/engrams/:id 透传 visibility 字段
+//
+// 注意:TABS_RUNTIME 是字符串注入,沿用 health-tab.test.ts 的字符串断言模式。
+
+describe("Task 4: 详情页 visibility 快捷切换 UI (字符串断言)", () => {
+  it("TABS_RUNTIME 在详情页渲染 <details> 折叠的 visibility 切换器", () => {
+    // 折叠容器 + select + 触发按钮
+    expect(TABS_RUNTIME).toContain("visibility-editor");
+    expect(TABS_RUNTIME).toContain("<details");
+    expect(TABS_RUNTIME).toContain("<summary");
+    expect(TABS_RUNTIME).toContain('name="visibility"');
+    // 切换按钮绑定到 CO_ENGRAM_ENGRAMS.updateVisibility
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_ENGRAMS.updateVisibility");
+  });
+
+  it("TABS_RUNTIME 引用 detail.visibility i18n keys", () => {
+    expect(TABS_RUNTIME).toContain("viewer.detail.visibility.changeBtn");
+    // option label 复用现有 viewer.engram.visibilityBadge.<v> 翻译
+    expect(TABS_RUNTIME).toContain("viewer.engram.visibilityBadge.");
+  });
+
+  it("updateVisibility handler 调 PATCH /api/engrams/:id + confirm 对话框", () => {
+    // handler 必须读 select 值 + window.confirm + PATCH
+    expect(TABS_RUNTIME).toMatch(/updateVisibility\s*\(/);
+    expect(TABS_RUNTIME).toContain("window.confirm");
+    expect(TABS_RUNTIME).toContain("/api/engrams/");
+    expect(TABS_RUNTIME).toContain("PATCH");
+  });
+
+  for (const key of [
+    "viewer.detail.visibility.changeBtn",
+    "viewer.detail.visibility.confirm",
+    "viewer.detail.visibility.changed",
+  ] as const) {
+    it(`zh.${key} 有翻译`, () => {
+      expect(zh[key], `zh.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`en.${key} 有翻译`, () => {
+      expect(en[key], `en.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`zh 与 en 的 ${key} 翻译不同(防复制粘贴漏改)`, () => {
+      expect(zh[key]).not.toBe(en[key]);
+    });
+  }
+});

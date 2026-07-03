@@ -400,6 +400,23 @@ window.CO_ENGRAM_ENGRAMS = {
       + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness))
       + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span>' + CO_ENGRAM.renderVisibilityBadge(d.visibility)
       + '</div>'
+      // Task 4:visibility 快捷切换器(折叠的 <details>,默认收起)
+      // - 4 个 option 复用 viewer.engram.visibilityBadge.<v> 的标签
+      // - 当前 visibility 默认选中
+      // - 切换按钮调 CO_ENGRAM_ENGRAMS.updateVisibility(id),内部走 PATCH /api/engrams/:id
+      + (function() {
+          var visKeys = ['public', 'team', 'private', 'restricted'];
+          var curVis = d.visibility || 'public';
+          var visOpts = visKeys.map(function(v) {
+            return '<option value="' + v + '"' + (curVis === v ? ' selected' : '') + '>'
+              + CO_ENGRAM.escapeHtml(T.t('viewer.engram.visibilityBadge.' + v))
+              + '</option>';
+          }).join('');
+          return '<details class="visibility-editor"><summary>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibility.changeBtn')) + '</summary>'
+            + '<div class="field"><select name="visibility">' + visOpts + '</select>'
+            + ' <button class="btn secondary mini" onclick="CO_ENGRAM_ENGRAMS.updateVisibility(\\'' + id + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibility.changeBtn')) + '</button>'
+            + '</div></details>';
+        })()
       + valueSection
       + ivSection
       + encSection;
@@ -490,6 +507,43 @@ window.CO_ENGRAM_ENGRAMS = {
         this.applyFilter();
       } catch {}
     } catch (e) { alert(T.t('viewer.common.saveFailed', { err: (e.message || e) })); }
+  },
+
+  // Task 4:visibility 快捷切换 handler(详情页 <details> 内的 select + 按钮触发)
+  // 与 edit form 的 save() 共用 PATCH /api/engrams/:id,但只透传 visibility 字段。
+  // server.ts 的 parseUpdateInput 已支持 visibility 透传 + updatedBy 自动注入为 "viewer"。
+  async updateVisibility(engramId) {
+    const T = CO_ENGRAM_T;
+    var d = CO_ENGRAM._currentEngram;
+    if (!d && engramId) {
+      try { d = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(engramId)); }
+      catch (e) { alert(CO_ENGRAM.escapeHtml(e.message || e)); return; }
+    }
+    if (!d) return;
+    // 找到详情页 <details class="visibility-editor"> 内的 <select name="visibility">
+    var editor = document.querySelector('.visibility-editor select[name="visibility"]');
+    var newVisibility = editor && editor.value ? editor.value : (d.visibility || 'public');
+    if (newVisibility === (d.visibility || 'public')) {
+      // 未变化,仅提示
+      alert(T.t('viewer.detail.visibility.changeBtn'));
+      return;
+    }
+    if (!window.confirm(T.t('viewer.detail.visibility.confirm'))) return;
+    try {
+      var updated = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(d.id), 'PATCH', { visibility: newVisibility });
+      CO_ENGRAM._currentEngram = updated;
+      alert(T.t('viewer.detail.visibility.changed'));
+      // 重新渲染当前详情页(徽章 + selector 都要刷新)
+      this._renderView(updated);
+      // 刷新列表缓存,确保 badge 同步
+      try {
+        var data = await CO_ENGRAM.apiGet('/api/engrams');
+        CO_ENGRAM._engramsCache = data.results || [];
+        this.applyFilter();
+      } catch {}
+    } catch (e) {
+      alert(CO_ENGRAM.escapeHtml(T.t('viewer.common.saveFailed', { err: (e.message || e) })));
+    }
   },
 
   async confirmDelete() {
