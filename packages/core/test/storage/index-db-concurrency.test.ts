@@ -28,12 +28,17 @@ afterEach(() => {
 /**
  * 生成临时 worker 脚本:打开 dbPath,循环 SELECT count(*) N 次。
  * 用 ESM 直接 import node:sqlite,绕过 vitest/Vite resolver。
+ *
+ * 注意:
+ * - 不在 worker 里执行 `PRAGMA journal_mode = WAL`。该 PRAGMA 是写操作
+ *   (会修改 db 文件头),3 个 reader 同时执行会撞 SQLITE_BUSY。父进程
+ *   IndexDb.open() 已统一设过 WAL,reader 直接复用即可。
+ * - busy_timeout 是 connection-local,reader 设置安全。
  */
 function writeWorkerScript(scriptPath: string, targetDbPath: string): void {
   const code = `
 import { DatabaseSync } from "node:sqlite";
 const db = new DatabaseSync(${JSON.stringify(targetDbPath)});
-db.exec("PRAGMA journal_mode = WAL");
 db.exec("PRAGMA busy_timeout = 5000");
 for (let i = 0; i < 100; i++) {
   try {
@@ -62,9 +67,11 @@ describe("IndexDb WAL 并发", () => {
     writeWorkerScript(workerFile, dbPath);
 
     // 启动 3 个 reader 子进程并发
+    // stdio: inherit 让 worker 的 stderr/console.error 直接透传到测试输出,
+    // 便于诊断 worker 启动/SQL 失败原因(否则 pipe 但无人读会被 silent 丢弃)。
     const readers: ChildProcess[] = [];
     for (let i = 0; i < 3; i++) {
-      readers.push(fork(workerFile, [], { stdio: "pipe" }));
+      readers.push(fork(workerFile, [], { stdio: "inherit" }));
     }
 
     // 父进程并发写 50 条(WAL 单 writer,但与 reader 不互斥)
