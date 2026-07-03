@@ -17,6 +17,8 @@ import {
   findBestMatch,
   autoMemoryEntityId,
   isAutoMemoryProposal,
+  externalMarkdownEntityId,
+  isExternalMarkdownProposal,
   type Embedder,
   type TopicCluster,
 } from "../src/observability/proposal-engine.js";
@@ -749,6 +751,295 @@ describe("ProposalEngine.proposeAutoMemory", () => {
       kind: "observation",
     });
     expect(action).toBe("no-change");
+  });
+});
+
+// ============================================================
+// externalMarkdownEntityId / isExternalMarkdownProposal
+// ============================================================
+
+describe("externalMarkdownEntityId", () => {
+  it("生成 ext:<16-hex> 形式的 entityId", () => {
+    const id = externalMarkdownEntityId("foo/bar.md");
+    expect(id).toMatch(/^ext:[0-9a-f]{16}$/);
+  });
+
+  it("相同 relPath → 相同 entityId(幂等去重基础)", () => {
+    expect(externalMarkdownEntityId("a/b.md")).toBe(
+      externalMarkdownEntityId("a/b.md"),
+    );
+  });
+
+  it("不同 relPath → 不同 entityId", () => {
+    expect(externalMarkdownEntityId("a/b.md")).not.toBe(
+      externalMarkdownEntityId("a/c.md"),
+    );
+  });
+});
+
+describe("isExternalMarkdownProposal", () => {
+  it("ext: 前缀 → true", () => {
+    expect(isExternalMarkdownProposal("ext:abcdef0123456789")).toBe(true);
+  });
+
+  it("am: 前缀 → false(命名空间隔离)", () => {
+    expect(isExternalMarkdownProposal("am:foo")).toBe(false);
+  });
+
+  it("对话聚类 entityId → false", () => {
+    expect(isExternalMarkdownProposal("c256-a1b2c3d4e5f6a1b2")).toBe(false);
+  });
+});
+
+// ============================================================
+// ProposalEngine.proposeExternalMarkdown
+// ============================================================
+
+describe("ProposalEngine.proposeExternalMarkdown", () => {
+  it("首次 propose → 创建 pending proposal,带 source/sourcePath/payload", () => {
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "notes/imported.md",
+      title: "导入笔记",
+      content: "正文内容",
+      domainTags: ["imported"],
+      kind: "observation",
+      createdBy: "external",
+    });
+    expect(action).toBe("proposed");
+
+    const all = engine.listAll();
+    expect(all).toHaveLength(1);
+    const p = all[0]!;
+    expect(p.entityId).toBe(externalMarkdownEntityId("notes/imported.md"));
+    expect(p.source).toBe("external-markdown");
+    expect(p.sourcePath).toBe("notes/imported.md");
+    expect(p.status).toBe("pending");
+    expect(p.payload?.title).toBe("导入笔记");
+    expect(p.payload?.sourcePath).toBe("notes/imported.md");
+  });
+
+  it("相同 sourcePath + 相同 payload → no-change", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "x.md",
+      title: "t",
+      content: "c",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "x.md",
+      title: "t",
+      content: "c",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()).toHaveLength(1);
+  });
+
+  it("相同 sourcePath + payload 变化 → updated", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "y.md",
+      title: "v1",
+      content: "v1 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "y.md",
+      title: "v2",
+      content: "v2 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("updated");
+    expect(engine.listAll()).toHaveLength(1);
+    expect(engine.listAll()[0]!.payload?.content).toBe("v2 body");
+  });
+
+  it("dismiss 后 payload 变化 → no-change(永久驳回)", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "dismissed.md",
+      title: "v1",
+      content: "v1 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+    engine.dismiss(entityId, "not relevant");
+    expect(engine.listAll()[0]!.status).toBe("dismissed");
+
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "dismissed.md",
+      title: "v2",
+      content: "v2 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()[0]!.status).toBe("dismissed");
+    expect(engine.listPending()).toHaveLength(0);
+  });
+
+  it("不同 sourcePath → 独立 proposal(entityId 不同)", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "a.md",
+      title: "a",
+      content: "body a",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    engine.proposeExternalMarkdown({
+      sourcePath: "b.md",
+      title: "b",
+      content: "body b",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const all = engine.listAll();
+    expect(all).toHaveLength(2);
+    expect(all.map((p) => p.entityId).sort()).toEqual(
+      [externalMarkdownEntityId("a.md"), externalMarkdownEntityId("b.md")].sort(),
+    );
+  });
+
+  it("与 proposeAutoMemory 命名空间隔离(am: 与 ext: 永不冲突)", () => {
+    engine.proposeAutoMemory({
+      slug: "shared-key",
+      title: "auto",
+      content: "auto body",
+      domainTags: ["tag"],
+      kind: "observation",
+    });
+    engine.proposeExternalMarkdown({
+      sourcePath: "shared-key.md",
+      title: "external",
+      content: "external body",
+      domainTags: ["tag"],
+      kind: "observation",
+    });
+    const all = engine.listAll();
+    expect(all).toHaveLength(2);
+    expect(all.some((p) => p.entityId.startsWith("am:"))).toBe(true);
+    expect(all.some((p) => p.entityId.startsWith("ext:"))).toBe(true);
+  });
+
+  it("accept 后再 propose → no-change(已 accepted)", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "accepted.md",
+      title: "原标题",
+      content: "原 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+    engine.accept(entityId, {});
+    expect(engine.listAll()[0]!.status).toBe("accepted");
+
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "accepted.md",
+      title: "新标题",
+      content: "新 body",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()[0]!.status).toBe("accepted");
+    expect(engine.listAll()[0]!.payload?.title).toBe("原标题");
+  });
+});
+
+// ============================================================
+// ProposalEngine.createExternalMarkdownHook
+// ============================================================
+
+describe("ProposalEngine.createExternalMarkdownHook", () => {
+  it("parsed=null → noop,不创建 proposal(裸 .md 不进入提案流程)", () => {
+    const hook = engine.createExternalMarkdownHook();
+    hook({
+      absPath: "/tmp/foo.md",
+      relPath: "foo.md",
+      raw: "无 frontmatter 的裸 markdown",
+      parsed: null,
+    });
+    expect(engine.listAll()).toHaveLength(0);
+  });
+
+  it("frontmatter 缺 title 或 kind → noop(无法构成最小 engram)", () => {
+    const hook = engine.createExternalMarkdownHook();
+    hook({
+      absPath: "/tmp/foo.md",
+      relPath: "foo.md",
+      raw: "...",
+      parsed: {
+        frontmatter: {
+          title: "有 title",
+          // 缺 kind
+        },
+      },
+    });
+    expect(engine.listAll()).toHaveLength(0);
+  });
+
+  it("合法 frontmatter → 创建 pending proposal,sourcePath 来自 relPath", () => {
+    const hook = engine.createExternalMarkdownHook();
+    hook({
+      absPath: "/tmp/sub/foo.md",
+      relPath: "sub/foo.md",
+      raw: "...",
+      parsed: {
+        frontmatter: {
+          title: "外部文件",
+          kind: "observation",
+          domainTags: ["external"],
+          summary: "外部摘要",
+          createdBy: "external-author",
+          importance: 0.6,
+        },
+      },
+    });
+    const all = engine.listAll();
+    expect(all).toHaveLength(1);
+    const p = all[0]!;
+    expect(p.sourcePath).toBe("sub/foo.md");
+    expect(p.payload?.title).toBe("外部文件");
+    expect(p.payload?.kind).toBe("observation");
+    expect(p.payload?.domainTags).toEqual(["external"]);
+    expect(p.payload?.summary).toBe("外部摘要");
+    expect(p.payload?.createdBy).toBe("external-author");
+    expect(p.payload?.importance).toBe(0.6);
+  });
+
+  it("domainTags 缺失 → 默认 ['imported']", () => {
+    const hook = engine.createExternalMarkdownHook();
+    hook({
+      absPath: "/tmp/foo.md",
+      relPath: "foo.md",
+      raw: "...",
+      parsed: {
+        frontmatter: {
+          title: "无 tags 的文件",
+          kind: "observation",
+        },
+      },
+    });
+    expect(engine.listAll()[0]!.payload?.domainTags).toEqual(["imported"]);
+  });
+
+  it("重复调用同一文件 → 幂等 no-change(proposal 已 pending)", () => {
+    const hook = engine.createExternalMarkdownHook();
+    const params = {
+      absPath: "/tmp/x.md",
+      relPath: "x.md",
+      raw: "...",
+      parsed: {
+        frontmatter: { title: "x", kind: "observation" },
+      },
+    };
+    hook(params);
+    hook(params);
+    hook(params);
+    expect(engine.listAll()).toHaveLength(1);
   });
 });
 

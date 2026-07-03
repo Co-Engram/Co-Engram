@@ -93,6 +93,7 @@ import {
   CO_ENGRAM_CACHE_DIR,
   ENGRAM_INDEX_FILENAME,
   buildIndexEntryFromFrontmatter,
+  collectMarkdownFiles,
   createEmptyEngramIndex,
   engramIndexPath,
   findEngramIdByPath,
@@ -123,6 +124,31 @@ export interface RepositoryConfig {
    */
   readonly language?: Language;
 }
+
+/**
+ * 外部 .md 检测钩子参数:watcher 发现 dataRoot 下未追踪的 .md 文件时构造。
+ *
+ * - `absPath`:文件绝对路径,host 可读取内容做进一步处理
+ * - `relPath`:相对 rootPath 的路径(用于提案展示与去重命名空间)
+ * - `raw`:文件原始内容(避免 hook 反复读盘)
+ * - `parsed`:尝试解析 frontmatter 的结果;`null` 表示文件不是合法 engram
+ *   格式(无 frontmatter 或解析失败)—— host 通常应当跳过此类文件
+ */
+export interface ExternalMarkdownHookParams {
+  readonly absPath: string;
+  readonly relPath: string;
+  readonly raw: string;
+  readonly parsed: EngramFile | null;
+}
+
+/**
+ * 外部 .md 检测钩子签名。
+ *
+ * 由 host 适配层(claude-code-mcp / openclaw-plugin)实现,绑定到
+ * ProposalEngine.proposeExternalMarkdown,把"未授权来源"的 .md 转成
+ * 待审批提案而非直接落库。
+ */
+export type ExternalMarkdownHook = (params: ExternalMarkdownHookParams) => void;
 
 const DEFAULT_IMPORTANCE = 0.5;
 const DEFAULT_CONFIDENCE_BY_SOURCE: Record<EngramSourceType, number> = {
@@ -213,16 +239,31 @@ export class EngramRepository {
   /**
    * 递归 fs.watch 句柄,监听 dataRoot 下所有 .md 文件变化(可选)。
    *
-   * 触发场景(关键):git pull / git checkout / 手动编辑 / rsync 等任何外部
-   * 写入 .md 的途径,startWatching() 单独监听 index.json 看不到这些变化。
-   * dataWatcher 触发后 debounce 调用 rebuildIndex,把磁盘 .md 真相重新
-   * 投影到 engram-index.json,避免"git pull 拉到新文件但 engram_search
-   * 找不到"的 fail-silent(架构缺陷 index-no-truth 的具体表现)。
+   * 触发场景(关键):git pull / git checkout / 手动编辑 / rsync / 用户拷贝文件
+   * 等任何外部写入 .md 的途径,startWatching() 单独监听 index.json 看不到这些变化。
+   *
+   * 信任边界设计(关键安全语义):
+   *   - git pull 来的 .md → 由 post-merge hook 调 runDoctor 自动接受(团队可信)
+   *   - 其他来源的 .md(用户拷贝、IDE 写入等)→ **不**自动接受,通过
+   *     externalMarkdownHook 通知 host 适配层形成 proposal,等用户审批
+   *   - watcher 自身只做"扫描 + diff + 通知 hook",不写 index.json
+   *   - 安全动机:防止恶意/误植的 .md 通过文件系统投毒直接进入团队记忆库
    */
   private dataWatcher: FSWatcher | undefined;
 
-  /** dataWatcher debounce 定时器。git pull 一次性触发大量事件,合并为一次重建。 */
+  /** dataWatcher debounce 定时器。git pull 一次性触发大量事件,合并为一次扫描。 */
   private dataRebuildTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * 外部 .md 检测钩子(由 host 适配层设置)。
+   *
+   * watcher 扫描发现"dataRoot 下存在但 index 中没有"的 .md 文件时调用。
+   * host 适配层通常把回调绑到 ProposalEngine.proposeExternalMarkdown,
+   * 让用户审批后再决定是否纳入团队记忆。
+   *
+   * 未设置时 → watcher 发现新 .md 仅记录 orphan,不自动接受(noop)。
+   */
+  private externalMarkdownHook: ExternalMarkdownHook | undefined;
 
   private readonly language: Language;
 
@@ -358,14 +399,16 @@ export class EngramRepository {
    *
    * 启动后:
    *   - index.json watcher:外部进程修改 index(创建/更新/删除 engram)→ 失效 cache
-   *   - dataRoot .md watcher:任何途径(git pull / checkout / 手动编辑)写入 .md
-   *     → debounce 后调 rebuildIndex,把磁盘真相重新投影到 index.json
+   *   - dataRoot .md watcher:任何途径(git pull / checkout / 手动编辑 / 用户拷贝)
+   *     写入 .md → debounce 后扫描,diff 出"未在 index 中的 .md"并通过
+   *     externalMarkdownHook 通知 host 适配层。**watcher 自身不写 index**。
+   *
+   * 信任边界(安全关键):
+   *   - git pull 来源由 post-merge hook 调 runDoctor 接受,不依赖 watcher
+   *   - 其他来源由 host 通过 hook 决策(典型:形成 proposal 等待用户审批)
+   *   - 防止"用户拷贝恶意 .md → 直接进团队记忆库"的攻击面
    *
    * 幂等:多次调用安全,只创建一个 watcher。
-   *
-   * 适用场景:多个 host adapter(MCP server / OpenClaw plugin)共享同一
-   * dataRoot 时,确保各进程的缓存相互一致;同时覆盖 git pull 后索引漏更新
-   * 的 fail-silent 场景。
    *
    * 不需要显式停止 — 进程退出时 OS 自动回收 fd。stopWatching() 仅用于
    * 测试 / 显式资源管理场景。
@@ -380,16 +423,39 @@ export class EngramRepository {
       this.indexWatcher = watch(indexPath, { persistent: false }, () => {
         this.invalidateIndexCache();
       });
-      // watcher 出错(NFS / 文件被删 / 平台不支持)→ 静默降级到 mtime 兜底
       this.indexWatcher.on("error", () => {
         this.indexWatcher = undefined;
       });
     } catch {
-      // 平台不支持 fs.watch 或文件尚不存在 → 降级到 mtime 兜底(getIndex 中已实现)。
-      // persistIndex 写盘后会 lazy 重试 startWatching,覆盖首次空 dataRoot 场景。
       this.indexWatcher = undefined;
     }
     this.startDataRootWatcher();
+    // 启动即扫一次:覆盖"co-engram 启动前 dataRoot 已有未追踪 .md"的场景
+    // (例如:用户先前拷贝文件但 co-engram 未运行 / 上次会话崩溃留下孤儿)。
+    // fs.watch 只监听变化,无法发现现有状态,这里补一次扫描。
+    // 已设置 hook → 形成 proposal;未设置 → noop。
+    if (this.externalMarkdownHook) {
+      try {
+        this.scanForExternalMarkdown();
+      } catch {
+        // 启动扫描失败不阻塞 watcher,后续 .md 变化仍可被捕获
+      }
+    }
+  }
+
+  /**
+   * 注册外部 .md 检测钩子。host 适配层应在创建 repository + ProposalEngine
+   * 之后、调用 startWatching 之前设置钩子,以确保 watcher 触发时回调就绪。
+   *
+   * @returns 取消注册函数(测试隔离 / 资源释放用)
+   */
+  setExternalMarkdownHook(hook: ExternalMarkdownHook): () => void {
+    this.externalMarkdownHook = hook;
+    return () => {
+      if (this.externalMarkdownHook === hook) {
+        this.externalMarkdownHook = undefined;
+      }
+    };
   }
 
   /**
@@ -397,10 +463,10 @@ export class EngramRepository {
    *
    * Node 22+ 在 Linux/macOS/Windows 都支持 `recursive: true`(Linux 通过 inotify)。
    * 不支持的平台(NFS / 老 Node)→ catch 后 noop,startWatching 的 index.json
-   * watcher + getIndex 的 mtime 兜底仍然有效,只是 .md 变化需要等下次主动 getIndex。
+   * watcher + getIndex 的 mtime 兜底仍然有效。
    *
-   * 触发后通过 scheduleDataRebuild debounce 合并,避免 git pull 一次性大量事件
-   * 触发多次 rebuildIndex。
+   * 触发后 debounce 调用 scanForExternalMarkdown(只读 + hook 通知),
+   * **不**调用 rebuildIndex(避免 untrusted .md 直接落库)。
    */
   private startDataRootWatcher(): void {
     if (this.dataWatcher) return;
@@ -409,16 +475,11 @@ export class EngramRepository {
         this.config.rootPath,
         { recursive: true, persistent: false },
         (_eventType, filename) => {
-          if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
-            process.stderr.write(
-              `[co-engram-watcher] event=${_eventType} filename=${filename ?? "null"}\n`,
-            );
-          }
           // 只关心 .md 变化(.yaml / .json / .co-engram/ 内部状态由 index.json
           // watcher 或 persistIndex 路径覆盖)。filename 跨平台可能为 null,
-          // 不可靠时宁可多触发一次 rebuildIndex 也不要漏事件。
+          // 不可靠时宁可多触发一次扫描也不要漏事件。
           if (typeof filename === "string" && !filename.endsWith(".md")) return;
-          this.scheduleDataRebuild();
+          this.scheduleDataScan();
         },
       );
       this.dataWatcher.on("error", () => {
@@ -431,43 +492,82 @@ export class EngramRepository {
   }
 
   /**
-   * Debounce 调用 rebuildIndex,合并短时间内的多次 .md 变化事件。
+   * Debounce 扫描,合并短时间内的多次 .md 变化事件。
    *
-   * git pull / rsync 等批量操作会一次性产生几十~几百个事件,逐个触发
-   * rebuildIndex(全量扫盘)会卡死。1000ms debounce 把它们合并成一次重建。
+   * git pull / rsync 等批量操作会一次性产生几十~几百个事件,逐个扫描会卡死。
+   * 2000ms debounce 既合并事件,也给 post-merge hook(post-merge 在 git pull
+   * 完成后同步执行)足够时间完成可信路径的 index 写入,避免 watcher 与
+   * post-merge 同时处理同一批文件造成竞争。
    */
-  private scheduleDataRebuild(): void {
+  private scheduleDataScan(): void {
     if (this.dataRebuildTimer) clearTimeout(this.dataRebuildTimer);
     this.dataRebuildTimer = setTimeout(() => {
       this.dataRebuildTimer = undefined;
       try {
-        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
-          process.stderr.write(`[co-engram-watcher] rebuildIndex triggered\n`);
-        }
-        // rebuildIndex 全量扫盘重读所有 .md,更新 engram-index.json。
-        // 之后 persistIndex 写 index.json → 触发 indexWatcher → invalidateIndexCache
-        // → searchOrchestrator 重建 ftsIndex,完成全链路同步。
-        const result = this.rebuildIndex();
-        this.invalidateIndexCache();
-        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
-          const count = (result as unknown as { entries?: unknown }).entries
-            ? Object.keys(
-                (result as unknown as { entries: object }).entries,
-              ).length
-            : "?";
-          process.stderr.write(
-            `[co-engram-watcher] rebuildIndex done, entries=${count}\n`,
-          );
-        }
-      } catch (e) {
-        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
-          process.stderr.write(
-            `[co-engram-watcher] rebuildIndex failed: ${e instanceof Error ? e.message : String(e)}\n`,
-          );
-        }
-        // 重建失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
+        this.scanForExternalMarkdown();
+      } catch {
+        // 扫描失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
       }
-    }, 1000);
+    }, 2000);
+  }
+
+  /**
+   * 扫描 dataRoot 下所有 .md,diff 出"未在 index 中的 .md",逐个调用
+   * externalMarkdownHook(若设置)。
+   *
+   * 关键不变量:
+   *   - **不**写 engram-index.json(防止 untrusted .md 直接进 index)
+   *   - **不**调用 getIndex() — getIndex 在 index.json 缺失时会触发 rebuildIndex
+   *     把所有合法 .md 灌入,这会让"未追踪"判定全部失效。这里直接读
+   *     index.json,不存在则视为空集合,所有 .md 都视为未追踪。
+   *   - 已在 index.json 中的 .md → noop(post-merge 或 engram_create 已处理)
+   *   - 未设置 hook → noop(等价于"未启用外部提案",安全默认)
+   *   - hook 自身负责去重(典型:ProposalEngine.proposeExternalMarkdown
+   *     检查 proposal 状态:pending/accepted/dismissed 都返回 no-change)
+   *
+   * 性能:全量扫盘读所有 .md,大仓库(>10k 文件)可能耗时数百毫秒。
+   * 可接受因为:(1) 2s debounce 已经限频;(2) post-merge hook 通常先完成,
+   * 大部分 .md 已在 index,scan 仅对增量做 hook 调用。
+   */
+  private scanForExternalMarkdown(): void {
+    if (!this.externalMarkdownHook) return;
+    // 直接读 index.json(getIndex 会触发 rebuild,污染"未追踪"判定)
+    const knownPaths = new Set<string>();
+    try {
+      const raw = readEngramIndex(this.config.rootPath);
+      for (const entry of raw.entries.values()) {
+        knownPaths.add(entry.path);
+      }
+    } catch {
+      // index.json 不存在或损坏 → 视为空集合,所有 .md 都未追踪
+    }
+    const root = this.config.rootPath;
+    const mdFiles = collectMarkdownFiles(root);
+    for (const absPath of mdFiles) {
+      const relPath = relative(root, absPath).split(sep).join("/");
+      if (knownPaths.has(relPath)) continue;
+      let raw: string;
+      try {
+        raw = readFileSync(absPath, "utf8");
+      } catch {
+        continue;
+      }
+      // 仅当文件是合法 engram 格式时才通知 hook;裸 .md(README、笔记等)
+      // 不应进入提案流程。parseEngramFile 在格式不合法时抛错,catch 后跳过。
+      let parsed: EngramFile | null = null;
+      if (isEngramFile(raw)) {
+        try {
+          parsed = parseEngramFile(raw);
+        } catch {
+          parsed = null;
+        }
+      }
+      try {
+        this.externalMarkdownHook({ absPath, relPath, raw, parsed });
+      } catch {
+        // hook 内部异常不影响其他文件的通知
+      }
+    }
   }
 
   /** 停止 watcher(主要用于测试隔离) */

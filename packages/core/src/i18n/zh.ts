@@ -252,19 +252,20 @@ export const zh = {
 - 没有待处理候选(系统提示会显示 0)
 - 刚刚显式搜索过(用 engram_search)
 
-返回:候选列表。每条带 \`source\`("conversation" = 对话聚类 / "auto-memory" = Claude Code auto-memory 文件);auto-memory 来源还带 \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\`(accept 时落库的完整 payload),直接 accept 即可。`,
+返回:候选列表。每条带 \`source\`("conversation" = 对话聚类 / "auto-memory" = Claude Code auto-memory 文件 / "external-markdown" = dataRoot 下检测到的未追踪 .md);auto-memory 与 external-markdown 来源还带 \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\`(accept 时落库的完整 payload),直接 accept 即可。`,
   "tool.engram_accept_proposal.agent": `接受待处理的候选(转成真正的 engram)。
 
 何时调用:
 - 用户确认候选有效("对,保存那个")
 - 你审核后认为候选捕获了真实偏好/决策
 - auto-memory 来源:候选已自带完整 payload,直接传 \`entityId\` 即可
+- external-markdown 来源:用户把 .md 拷贝/写入 dataRoot,co-engram 从 frontmatter 解析出 payload;审核 title/domainTags/kind 合理后 accept
 
 何时不调用:
 - 候选错误或质量低(用 engram_dismiss_proposal)
 - 还没审核
 
-注意:auto-memory 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源(payload 为空)仍需显式传。
+注意:auto-memory 与 external-markdown 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源(payload 为空)仍需显式传。
 
 返回:创建的 engram ID + 候选标记为已接受。`,
   "tool.engram_dismiss_proposal.agent": `驳回待处理的候选(拒绝捕获)。
@@ -1455,7 +1456,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tabGraph":
     "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点。打开 engram 详情时图谱会高亮其邻居。",
   "viewer.help.tabProposals":
-    "<strong>记忆提案</strong>—候选记忆审批队列。系统从对话中提取候选,由人工/LLM 采纳(engram_accept_proposal)或忽略(engram_dismiss_proposal)。",
+    "<strong>记忆提案</strong>—候选记忆审批队列。来源:对话聚类(同一主题被提及≥3 次)、Claude Code auto-memory 文件、dataRoot 下检测到的未追踪 .md(例如用户拷贝进来的文件)。由人工/LLM 采纳(engram_accept_proposal)或忽略(engram_dismiss_proposal)。",
   "viewer.help.tabAudit":
     "<strong>审计</strong>—操作时间线,记录 create/update/reinforce/report_failure 等所有状态变更,便于追溯\"谁在何时改了什么\"。",
   "viewer.help.tabTrash":

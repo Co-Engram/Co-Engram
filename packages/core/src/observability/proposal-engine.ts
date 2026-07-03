@@ -61,17 +61,20 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
-/** Proposal 来源:对话流聚类(auto)还是 Claude Code auto-memory 文件 */
-export type ProposalSource = "conversation" | "auto-memory";
+/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 */
+export type ProposalSource = "conversation" | "auto-memory" | "external-markdown";
 
 /**
- * 预填的 engram 字段(auto-memory 来源专用)
+ * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
  *
  * 对话流聚类的 proposal 不携带 payload —— 仅有 sampleQuotes/centroidExcerpt
  * 片段,LLM 在 accept 时需自行具象化 title/content。
  *
- * auto-memory 来源的 proposal 携带完整 payload —— 文件本身已是完整内容,
- * accept 时可直接用 payload 创建 engram,LLM 无需重复填表。
+ * auto-memory / external-markdown 来源的 proposal 携带完整 payload —— 文件
+ * 本身已是完整内容,accept 时可直接用 payload 创建 engram,LLM 无需重复填表。
+ *
+ * external-markdown 来源额外携带 `sourcePath`(原始 .md 在 dataRoot 中的相对
+ * 路径,用于 accept 时移动/重写文件)。
  */
 export interface ProposalPayload {
   readonly title: string;
@@ -86,11 +89,13 @@ export interface ProposalPayload {
   readonly visibility?: EngramCreateInput["visibility"];
   readonly decayHalfLifeDays?: number | null;
   readonly encodingContext?: string;
+  /** external-markdown 专用:文件在 dataRoot 内的相对路径 */
+  readonly sourcePath?: string;
 }
 
 /** 候选提案 */
 export interface Proposal {
-  /** 关联的 cluster id 或 `am:<slug>`(auto-memory) */
+  /** 关联的 cluster id / `am:<slug>`(auto-memory) / `ext:<relpath-hash>`(external-markdown) */
   readonly entityId: string;
   /** 出现次数(snapshot) */
   readonly occurrences: number;
@@ -118,16 +123,21 @@ export interface Proposal {
   readonly necessityRule?: string;
   /** LLM 建议的标题(可作审批草稿) */
   readonly suggestedTitle?: string;
-  /** 来源标识:对话流聚类(默认,向前兼容)还是 auto-memory 文件 */
+  /** 来源标识:对话流聚类(默认,向前兼容)/ auto-memory 文件 / 外部 .md 检测 */
   readonly source?: ProposalSource;
   /** auto-memory 来源时的可读 slug(用于 list/audit 展示) */
   readonly slug?: string;
-  /** 预填的 engram 字段(auto-memory 来源专用;conversation 来源恒为 undefined) */
+  /** external-markdown 来源时的相对路径(用于 list/audit 展示) */
+  readonly sourcePath?: string;
+  /** 预填的 engram 字段(auto-memory / external-markdown 来源专用;conversation 来源恒为 undefined) */
   readonly payload?: ProposalPayload;
 }
 
 /** auto-memory proposal 的 entityId 前缀(命名空间隔离,永不与对话聚类 `c<dim>-<hash>` 冲突) */
 export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
+
+/** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
+export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
 /** 由 slug 构造 auto-memory proposal 的 entityId */
 export function autoMemoryEntityId(slug: string): string {
@@ -137,6 +147,26 @@ export function autoMemoryEntityId(slug: string): string {
 /** 判断 entityId 是否来自 auto-memory */
 export function isAutoMemoryProposal(entityId: string): boolean {
   return entityId.startsWith(AUTO_MEMORY_PROPOSAL_PREFIX);
+}
+
+/**
+ * 由 dataRoot 内相对路径构造 external-markdown proposal 的 entityId。
+ *
+ * 使用短 hash(SHA-256 前 16 字符)而非原路径,因为路径可能含 `/` 等不友好字符,
+ * 且 entityId 在 audit log / proposals.json 中作为 key 频繁出现,短 hash 更紧凑。
+ * 同一文件反复触发 watcher → 同一 entityId → proposeExternalMarkdown 幂等去重。
+ */
+export function externalMarkdownEntityId(relativePath: string): string {
+  const hash = createHash("sha256")
+    .update(relativePath)
+    .digest("hex")
+    .slice(0, 16);
+  return `${EXTERNAL_MARKDOWN_PROPOSAL_PREFIX}${hash}`;
+}
+
+/** 判断 entityId 是否来自 external-markdown */
+export function isExternalMarkdownProposal(entityId: string): boolean {
+  return entityId.startsWith(EXTERNAL_MARKDOWN_PROPOSAL_PREFIX);
 }
 
 /** Proposal Engine 配置 */
@@ -527,11 +557,197 @@ export class ProposalEngine {
   }
 
   /**
+   * 外部 .md 检测入口:由 EngramRepository.scanForExternalMarkdown 通过
+   * host 适配层的钩子调用,把 dataRoot 下未追踪的 .md 转成待审批 proposal。
+   *
+   * 与 `proposeAutoMemory` 的差异:
+   *   - entityId 用 `ext:<relpath-hash>` 命名空间,与 am: / 对话聚类永不冲突
+   *   - 必须携带 sourcePath(accept 时用它定位原始 .md 做移动/重命名)
+   *   - 来源标识为 `external-markdown`(用于 viewer / audit 区分)
+   *
+   * 信任语义(关键):
+   *   - auto-memory:Claude Code 写的 .claude/projects/.../memory/ 文件,
+   *     半信任(已是 Claude 的输出),accept 时复制内容到 dataRoot
+   *   - external-markdown:用户拷贝/IDE 写入/rsync 等无明确来源的 .md,
+   *     **不信任**,accept 时由 host 决定如何处理(典型:移动到 canonical 路径)
+   *
+   * 幂等行为(与 proposeAutoMemory 一致):
+   *   - 已 accepted → 跳过(避免重开已审批项)
+   *   - 已 pending 且 payload fingerprint 相同 → 跳过(no-change)
+   *   - 已 pending 且 payload 变化 → upsert
+   *   - 已 dismissed → 跳过(永久驳回)
+   *   - 不存在 → 创建 pending proposal
+   *
+   * @returns 写入动作(用于上层日志统计)
+   */
+  proposeExternalMarkdown(input: {
+    readonly sourcePath: string;
+    readonly title: string;
+    readonly content: string;
+    readonly summary?: string;
+    readonly domainTags: readonly string[];
+    readonly contextTags?: readonly string[];
+    readonly kind: EngramCreateInput["kind"];
+    readonly createdBy?: string;
+    readonly sourceType?: EngramCreateInput["sourceType"];
+    readonly importance?: number;
+    readonly visibility?: EngramCreateInput["visibility"];
+    readonly decayHalfLifeDays?: number | null;
+    readonly encodingContext?: string;
+    readonly at?: string;
+  }): "proposed" | "updated" | "no-change" {
+    const entityId = externalMarkdownEntityId(input.sourcePath);
+    const now = input.at ?? new Date().toISOString();
+
+    const payload: ProposalPayload = {
+      title: input.title,
+      content: input.content,
+      ...(input.summary !== undefined ? { summary: input.summary } : {}),
+      domainTags: input.domainTags,
+      ...(input.contextTags !== undefined ? { contextTags: input.contextTags } : {}),
+      kind: input.kind,
+      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
+      ...(input.importance !== undefined ? { importance: input.importance } : {}),
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      ...(input.decayHalfLifeDays !== undefined
+        ? { decayHalfLifeDays: input.decayHalfLifeDays }
+        : {}),
+      ...(input.encodingContext !== undefined
+        ? { encodingContext: input.encodingContext }
+        : {}),
+      sourcePath: input.sourcePath,
+    };
+
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") {
+      return "no-change";
+    }
+
+    if (existing?.status === "dismissed") {
+      // 永久驳回(或仍在 dismissDays 冷却期):源文件即使变化也不再重开
+      return "no-change";
+    }
+
+    if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
+      return "no-change";
+    }
+
+    if (existing) {
+      const next: Proposal = {
+        ...existing,
+        sampleQuotes: [input.sourcePath],
+        centroidExcerpt: input.sourcePath,
+        lastSeenAt: now,
+        status: "pending",
+        dismissedUntil: undefined,
+        dismissReason: undefined,
+        payload,
+      };
+      this.writeProposals(
+        proposals.map((p) => (p.entityId === entityId ? next : p)),
+      );
+      return "updated";
+    }
+
+    const proposal: Proposal = {
+      entityId,
+      occurrences: 1,
+      sampleQuotes: [input.sourcePath],
+      centroidExcerpt: input.sourcePath,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      createdAt: now,
+      status: "pending",
+      source: "external-markdown",
+      sourcePath: input.sourcePath,
+      payload,
+    };
+    this.writeProposals([...proposals, proposal]);
+    this.auditLog.append({
+      actor: "system",
+      action: "propose",
+      metadata: { entityId, source: "external-markdown", sourcePath: input.sourcePath },
+    });
+    return "proposed";
+  }
+
+  /**
+   * 把"watcher 发现的外部 .md"转成 proposeExternalMarkdown 调用的工厂。
+   *
+   * 供 host 适配层(claude-code-mcp / openclaw-plugin)使用,确保两宿主用
+   * 同一份字段映射逻辑(避免漂移)。
+   *
+   * 行为:
+   *   - parsed 为 null → noop(裸 .md,不进入提案流程)
+   *   - frontmatter 缺 title 或 kind → noop(无法构成最小 engram)
+   *   - domainTags 缺失 → 默认 `["imported"]`,accept 时用户可调整
+   *   - createdBy 缺失 → 不传(由 engram_create 走 defaultCreatedBy 兜底)
+   *
+   * @returns 符合 EngramRepository.setExternalMarkdownHook 签名的回调
+   */
+  createExternalMarkdownHook(): (params: {
+    readonly absPath: string;
+    readonly relPath: string;
+    readonly raw: string;
+    readonly parsed: { readonly frontmatter: { readonly [key: string]: unknown } } | null;
+  }) => void {
+    return (params) => {
+      const { parsed, relPath } = params;
+      if (!parsed) return;
+      const fm = parsed.frontmatter as {
+        title?: unknown;
+        kind?: unknown;
+        domainTags?: unknown;
+        summary?: unknown;
+        createdBy?: unknown;
+        sourceType?: unknown;
+        importance?: unknown;
+        visibility?: unknown;
+        decayHalfLifeDays?: unknown;
+        encodingContext?: unknown;
+        contextTags?: unknown;
+        content?: unknown;
+      };
+      if (typeof fm.title !== "string" || typeof fm.kind !== "string") return;
+      const content =
+        typeof fm.content === "string" ? fm.content : params.raw;
+      this.proposeExternalMarkdown({
+        sourcePath: relPath,
+        title: fm.title,
+        content,
+        ...(typeof fm.summary === "string" ? { summary: fm.summary } : {}),
+        domainTags:
+          Array.isArray(fm.domainTags) && fm.domainTags.every((t) => typeof t === "string")
+            ? (fm.domainTags as readonly string[])
+            : ["imported"],
+        ...(typeof fm.createdBy === "string" ? { createdBy: fm.createdBy } : {}),
+        ...(typeof fm.sourceType === "string" ? { sourceType: fm.sourceType as never } : {}),
+        ...(typeof fm.importance === "number" ? { importance: fm.importance } : {}),
+        ...(typeof fm.visibility === "string" ? { visibility: fm.visibility as never } : {}),
+        ...(typeof fm.decayHalfLifeDays === "number"
+          ? { decayHalfLifeDays: fm.decayHalfLifeDays }
+          : {}),
+        ...(typeof fm.encodingContext === "string"
+          ? { encodingContext: fm.encodingContext }
+          : {}),
+        ...(Array.isArray(fm.contextTags) &&
+        fm.contextTags.every((t) => typeof t === "string")
+          ? { contextTags: fm.contextTags as readonly string[] }
+          : {}),
+        kind: fm.kind as EngramCreateInput["kind"],
+      });
+    };
+  }
+
+  /**
    * 拒绝提案
    *
    * 默认**永久驳回**(dismissedUntil = undefined),不再自动重新浮出。
    * 若调用方显式传 dismissDays > 0,则 N 天后该 proposal 可被 proposeAutoMemory/
-   * observe 流程重新激活(向后兼容旧行为)。
+   * proposeExternalMarkdown/observe 流程重新激活(向后兼容旧行为)。
    *
    * @param entityId 簇 id
    * @param reason 拒绝原因(可选,便于元学习)

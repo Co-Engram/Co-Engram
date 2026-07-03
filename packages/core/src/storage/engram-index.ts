@@ -242,6 +242,40 @@ export function rebuildEngramIndex(
 }
 
 /**
+ * 收集 dataRoot 下所有 .md 文件(跳过 SKIP_DIRECTORIES 与 SKIP_MARKDOWN_FILENAMES)。
+ *
+ * 与 rebuildEngramIndex 共用同一份"哪些目录/文件不扫"规则,确保 watcher 的
+ * 外部提案扫描与索引重建看到一致的文件集合。
+ *
+ * @returns 绝对路径数组(无特定顺序)
+ */
+export function collectMarkdownFiles(dataRoot: string): string[] {
+  const out: string[] = [];
+  function walk(currentDir: string): void {
+    let entries: Dirent[];
+    try {
+      entries = readdirSync(currentDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (SKIP_DIRECTORIES.has(entry.name)) continue;
+      const absolutePath = join(currentDir, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath);
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!entry.name.endsWith(".md")) continue;
+      if (SKIP_MARKDOWN_FILENAMES.has(entry.name.toLowerCase())) continue;
+      out.push(absolutePath);
+    }
+  }
+  walk(dataRoot);
+  return out;
+}
+
+/**
  * 增量更新:仅更新单条 engram 的 index entry。
  */
 export function upsertEngramIndexEntry(

@@ -279,6 +279,16 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   // mtime 兜底已内置在 getIndex 中,watcher 提供更实时的失效触发。
   // listener:watcher 触发时同步重建 SearchOrchestrator 的 ftsIndex,
   // 否则跨进程写入后,本进程 search 还是查旧索引(P0 缺陷)。
+  //
+  // 信任边界(安全关键):externalMarkdownHook 必须在 startWatching 之前设置,
+  // 否则首次扫描会漏掉已存在的未授权 .md。hook 把 watcher 发现的外部 .md 转成
+  // pending proposal(等用户审批),而非直接落库 —— 防止"拷贝恶意 .md → 进团队
+  // 记忆库"的攻击面。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
+  if (proposalEngine) {
+    ctx.repository.setExternalMarkdownHook(
+      proposalEngine.createExternalMarkdownHook(),
+    );
+  }
   ctx.repository.startWatching();
   ctx.repository.addInvalidateListener(() => {
     rebuildSearchIndex(searchOrchestrator, repository);

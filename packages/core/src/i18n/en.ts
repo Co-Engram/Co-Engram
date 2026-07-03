@@ -248,19 +248,20 @@ WHEN NOT TO CALL:
 - No pending proposals (system prompt will show 0)
 - You just searched explicitly (use engram_search)
 
-RETURNS: List of proposals. Each carries \`source\` ("conversation" = chat clustering, "auto-memory" = Claude Code auto-memory file). Auto-memory proposals carry \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\` (full payload to write on accept) — accept directly without re-typing.`,
+RETURNS: List of proposals. Each carries \`source\` ("conversation" = chat clustering, "auto-memory" = Claude Code auto-memory file, "external-markdown" = untracked .md detected under dataRoot). Auto-memory and external-markdown proposals carry \`proposedTitle\`/\`proposedContent\`/\`proposedDomainTags\`/\`proposedKind\` (full payload to write on accept) — accept directly without re-typing.`,
   "tool.engram_accept_proposal.agent": `Accept a pending memory proposal (convert it to a real engram).
 
 WHEN TO CALL:
 - User confirms a proposal is valid ("yes, save that")
 - You reviewed a proposal and it captures a real preference/decision
 - Auto-memory source (source="auto-memory"): full payload already attached — call with just \`entityId\` to accept as-is
+- External-markdown source (source="external-markdown"): user copied/tracked an .md into dataRoot; payload is parsed from the file's frontmatter — review the title/domainTags/kind for sanity, then accept
 
 WHEN NOT TO CALL:
 - The proposal is wrong or low quality (use engram_dismiss_proposal)
 - You haven't reviewed it yet
 
-NOTE: title/content/domainTags are optional for auto-memory proposals (fallback to payload); conversation-source proposals still require explicit title/content/domainTags (payload empty).
+NOTE: title/content/domainTags are optional for auto-memory and external-markdown proposals (fallback to payload); conversation-source proposals still require explicit title/content/domainTags (payload empty).
 
 RETURNS: Created engram ID + proposal marked as accepted.`,
   "tool.engram_dismiss_proposal.agent": `Dismiss a pending memory proposal (reject the capture).
@@ -1502,7 +1503,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.tabGraph":
     "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind. Opening an engram detail highlights its neighbors.",
   "viewer.help.tabProposals":
-    "<strong>Proposals</strong> — candidate-memory approval queue. The system extracts candidates from conversations; humans/LLMs accept (engram_accept_proposal) or dismiss (engram_dismiss_proposal).",
+    "<strong>Proposals</strong> — candidate-memory approval queue. Sources: conversation clustering (topics mentioned ≥3 times), Claude Code auto-memory files, and untracked .md detected under dataRoot (e.g., files copied in by the user). Humans/LLMs accept (engram_accept_proposal) or dismiss (engram_dismiss_proposal).",
   "viewer.help.tabAudit":
     "<strong>Audit</strong> — operation timeline recording create/update/reinforce/report_failure and every state change, for 'who changed what when' traceability.",
   "viewer.help.tabTrash":

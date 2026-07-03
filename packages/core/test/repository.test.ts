@@ -889,3 +889,195 @@ describe("EngramRepository — 跨进程缓存一致性", () => {
     }
   });
 });
+
+// ============================================================
+// 外部 .md 检测钩子(信任边界:不自动接受 untrusted .md)
+// ============================================================
+
+describe("EngramRepository — 外部 .md 检测钩子(信任边界)", () => {
+  let extTmpDir: string;
+  let extRepo: EngramRepository;
+
+  beforeEach(() => {
+    extTmpDir = mkdtempSync(join(tmpdir(), "co-engram-ext-hook-"));
+    extRepo = new EngramRepository({ rootPath: extTmpDir, language: "en" });
+    // 通过正规路径创建 1 个 engram,触发 index.json 写入。
+    // 这模拟"co-engram 已经在正常运行,dataRoot 已有 index.json"的真实状态。
+    // 后续测试中 watcher 看到的"已在 index 中"判定才会准确。
+    extRepo.createEngram({
+      title: "种子记忆",
+      content: "用于初始化 index.json",
+      kind: "observation",
+      domainTags: ["测试"],
+      createdBy: "alice",
+    });
+  });
+
+  afterEach(() => {
+    extRepo.stopWatching();
+    rmSync(extTmpDir, { recursive: true, force: true });
+  });
+
+  /**
+   * 辅助:生成一个合法的 engram .md 文件内容(legacy 顶部 frontmatter,en 模式)
+   * 用 stableId 01EXT... 前缀(ULID 校验通过),每个文件用不同 id 避免冲突。
+   */
+  function makeEngramMarkdown(id: string, title: string, body: string): string {
+    return [
+      "---",
+      `id: ${id}`,
+      `title: ${title}`,
+      `kind: observation`,
+      `domainTags:`,
+      `  - imported`,
+      `createdBy: external`,
+      `createdAt: 2026-07-03T00:00:00.000Z`,
+      `updatedBy: external`,
+      `updatedAt: 2026-07-03T00:00:00.000Z`,
+      `version: 1`,
+      `status: active`,
+      `visibility: public`,
+      `---`,
+      "",
+      body,
+      "",
+    ].join("\n");
+  }
+
+  it("未设置 hook 时 → watcher 触发但 noop(untrusted .md 不进 index)", async () => {
+    // 先确保 index.json 已存在且只含 1 个 engram(种子)
+    expect(extRepo.listEngrams()).toHaveLength(1);
+
+    // 模拟"用户拷贝一个 .md 文件到 dataRoot"
+    writeFileSync(
+      join(extTmpDir, "external.md"),
+      makeEngramMarkdown("01EXT00000000000000000000AA", "外部文件", "正文"),
+    );
+
+    extRepo.startWatching();
+    await new Promise((r) => setTimeout(r, 2700));
+
+    // 关键安全断言:index 中**只有**种子文件,新增的 .md 不在内
+    // (watcher 没 hook 通知任何人,且 index.json 不会被自动重写)
+    const all = extRepo.listEngrams();
+    expect(all).toHaveLength(1);
+    expect(all[0]!.title).toBe("种子记忆");
+  });
+
+  it("设置 hook + 用户拷贝 .md → hook 被调用,但 index 不写入(等审批)", async () => {
+    const hookCalls: Array<{
+      relPath: string;
+      parsed: { readonly frontmatter: { readonly [k: string]: unknown } } | null;
+    }> = [];
+    extRepo.setExternalMarkdownHook((params) => {
+      hookCalls.push({ relPath: params.relPath, parsed: params.parsed });
+    });
+
+    extRepo.startWatching();
+    // 给 watcher 一点时间稳定
+    await new Promise((r) => setTimeout(r, 100));
+
+    writeFileSync(
+      join(extTmpDir, "external.md"),
+      makeEngramMarkdown("01EXT00000000000000000000BB", "外部文件", "正文"),
+    );
+    await new Promise((r) => setTimeout(r, 2700));
+
+    expect(hookCalls).toHaveLength(1);
+    expect(hookCalls[0]!.relPath).toBe("external.md");
+    expect(hookCalls[0]!.parsed).not.toBeNull();
+    expect(hookCalls[0]!.parsed!.frontmatter.title).toBe("外部文件");
+
+    // 关键安全断言:即使 hook 调用了,index 仍然只有种子文件
+    // (hook 自身只负责形成 proposal,真正的 index 写入要等 accept → engram_create)
+    expect(extRepo.listEngrams()).toHaveLength(1);
+  });
+
+  it("已在 index 中的 .md(engram_create 写入)→ 不触发 hook", async () => {
+    let hookCalls = 0;
+    extRepo.setExternalMarkdownHook(() => {
+      hookCalls++;
+    });
+
+    extRepo.startWatching();
+    await new Promise((r) => setTimeout(r, 2700));
+
+    // 种子文件已通过 engram_create 进入 index,watcher 不应触发 hook
+    expect(hookCalls).toBe(0);
+  });
+
+  it("裸 .md(无 frontmatter)→ hook 收到 parsed=null,不构成 engram", async () => {
+    const hookCalls: Array<{ parsed: unknown; relPath: string }> = [];
+    extRepo.setExternalMarkdownHook((params) => {
+      hookCalls.push({ parsed: params.parsed, relPath: params.relPath });
+    });
+
+    extRepo.startWatching();
+    await new Promise((r) => setTimeout(r, 100));
+
+    writeFileSync(join(extTmpDir, "notes.md"), "这是一个普通笔记,无 frontmatter");
+    await new Promise((r) => setTimeout(r, 2700));
+
+    // 只 notes.md 触发(种子 .md 已在 index,跳过)
+    expect(hookCalls).toHaveLength(1);
+    expect(hookCalls[0]!.relPath).toBe("notes.md");
+    expect(hookCalls[0]!.parsed).toBeNull();
+  });
+
+  it("hook 返回的 unregister 函数 → 后续 watcher 不再调用", async () => {
+    let hookCalls = 0;
+    const unregister = extRepo.setExternalMarkdownHook(() => {
+      hookCalls++;
+    });
+
+    extRepo.startWatching();
+    await new Promise((r) => setTimeout(r, 100));
+
+    writeFileSync(
+      join(extTmpDir, "a.md"),
+      makeEngramMarkdown("01EXT0000000000000000000AAA", "A", "body a"),
+    );
+    await new Promise((r) => setTimeout(r, 2700));
+    expect(hookCalls).toBe(1);
+
+    unregister();
+
+    writeFileSync(
+      join(extTmpDir, "b.md"),
+      makeEngramMarkdown("01EXT0000000000000000000BBB", "B", "body b"),
+    );
+    await new Promise((r) => setTimeout(r, 2700));
+    expect(hookCalls).toBe(1); // 仍然是 1,unregister 后不再触发
+  }, 15000);
+
+  it("多个外部 .md 同时拷贝 → debounce 合并,各自触发 hook 一次", async () => {
+    const seen: string[] = [];
+    extRepo.setExternalMarkdownHook((params) => {
+      seen.push(params.relPath);
+    });
+
+    extRepo.startWatching();
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 一次性写 3 个文件(模拟 rsync / git checkout 的批量场景)
+    writeFileSync(
+      join(extTmpDir, "a.md"),
+      makeEngramMarkdown("01EXT0000000000000000000A1", "A", "a"),
+    );
+    writeFileSync(
+      join(extTmpDir, "b.md"),
+      makeEngramMarkdown("01EXT0000000000000000000B1", "B", "b"),
+    );
+    writeFileSync(
+      join(extTmpDir, "c.md"),
+      makeEngramMarkdown("01EXT0000000000000000000C1", "C", "c"),
+    );
+    await new Promise((r) => setTimeout(r, 2700));
+
+    expect(seen.sort()).toEqual(["a.md", "b.md", "c.md"]);
+  });
+});
+
+// ============================================================
+// post-merge runPostMergeCheck — 可信路径仍走 runDoctor 自动接受
+// ============================================================

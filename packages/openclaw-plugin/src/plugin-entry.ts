@@ -521,6 +521,16 @@ export function registerCoEngramTools(
   // 共享同一 dataRoot 时,确保各进程的 indexCache 在外部写入后立即失效。
   // listener:watcher 触发时同步重建 SearchOrchestrator 的 ftsIndex,
   // 否则 plugin 进程写入后,mcp 进程的 search 还是查旧索引(P0 缺陷)。
+  //
+  // 信任边界(安全关键):externalMarkdownHook 必须在 startWatching 之前设置。
+  // hook 把 watcher 发现的"未授权来源 .md"(用户拷贝、IDE 写入等)转成 pending
+  // proposal 等用户审批,而非直接落库 —— 防止恶意/误植 .md 通过文件系统投毒
+  // 进入团队记忆库。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
+  if (ctx.proposalEngine) {
+    ctx.repository.setExternalMarkdownHook(
+      ctx.proposalEngine.createExternalMarkdownHook(),
+    );
+  }
   ctx.repository.startWatching();
   ctx.repository.addInvalidateListener(() => {
     rebuildSearchIndex(
