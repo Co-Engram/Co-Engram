@@ -28,6 +28,40 @@ export interface IndexDbOptions {
 }
 
 /**
+ * engram 在索引层的一份精简投影(只含搜索/排序/FTS 需要的字段)。
+ *
+ * domainTags 是多值字段,在 SQLite 端拆 engram_domains 表;其余标量字段直接落 engrams 主表。
+ * contentTokens 是已切分的纯文本(可能含空格分隔的 token),用于 FTS5 trigram 倒排。
+ */
+export interface EngramIndexEntry {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly importance: number;
+  readonly confidence: number;
+  /** epoch ms */
+  readonly updatedAt: number;
+  readonly contentSize: number;
+  readonly visibility: string;
+  readonly status: string;
+  readonly domainTags: readonly string[];
+  readonly summary: string;
+  readonly contentTokens: string;
+}
+
+/**
+ * 突触(synapse)索引条目。外键 from_id / to_id 引用 engrams 主表,
+ * 删除任一端 engram 时由 ON DELETE CASCADE 自动清空。
+ */
+export interface SynapseIndexEntry {
+  readonly id: string;
+  readonly fromId: string;
+  readonly toId: string;
+  readonly kind: string;
+  readonly weight: number;
+}
+
+/**
  * SQLite 索引库封装:打开 / schema 初始化 / 显式事务。
  *
  * 设计要点:
@@ -98,5 +132,86 @@ export class IndexDb {
     if (!this.db) {
       throw new Error("IndexDb not opened. Call open() first.");
     }
+  }
+
+  /**
+   * UPSERT 一个 engram 索引条目:主表 + domains(全量替换)+ FTS(delete+insert)。
+   *
+   * 实现要点:
+   * - 整体在事务内,任一步失败 rollback,保证主表/domains/FTS 三地一致。
+   * - domains 用 DELETE+INSERT 而非 ON CONFLICT:语义上是"全量替换 tag 集合",
+   *   调用方传入的新集合就是真理源,旧 tag 不在该集合内就该被清掉。
+   * - FTS5 不支持 ON CONFLICT,只能 delete + insert;否则会有重复倒排项。
+   */
+  upsertEngram(entry: EngramIndexEntry): void {
+    this.transaction(() => {
+      this.prepare(`
+        INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          title = excluded.title,
+          kind = excluded.kind,
+          importance = excluded.importance,
+          confidence = excluded.confidence,
+          updated_at = excluded.updated_at,
+          content_size = excluded.content_size,
+          visibility = excluded.visibility,
+          status = excluded.status
+      `).run(
+        entry.id,
+        entry.title,
+        entry.kind,
+        entry.importance,
+        entry.confidence,
+        entry.updatedAt,
+        entry.contentSize,
+        entry.visibility,
+        entry.status,
+      );
+      // domains 全量替换
+      this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);
+      const insertDomain = this.prepare(
+        "INSERT OR IGNORE INTO engram_domains (engram_id, domain) VALUES (?, ?)",
+      );
+      for (const d of entry.domainTags) {
+        insertDomain.run(entry.id, d);
+      }
+      // FTS5 不支持 ON CONFLICT,delete + insert
+      this.prepare("DELETE FROM engram_fts WHERE id = ?").run(entry.id);
+      this.prepare(
+        "INSERT INTO engram_fts (id, title, summary, content_tokens) VALUES (?, ?, ?, ?)",
+      ).run(entry.id, entry.title, entry.summary, entry.contentTokens);
+    });
+  }
+
+  /**
+   * UPSERT 一条 synapse。无 FTS,单语句即可,不需要事务包裹。
+   */
+  upsertSynapse(s: SynapseIndexEntry): void {
+    this.prepare(`
+      INSERT INTO synapses (id, from_id, to_id, kind, weight)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        from_id = excluded.from_id,
+        to_id = excluded.to_id,
+        kind = excluded.kind,
+        weight = excluded.weight
+    `).run(s.id, s.fromId, s.toId, s.kind, s.weight);
+  }
+
+  /**
+   * 删除一个 engram 及其所有派生数据。
+   *
+   * - engrams 主表:显式 DELETE。
+   * - engram_domains / synapses(from/to):外键 ON DELETE CASCADE 自动清。
+   * - engram_fts:FTS5 表不参与外键,必须显式 DELETE。
+   *
+   * 包在事务里:即便 FTS 删除失败,主表删除也会 rollback,保持一致。
+   */
+  deleteEngram(engramId: string): void {
+    this.transaction(() => {
+      this.prepare("DELETE FROM engrams WHERE id = ?").run(engramId);
+      this.prepare("DELETE FROM engram_fts WHERE id = ?").run(engramId);
+    });
   }
 }
