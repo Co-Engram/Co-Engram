@@ -200,19 +200,20 @@ Mechanism: cumulative negative feedback — one call drops importance only sligh
 RETURNS: { ok: true, importance, failureCount } + audit recorded.`,
   "tool.engram_delete.agent": `Permanently delete a memory (immediate, irreversible).
 
-⚠️ Unless the user has explicitly instructed deletion, you MUST confirm before calling.
+⚠️ Confirm before calling unless user explicitly asked to delete.
 
 WHEN TO CALL:
 - User explicitly asks to delete ("remove that memory about X")
-- Memory is duplicated (keep one) or contains sensitive info that should not persist
-- Fact definitively invalid: code/decision/constraint changed AND you have hard evidence (runtime verification or user statement, not speculation). Bypasses cumulative engram_report_failure — delete directly
+- Memory duplicated (keep one) or contains sensitive info
+- Fact definitively invalid (verified by runtime or user statement, not speculation) — bypasses cumulative engram_report_failure
 
 WHEN NOT TO CALL:
-- Retrieval merely produced a wrong answer (use engram_report_failure, cumulative)
-- Factual change is only speculated, not verified (verify first)
+- Retrieval merely produced a wrong answer (use engram_report_failure)
 - User is ambiguous ("forget that" — confirm what they mean)
 
-RETURNS: { deleted: true } or error if not found.`,
+RETURNS: { deleted: true } or error.
+
+⚠️ Fail-loud: post-checks deletion; throws "still exists" on cross-process race / inconsistency (run engram_doctor).`,
   "tool.close_learning_loop.agent": `Close the verification loop on a memory after confirming its correctness.
 
 WHEN TO CALL:
@@ -253,15 +254,13 @@ RETURNS: List of proposals. Each carries \`source\` ("conversation" = chat clust
 
 WHEN TO CALL:
 - User confirms a proposal is valid ("yes, save that")
-- You reviewed a proposal and it captures a real preference/decision
-- Auto-memory source (source="auto-memory"): full payload already attached — call with just \`entityId\` to accept as-is
-- External-markdown source (source="external-markdown"): user copied/tracked an .md into dataRoot; payload is parsed from the file's frontmatter — review the title/domainTags/kind for sanity, then accept
+- Auto-memory / external-markdown source: payload already attached — call with just \`entityId\` (review title/domainTags/kind for sanity first)
 
 WHEN NOT TO CALL:
 - The proposal is wrong or low quality (use engram_dismiss_proposal)
 - You haven't reviewed it yet
 
-NOTE: title/content/domainTags are optional for auto-memory and external-markdown proposals (fallback to payload); conversation-source proposals still require explicit title/content/domainTags (payload empty).
+NOTE: title/content/domainTags optional for auto-memory / external-markdown (fallback to payload); conversation-source requires explicit title/content/domainTags.
 
 RETURNS: Created engram ID + proposal marked as accepted.`,
   "tool.engram_dismiss_proposal.agent": `Dismiss a pending memory proposal (reject the capture).
@@ -544,7 +543,8 @@ Error conditions: not found throws; version mismatch throws (when implemented).
 Invariant: title change triggers re-slug + file rename.`,
   "tool.engram_delete.technical": `Hard delete engram. Input: { id }
 Side effects: removes .md + .meta.json + .synapses.json; removes incoming synapses on other engrams; rebuilds digest/graph; appends audit.
-Error conditions: not found throws.
+Deletion order (F3): index first → file → synapses. Any mid-step failure lands in doctor-self-healable territory (orphan_markdown / dangling_synapse); no fail-silent gap.
+Error conditions: not found throws; post-check detects engram still exists (race / inconsistency) throws "still exists".
 Invariant: irreversible (vs engram_forget which keeps files). Git history is the only recovery.
 Warning: prefer engram_archive or engram_forget for soft removal.`,
   "tool.engram_list.technical": `List engrams by filter (no query — pure metadata filter, reads latest state).
@@ -825,6 +825,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.fixKind.title_changed": "Renamed to match new title",
   "viewer.health.doctor.fixKind.missing_file": "Cleared stale index entry",
   "viewer.health.doctor.fixKind.obsidian_view_stale": "Synced Obsidian view",
+  "viewer.health.doctor.fixKind.dangling_index_reference": "Cleaned dangling refs to deleted engrams in derived indexes",
   "viewer.search.placeholder": "Full-text search engrams...",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",

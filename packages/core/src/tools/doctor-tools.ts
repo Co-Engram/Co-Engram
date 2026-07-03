@@ -12,6 +12,8 @@ import { z } from "zod";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
 import { runInfraDoctor } from "../storage/infra-doctor.js";
+import { cleanupDanglingIndexReferences } from "../storage/index-cleanup.js";
+import { readEngramIndex } from "../storage/engram-index.js";
 
 // ============================================================
 // engram_doctor
@@ -53,7 +55,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
   {
     name: "engram_doctor",
     description:
-      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), and Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Each manual-review issue includes a `nextAction` hint (tool + argsHint + explanation) so the caller knows exactly which tool to invoke next. Returns a structured report.",
+      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated), missing derived indexes (digest.jsonl/graph.json rebuilt), unconfigured merge driver (auto-onboarded), and dangling references in derived indexes (observation-windows/digest/graph entries pointing to deleted engrams — filtered or rebuilt). Reports for manual review: orphan markdown without frontmatter and dangling synapse references. Each manual-review issue includes a `nextAction` hint (tool + argsHint + explanation) so the caller knows exactly which tool to invoke next. Returns a structured report.",
     inputSchema: EngramDoctorInputSchema,
     execute(input, ctx) {
       const parsed = validateInput<EngramDoctorToolInput>(
@@ -74,8 +76,24 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
         incremental: parsed.incremental,
       });
 
-      // infra fixes 放头部(基础设施层先于文件层)
-      const combinedFixes = [...infra.fixes, ...report.fixes];
+      // postflight:runDoctor 已 persist 最新的 engram-index.json,
+      // 据此清派生索引中对已删 engram 的悬空引用(observation-windows / digest / graph)。
+      // 兜底用户外部 rm 文件、git rm 后只清 engram-index.json 但派生索引残留的场景。
+      const canonicalIds = new Set<string>(
+        Array.from(readEngramIndex(dataRoot).entries.keys()) as string[],
+      );
+      const post = cleanupDanglingIndexReferences({
+        repo: ctx.repository,
+        dataRoot,
+        canonicalIds,
+      });
+
+      // infra fixes 放头部(基础设施层先于文件层),postflight 放尾部
+      const combinedFixes = [
+        ...infra.fixes,
+        ...report.fixes,
+        ...post.fixes,
+      ];
 
       return {
         startedAt: report.startedAt,

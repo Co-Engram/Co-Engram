@@ -530,6 +530,67 @@ describe("engram_delete", () => {
       /not found/,
     );
   });
+
+  // ============================================================
+  // F1: fail-loud 契约 —— deleteEngram 静默 noop 时,工具层必须抛错
+  //
+  // 场景:跨进程 race 中另一进程把文件/index 恢复,或 deleteEngram 内部
+  // resolvePath 失败导致 noop。F1 修复前:工具返回 {deleted:true} + audit
+  // 撒谎,用户以为删了实际没删(用户报告的真实 bug:viewer 仍显示该 engram)。
+  // 修复后:post-check 验证 exists(),失败抛错,让调用方跑 engram_doctor 自愈。
+  // ============================================================
+
+  it("F1: deleteEngram 静默 noop 时 → 工具抛错而非伪成功", () => {
+    const { id } = engramCreateTool.execute(
+      {
+        title: "F1 测试",
+        content: "deleteEngram 会被 stub 成 noop",
+        kind: "fact",
+        domainTags: ["t"],
+        createdBy: "y",
+      },
+      ctx,
+    );
+
+    // 用 Proxy 把 deleteEngram 替换成 noop,其他方法走真实 repo。
+    // 模拟"resolvePath 失败 / race 中恢复"等导致 deleteEngram 不删的状态。
+    const failingRepo = new Proxy(repo, {
+      get(target, prop, receiver) {
+        if (prop === "deleteEngram") {
+          return () => {}; // 静默 noop
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as EngramRepository;
+    const failingCtx = { ...ctx, repository: failingRepo };
+
+    // F1 修复后:post-check 抛错,带可操作的提示
+    expect(() => engramDeleteTool.execute({ id }, failingCtx)).toThrow(
+      /still exists after deleteEngram/,
+    );
+    expect(() => engramDeleteTool.execute({ id }, failingCtx)).toThrow(
+      /engram_doctor/,
+    );
+
+    // 实际上 engram 还在(因为 deleteEngram 被 stub 成 noop)
+    expect(repo.exists(id)).toBe(true);
+  });
+
+  it("F1: 成功路径不破坏 —— 正常删除仍返回 {deleted:true}", () => {
+    const { id } = engramCreateTool.execute(
+      {
+        title: "正常删除",
+        content: "x",
+        kind: "fact",
+        domainTags: ["t"],
+        createdBy: "y",
+      },
+      ctx,
+    );
+    const result = engramDeleteTool.execute({ id }, ctx);
+    expect(result.deleted).toBe(true);
+    expect(repo.exists(id)).toBe(false);
+  });
 });
 
 // ============================================================

@@ -567,6 +567,18 @@ export const engramDeleteTool: Tool<
       throw new Error(`Engram not found: ${parsed.id}`);
     }
     ctx.repository.deleteEngram(parsed.id);
+    // F1 修复(fail-loud 契约):post-check 验证删除真的生效。
+    // 防止 deleteEngram 内部静默 noop(resolvePath 失败、跨进程 race 中
+    // 文件/index 被恢复等)导致工具层"伪成功" + audit 撒谎。
+    // 用户报告的真实场景:engram_delete 返回 {deleted:true},但网页 viewer
+    // 还显示该 engram,因为另一进程的 cache 把旧 entry 写回了。
+    // 这里发现不一致立即抛错,让调用方跑 engram_doctor 自愈,而非撒谎。
+    if (ctx.repository.exists(parsed.id)) {
+      throw new Error(
+        `engram_delete failed: ${parsed.id} still exists after deleteEngram ` +
+          `(race condition or index/file inconsistency — run engram_doctor to self-heal)`,
+      );
+    }
     invalidateSearchIndex(ctx);
     ctx.auditLog?.append({
       actor: "user",

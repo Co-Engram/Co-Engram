@@ -109,7 +109,8 @@ export interface DoctorIssue {
     | "duplicate_engram" // 相似度 > 0.95
     | "obsidian_view_stale" // frontmatter.aliases 缺失 或 派生段与 synapse 不一致
     | "index_rebuilt" // digest.jsonl / graph.json 缺失,被 infra-doctor 全量重建
-    | "merge_driver_installed"; // merge driver 未配置,被 infra-doctor 自动 onboard
+    | "merge_driver_installed" // merge driver 未配置,被 infra-doctor 自动 onboard
+    | "dangling_index_reference"; // 派生索引(observation-windows/digest/graph)引用了已删 engram,被 post-doctor cleanup 清理
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;

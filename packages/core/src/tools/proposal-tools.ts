@@ -63,6 +63,10 @@ export const engramListProposalsTool: Tool<
       suggestedTitle?: string;
       necessityReason?: string;
       necessityRule?: string;
+      // accept 后填:对应 engram 的 id(host 可据此读取 engram 或清理原始 .md)
+      acceptedEngramId?: string;
+      // external-markdown 来源时携带:相对 dataRoot 的 .md 路径
+      sourcePath?: string;
     }>;
     total: number;
   }
@@ -109,6 +113,8 @@ export const engramListProposalsTool: Tool<
           suggestedTitle?: string;
           necessityReason?: string;
           necessityRule?: string;
+          acceptedEngramId?: string;
+          sourcePath?: string;
         } = {
           entityId: p.entityId,
           occurrences: p.occurrences,
@@ -124,6 +130,8 @@ export const engramListProposalsTool: Tool<
         if (p.suggestedTitle) base.suggestedTitle = p.suggestedTitle;
         if (p.necessityReason) base.necessityReason = p.necessityReason;
         if (p.necessityRule) base.necessityRule = p.necessityRule;
+        if (p.acceptedEngramId) base.acceptedEngramId = p.acceptedEngramId;
+        if (p.sourcePath) base.sourcePath = p.sourcePath;
         // payload 投影(仅 auto-memory 来源时填)
         const payload = p.payload;
         if (payload) {
@@ -169,10 +177,21 @@ export const engramAcceptProposalTool: Tool<
     if (!ctx.proposalEngine) {
       throw new Error("ProposalEngine not available in ToolContext");
     }
-    // 与 engram_create 完全相同的 createdBy 解析链:
-    // 显式传值 → ctx.defaultCreatedBy(MCP env / OpenClaw plugin config / git 身份) → 'unknown'
-    // 修复前 Zod schema `.default('proposal-engine')` 把这里写死,绕过了整条链。
-    const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+    // createdBy 解析链(优先级):
+    //   1. 调用方显式传 parsed.createdBy
+    //   2. proposal.payload.createdBy(auto-memory / external-markdown 来源
+    //      自带的元数据,保留原始作者署名)
+    //   3. ctx.defaultCreatedBy(MCP env / OpenClaw plugin config / git 身份)
+    //   4. 'unknown'
+    // 第 2 步是 redesign 后新增:外部 .md / auto-memory 文件里 frontmatter
+    // 的 createdBy 不应被工具默认值覆盖。查 proposal 状态是 O(proposals.length)
+    // 简单扫描,proposal 数量典型 <100,可接受。
+    const targetProposal = ctx.proposalEngine
+      .listAll()
+      .find((p) => p.entityId === parsed.entityId);
+    const payloadCreatedBy = targetProposal?.payload?.createdBy;
+    const createdBy =
+      parsed.createdBy ?? payloadCreatedBy ?? ctx.defaultCreatedBy ?? "unknown";
     const engramId = ctx.proposalEngine.accept(parsed.entityId, {
       ...(parsed.title !== undefined ? { title: parsed.title } : {}),
       ...(parsed.content !== undefined ? { content: parsed.content } : {}),

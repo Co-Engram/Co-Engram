@@ -603,6 +603,38 @@ describe("DELETE /api/engrams/:id", () => {
       expect(data.deleted).toBe(true);
     });
   });
+
+  it("F1: deleteEngram 静默 noop 时 → 返回 500 而非伪成功(与工具层 fail-loud 契约一致)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const engram = ctx.repository.createEngram({
+      title: "F1 viewer",
+      content: "deleteEngram 会被 stub 成 noop",
+      kind: "fact",
+      domainTags: ["t"],
+      createdBy: "y",
+    });
+    // 用 Proxy 把 deleteEngram 替换成 noop,模拟 race / 不一致
+    const failingRepo = new Proxy(ctx.repository, {
+      get(target, prop, receiver) {
+        if (prop === "deleteEngram") return () => {};
+        return Reflect.get(target, prop, receiver);
+      },
+    }) as typeof ctx.repository;
+    ctx.repository = failingRepo;
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(
+        port,
+        `/api/engrams/${encodeURIComponent(engram.id)}`,
+        { method: "DELETE" },
+      );
+      // F1 修复后:post-check 检测到 engram 仍存在 → 500 + 提示 engram_doctor
+      expect(res.status).toBe(500);
+      const data = JSON.parse(res.body);
+      expect(data.error).toMatch(/still exists after deleteEngram/);
+      expect(data.error).toMatch(/engram_doctor/);
+    });
+  });
 });
 
 // ============================================================

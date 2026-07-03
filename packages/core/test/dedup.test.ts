@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,6 +86,83 @@ describe("buildHashIndex", () => {
     expect(index.size).toBe(2);
     expect(index.get(computeContentHash("内容 A"))).toBe(a.id);
     expect(index.get(computeContentHash("内容 B"))).toBe(b.id);
+  });
+});
+
+// ============================================================
+// F2: stale entry 跳过(index 有 entry 但磁盘文件不存在)
+//
+// 场景:跨进程 race / 部分 crash 后 deleteEngram 部分失败,留下孤儿 entry。
+// F2 修复前:readEngram 抛错 → 整个 dedupe 失败;或返回 stale targetId
+// 作为 DUPLICATE → 用户无法重建同 contentHash 的 engram(死锁)。
+// 修复后:stale entry 被跳过,继续走相似度召回或 NEW 路径。
+// ============================================================
+
+describe("findExactHashMatch (F2: stale entry 跳过)", () => {
+  it("index entry 存在但文件已被外部删除 → 跳过,返回 null", () => {
+    const engram = makeEngram({ title: "A", content: "相同内容" });
+    const hash = computeContentHash("相同内容");
+
+    // 模拟"index 仍有 entry,但文件被外部删除"的 stale 状态。
+    // listEngramIndex 返回含 path 的完整 entry(避免依赖 private resolvePath)。
+    const entry = repo.listEngramIndex().find((e) => e.id === engram.id);
+    expect(entry).toBeDefined();
+    unlinkSync(join(tmpDir, entry!.path));
+
+    // listEngrams 仍能看到 entry(读 index)
+    expect(repo.listEngrams().find((e) => e.id === engram.id)).toBeDefined();
+    // 但 exists() 检查文件 → false
+    expect(repo.exists(engram.id)).toBe(false);
+
+    // F2 修复后:跳过 stale entry,不抛错,不误判 DUPLICATE
+    expect(findExactHashMatch(repo, hash)).toBeNull();
+  });
+
+  it("多个 entry 中只有部分 stale → 仅跳过 stale 的,健康的仍能命中", () => {
+    const stale = makeEngram({ title: "Stale", content: "stale 内容" });
+    const healthy = makeEngram({ title: "Healthy", content: "healthy 内容" });
+
+    // 删除 stale 的文件
+    const staleEntry = repo.listEngramIndex().find((e) => e.id === stale.id);
+    unlinkSync(join(tmpDir, staleEntry!.path));
+
+    // healthy 的 hash 仍能命中
+    const healthyHash = computeContentHash("healthy 内容");
+    expect(findExactHashMatch(repo, healthyHash)).toBe(healthy.id);
+
+    // stale 的 hash 跳过(返回 null)
+    const staleHash = computeContentHash("stale 内容");
+    expect(findExactHashMatch(repo, staleHash)).toBeNull();
+  });
+
+  it("readEngram 抛错(非 ENOENT)的 entry 也被跳过,不传播异常", () => {
+    const engram = makeEngram({ title: "A", content: "x" });
+    const hash = computeContentHash("x");
+
+    // 删除文件模拟 readEngram 失败
+    const entry = repo.listEngramIndex().find((e) => e.id === engram.id);
+    unlinkSync(join(tmpDir, entry!.path));
+
+    // 不抛错,返回 null
+    expect(() => findExactHashMatch(repo, hash)).not.toThrow();
+    expect(findExactHashMatch(repo, hash)).toBeNull();
+  });
+});
+
+describe("buildHashIndex (F2: stale entry 跳过)", () => {
+  it("index entry 存在但文件已被外部删除 → 不进 hash 映射", () => {
+    const stale = makeEngram({ title: "Stale", content: "stale 内容" });
+    const healthy = makeEngram({ title: "Healthy", content: "healthy 内容" });
+
+    // 删除 stale 文件
+    const staleEntry = repo.listEngramIndex().find((e) => e.id === stale.id);
+    unlinkSync(join(tmpDir, staleEntry!.path));
+
+    const index = buildHashIndex(repo);
+    // 只包含 healthy 的,跳过 stale
+    expect(index.size).toBe(1);
+    expect(index.get(computeContentHash("healthy 内容"))).toBe(healthy.id);
+    expect(index.has(computeContentHash("stale 内容"))).toBe(false);
   });
 });
 

@@ -6,6 +6,7 @@ import {
   writeFileSync,
   existsSync,
   renameSync,
+  unlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -552,6 +553,78 @@ describe("EngramRepository — deleteEngram 级联", () => {
     });
     const count = repo.deleteSynapsesTouching(a.id);
     expect(count).toBe(2);
+  });
+});
+
+// ============================================================
+// F3: deleteEngram 顺序契约 —— 先删 index 再删文件
+//
+// 旧顺序「文件 → synapse → index」的最坏情况:文件已删 + index 未删 中间态。
+// 若此时另一进程恢复文件,doctor 看不到问题(因为 missing_file 检测要求
+// 文件确实不存在),但该 engram 仍在 listEngrams 中可见 → fail-silent。
+//
+// 新顺序「index → 文件 → synapse」保证:deleteEngram 返回时,index 已清。
+// 即使后续步骤失败(文件未删 / synapse 残留),失败模式都落在 doctor 能
+// 自愈的范畴(orphan_markdown / dangling_synapse)。
+// ============================================================
+
+describe("EngramRepository — F3: deleteEngram 顺序契约", () => {
+  it("deleteEngram 返回后,index 立即不含该 id", () => {
+    const a = repo.createEngram({
+      title: "F3 顺序",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "a",
+    });
+    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(true);
+
+    repo.deleteEngram(a.id);
+
+    // 关键不变量:index 立即清,不等文件 / synapse 步骤完成
+    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(false);
+    expect(repo.exists(a.id)).toBe(false);
+  });
+
+  it("F3: 文件已被外部删除时,deleteEngram 仍清 index(老顺序会留下 dangling index entry)", () => {
+    // 模拟"另一进程已 rm 文件,index 还有 entry"的部分崩溃状态
+    const a = repo.createEngram({
+      title: "外部 rm 后",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "a",
+    });
+
+    // 外部删除文件(绕过 deleteEngram)
+    const entry = repo.listEngramIndex().find((e) => e.id === a.id);
+    expect(entry).toBeDefined();
+    unlinkSync(join(tmpDir, entry!.path));
+
+    // 此时:index 有 entry,文件不存在
+    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(true);
+    expect(repo.exists(a.id)).toBe(false);
+
+    // deleteEngram 应该幂等清掉 index entry,不抛错
+    expect(() => repo.deleteEngram(a.id)).not.toThrow();
+
+    // 关键:index 已清(若顺序是「先文件后 index」,文件已不存在 → deleteEngramFile
+    // 静默 noop → 但 index 删除仍会执行,因为 F3 的新顺序是先删 index)
+    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(false);
+  });
+
+  it("F3: 多次 deleteEngram 同一 id 幂等,不抛错", () => {
+    const a = repo.createEngram({
+      title: "幂等",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "a",
+    });
+    repo.deleteEngram(a.id);
+    // 第二次:entry 已不存在,resolvePath 返回 undefined → 早 return,不抛错
+    expect(() => repo.deleteEngram(a.id)).not.toThrow();
+    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(false);
   });
 });
 

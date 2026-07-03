@@ -967,12 +967,26 @@ export class EngramRepository {
   deleteEngram(stableId: string): void {
     const relativePath = this.resolvePath(stableId);
     if (!relativePath) return;
-    const absolutePath = join(this.config.rootPath, relativePath);
-    deleteEngramFile(absolutePath);
-    this.deleteSynapsesTouching(stableId);
+    // F3 修复(race window 缩小):删除顺序从「文件 → synapse → index」改为
+    // 「index → 文件 → synapse」。
+    //
+    // 原顺序的最坏情况:「文件已删 + index 未删」中间态 → doctor 的
+    // missing_file 检测要求文件确实不存在,但 race 中另一进程可能恢复
+    // 文件,导致 doctor 看不到问题;同时该 engram 在 listEngrams 中仍可见。
+    //
+    // 新顺序的最坏情况:
+    //   - index 删 + 文件未删 → orphan_markdown,doctor 能修(已支持)
+    //   - 文件删 + synapse 未删 → dangling_synapse,doctor 能修(已支持)
+    // 两种失败模式都被 doctor 覆盖,无 fail-silent 漏洞。
+    //
+    // relativePath 必须先缓存:deleteIndexEntry 后再调 resolvePath 会因
+    // index 中已无 entry 而返回 undefined,导致后续步骤无法定位文件。
     if (isStableEngramId(stableId)) {
       this.deleteIndexEntry(stableId as StableEngramId);
     }
+    const absolutePath = join(this.config.rootPath, relativePath);
+    deleteEngramFile(absolutePath);
+    this.deleteSynapsesTouching(stableId);
   }
 
   /**

@@ -455,6 +455,19 @@ async function routeApi(
     }
     if (req.method === "DELETE") {
       ctx.repository.deleteEngram(id);
+      // F1 fail-loud 契约(与 engram_delete 工具一致):post-check 验证删除生效。
+      // 防止跨进程 race / index 不一致时 deleteEngram 静默 noop 导致 viewer
+      // 谎报成功(用户报告的真实 bug:删除后网页仍显示该 engram)。
+      if (ctx.repository.exists(id)) {
+        respondJson(
+          res,
+          500,
+          {
+            error: `engram ${id} still exists after deleteEngram (race condition or index/file inconsistency — run engram_doctor to self-heal)`,
+          },
+        );
+        return;
+      }
       respondJson(res, 200, { deleted: true, id });
       return;
     }

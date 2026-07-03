@@ -203,21 +203,20 @@ export const zh = {
 返回: { ok: true, importance, failureCount } + 审计已记录。`,
   "tool.engram_delete.agent": `永久删除一条记忆(立即失效,不可恢复)。
 
-⚠️ 不可逆操作:除非用户已明确指示删除(如"删掉关于 X 的记忆"),否则调用前必须先向用户确认。
+⚠️ 除非用户明确指示,调用前必须先确认。
 
 何时调用:
 - 用户明确要删除("删掉关于 X 的那条记忆")
-- 记忆重复了,只保留一条(确认哪条保留)
-- 记忆含敏感信息不应保留
-- 事实已确定失效:代码/决策/约束已确定变更,且你已通过运行验证或用户明确陈述获得确凿证据(不能基于推测)。这种"确定性失效"不走累积式 engram_report_failure,直接 delete
+- 记忆重复或含敏感信息
+- 事实已确定失效(运行验证或用户陈述,非推测)—— 跳过累积式 engram_report_failure,直接 delete
 
 何时不调用:
-- 只是召回后答案不准(用 engram_report_failure,累积式负反馈)
-- 事实变更仅是推测、未经运行验证或用户陈述(先验证或问用户)
+- 召回答案不准(用 engram_report_failure)
 - 用户表述模糊("忘掉那个" — 确认含义)
-- 批量清理(用 CLI)
 
-返回:{ deleted: true } 或未找到错误。`,
+返回:{ deleted: true } 或未找到错误。
+
+⚠️ Fail-loud:删除后 post-check;若检测到 race / 不一致,抛"still exists"(跑 engram_doctor 自愈)。`,
   "tool.close_learning_loop.agent": `确认记忆正确后,关闭验证回路。
 
 何时调用:
@@ -257,15 +256,13 @@ export const zh = {
 
 何时调用:
 - 用户确认候选有效("对,保存那个")
-- 你审核后认为候选捕获了真实偏好/决策
-- auto-memory 来源:候选已自带完整 payload,直接传 \`entityId\` 即可
-- external-markdown 来源:用户把 .md 拷贝/写入 dataRoot,co-engram 从 frontmatter 解析出 payload;审核 title/domainTags/kind 合理后 accept
+- auto-memory / external-markdown 来源:候选自带 payload,直接传 \`entityId\`(accept 前先审核 title/domainTags/kind)
 
 何时不调用:
 - 候选错误或质量低(用 engram_dismiss_proposal)
 - 还没审核
 
-注意:auto-memory 与 external-markdown 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源(payload 为空)仍需显式传。
+注意:auto-memory / external-markdown 来源的 title/content/domainTags 可省略(走 payload 兜底);conversation 来源仍需显式传。
 
 返回:创建的 engram ID + 候选标记为已接受。`,
   "tool.engram_dismiss_proposal.agent": `驳回待处理的候选(拒绝捕获)。
@@ -546,7 +543,8 @@ Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UP
 不变量:title 变更触发 re-slug + 文件重命名。`,
   "tool.engram_delete.technical": `硬删除 engram。输入:{ id }
 副作用:删除 .md + .meta.json + .synapses.json;移除其他 engram 上的 incoming synapse;重建 digest/graph;append audit。
-错误条件:未找到抛错。
+删除顺序(F3):先删 index → 再删文件 → 再删 synapse。任何中间步骤失败,失败模式都落在 doctor 能自愈的范畴(orphan_markdown / dangling_synapse),无 fail-silent 漏洞。
+错误条件:未找到抛错;post-check 发现 engram 仍存在(race / 不一致)抛"still exists"错。
 不变量:不可逆(vs engram_forget 保留文件)。Git 历史是唯一恢复途径。
 警告:软移除优先用 engram_archive 或 engram_forget。`,
   "tool.engram_list.technical": `按 filter 列出 engram(无 query,纯元数据过滤,读最新状态)。
@@ -827,6 +825,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.doctor.fixKind.title_changed": "已根据新标题重命名",
   "viewer.health.doctor.fixKind.missing_file": "已清除失效索引项",
   "viewer.health.doctor.fixKind.obsidian_view_stale": "已同步 Obsidian 视图",
+  "viewer.health.doctor.fixKind.dangling_index_reference": "已清理派生索引中对已删 engram 的悬空引用",
   "viewer.search.placeholder": "全文检索记忆印迹...",
   "viewer.search.button": "搜索",
   "viewer.search.clear": "清空",

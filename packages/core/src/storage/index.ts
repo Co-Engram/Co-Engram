@@ -13,3 +13,4 @@ export * from "./git-stage.js";
 export * from "./engram-index.js";
 export * from "./repository.js";
 export * from "./infra-doctor.js";
+export * from "./index-cleanup.js";
