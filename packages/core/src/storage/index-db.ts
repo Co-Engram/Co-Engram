@@ -8,7 +8,6 @@
 // 字符串拼接 `"node:" + "sqlite"` 进一步防止 Vite 把整个 require 调用静态化为
 // bare import 解析。type import 在编译时被擦除,不被 resolver 拦截,可以安全使用。
 import { createRequire } from "node:module";
-import type { DatabaseSync, Statement } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,6 +16,11 @@ const require = createRequire(import.meta.url);
 const SQLITE_MODULE = "node:" + "sqlite";
 const sqliteModule = require(SQLITE_MODULE) as typeof import("node:sqlite");
 const DatabaseSync = sqliteModule.DatabaseSync;
+
+// node:sqlite 的类型只导出 DatabaseSync(Statement 不是顶层 named export)。
+// 通过 InstanceType / ReturnType 推导,避免重复 import 同名导致 TS2440 冲突。
+type SqliteDb = InstanceType<typeof DatabaseSync>;
+type Statement = ReturnType<SqliteDb["prepare"]>;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCHEMA_PATH = join(__dirname, "index-db-schema.sql");
@@ -70,7 +74,7 @@ export interface SynapseIndexEntry {
  * - schema 通过外部 .sql 文件管理,便于审计和迁移工具比对。
  */
 export class IndexDb {
-  private db: DatabaseSync | null = null;
+  private db: SqliteDb | null = null;
   private readonly opts: IndexDbOptions;
 
   constructor(opts: IndexDbOptions) {
