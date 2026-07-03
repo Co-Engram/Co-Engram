@@ -207,6 +207,20 @@ export async function runPostMergeCheck(params: {
 
   const auditLog = new AuditLog(dataRoot);
 
+  // ─── 索引重建(spec §7.5 关键补丁)──────────────────────────────────
+  // git pull 拉到的 .md 不进入 engram-index.json → "engram_search 找不到"
+  // fail-silent。post-merge 是补全索引的最佳时机:此时工作区已稳定,
+  // 拉到的 .md 全部在磁盘上。runDoctor({ incremental: true }) 增量扫描,
+  // 把新文件纳入索引 + 清理孤儿 entry + 修复 frontmatter,完成"git pull →
+  // 索引同步"的最后一公里。失败不阻塞后续 cross-file check(各 try/catch 独立)。
+  let doctorAutoFixed = 0;
+  try {
+    const doctorReport = repo.runDoctor({ incremental: true });
+    doctorAutoFixed = doctorReport.fixes.length;
+  } catch {
+    // doctor 失败不阻塞 cross-file check,记 0 即可
+  }
+
   // 复用 driver 的 LLM bootstrap(可选)
   const llmBootstrap = createDriverLlmClient();
   const llmArbiter = llmBootstrap
@@ -226,7 +240,7 @@ export async function runPostMergeCheck(params: {
     return {
       dataRoot,
       inconsistencies: report.inconsistencies.length,
-      autoFixed: report.autoFixedCount,
+      autoFixed: report.autoFixedCount + doctorAutoFixed,
       escalated: report.llmEscalatedCount,
       durationMs: Date.now() - startedAt,
     };
@@ -234,7 +248,7 @@ export async function runPostMergeCheck(params: {
     return {
       dataRoot,
       inconsistencies: 0,
-      autoFixed: 0,
+      autoFixed: doctorAutoFixed,
       escalated: 0,
       durationMs: Date.now() - startedAt,
       error: e instanceof Error ? e.message : String(e),

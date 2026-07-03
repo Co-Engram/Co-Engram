@@ -209,6 +209,21 @@ export class EngramRepository {
    * 会立即触发缓存失效,无需等下次 getIndex 的 mtime 兜底检查。
    */
   private indexWatcher: FSWatcher | undefined;
+
+  /**
+   * 递归 fs.watch 句柄,监听 dataRoot 下所有 .md 文件变化(可选)。
+   *
+   * 触发场景(关键):git pull / git checkout / 手动编辑 / rsync 等任何外部
+   * 写入 .md 的途径,startWatching() 单独监听 index.json 看不到这些变化。
+   * dataWatcher 触发后 debounce 调用 rebuildIndex,把磁盘 .md 真相重新
+   * 投影到 engram-index.json,避免"git pull 拉到新文件但 engram_search
+   * 找不到"的 fail-silent(架构缺陷 index-no-truth 的具体表现)。
+   */
+  private dataWatcher: FSWatcher | undefined;
+
+  /** dataWatcher debounce 定时器。git pull 一次性触发大量事件,合并为一次重建。 */
+  private dataRebuildTimer: ReturnType<typeof setTimeout> | undefined;
+
   private readonly language: Language;
 
   constructor(private readonly config: RepositoryConfig) {
@@ -339,15 +354,18 @@ export class EngramRepository {
   // ─── Cross-process watcher ─────────────────────────────────────────────
 
   /**
-   * 启动对 engram-index.json 的 fs.watch 监听。
+   * 启动对 engram-index.json 的 fs.watch 监听 + dataRoot .md 递归监听。
    *
-   * 启动后,外部进程修改 index(创建/更新/删除 engram)会触发 watcher,
-   * 主动失效 indexCache。下次 getIndex 调用时从磁盘重读。
+   * 启动后:
+   *   - index.json watcher:外部进程修改 index(创建/更新/删除 engram)→ 失效 cache
+   *   - dataRoot .md watcher:任何途径(git pull / checkout / 手动编辑)写入 .md
+   *     → debounce 后调 rebuildIndex,把磁盘真相重新投影到 index.json
    *
    * 幂等:多次调用安全,只创建一个 watcher。
    *
    * 适用场景:多个 host adapter(MCP server / OpenClaw plugin)共享同一
-   * dataRoot 时,确保各进程的缓存相互一致。
+   * dataRoot 时,确保各进程的缓存相互一致;同时覆盖 git pull 后索引漏更新
+   * 的 fail-silent 场景。
    *
    * 不需要显式停止 — 进程退出时 OS 自动回收 fd。stopWatching() 仅用于
    * 测试 / 显式资源管理场景。
@@ -371,6 +389,85 @@ export class EngramRepository {
       // persistIndex 写盘后会 lazy 重试 startWatching,覆盖首次空 dataRoot 场景。
       this.indexWatcher = undefined;
     }
+    this.startDataRootWatcher();
+  }
+
+  /**
+   * 启动 dataRoot 下 .md 文件的递归 fs.watch。
+   *
+   * Node 22+ 在 Linux/macOS/Windows 都支持 `recursive: true`(Linux 通过 inotify)。
+   * 不支持的平台(NFS / 老 Node)→ catch 后 noop,startWatching 的 index.json
+   * watcher + getIndex 的 mtime 兜底仍然有效,只是 .md 变化需要等下次主动 getIndex。
+   *
+   * 触发后通过 scheduleDataRebuild debounce 合并,避免 git pull 一次性大量事件
+   * 触发多次 rebuildIndex。
+   */
+  private startDataRootWatcher(): void {
+    if (this.dataWatcher) return;
+    try {
+      this.dataWatcher = watch(
+        this.config.rootPath,
+        { recursive: true, persistent: false },
+        (_eventType, filename) => {
+          if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
+            process.stderr.write(
+              `[co-engram-watcher] event=${_eventType} filename=${filename ?? "null"}\n`,
+            );
+          }
+          // 只关心 .md 变化(.yaml / .json / .co-engram/ 内部状态由 index.json
+          // watcher 或 persistIndex 路径覆盖)。filename 跨平台可能为 null,
+          // 不可靠时宁可多触发一次 rebuildIndex 也不要漏事件。
+          if (typeof filename === "string" && !filename.endsWith(".md")) return;
+          this.scheduleDataRebuild();
+        },
+      );
+      this.dataWatcher.on("error", () => {
+        this.dataWatcher = undefined;
+      });
+    } catch {
+      // 平台不支持 recursive fs.watch → 降级,功能不阻塞
+      this.dataWatcher = undefined;
+    }
+  }
+
+  /**
+   * Debounce 调用 rebuildIndex,合并短时间内的多次 .md 变化事件。
+   *
+   * git pull / rsync 等批量操作会一次性产生几十~几百个事件,逐个触发
+   * rebuildIndex(全量扫盘)会卡死。1000ms debounce 把它们合并成一次重建。
+   */
+  private scheduleDataRebuild(): void {
+    if (this.dataRebuildTimer) clearTimeout(this.dataRebuildTimer);
+    this.dataRebuildTimer = setTimeout(() => {
+      this.dataRebuildTimer = undefined;
+      try {
+        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
+          process.stderr.write(`[co-engram-watcher] rebuildIndex triggered\n`);
+        }
+        // rebuildIndex 全量扫盘重读所有 .md,更新 engram-index.json。
+        // 之后 persistIndex 写 index.json → 触发 indexWatcher → invalidateIndexCache
+        // → searchOrchestrator 重建 ftsIndex,完成全链路同步。
+        const result = this.rebuildIndex();
+        this.invalidateIndexCache();
+        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
+          const count = (result as unknown as { entries?: unknown }).entries
+            ? Object.keys(
+                (result as unknown as { entries: object }).entries,
+              ).length
+            : "?";
+          process.stderr.write(
+            `[co-engram-watcher] rebuildIndex done, entries=${count}\n`,
+          );
+        }
+      } catch (e) {
+        if (process.env["CO_ENGRAM_WATCHER_DEBUG"]) {
+          process.stderr.write(
+            `[co-engram-watcher] rebuildIndex failed: ${e instanceof Error ? e.message : String(e)}\n`,
+          );
+        }
+        // 重建失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
+      }
+    }, 1000);
   }
 
   /** 停止 watcher(主要用于测试隔离) */
@@ -382,6 +479,18 @@ export class EngramRepository {
         // ignore
       }
       this.indexWatcher = undefined;
+    }
+    if (this.dataWatcher) {
+      try {
+        this.dataWatcher.close();
+      } catch {
+        // ignore
+      }
+      this.dataWatcher = undefined;
+    }
+    if (this.dataRebuildTimer) {
+      clearTimeout(this.dataRebuildTimer);
+      this.dataRebuildTimer = undefined;
     }
   }
 

@@ -16,6 +16,7 @@
 import { existsSync } from "node:fs";
 import { dirname } from "node:path";
 import { installMergeDriver } from "./onboard.js";
+import { installPostMergeHook } from "./post-merge-hook.js";
 
 /**
  * 解析 merge-driver bundle 的源路径。
@@ -53,19 +54,25 @@ export interface AutoOnboardResult {
   readonly bundleUpgraded?: boolean;
   /** .gitattributes 是否被新增条目。 */
   readonly gitattributesUpdated?: boolean;
+  /** post-merge hook 是否在本次 onboard 中安装/覆盖(true=主路径或 sidecar 落地)。 */
+  readonly postMergeHookInstalled?: boolean;
   /** 错误信息(onboard 抛错时填,host 不应崩溃)。 */
   readonly error?: string;
 }
 
 /**
- * 自动 onboard merge driver。
+ * 自动 onboard merge driver + post-merge hook。
  *
  * 行为:
  *   1. 找 dataRoot 所在 git repo(找不到就 noop)
  *   2. 验证 bundle 源存在(不存在就 noop)
  *   3. 调 installMergeDriver
+ *   4. 调 installPostMergeHook —— 让 git pull 后自动跑 runPostMergeCheck,
+ *      后者会调 runDoctor 重建索引,补齐"git pull 拉到新 .md → engram-index.json
+ *      漏更新"的最后一公里(spec §7.5 + index-no-truth 架构缺陷修复)
  *
  * 任何步骤抛错都返回 `{ attempted: true, error: msg }`,不向上抛。
+ * post-merge hook 安装失败不影响 merge driver 已装好的状态。
  */
 export function autoOnboardMergeDriver(params: {
   dataRoot: string;
@@ -83,19 +90,40 @@ export function autoOnboardMergeDriver(params: {
     return { attempted: false };
   }
 
+  let postMergeHookInstalled = false;
+  let driverStats:
+    | { bundleUpgraded: boolean; gitattributesUpdated: boolean }
+    | undefined;
+  let onboardError: string | undefined;
+
   try {
-    const result = installMergeDriver({ repoRoot, bundleSourcePath });
-    return {
-      attempted: true,
-      repoRoot,
-      bundleUpgraded: result.bundleUpgraded,
-      gitattributesUpdated: result.gitattributesUpdated,
-    };
+    driverStats = installMergeDriver({ repoRoot, bundleSourcePath });
   } catch (e) {
-    return {
-      attempted: true,
-      repoRoot,
-      error: e instanceof Error ? e.message : String(e),
-    };
+    onboardError = e instanceof Error ? e.message : String(e);
   }
+
+  // merge driver 失败不阻塞 post-merge hook 安装(两者解决不同问题,
+  // 用户至少要享受到 post-merge 索引同步的能力)。但任一失败都记到 error 字段。
+  try {
+    installPostMergeHook({ repoRoot });
+    postMergeHookInstalled = true;
+  } catch (e) {
+    const hookError = e instanceof Error ? e.message : String(e);
+    onboardError = onboardError
+      ? `${onboardError}; ${hookError}`
+      : hookError;
+  }
+
+  return {
+    attempted: true,
+    repoRoot,
+    postMergeHookInstalled,
+    ...(driverStats !== undefined
+      ? {
+          bundleUpgraded: driverStats.bundleUpgraded,
+          gitattributesUpdated: driverStats.gitattributesUpdated,
+        }
+      : {}),
+    ...(onboardError !== undefined ? { error: onboardError } : {}),
+  };
 }
