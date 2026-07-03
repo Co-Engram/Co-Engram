@@ -1321,6 +1321,25 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.config.dataRootRejectEmpty": "路径不能为空。",
   "viewer.config.dataRootRejectNonEngram":
     "目录非空且不是 co-engram 仓库。请选空目录或现有 co-engram 仓库;如需强制接管非空目录,使用 CLI:<code>co-engram config data-root &lt;path&gt; --force</code>。",
+  // 首次设置 / non-engram 二次确认 UX(UI 弹此 banner 代替硬拒绝,免去走 CLI)
+  "viewer.config.dataRootNonEngramConfirmTitle":
+    "此目录已有其他文件",
+  "viewer.config.dataRootNonEngramConfirmBody":
+    "co-engram 只会在 <code>{path}</code> 中创建 <code>.co-engram/</code> 子目录,不会改动你已有的文件。",
+  "viewer.config.dataRootNonEngramExistingList":
+    "现有 {count} 项:{files}",
+  "viewer.config.dataRootNonEngramMore": "……以及其他 {count} 项",
+  "viewer.config.dataRootTakeOver": "接管此目录",
+  "viewer.config.dataRootTakeOverConfirm":
+    "接管 <code>{path}</code>?co-engram 会新建一个 <code>.co-engram/</code> 子目录,不影响你已有的文件。",
+  "viewer.config.dataRootCancelled": "已取消接管。",
+  // 首次用户引导(dataRoot=null 时显示)
+  "viewer.config.dataRootWelcomeTitle": "欢迎使用 —— 先设置你的团队记忆位置",
+  "viewer.config.dataRootWelcomeBody":
+    "co-engram 把团队记忆存放在你选择的目录里。下面几个常用位置任选其一,或输入任意路径。co-engram 只会在目录里创建 <code>.co-engram/</code> 子目录,不会影响已有文件。",
+  "viewer.config.dataRootWelcomeSuggestHome": "使用 ~/team-memory(推荐)",
+  "viewer.config.dataRootWelcomeSuggestHidden": "使用 ~/.co-engram-data",
+  "viewer.config.dataRootWelcomeCustom": "或输入自定义路径:",
   "viewer.config.saveBar.reset": "重置",
   "viewer.config.saveBar.save": "保存配置",
   "viewer.config.saveSuccess": "✓ 配置已保存。",
@@ -1473,7 +1492,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.opsPorts":
     "<strong>查看器端口</strong>:Claude Code(MCP)默认 <code>18799</code>,OpenClaw(plugin)默认 <code>18899</code>——两宿主同机运行不冲突。环境变量 <code>CO_ENGRAM_VIEWER_PORT</code> 可同时覆盖两宿主。持久化配置里的 <code>viewer.port</code> 已废弃(两宿主共享持久化文件会抢端口)。",
   "viewer.help.opsDataRoot":
-    "<strong>数据根目录</strong>:在配置 tab 直接输入路径并保存,或用 CLI <code>co-engram config data-root &lt;path&gt;</code>。两者都写同一份 <code>~/.co-engram/config.json</code> bootstrap 配置,修改后需重启当前宿主生效。UI 出于安全只接受空目录或现有 co-engram 仓库;要接管非空非 co-engram 目录请走 CLI 加 <code>--force</code>。",
+    "<strong>数据根目录</strong>:首次打开配置 tab 会看到欢迎卡片,点 <code>~/team-memory</code> 或 <code>~/.co-engram-data</code> 一键设置;也可输入任意自定义路径。若目录已有其他文件,UI 会列出这些文件并让你二次确认 —— co-engram 只在目录里创建 <code>.co-engram/</code> 子目录,不会改动你已有的文件。也可用 CLI <code>co-engram config data-root &lt;path&gt;</code>(加 <code>--force</code> 跳过二次确认)。修改后需重启当前宿主生效。",
 
   // ===== 工具 profile =====
   "viewer.help.profilesTitle": "工具 profile",

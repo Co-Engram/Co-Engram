@@ -725,7 +725,7 @@ co-engram config data-root --reset             # 重置为 $HOME/team-memory
 co-engram config data-root /path --force       # 强制接管非空目录
 ```
 
-**Viewer 网页**:打开 viewer(端口见下文),进入"配置"tab,编辑"数据根目录"字段并保存。网页 UI 拒绝非空非 co-engram 目录 —— 那种情况请用 CLI 加 `--force`。保存后需重启宿主(Claude Code 或 `openclaw gateway restart`)生效。
+**Viewer 网页**:打开 viewer(端口见下文),进入"配置"tab。首次打开(尚未设置 dataRoot)会看到欢迎卡片,提供 `~/team-memory`、`~/.co-engram-data` 一键推荐,也可输入自定义路径。若指向的目录已有其他文件,UI 会列出现有文件并请用户二次确认 —— co-engram 只会在目录里创建 `.co-engram/` 子目录,不会改动用户已有文件。CLI 加 `--force` 可跳过二次确认。修改后需重启宿主(Claude Code 或 `openclaw gateway restart`)生效。
 
 若 `~/.co-engram/config.json` 缺失或 `dataRoot` 字段未设,co-engram 会回退到 `$HOME/team-memory` 并在 stderr 输出一次性提示。环境变量 `CO_ENGRAM_DATA_ROOT` 和旧的 `desiredDataRoot` 配置字段不再生效(若仍设置会打印 stderr 警告)。
 

@@ -793,12 +793,20 @@ async function routeApi(
       const persisted = dataRoot
         ? await readTeamMemoryConfig(dataRoot)
         : undefined;
+      // 推荐的 dataroot 候选路径(后端有 process.env.HOME;前端拿不到,故此处下发)
+      // 用于首次用户引导卡片的"推荐路径"按钮
+      const home = process.env.HOME || process.env.USERPROFILE || "~";
       respondJson(res, 200, {
         enabled: !!dataRoot,
         dataRoot: dataRoot || null,
         // dataRoot 现可在 UI 编辑(写 ~/.co-engram/config.json bootstrap);
-        // UI 不支持 --force,拒绝非空非 co-engram 目录(走 CLI)
+        // UI 二次确认后透传 force=true;首次默认 false
         dataRootReadOnly: false,
+        // 首次用户(dataRoot=null)的引导按钮使用这两个候选路径
+        suggestedPaths: {
+          home: `${home}/team-memory`,
+          hidden: `${home}/.co-engram-data`,
+        },
         // hostType:当前 viewer 的宿主模式,UI 文字按此适配
         //   'mcp-server' → 重启提示指 "Claude Code",支持自动重启
         //   'openclaw-plugin' → 重启提示指 "OpenClaw",需手动 `openclaw gateway restart`
@@ -826,16 +834,19 @@ async function routeApi(
 
       // dataRoot 编辑:写 ~/.co-engram/config.json bootstrap config(单一权威源)
       // 共享 applyDataRootChange 验证 + 初始化逻辑(与 CLI 同源)
-      // UI 不支持 --force:拒绝非空非 co-engram 目录,提示用户走 CLI
+      // UI 二次确认后透传 force=true;首次默认 false,non-engram 时返回 existingFiles
+      // 让 UI 弹"确认接管此目录"对话框(中文化、列出现有文件)
       if (typeof body.dataRoot === "string" && body.dataRoot.trim()) {
-        const result = await applyDataRootChange(body.dataRoot, {
-          force: false,
-        });
+        const force = body.force === true || body.force === "true";
+        const result = await applyDataRootChange(body.dataRoot, { force });
         if (!result.ok) {
           respondJson(res, 400, {
             ok: false,
             error: result.error,
             reason: result.reason,
+            // non-engram 失败时附现有文件清单,让 UI 展示并支持二次确认 force=true
+            existingFiles: result.existingFiles ?? [],
+            existingCount: result.existingCount ?? 0,
           });
           return;
         }

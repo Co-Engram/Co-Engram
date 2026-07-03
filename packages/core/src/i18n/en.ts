@@ -1368,6 +1368,25 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.config.dataRootRejectEmpty": "Path cannot be empty.",
   "viewer.config.dataRootRejectNonEngram":
     "Directory is non-empty and not a co-engram warehouse. Pick an empty dir or an existing co-engram warehouse; to force-takeover a non-empty dir, use CLI: <code>co-engram config data-root &lt;path&gt; --force</code>.",
+  // 首次设置 / non-engram 二次确认 UX(UI 弹此 banner 代替硬拒绝,免去走 CLI)
+  "viewer.config.dataRootNonEngramConfirmTitle":
+    "This directory already has files",
+  "viewer.config.dataRootNonEngramConfirmBody":
+    "co-engram will only create a <code>.co-engram/</code> subfolder inside <code>{path}</code>; your existing files will not be touched.",
+  "viewer.config.dataRootNonEngramExistingList":
+    "Existing items ({count}): {files}",
+  "viewer.config.dataRootNonEngramMore": "…and {count} more",
+  "viewer.config.dataRootTakeOver": "Take over this directory",
+  "viewer.config.dataRootTakeOverConfirm":
+    "Take over <code>{path}</code>? co-engram will add a <code>.co-engram/</code> subfolder; existing files stay untouched.",
+  "viewer.config.dataRootCancelled": "Takeover cancelled.",
+  // 首次用户引导(dataRoot=null 时显示)
+  "viewer.config.dataRootWelcomeTitle": "Welcome — set your team memory location",
+  "viewer.config.dataRootWelcomeBody":
+    "co-engram stores team memory in a folder you choose. Pick one of the common locations below, or type any path. co-engram will create a <code>.co-engram/</code> subfolder; existing files in the directory are not touched.",
+  "viewer.config.dataRootWelcomeSuggestHome": "Use ~/team-memory (recommended)",
+  "viewer.config.dataRootWelcomeSuggestHidden": "Use ~/.co-engram-data",
+  "viewer.config.dataRootWelcomeCustom": "Or type a custom path:",
   "viewer.config.saveBar.reset": "Reset",
   "viewer.config.saveBar.save": "Save config",
   "viewer.config.saveSuccess": "✓ Configuration saved.",
@@ -1520,7 +1539,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.opsPorts":
     "<strong>Viewer port</strong>:Claude Code (MCP) defaults to <code>18799</code>,OpenClaw (plugin) defaults to <code>18899</code> — both hosts can run side-by-side without conflict. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides both. The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port).",
   "viewer.help.opsDataRoot":
-    "<strong>Data root</strong>:edit directly in the Config tab, or via CLI <code>co-engram config data-root &lt;path&gt;</code>. Both write the same <code>~/.co-engram/config.json</code> bootstrap config; restart the current host to apply. For safety, the UI only accepts empty dirs or existing co-engram warehouses; to take over a non-empty non-co-engram dir use the CLI with <code>--force</code>.",
+    "<strong>Data root</strong>:the Config tab shows a welcome card on first open — click <code>~/team-memory</code> or <code>~/.co-engram-data</code> for a one-click setup, or type any custom path. If the directory already has files, the UI lists them and asks for confirmation — co-engram only creates a <code>.co-engram/</code> subfolder; your existing files stay untouched. CLI alternative: <code>co-engram config data-root &lt;path&gt;</code> (add <code>--force</code> to skip confirmation). Restart the current host to apply.",
 
   // ===== Tool profiles =====
   "viewer.help.profilesTitle": "Tool profiles",

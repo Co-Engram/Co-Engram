@@ -1140,10 +1140,110 @@ describe("Token 认证", () => {
 });
 
 // ============================================================
-// PUT /api/config — desiredDataRoot 字段已移除(改由 CLI co-engram config data-root 管理)
-// 旧的 desiredDataRoot 同步测试随之移除。dataRoot 改为只读字段,
-// 由 ~/.co-engram/config.json 引导配置 + co-engram config data-root CLI 命令管理。
+// PUT /api/config — dataRoot 编辑(写 ~/.co-engram/config.json bootstrap)
+// 关键 UX:non-engram 目录首次 force=false 拒绝并返回 existingFiles,
+// UI 弹"接管此目录"二次确认后,带 force=true 重发接管成功。
+// 这组测试锁住该契约,防止回归到"硬拒绝 + 让用户走 CLI"。
 // ============================================================
+
+describe("PUT /api/config dataRoot + force UX 路径", () => {
+  let tmpRoot: string;
+  let originalHome: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "co-engram-api-config-test-"));
+    originalHome = process.env.HOME;
+    process.env.HOME = tmpRoot;
+  });
+
+  afterEach(() => {
+    if (originalHome !== undefined) process.env.HOME = originalHome;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("missing dir + force=false → 200 ok:true(自动 mkdir+initialize)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const targetPath = join(tmpRoot, "new-dir");
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/config", {
+        method: "PUT",
+        body: { dataRoot: targetPath },
+      });
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      expect(body.initialized).toBe(true);
+    });
+  });
+
+  it("non-engram + force=false → 400 + reason=non-engram + existingFiles 数组", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 准备一个有用户文件的目录
+    const targetPath = join(tmpRoot, "has-files");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(targetPath, { recursive: true });
+    writeFileSync(join(targetPath, "README.md"), "# existing");
+    writeFileSync(join(targetPath, "notes.txt"), "my notes");
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/config", {
+        method: "PUT",
+        body: { dataRoot: targetPath },
+      });
+      expect(res.status).toBe(400);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(false);
+      expect(body.reason).toBe("non-engram");
+      // 关键:返回 existingFiles 让 UI 能弹二次确认 banner
+      expect(Array.isArray(body.existingFiles)).toBe(true);
+      expect(body.existingCount).toBeGreaterThanOrEqual(2);
+      expect(body.existingFiles.sort()).toEqual(["README.md", "notes.txt"]);
+    });
+  });
+
+  it("non-engram + force=true → 200 ok:true + 用户原有文件完好", async () => {
+    const ctx = makeCtx(tmpDir);
+    const targetPath = join(tmpRoot, "takeover");
+    const { mkdirSync, writeFileSync, readFileSync } = await import("node:fs");
+    mkdirSync(targetPath, { recursive: true });
+    writeFileSync(join(targetPath, "README.md"), "# my project");
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/config", {
+        method: "PUT",
+        body: { dataRoot: targetPath, force: true },
+      });
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.ok).toBe(true);
+      expect(body.initialized).toBe(true);
+    });
+
+    // 用户的 README.md 必须完好——这是 force 的核心信任基础
+    const readme = readFileSync(join(targetPath, "README.md"), "utf8");
+    expect(readme).toBe("# my project");
+    // .co-engram/ 子目录被创建,内含合法 config.json
+    const configJson = readFileSync(
+      join(targetPath, ".co-engram", "config.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(configJson);
+    expect(parsed.version).toBe(1);
+  });
+
+  it("GET /api/config 返回 suggestedPaths 让首次 UI 显示推荐路径", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/config");
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.suggestedPaths).toBeDefined();
+      expect(typeof body.suggestedPaths.home).toBe("string");
+      expect(body.suggestedPaths.home).toContain("team-memory");
+      expect(body.suggestedPaths.hidden).toContain(".co-engram-data");
+    });
+  });
+});
 
 // ============================================================
 // POST /api/restart — 触发 MCP 服务优雅退出

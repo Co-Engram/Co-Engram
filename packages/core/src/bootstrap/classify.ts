@@ -89,6 +89,12 @@ export interface ApplyDataRootFailureResult {
   readonly ok: false;
   readonly error: string;
   readonly reason: "non-engram" | "invalid" | "init-failed";
+  /**
+   * non-engram 失败时附带:目标目录里现有的文件/子目录名(最多 10 个)+ 总数。
+   * UI 用它给用户展示"将接管此目录,你的这些文件不会被改动",让用户二次确认。
+   */
+  readonly existingFiles?: readonly string[];
+  readonly existingCount?: number;
 }
 
 /** applyDataRootChange 结果 */
@@ -124,10 +130,24 @@ export async function applyDataRootChange(
   const classification = classifyTargetPath(newPath);
 
   if (classification === "non-engram" && !options.force) {
+    // 收集目录里现有的文件/子目录名(最多 10 个),让 UI 展示给用户。
+    // co-engram 接管时只在目录里创建 .co-engram/ 子目录,不会触碰这些文件;
+    // 但仍需让用户清楚地"看到自己在接管什么",二次确认后再 force=true 重发。
+    let existingFiles: string[] = [];
+    let existingCount = 0;
+    try {
+      const all = readdirSync(newPath);
+      existingCount = all.length;
+      existingFiles = all.slice(0, 10);
+    } catch {
+      // 读失败就空数组返回,UI 仍可继续(基于 reason 给出二次确认)
+    }
     return {
       ok: false,
       error: `Directory ${newPath} exists but is not a co-engram warehouse (no .co-engram/config.json). It may contain unrelated user data. Use --force (CLI) to take over.`,
       reason: "non-engram",
+      existingFiles,
+      existingCount,
     };
   }
 

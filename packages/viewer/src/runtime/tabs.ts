@@ -1549,6 +1549,19 @@ window.CO_ENGRAM_CONFIG = {
     html += '<div class="config-section">';
     html += '<h3>' + T.t('viewer.config.sectionMetadata') + '</h3>';
     const currentDataRoot = data.dataRoot || T.t('viewer.common.unknown');
+    // 首次用户(dataRoot=null)展示欢迎引导卡片,推荐常用路径 + 解释 .co-engram/ 子目录
+    // 已设置过 dataRoot 的用户跳过引导,只看下面的输入框
+    if (!data.dataRoot) {
+      html += '<div class="info-banner" style="margin:0 0 .8rem 0;padding:1rem;border-left:3px solid var(--accent,#4a90e2)">'
+        + '<h4 style="margin:0 0 .5rem 0">' + T.t('viewer.config.dataRootWelcomeTitle') + '</h4>'
+        + '<div style="font-size:.92em">' + T.t('viewer.config.dataRootWelcomeBody') + '</div>'
+        + '<div style="margin-top:.6rem;display:flex;flex-direction:column;gap:.4rem">'
+        + '<button class="btn" onclick="CO_ENGRAM_CONFIG.suggestDataRoot(1)">' + T.t('viewer.config.dataRootWelcomeSuggestHome') + '</button>'
+        + '<button class="btn secondary" onclick="CO_ENGRAM_CONFIG.suggestDataRoot(2)">' + T.t('viewer.config.dataRootWelcomeSuggestHidden') + '</button>'
+        + '</div>'
+        + '<div style="margin-top:.6rem;font-size:.85em;color:var(--muted,#666)">' + T.t('viewer.config.dataRootWelcomeCustom') + '</div>'
+        + '</div>';
+    }
     html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.dataRoot') + '<span class="desc">' + T.t('viewer.config.field.dataRoot.desc') + '</span></div>'
       + '<div class="config-control" style="display:flex;gap:.4rem;align-items:center">'
       + '<input id="cf-dataRoot-input" type="text" value="' + CO_ENGRAM.escapeHtml(currentDataRoot) + '" style="flex:1" placeholder="/home/USER/team-memory">'
@@ -1580,10 +1593,13 @@ window.CO_ENGRAM_CONFIG = {
   /**
    * 保存 dataRoot(写 ~/.co-engram/config.json bootstrap)
    *
-   * UI 不支持 --force:拒绝非空非 co-engram 目录,提示用户走 CLI。
-   * 成功后显示"重启生效"banner(hostType 区分 Claude Code / OpenClaw)。
+   * 行为:
+   *   - 第一次点击 force=false,后端拒绝 non-engram 时返回现有文件清单
+   *   - UI 弹"接管此目录"二次确认 banner(展示现有文件,co-engram 不会触碰它们)
+   *   - 用户确认 → 带 force=true 重发请求
+   *   - 成功后显示"重启生效"banner(hostType 区分 Claude Code / OpenClaw)
    */
-  async saveDataRoot() {
+  async saveDataRoot(force) {
     const T = CO_ENGRAM_T;
     const input = document.getElementById('cf-dataRoot-input');
     if (!input) return;
@@ -1596,24 +1612,72 @@ window.CO_ENGRAM_CONFIG = {
     const isPlugin = hostType === 'openclaw-plugin';
     const HOST_LABEL = isPlugin ? T.t('host.label.openclaw') : T.t('host.label.mcp');
     try {
-      const resp = await CO_ENGRAM.apiJson('/api/config', 'PUT', { dataRoot: newValue });
+      const resp = await CO_ENGRAM.apiJson('/api/config', 'PUT', { dataRoot: newValue, force: force === true });
       if (resp && resp.ok) {
         const restartHint = isPlugin
           ? T.t('viewer.config.dataRootUpdatedRestartRequired', { host: HOST_LABEL })
           : T.t('viewer.config.dataRootUpdatedRestartRequired', { host: HOST_LABEL });
         this._showDataRootBanner(restartHint, 'pending-restart');
-      } else {
-        const reason = resp && resp.reason === 'non-engram'
-          ? T.t('viewer.config.dataRootRejectNonEngram')
-          : T.t('viewer.config.dataRootUpdateFailed', { error: (resp && resp.error) || 'unknown' });
-        this._showDataRootBanner(reason, 'warn');
+        return;
       }
+      // non-engram 失败:改弹二次确认 banner(展示现有文件,提供"接管此目录"按钮)
+      // co-engram 接管只创建 .co-engram/ 子目录,不会触碰这些文件 → 二次确认后安全 force=true
+      if (resp && resp.reason === 'non-engram') {
+        const escapedPath = CO_ENGRAM.escapeHtml(newValue);
+        const list = Array.isArray(resp.existingFiles) ? resp.existingFiles : [];
+        const total = typeof resp.existingCount === 'number' ? resp.existingCount : list.length;
+        const shown = list.slice(0, 10).map(f => '<code>' + CO_ENGRAM.escapeHtml(f) + '</code>').join('、');
+        const more = total > list.length
+          ? '<div style="margin-top:.4rem;font-size:.85em;color:var(--muted,#666)">' + T.t('viewer.config.dataRootNonEngramMore', { count: total - list.length }) + '</div>'
+          : '';
+        const fileList = shown
+          ? '<div style="margin:.4rem 0">' + T.t('viewer.config.dataRootNonEngramExistingList', { count: total, files: shown }) + more + '</div>'
+          : '';
+        const body = '<strong>' + T.t('viewer.config.dataRootNonEngramConfirmTitle') + '</strong>'
+          + '<div style="margin-top:.4rem">' + T.t('viewer.config.dataRootNonEngramConfirmBody', { path: newValue }) + '</div>'
+          + fileList
+          + '<div style="margin-top:.6rem;display:flex;gap:.5rem;flex-wrap:wrap">'
+          + '<button class="btn" onclick="CO_ENGRAM_CONFIG.saveDataRoot(true)">'
+          + T.t('viewer.config.dataRootTakeOver') + '</button>'
+          + '<button class="btn secondary" onclick="CO_ENGRAM_CONFIG.cancelTakeOver()">'
+          + T.t('viewer.config.saveBar.reset') + '</button>'
+          + '</div>';
+        this._showDataRootBanner(body, 'warn');
+        return;
+      }
+      this._showDataRootBanner(
+        T.t('viewer.config.dataRootUpdateFailed', { error: (resp && resp.error) || 'unknown' }),
+        'warn',
+      );
     } catch (e) {
       this._showDataRootBanner(
         T.t('viewer.config.dataRootUpdateFailed', { error: e.message || String(e) }),
         'warn',
       );
     }
+  },
+
+  cancelTakeOver() {
+    const T = CO_ENGRAM_T;
+    this._showDataRootBanner(T.t('viewer.config.dataRootCancelled'), 'success');
+  },
+
+  /**
+   * 点击推荐路径按钮(home/hidden)时填入 input 并自动触发保存。
+   * 路径来自后端 GET /api/config 的 suggestedPaths(后端有 process.env.HOME)。
+   * 首次用户最自然的动作就是"点一下推荐路径 → 完成"。
+   *
+   * kind 用数字(1=home, 2=hidden)而非字符串字面量,避免 template literal
+   * 把 onclick="...(\'home\')" 解析后变成裸 'home' 破坏 JS 字符串。
+   */
+  suggestDataRoot(kind) {
+    const input = document.getElementById('cf-dataRoot-input');
+    if (!input) return;
+    const suggest = (CO_ENGRAM._configData && CO_ENGRAM._configData.suggestedPaths) || {};
+    const path = kind === 2 ? suggest.hidden : suggest.home;
+    if (!path) return;
+    input.value = path;
+    return this.saveDataRoot();
   },
 
   _showDataRootBanner(message, kind) {

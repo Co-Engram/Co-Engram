@@ -100,6 +100,21 @@ const VIEWER_RUNTIME_KEYS = [
   "engrams.empty",
   "engrams.retrievalsCount",
   "engrams.untagged",
+
+  // config tab:首次 dataroot 设置 UX(non-engram 二次确认 + 欢迎引导)
+  // 任何一个 key 在 zh/en 任一语言里漏翻译都会被捕获
+  "viewer.config.dataRootNonEngramConfirmTitle",
+  "viewer.config.dataRootNonEngramConfirmBody",
+  "viewer.config.dataRootNonEngramExistingList",
+  "viewer.config.dataRootNonEngramMore",
+  "viewer.config.dataRootTakeOver",
+  "viewer.config.dataRootTakeOverConfirm",
+  "viewer.config.dataRootCancelled",
+  "viewer.config.dataRootWelcomeTitle",
+  "viewer.config.dataRootWelcomeBody",
+  "viewer.config.dataRootWelcomeSuggestHome",
+  "viewer.config.dataRootWelcomeSuggestHidden",
+  "viewer.config.dataRootWelcomeCustom",
 ] as const;
 
 describe("viewer i18n / dictionary coverage", () => {

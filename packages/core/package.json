@@ -1,6 +1,6 @@
 {
   "name": "@co-engram/core",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Host-agnostic team memory engine with neuroscience-inspired plasticity.",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",

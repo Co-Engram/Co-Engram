@@ -725,7 +725,7 @@ co-engram config data-root --reset             # reset to $HOME/team-memory
 co-engram config data-root /path --force       # take over a non-empty dir
 ```
 
-**Viewer web UI**: open the viewer (see ports below), go to the Config tab, edit the "Data root" field, click Save. The web UI refuses non-empty non-co-engram directories — use the CLI with `--force` for that case. Restart the host (Claude Code or `openclaw gateway restart`) for the change to take effect.
+**Viewer web UI**: open the viewer (see ports below), go to the Config tab. On first open (no data root set), a welcome card offers `~/team-memory` and `~/.co-engram-data` as one-click suggestions, plus a custom path field. If you point at a directory that already has files, the UI lists them and asks for confirmation — co-engram only creates a `.co-engram/` subfolder; existing files stay untouched. CLI with `--force` skips the confirmation prompt. Restart the host (Claude Code or `openclaw gateway restart`) for any change to take effect.
 
 If `~/.co-engram/config.json` is missing or its `dataRoot` field is unset, co-engram falls back to `$HOME/team-memory` and prints a one-time stderr hint. The env var `CO_ENGRAM_DATA_ROOT` and the old `desiredDataRoot` config field are no longer honored (a stderr warning is printed if either is set).
 
