@@ -7,6 +7,24 @@
 
 export const TABS_RUNTIME = `
 // ============================================================
+// Helpers — renderVisibilityBadge(供列表 / 详情 / 提案复用)
+// ============================================================
+// 图标映射(emoji 简洁、零依赖,且与已存在的 🔒 private 锁图标风格一致)
+CO_ENGRAM._VISIBILITY_ICON = { public: '🌍', team: '👥', private: '🔒', restricted: '⚠️' };
+CO_ENGRAM.renderVisibilityBadge = function(visibility) {
+  // visibility 缺省时回退到 'public'(与 EngramVisibility 默认值一致)
+  var v = visibility || 'public';
+  var icon = CO_ENGRAM._VISIBILITY_ICON[v] || '';
+  var T = CO_ENGRAM_T;
+  var label = T.t('viewer.engram.visibilityBadge.' + v);
+  var tip = T.t('viewer.engram.visibilityBadge.' + v + '.tip');
+  // chip 基类 + visibility-{level} 颜色类;visibility-badge 老类名向后兼容
+  return '<span class="chip visibility-badge visibility-' + v + '" title="' + CO_ENGRAM.escapeHtml(tip) + '">'
+    + icon + ' ' + CO_ENGRAM.escapeHtml(label)
+    + '</span>';
+};
+
+// ============================================================
 // Stats
 // ============================================================
 CO_ENGRAM.on('stats', async function() {
@@ -223,6 +241,7 @@ window.CO_ENGRAM_ENGRAMS = {
       return '<div class="card">'
         + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + privateIcon + CO_ENGRAM.escapeHtml(e.title) + '</div>'
         + '<div><span class="chip kind-' + e.kind + '"' + kindTip + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span> '
+        + CO_ENGRAM.renderVisibilityBadge(e.visibility)
         + CO_ENGRAM.importanceBar(e.importance) + '</div>'
         + '<div class="card-meta">'
         + (e.retrievalCount != null ? '<span' + CO_ENGRAM.tip('retrievalCount') + '>' + CO_ENGRAM.escapeHtml(T.t('engrams.retrievalsCount', { n: e.retrievalCount })) + '</span>' : '')
@@ -379,7 +398,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + T.formatScoreBand(d.confidence)
       + ' <span class="field-label"' + CO_ENGRAM.tip('status.' + (d.status || 'active')) + '>' + T.fieldLabel('status') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('status', d.status))
       + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness))
-      + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span><span class="visibility-badge visibility-' + (d.visibility || 'public') + '">' + (d.visibility === 'private' ? '🔒 ' : '') + CO_ENGRAM.escapeHtml(T.enumLabel('visibility', d.visibility || 'public')) + '</span>'
+      + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span>' + CO_ENGRAM.renderVisibilityBadge(d.visibility)
       + '</div>'
       + valueSection
       + ivSection
@@ -589,6 +608,7 @@ window.CO_ENGRAM_PROPOSALS = {
           + '<span>×' + (p.occurrences || 0) + '</span>'
           + (p.createdAt ? '<span>' + CO_ENGRAM.relativeTime(p.createdAt) + '</span>' : '')
           + '<span class="chip">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+          + (p.payload && p.payload.visibility ? CO_ENGRAM.renderVisibilityBadge(p.payload.visibility) : '')
           + '</div>';
         if (previewClip) html += '<div style="font-size:0.8rem;color:var(--fg-muted);margin-bottom:0.4rem">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
         if (p.status === 'accepted' && p.acceptedEngramId) {

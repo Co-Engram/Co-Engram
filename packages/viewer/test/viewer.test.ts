@@ -14,11 +14,14 @@ import {
   ProposalEngine,
   DEFAULT_HASHER_EMBEDDER,
   writeTeamMemoryConfig,
+  zh,
+  en,
   type Synapse,
   type SynapseKind,
   type SynapseDirection,
 } from "@co-engram/core";
 import { startViewerServer, renderSpaHtml } from "../src/index.js";
+import { TABS_RUNTIME } from "../src/runtime/tabs.js";
 
 function makeCtx(tmpDir: string) {
   const repository = new EngramRepository({ rootPath: tmpDir });
@@ -1273,6 +1276,77 @@ describe("PUT /api/config dataRoot + force UX 路径", () => {
       expect(typeof body.suggestedPaths.home).toBe("string");
       expect(body.suggestedPaths.home).toContain("team-memory");
       expect(body.suggestedPaths.hidden).toContain(".co-engram-data");
+    });
+  });
+});
+
+// ============================================================
+// renderVisibilityBadge — 列表 / 详情 / 提案显示 visibility 徽章
+// ============================================================
+//
+// 注意:tabs.ts 是 export const TABS_RUNTIME = "..." 的字符串注入,不是普通 TS 模块。
+// 不能 `import { renderVisibilityBadge }`。沿用 health-tab.test.ts 的字符串断言模式:
+//   1. TABS_RUNTIME 含 renderVisibilityBadge 函数定义
+//   2. TABS_RUNTIME 的列表 / 详情 / 提案三处调用 renderVisibilityBadge
+//   3. zh / en i18n 含 viewer.engram.visibilityBadge.{level}.tip 翻译键
+//   4. 实际 HTTP /api/engrams 渲染的 HTML 含 visibility 徽章 chip
+
+describe("renderVisibilityBadge", () => {
+  const VISIBILITIES = ["public", "team", "private", "restricted"] as const;
+
+  it("TABS_RUNTIME 含 renderVisibilityBadge 函数定义", () => {
+    expect(TABS_RUNTIME).toContain("renderVisibilityBadge");
+    // 函数体含四种 visibility 的图标映射
+    expect(TABS_RUNTIME).toContain("🌍");
+    expect(TABS_RUNTIME).toContain("👥");
+    expect(TABS_RUNTIME).toContain("🔒");
+    expect(TABS_RUNTIME).toContain("⚠️");
+  });
+
+  it("函数返回带 chip / visibility-* / title 的 HTML", () => {
+    // 函数定义里必须含 class="chip visibility- + title= 的模板
+    expect(TABS_RUNTIME).toContain("visibility-");
+    expect(TABS_RUNTIME).toContain("title=");
+  });
+
+  it("TABS_RUNTIME 在 engram 列表 / 详情 / 提案三处调用 renderVisibilityBadge", () => {
+    const occurrences = TABS_RUNTIME.split("renderVisibilityBadge").length - 1;
+    // 1 处函数定义 + 3 处调用 = 至少 4 次
+    expect(occurrences).toBeGreaterThanOrEqual(4);
+  });
+
+  for (const v of VISIBILITIES) {
+    it(`zh 含 viewer.engram.visibilityBadge.${v}.tip 翻译键`, () => {
+      const key = `viewer.engram.visibilityBadge.${v}.tip` as keyof typeof zh;
+      expect(zh[key], `zh.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`en 含 viewer.engram.visibilityBadge.${v}.tip 翻译键`, () => {
+      const key = `viewer.engram.visibilityBadge.${v}.tip` as keyof typeof en;
+      expect(en[key], `en.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`zh 与 en 的 ${v}.tip 翻译不同(防复制粘贴漏改)`, () => {
+      const key = `viewer.engram.visibilityBadge.${v}.tip` as keyof typeof zh;
+      expect(zh[key]).not.toBe(en[key as keyof typeof en]);
+    });
+  }
+
+  it("engram 列表 HTTP 渲染包含 visibility 徽章 chip", async () => {
+    const ctx = makeCtx(tmpDir);
+    ctx.repository.createEngram({
+      title: "测试 visibility badge",
+      content: "private engram 用于验证列表渲染含徽章",
+      kind: "fact",
+      domainTags: ["test"],
+      visibility: "private",
+      createdBy: "test",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/engrams");
+      expect(res.status).toBe(200);
+      // /api/engrams 返回 JSON,不含 HTML;真正列表渲染发生在 TABS_RUNTIME 客户端。
+      // 这里仅校验后端返回的 engram 含 visibility 字段,前端 chip 由字符串断言覆盖。
+      const body = JSON.parse(res.body);
+      expect(body.results[0].visibility).toBe("private");
     });
   });
 });

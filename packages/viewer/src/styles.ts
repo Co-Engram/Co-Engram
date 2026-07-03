@@ -409,6 +409,27 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
   color: #f43f5e;
   border-color: rgba(244, 63, 94, 0.30);
 }
+/* chip.visibility-* — renderVisibilityBadge 输出 alias,与 visibility-badge.visibility-* 同色 */
+.chip.visibility-public {
+  background: rgba(148, 163, 184, 0.10);
+  color: #94a3b8;
+  border-color: rgba(148, 163, 184, 0.25);
+}
+.chip.visibility-team {
+  background: rgba(96, 165, 250, 0.10);
+  color: #60a5fa;
+  border-color: rgba(96, 165, 250, 0.25);
+}
+.chip.visibility-restricted {
+  background: rgba(251, 191, 36, 0.10);
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.25);
+}
+.chip.visibility-private {
+  background: rgba(244, 63, 94, 0.12);
+  color: #f43f5e;
+  border-color: rgba(244, 63, 94, 0.30);
+}
 /* 列表卡片标题前的 🔒 图标 */
 .lock-icon {
   display: inline-block;
