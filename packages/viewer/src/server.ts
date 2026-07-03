@@ -588,6 +588,7 @@ async function routeApi(
       readonly domainTags?: readonly string[];
       readonly createdBy?: string;
       readonly kind?: string;
+      readonly visibility?: string;
       readonly reason?: string;
       readonly dismissDays?: number;
     }>(req);
@@ -601,6 +602,7 @@ async function routeApi(
           readonly domainTags?: readonly string[];
           readonly createdBy?: string;
           readonly kind?: "fact" | "observation" | "pattern" | "procedure" | "hypothesis";
+          readonly visibility?: "public" | "team" | "private" | "restricted";
         } = {
           ...(body?.title ? { title: body.title } : {}),
           ...(body?.content ? { content: body.content } : {}),
@@ -614,6 +616,15 @@ async function routeApi(
                   | "pattern"
                   | "procedure"
                   | "hypothesis",
+              }
+            : {}),
+          ...(body?.visibility
+            ? {
+                visibility: body.visibility as
+                  | "public"
+                  | "team"
+                  | "private"
+                  | "restricted",
               }
             : {}),
         };

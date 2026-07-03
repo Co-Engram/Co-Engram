@@ -1083,6 +1083,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.dismissedUntil": "驳回至:",
   "viewer.proposals.dismissBtn": "驳回",
   "viewer.proposals.acceptBtn": "采纳并保存",
+  "viewer.proposals.visibility.label": "可见性",
+  "viewer.proposals.visibility.hint": "默认公开;若 LLM 主动询问或你判断含敏感信息,请改 private。",
   "viewer.proposals.notFound": "提案未找到:${id}",
   "viewer.proposals.titleRequired": "请填写标题",
   "viewer.proposals.contentRequired": "请填写内容",

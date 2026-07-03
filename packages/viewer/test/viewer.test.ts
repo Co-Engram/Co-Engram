@@ -1381,3 +1381,36 @@ describe("POST /api/restart", () => {
     expect(exitCalls).toEqual([0]);
   });
 });
+
+// Task 3:提案详情表单的 visibility 选择器(字符串断言)
+// 参考 health-tab.test.ts 的字符串断言模式;TABS_RUNTIME 是注入到 iframe 的字符串。
+// 注意:visKeys 的 option 通过 `'<option value="' + v + '"'` 拼接,运行时才生成
+// `value="public"` 等;源码层只能断言 `'<option value="'` 与 `visKeys` 字面量。
+describe("Task 3: proposals visibility selector (字符串断言)", () => {
+  it("TABS_RUNTIME 在 proposal 详情表单渲染 visibility 下拉", () => {
+    // 详情表单内有 <select id="pf-visibility" name="visibility">
+    expect(TABS_RUNTIME).toContain('id="pf-visibility"');
+    expect(TABS_RUNTIME).toContain('name="visibility"');
+    // visKeys 数组里 4 个枚举值源码字面量
+    expect(TABS_RUNTIME).toContain("'public'");
+    expect(TABS_RUNTIME).toContain("'private'");
+    expect(TABS_RUNTIME).toContain("'team'");
+    expect(TABS_RUNTIME).toContain("'restricted'");
+    // 拼接 <option value="..." selected ...> 模板
+    expect(TABS_RUNTIME).toContain("<option value=\"");
+  });
+
+  it("TABS_RUNTIME 引用 visibility i18n keys(label + hint)", () => {
+    expect(TABS_RUNTIME).toContain("viewer.proposals.visibility.label");
+    expect(TABS_RUNTIME).toContain("viewer.proposals.visibility.hint");
+    // option label 用 viewer.engram.visibilityBadge.<v>
+    expect(TABS_RUNTIME).toContain("viewer.engram.visibilityBadge.");
+  });
+
+  it("acceptFromForm 读取并透传 visibility 给 /accept 端点", () => {
+    // acceptFromForm 必须读取 #pf-visibility
+    expect(TABS_RUNTIME).toMatch(/pf-visibility/);
+    // 条件性透传(非 public 才带 visibility 字段)
+    expect(TABS_RUNTIME).toMatch(/visibility.*!==.*'public'/);
+  });
+});

@@ -647,6 +647,15 @@ window.CO_ENGRAM_PROPOSALS = {
     const dismissed = p.status === 'dismissed';
     const editable = p.status === 'pending';
 
+    // visibility 下拉:默认 public,payload 自带 visibility 时用它预选
+    const visKeys = ['public', 'team', 'private', 'restricted'];
+    const initialVis = (p.payload && p.payload.visibility) || 'public';
+    const visOptions = visKeys.map(v =>
+      '<option value="' + v + '"' + (initialVis === v ? ' selected' : '') + CO_ENGRAM.tip('visibility.' + v) + '>'
+      + CO_ENGRAM.escapeHtml(T.t('viewer.engram.visibilityBadge.' + v))
+      + '</option>'
+    ).join('');
+
     let actionBtns = '';
     if (editable) {
       actionBtns = '<div class="config-save-bar">'
@@ -672,6 +681,10 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<label class="field-label"' + CO_ENGRAM.tip('kind.fact') + '>' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.kindLabel') : T.t('viewer.proposals.kindLabelReadonly')) + '</label>'
       + '<select id="pf-kind"' + (editable ? '' : ' disabled') + '>' + kindOptions + '</select></div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
+      + '<label class="field-label" for="pf-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.label')) + '</label>'
+      + '<select id="pf-visibility" name="visibility"' + (editable ? '' : ' disabled') + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select>'
+      + '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.hint')) + '</div></div>'
+      + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.tagsLabel') : T.t('viewer.proposals.tagsLabelReadonly')) + '</label>'
       + '<input id="pf-tags" type="text" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.tagsPlaceholder')) + '"' + (editable ? '' : ' readonly') + '></div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
@@ -694,10 +707,13 @@ window.CO_ENGRAM_PROPOSALS = {
     const content = (document.getElementById('pf-content').value || '').trim();
     const kind = document.getElementById('pf-kind').value;
     const tags = (document.getElementById('pf-tags').value || '').split(',').map(s => s.trim()).filter(Boolean);
+    const visibility = document.getElementById('pf-visibility').value;
     if (!title) { alert(T.t('viewer.proposals.titleRequired')); return; }
     if (!content) { alert(T.t('viewer.proposals.contentRequired')); return; }
     try {
-      const r = await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', { title, content, kind, domainTags: tags });
+      // visibility === 'public' 时不传,让 accept() 走默认值;非 public 才透传(减少 audit 噪声)
+      const payload = { title, content, kind, domainTags: tags, ...(visibility && visibility !== 'public' ? { visibility } : {}) };
+      const r = await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', payload);
       CO_ENGRAM.closeDrawer();
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
