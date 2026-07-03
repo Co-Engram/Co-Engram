@@ -115,20 +115,33 @@ export class SqliteSearchOrchestrator {
   }
 
   /**
-   * LIKE 兜底:1-2 字符 query,trigram 无法处理。
-   * 走 engrams.title LIKE,不做 FTS5 MATCH(避免 trigram 短 query 报错)。
-   * 排序:importance DESC(无相关度信号)。
+   * LIKE 兜底:1-2 字符 query(trigram 无法处理)或 FTS5 MATCH 无命中时降级。
+   *
+   * LIKE 覆盖四个文本维度:engrams.title + engram_fts.summary +
+   * engram_fts.content_tokens + engram_domains.domain。仅靠 title 召回过窄
+   * (中文 1-2 字 query 经常只在 summary / content / domainTags 中出现),
+   * 必须扫全部索引文本,与 in-memory FTS 的索引字段对齐。
+   *
+   * 排序:importance + updatedAt DESC(无相关度信号,用静态质量分代替)。
    */
   private searchByLike(q: string, limit: number): RawSearchRow[] {
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags
       FROM engrams e
+      JOIN engram_fts f ON f.id = e.id
       WHERE e.title LIKE ? ESCAPE '\\'
+         OR f.summary LIKE ? ESCAPE '\\'
+         OR f.content_tokens LIKE ? ESCAPE '\\'
+         OR EXISTS (
+           SELECT 1 FROM engram_domains d
+           WHERE d.engram_id = e.id AND d.domain LIKE ? ESCAPE '\\'
+         )
       ORDER BY e.importance DESC, e.updated_at DESC
       LIMIT ?
     `);
-    const rows = stmt.all(`%${escapeLike(q)}%`, limit) as unknown as Array<SqliteLikeRow>;
+    const pattern = `%${escapeLike(q)}%`;
+    const rows = stmt.all(pattern, pattern, pattern, pattern, limit) as unknown as Array<SqliteLikeRow>;
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
