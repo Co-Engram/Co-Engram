@@ -284,7 +284,7 @@ a word segmenter.
 | ----------- | ------------------------------------------------------------------- |
 | `pending`   | Awaiting approval                                                   |
 | `accepted`  | Promoted to engram via `engram_accept_proposal`                     |
-| `dismissed` | Rejected; not re-promoted for 30 days (`dismissDays`, configurable) |
+| `dismissed` | Rejected; **permanently** silenced by default (not re-promoted). Set `dismissDays > 0` for time-limited suppression that re-activates after N days. |
 
 ### 4.4 Accept / Dismiss
 
@@ -364,7 +364,7 @@ Stage timing and thresholds can be overridden via env vars or config.
 | `contradiction_resolve`   | synapse         | Manual end of phase-2 → `resolved`                                                              |
 | `engram_list_proposals`   | —               | Read pending proposals                                                                          |
 | `engram_accept_proposal`  | engram          | proposal → `active` engram                                                                      |
-| `engram_dismiss_proposal` | proposal        | Enter 30-day cooldown                                                                           |
+| `engram_dismiss_proposal` | proposal        | **Permanent dismiss** by default (dismissedUntil unset); `dismissDays > 0` enables N-day cooldown |
 | `engram_doctor`           | (index)         | Self-heal: slug/index/move fixes                                                                |
 
 **Full-profile-only mutators**: `engram_archive`, `engram_restore`, `engram_forget`, `engram_recompute_importance`, `synapse_get/list/delete`, `skill_*`, `upgrade_verification`, `get_evolution_lineage`. These are typically triggered by the maintenance engine or CLI, not exposed to the everyday LLM.

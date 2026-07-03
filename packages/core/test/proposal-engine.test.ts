@@ -375,7 +375,7 @@ describe("ProposalEngine.dismiss", () => {
     expect(dismissEvents).toHaveLength(1);
   });
 
-  it("默认 dismiss 30 天", async () => {
+  it("默认永久 dismiss(dismissedUntil = undefined)", async () => {
     for (const s of TS_CI_SAMPLES) {
       await engine.observe({ role: "user", content: s });
     }
@@ -384,10 +384,22 @@ describe("ProposalEngine.dismiss", () => {
 
     const all = engine.listAll();
     const target = all.find((p) => p.entityId === proposal!.entityId);
+    expect(target?.status).toBe("dismissed");
+    expect(target?.dismissedUntil).toBeUndefined();
+    expect(engine.listPending()).toHaveLength(0);
+  });
+
+  it("dismissDays > 0 → 设置 dismissedUntil(N 天后)", async () => {
+    for (const s of TS_CI_SAMPLES) {
+      await engine.observe({ role: "user", content: s });
+    }
+    const [proposal] = engine.listPending();
+    engine.dismiss(proposal!.entityId, undefined, 7);
+
+    const all = engine.listAll();
+    const target = all.find((p) => p.entityId === proposal!.entityId);
     const until = new Date(target!.dismissedUntil!).getTime();
-    const expected =
-      Date.now() +
-      DEFAULT_PROPOSAL_CONFIG.defaultDismissDays * 24 * 60 * 60 * 1000;
+    const expected = Date.now() + 7 * 24 * 60 * 60 * 1000;
     expect(Math.abs(until - expected)).toBeLessThan(60 * 1000); // ±1 分钟
   });
 
@@ -690,7 +702,7 @@ describe("ProposalEngine.proposeAutoMemory", () => {
     expect(all.map((p) => p.entityId).sort()).toEqual(["am:a", "am:b"]);
   });
 
-  it("dismiss 后 payload 变化 → upsert 复活,清除 dismissedUntil/dismissReason", () => {
+  it("dismiss 后 payload 变化 → no-change(永久驳回,源事件不再重开)", () => {
     engine.proposeAutoMemory({
       slug: "dismissed-slug",
       title: "v1",
@@ -698,11 +710,11 @@ describe("ProposalEngine.proposeAutoMemory", () => {
       domainTags: ["claude-code-auto-memory"],
       kind: "observation",
     });
-    engine.dismiss("am:dismissed-slug", "not relevant", 30);
+    engine.dismiss("am:dismissed-slug", "not relevant");
     expect(engine.listAll()[0]!.status).toBe("dismissed");
-    expect(engine.listAll()[0]!.dismissedUntil).toBeDefined();
+    expect(engine.listAll()[0]!.dismissedUntil).toBeUndefined();
 
-    // payload 变化 → 重新 pending
+    // payload 变化 → no-change(永久驳回)
     const action = engine.proposeAutoMemory({
       slug: "dismissed-slug",
       title: "v2",
@@ -710,12 +722,33 @@ describe("ProposalEngine.proposeAutoMemory", () => {
       domainTags: ["claude-code-auto-memory"],
       kind: "observation",
     });
-    expect(action).toBe("updated");
+    expect(action).toBe("no-change");
     const p = engine.listAll()[0]!;
-    expect(p.status).toBe("pending");
-    expect(p.dismissedUntil).toBeUndefined();
-    expect(p.dismissReason).toBeUndefined();
-    expect(p.payload?.content).toBe("body v2");
+    expect(p.status).toBe("dismissed");
+    expect(p.payload?.content).toBe("body v1"); // 原 payload 不变
+    expect(engine.listPending()).toHaveLength(0);
+  });
+
+  it("dismiss 时显式传 dismissDays=7 → dismissedUntil 设置,但仍不被 proposeAutoMemory 重开", () => {
+    engine.proposeAutoMemory({
+      slug: "timed-slug",
+      title: "v1",
+      content: "body v1",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    engine.dismiss("am:timed-slug", undefined, 7);
+    expect(engine.listAll()[0]!.dismissedUntil).toBeDefined();
+
+    // 即使在 dismissDays 冷却期内,payload 变化也不再重开
+    const action = engine.proposeAutoMemory({
+      slug: "timed-slug",
+      title: "v2",
+      content: "body v2",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
   });
 });
 

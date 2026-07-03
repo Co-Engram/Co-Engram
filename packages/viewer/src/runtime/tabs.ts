@@ -690,11 +690,9 @@ window.CO_ENGRAM_PROPOSALS = {
     const T = CO_ENGRAM_T;
     const p = CO_ENGRAM._currentProposal;
     if (!p) return;
-    const reason = prompt(T.t('viewer.proposals.dismissReasonPrompt'), '') || '';
-    const daysStr = prompt(T.t('viewer.proposals.dismissDaysPrompt'), '30') || '30';
-    const dismissDays = Number(daysStr) || 30;
+    if (!confirm(T.t('viewer.proposals.dismissConfirm'))) return;
     try {
-      await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/dismiss', 'POST', { reason, dismissDays });
+      await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/dismiss', 'POST', {});
       CO_ENGRAM.closeDrawer();
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));

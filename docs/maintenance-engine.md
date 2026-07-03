@@ -228,7 +228,7 @@ This is a hybrid "prompted candidates" design — not fully automatic (you stay 
 2. **Cluster**: The vector is matched against existing topic clusters via cosine similarity (default threshold `0.75`). Above threshold → join cluster; below → new cluster.
 3. **Promote**: When a cluster reaches the occurrence threshold (default `3`), the engine checks the repository for similar engrams (keyword overlap on title). If none found, a proposal is created with `status: pending`.
 4. **Prompt**: On session start, the host (MCP server or OpenClaw plugin) injects a one-line prompt into the agent context: `[co-engram] N memory candidates pending ...`.
-5. **Decide**: The LLM calls `engram_list_proposals` to see samples, then `engram_accept_proposal` (creates a real engram) or `engram_dismiss_proposal` (silences for N days).
+5. **Decide**: The LLM calls `engram_list_proposals` to see samples, then `engram_accept_proposal` (creates a real engram) or `engram_dismiss_proposal` (default **permanent** — silenced until manually accepted; pass `dismissDays > 0` for temporary suppression).
 
 ### Configuration
 
@@ -259,7 +259,7 @@ This is a hybrid "prompted candidates" design — not fully automatic (you stay 
     "threshold": 3,
     "similarityThreshold": 0.75,
     "maxSamples": 3,
-    "defaultDismissDays": 30,
+    "defaultDismissDays": 0,
     "minMessageLength": 20
   }
 }

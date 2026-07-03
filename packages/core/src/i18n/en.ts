@@ -63,7 +63,7 @@ export const en: TranslationDict = {
   "tool.engram_accept_proposal":
     "Accept a proposal candidate → the system auto-creates the corresponding memory and marks the proposal as accepted. Future occurrences of the same topic will not generate duplicate proposals.",
   "tool.engram_dismiss_proposal":
-    "Dismiss a proposal candidate. Suppressed for 30 days by default; override via dismissDays. Reason can be filled for meta-learning.",
+    "Dismiss a proposal candidate. Default is permanent (never resurfaces); pass dismissDays > 0 to allow re-activation after N days. Audit log always retained.",
   "tool.engram_synthesize":
     "Manually trigger REM: hand a set of existing memories to an LLM and synthesize a pattern memory; auto-creates a derives_from synapse per source. Requires an LLM client. Use dryRun=true to preview without writing.",
 
@@ -273,6 +273,8 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - You haven't reviewed the proposal content
 - The proposal is borderline (accept + refine instead)
+
+Default is **permanent dismiss**: status=dismissed with dismissedUntil unset; the watcher/observe pipeline will never reopen this candidate. To "temporarily suppress", pass dismissDays > 0 — the candidate can be re-activated by a new event after N days. Audit log always retained.
 
 RETURNS: Proposal marked as dismissed + removed from pending list.`,
   "tool.engram_synthesize.agent": `Synthesize multiple engrams into a single pattern memory (manual REM).
@@ -648,10 +650,10 @@ Side effects: creates engram (calls engram_create internally); marks proposal st
 Error conditions: proposal not found throws; already accepted/dismissed throws.
 Invariant: default createdBy fallback chain: explicit > ctx.defaultCreatedBy > 'unknown'.`,
   "tool.engram_dismiss_proposal.technical": `Dismiss proposal. Input: { entityId, reason?, dismissDays? }
-Default dismissDays=30. Reason recorded for meta-learning.
-Side effects: marks proposal status=dismissed; sets suppressedUntil timestamp; appends audit.
+Default dismissDays=0 (permanent). Reason recorded for meta-learning.
+Side effects: marks proposal status=dismissed; dismissedUntil = now + N days when dismissDays>0, undefined when dismissDays=0 (never reopens); appends audit.
 Error conditions: proposal not found throws; already accepted throws.
-Invariant: after dismissDays, proposal may re-surface if topic mentioned again.`,
+Invariant: a dismissed proposal is never reopened by proposeAutoMemory / observe, even when the source event recurs.`,
   "tool.engram_synthesize.technical": `LLM-synthesize multiple engrams into a pattern. Input: { ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
 Behavior: load sources → call ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → parse JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence from LLM) → for each source addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence marks synthesis provenance).
 domainTags resolution priority: user-explicit > LLM-inferred > union of source tags (first 5).
@@ -1089,8 +1091,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.acceptedToast": "✓ Accepted",
   "viewer.proposals.createdEngramToast": "Created engram: ${id}",
   "viewer.proposals.acceptFailed": "Accept failed: ${err}",
-  "viewer.proposals.dismissReasonPrompt": "Dismiss reason (optional):",
-  "viewer.proposals.dismissDaysPrompt": "Dismiss N days (default 30):",
+  "viewer.proposals.dismissConfirm": "Dismiss this proposal? It will not resurface. Audit log retained.",
   "viewer.proposals.dismissFailed": "Dismiss failed: ${err}",
 
   // ===== Audit panel (viewer.audit.*) =====

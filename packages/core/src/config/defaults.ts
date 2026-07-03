@@ -62,7 +62,7 @@ export const DEFAULT_PROPOSALS_CONFIG: Readonly<
   similarityThreshold: 0.65,
   maxSamples: 8,
   minMessageLength: 16,
-  defaultDismissDays: 7,
+  defaultDismissDays: 0,
 };
 
 /** Audit 默认值 */

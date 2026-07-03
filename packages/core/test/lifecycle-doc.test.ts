@@ -116,8 +116,8 @@ describe("docs/lifecycle §4.2 Proposal pipeline", () => {
     );
   });
 
-  it("dismiss 默认 30 天后允许重新提升", () => {
-    expect(DEFAULT_PROPOSAL_CONFIG.defaultDismissDays).toBe(30);
+  it("dismiss 默认永久(0 = dismissedUntil 不设置)", () => {
+    expect(DEFAULT_PROPOSAL_CONFIG.defaultDismissDays).toBe(0);
   });
 });
 

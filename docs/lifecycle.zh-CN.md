@@ -281,7 +281,7 @@ unverified → plausible → probable → verified
 | ----------- | ---------------------------------------------- |
 | `pending`   | 待用户审批                                     |
 | `accepted`  | 已通过 `engram_accept_proposal` 晋升为 engram  |
-| `dismissed` | 已驳回,30 天内(`dismissDays`,可配)不会再次提升 |
+| `dismissed` | 已驳回,**默认永久**不再浮出。设 `dismissDays > 0` 时 N 天后可被新事件重新激活 |
 
 ### 4.4 Accept / Dismiss
 
@@ -361,7 +361,7 @@ rpe       = actual - expected
 | `contradiction_resolve`   | synapse    | 手动结束 phase-2 → `resolved`                                                               |
 | `engram_list_proposals`   | —          | 读 pending proposal                                                                         |
 | `engram_accept_proposal`  | engram     | proposal → `active` engram                                                                  |
-| `engram_dismiss_proposal` | proposal   | 进入 30 天冷却                                                                              |
+| `engram_dismiss_proposal` | proposal   | 默认**永久驳回**(dismissedUntil 留空);显式 `dismissDays > 0` 时 N 天冷却 |
 | `engram_doctor`           | (索引)     | 自愈:slug/索引/移动文件修复                                                                 |
 
 **仅 full profile 可见**:`engram_archive`、`engram_restore`、`engram_forget`、`engram_recompute_importance`、`synapse_get/list/delete`、`skill_*`、`upgrade_verification`、`get_evolution_lineage`。这些工具通常由维护引擎或 CLI 触发,不对日常 LLM 暴露。

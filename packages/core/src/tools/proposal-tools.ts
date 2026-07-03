@@ -194,7 +194,7 @@ export const engramDismissProposalTool: Tool<
 > = {
   name: "engram_dismiss_proposal",
   description:
-    "拒绝一个候选提案。默认 30 天内不再提示;可通过 dismissDays 自定义冷却期。可填 reason 便于元学习。",
+    "拒绝一个候选提案。默认永久不再提示;显式传 dismissDays > 0 时 N 天后可被新事件重新激活。审计日志始终保留。",
   inputSchema: EngramDismissProposalInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramDismissProposalToolInput>(

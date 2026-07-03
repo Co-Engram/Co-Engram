@@ -63,7 +63,7 @@ export const zh = {
   "tool.engram_accept_proposal":
     "接受一个候选提案 → 系统自动创建对应记忆,并标记提案为已接受。后续相同主题不会再产生重复提案。",
   "tool.engram_dismiss_proposal":
-    "驳回一个候选提案。默认 30 天内不再提示;可自定义冷却期。可填理由便于元学习。",
+    "驳回一个候选提案。默认永久不再提示;显式传 dismissDays > 0 时 N 天后可被新事件重新激活。审计日志始终保留。",
   "tool.engram_synthesize":
     "手工触发 REM:把多条已有记忆交给 LLM 综合成一条 pattern(模式)记忆,并自动为每个源连一条 derives_from(派生自)连接。需要配置 LLM。可选 dryRun 只看草稿不创建。",
 
@@ -278,7 +278,7 @@ export const zh = {
 - 还没审核候选内容
 - 候选处于边缘(改为接受 + 细化)
 
-返回:候选标记为已驳回 + 从待处理列表移除。`,
+默认**永久驳回**:status=dismissed + dismissedUntil 留空,后续 watcher/observe 都不再重开此候选。若需"暂时屏蔽",传 dismissDays > 0 —— N 天后该候选可被新事件重新激活。审计日志始终保留(便于排查)。返回:候选标记为已驳回 + 从待处理列表移除。`,
   "tool.engram_synthesize.agent": `综合多条 engram 形成一条 pattern 记忆(手工触发的 REM)。
 
 何时调用:
@@ -652,10 +652,10 @@ P1:tool-sequence 执行参数化工具链;prompt-template 渲染并返回 prompt
 错误条件:提案未找到抛错;已 accepted/dismissed 抛错。
 不变量:默认 createdBy 回退链:explicit > ctx.defaultCreatedBy > 'unknown'。`,
   "tool.engram_dismiss_proposal.technical": `驳回提案。输入:{ entityId, reason?, dismissDays? }
-默认 dismissDays=30。reason 记入元学习。
-副作用:标记提案 status=dismissed;设置 suppressedUntil 时间戳;append audit。
+默认 dismissDays=0(永久);reason 记入元学习。
+副作用:标记提案 status=dismissed;dismissDays>0 时设置 dismissedUntil=N 天后,=0 时 dismissedUntil=undefined(永不重开);append audit。
 错误条件:提案未找到抛错;已 accepted 抛错。
-不变量:dismissDays 后,若主题再次提及,提案可能重新浮现。`,
+不变量:dismissed 状态的 proposal 不会被 proposeAutoMemory / observe 重开(即使源事件再次触发)。`,
   "tool.engram_synthesize.technical": `LLM 综合多条 engram 形成 pattern。输入:{ ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
 行为:读源 → 调 ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → 解析 JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence 来自 LLM) → 对每个源 addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence 标注 synthesis 来源)。
 domainTags 解析优先级:用户显式 > LLM 推断 > 源 tags 并集(取前 5)。
@@ -1085,8 +1085,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.acceptedToast": "✓ 已采纳",
   "viewer.proposals.createdEngramToast": "创建记忆印迹:${id}",
   "viewer.proposals.acceptFailed": "采纳失败:${err}",
-  "viewer.proposals.dismissReasonPrompt": "驳回理由(可选):",
-  "viewer.proposals.dismissDaysPrompt": "驳回 N 天(默认 30):",
+  "viewer.proposals.dismissConfirm": "确认驳回此提案?驳回后将不再出现,审计日志保留。",
   "viewer.proposals.dismissFailed": "驳回失败:${err}",
 
   // ===== Audit 面板(viewer.audit.*) =====

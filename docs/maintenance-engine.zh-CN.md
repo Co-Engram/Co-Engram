@@ -228,7 +228,7 @@ engine.stop();
 2. **聚类**:该向量通过余弦相似度与现有的话题聚类进行匹配(默认阈值 `0.75`)。高于阈值 → 加入聚类;低于阈值 → 新建聚类。
 3. **晋升**:当一个聚类的出现次数达到阈值(默认 `3`)时,引擎会检查仓库中是否存在相似的 engram(标题关键词重叠)。若不存在,则创建一个 `status: pending` 的候选。
 4. **提示**:会话开始时,宿主(MCP server 或 OpenClaw plugin)会向 agent 上下文注入一行提示:`[co-engram] N memory candidates pending ...`。
-5. **决策**:LLM 调用 `engram_list_proposals` 查看样本,然后调用 `engram_accept_proposal`(创建真实 engram)或 `engram_dismiss_proposal`(在 N 天内静默)。
+5. **决策**:LLM 调用 `engram_list_proposals` 查看样本,然后调用 `engram_accept_proposal`(创建真实 engram)或 `engram_dismiss_proposal`(默认**永久静默**,直至手动 accept;显式传 `dismissDays > 0` 时为 N 天临时静默)。
 
 ### 配置
 
@@ -259,7 +259,7 @@ engine.stop();
     "threshold": 3,
     "similarityThreshold": 0.75,
     "maxSamples": 3,
-    "defaultDismissDays": 30,
+    "defaultDismissDays": 0,
     "minMessageLength": 20
   }
 }

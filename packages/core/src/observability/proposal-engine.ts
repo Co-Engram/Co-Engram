@@ -158,7 +158,7 @@ export const DEFAULT_PROPOSAL_CONFIG: Required<ProposalEngineConfig> = {
   threshold: 3,
   similarityThreshold: 0.75,
   maxSamples: 3,
-  defaultDismissDays: 30,
+  defaultDismissDays: 0,
   minMessageLength: 20,
 };
 
@@ -475,6 +475,11 @@ export class ProposalEngine {
       return "no-change";
     }
 
+    if (existing?.status === "dismissed") {
+      // 永久驳回(或仍在 dismissDays 冷却期):源文件即使变化也不再重开
+      return "no-change";
+    }
+
     if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
       // payload 未变化 —— 不动 proposal,只刷新 lastSeenAt 也无意义(无样本聚合)
       return "no-change";
@@ -524,9 +529,13 @@ export class ProposalEngine {
   /**
    * 拒绝提案
    *
+   * 默认**永久驳回**(dismissedUntil = undefined),不再自动重新浮出。
+   * 若调用方显式传 dismissDays > 0,则 N 天后该 proposal 可被 proposeAutoMemory/
+   * observe 流程重新激活(向后兼容旧行为)。
+   *
    * @param entityId 簇 id
    * @param reason 拒绝原因(可选,便于元学习)
-   * @param dismissDays 多少天内不再提示(默认 30)
+   * @param dismissDays N 天后可重新激活;0 / undefined = 永久
    */
   dismiss(entityId: string, reason?: string, dismissDays?: number): void {
     const proposals = this.readProposals();
@@ -535,10 +544,11 @@ export class ProposalEngine {
       throw new Error(`Proposal not found: ${entityId}`);
     }
 
-    const days = dismissDays ?? this.config.defaultDismissDays;
-    const dismissedUntil = new Date(
-      Date.now() + days * 24 * 60 * 60 * 1000,
-    ).toISOString();
+    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    const dismissedUntil =
+      days > 0
+        ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
 
     const updated: Proposal = {
       ...target,
