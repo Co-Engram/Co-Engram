@@ -108,6 +108,7 @@ import {
   regenerateObsidianLinks,
   checkObsidianView,
 } from "./obsidian-links.js";
+import { assertVisibilityTransitionAllowed } from "./visibility-gate.js";
 import {
   IndexDb,
   type EngramIndexEntry as SqliteEngramIndexEntry,
@@ -960,6 +961,16 @@ export class EngramRepository {
     // (private engram 落 `private/` 子目录,变更 visibility 时同步迁移路径)
     const oldVisibility = oldFrontmatter.visibility ?? "public";
     const visibilityChanged = newVisibility !== oldVisibility;
+
+    // 单向闸门:禁止任何非-private visibility 降级为 private。
+    // private 路径进 .gitignore,降级会隐性删除其他成员工作树中的该记忆。
+    // 仅当调用方显式传入 visibility 且与当前不同时触发(避免 no-op 与 fallback 干扰)。
+    if (
+      input.visibility !== undefined &&
+      input.visibility !== oldVisibility
+    ) {
+      assertVisibilityTransitionAllowed(oldVisibility, input.visibility);
+    }
 
     // slug + visibility 都可能触发 rename,正交串联应用
     let newPath = relativePath;
