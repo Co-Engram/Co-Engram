@@ -7,10 +7,11 @@
 //
 // 字符串拼接 `"node:" + "sqlite"` 进一步防止 Vite 把整个 require 调用静态化为
 // bare import 解析。type import 在编译时被擦除,不被 resolver 拦截,可以安全使用。
+//
+// Schema 以内联 TS 字符串形式注入(而非 `index-db-schema.sql` 外部文件),
+// 避免 tsc 不会复制非 .ts 资源导致 dist 缺 schema 的 build-defect(曾使
+// 0.2.0 sqlite 默认在 npm 部署后静默 fallback 到 memory)。
 import { createRequire } from "node:module";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const SQLITE_MODULE = "node:" + "sqlite";
@@ -22,8 +23,60 @@ const DatabaseSync = sqliteModule.DatabaseSync;
 type SqliteDb = InstanceType<typeof DatabaseSync>;
 type Statement = ReturnType<SqliteDb["prepare"]>;
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const SCHEMA_PATH = join(__dirname, "index-db-schema.sql");
+/**
+ * 派生 SQLite 索引库的 schema 定义。
+ *
+ * 内联在此处而非外部 .sql 文件,确保 tsc emit 后 dist/ 自包含、无需额外资源复制步骤。
+ * 任何 schema 变更都必须保持向后兼容(只增列、不删列、不改语义),因为用户可能已有
+ * 旧版本 index.db;不可逆变更需要走显式迁移工具,而非直接改此处。
+ */
+const SCHEMA_SQL = `
+-- 主表:engram 元数据
+CREATE TABLE IF NOT EXISTS engrams (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  importance REAL NOT NULL DEFAULT 0.5,
+  confidence REAL NOT NULL DEFAULT 0.8,
+  updated_at INTEGER NOT NULL,
+  content_size INTEGER NOT NULL DEFAULT 0,
+  visibility TEXT NOT NULL DEFAULT 'public',
+  status TEXT NOT NULL DEFAULT 'active'
+);
+CREATE INDEX IF NOT EXISTS idx_engrams_updated ON engrams(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_engrams_importance ON engrams(importance DESC, updated_at DESC);
+
+-- 多值 tag
+CREATE TABLE IF NOT EXISTS engram_domains (
+  engram_id TEXT NOT NULL,
+  domain TEXT NOT NULL,
+  PRIMARY KEY (engram_id, domain),
+  FOREIGN KEY (engram_id) REFERENCES engrams(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_domains_domain ON engram_domains(domain);
+
+-- 突触
+CREATE TABLE IF NOT EXISTS synapses (
+  id TEXT PRIMARY KEY,
+  from_id TEXT NOT NULL,
+  to_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  weight REAL NOT NULL DEFAULT 0.5,
+  FOREIGN KEY (from_id) REFERENCES engrams(id) ON DELETE CASCADE,
+  FOREIGN KEY (to_id) REFERENCES engrams(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_synapses_from ON synapses(from_id);
+CREATE INDEX IF NOT EXISTS idx_synapses_to ON synapses(to_id);
+
+-- FTS5 trigram
+CREATE VIRTUAL TABLE IF NOT EXISTS engram_fts USING fts5(
+  id UNINDEXED,
+  title,
+  summary,
+  content_tokens,
+  tokenize = 'trigram'
+);
+`;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -89,9 +142,8 @@ export class IndexDb {
     this.db.exec("PRAGMA synchronous = NORMAL");
     this.db.exec("PRAGMA foreign_keys = ON");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    // 初始化 schema
-    const schema = readFileSync(SCHEMA_PATH, "utf8");
-    this.db.exec(schema);
+    // 初始化 schema(内联 SCHEMA_SQL,无外部文件依赖)
+    this.db.exec(SCHEMA_SQL);
   }
 
   close(): void {

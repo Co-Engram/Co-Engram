@@ -116,10 +116,10 @@ export function createCoEngramContext(
     mkdirSync(fullConfig.dataRoot, { recursive: true });
   }
 
-  // Task 2.3:统一通过 bootstrap 装配 repository + searchEngine,根据
-  // CO_ENGRAM_SEARCH_ENGINE 选择 memory(默认)/ sqlite 模式。
-  // SQLite 模式自动打开 .co-engram/index.db,注入 repository 开启 write-through,
-  // 并在 db 为空时 cold start 全量重建。
+  // Task 2.3:统一通过 bootstrap 装配 repository + searchEngine。
+  // 默认走 sqlite 派生索引(WAL + FTS5);CO_ENGRAM_SEARCH_ENGINE=memory 显式 opt-out
+  // 回进程内 FTS;sqlite 在当前环境不可用时(Node 版本边界 / 文件系统错误)自动
+  // fallback 回 memory,host 仍能启动。
   const { repository, searchEngine: searchOrchestrator } =
     bootstrapRepositoryAndSearch({
       dataRoot: fullConfig.dataRoot,

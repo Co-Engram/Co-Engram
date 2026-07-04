@@ -23,36 +23,41 @@ afterEach(() => {
 });
 
 describe("resolveSearchEngineType", () => {
-  it("默认 = memory(env 未设置)", () => {
+  it("默认 = sqlite(env 未设置)", () => {
     delete process.env.CO_ENGRAM_SEARCH_ENGINE;
+    expect(resolveSearchEngineType()).toBe("sqlite");
+  });
+
+  it("CO_ENGRAM_SEARCH_ENGINE=memory 显式 opt-out", () => {
+    process.env.CO_ENGRAM_SEARCH_ENGINE = "memory";
     expect(resolveSearchEngineType()).toBe("memory");
   });
 
-  it("CO_ENGRAM_SEARCH_ENGINE=sqlite 切换", () => {
+  it("CO_ENGRAM_SEARCH_ENGINE=sqlite 显式确认(等价默认)", () => {
     process.env.CO_ENGRAM_SEARCH_ENGINE = "sqlite";
     expect(resolveSearchEngineType()).toBe("sqlite");
   });
 
-  it("大小写不敏感(SQLite / SQLITE / sqlite 等价)", () => {
-    for (const v of ["SQLITE", "SQLite", "sqlite"]) {
+  it("大小写不敏感(MEMORY / Memory / memory 等价)", () => {
+    for (const v of ["MEMORY", "Memory", "memory"]) {
       process.env.CO_ENGRAM_SEARCH_ENGINE = v;
-      expect(resolveSearchEngineType()).toBe("sqlite");
+      expect(resolveSearchEngineType()).toBe("memory");
     }
   });
 
-  it("未知值 fallback 到 memory(fail-safe 保守)", () => {
+  it("未知值 fallback 到 sqlite(fail-safe 走向更强引擎)", () => {
     process.env.CO_ENGRAM_SEARCH_ENGINE = "vector"; // 未来可能值,目前不支持
-    expect(resolveSearchEngineType()).toBe("memory");
-  });
-
-  it("空白字符 trim 后判定", () => {
-    process.env.CO_ENGRAM_SEARCH_ENGINE = "  sqlite  ";
     expect(resolveSearchEngineType()).toBe("sqlite");
   });
 
+  it("空白字符 trim 后判定", () => {
+    process.env.CO_ENGRAM_SEARCH_ENGINE = "  memory  ";
+    expect(resolveSearchEngineType()).toBe("memory");
+  });
+
   it("注入 env 参数(纯函数,不污染 process.env)", () => {
-    const result = resolveSearchEngineType({ CO_ENGRAM_SEARCH_ENGINE: "sqlite" });
-    expect(result).toBe("sqlite");
+    const result = resolveSearchEngineType({ CO_ENGRAM_SEARCH_ENGINE: "memory" });
+    expect(result).toBe("memory");
     expect(process.env.CO_ENGRAM_SEARCH_ENGINE).toBeUndefined();
   });
 });
@@ -132,10 +137,31 @@ describe("SqliteSearchEngineAdapter", () => {
 });
 
 describe("bootstrapRepositoryAndSearch", () => {
-  it("memory 模式:返回 SearchOrchestrator,无 indexDb", () => {
+  it("默认(无 env):返回 sqlite 引擎 + indexDb 已 open", () => {
+    const tmpRoot = mkdtempSync(join(tmpdir(), "engine-bootstrap-default-"));
+    let result: ReturnType<typeof bootstrapRepositoryAndSearch> | undefined;
+    try {
+      result = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+      expect(result.engineType).toBe("sqlite");
+      expect(result.searchEngine).toBeInstanceOf(SqliteSearchEngineAdapter);
+      expect(result.indexDb).toBeDefined();
+      const count = result.indexDb!.prepare("SELECT count(*) as n FROM engrams").get() as {
+        n: number;
+      };
+      expect(count.n).toBe(0);
+    } finally {
+      result?.indexDb?.close();
+      rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("显式 memory opt-out:返回 SearchOrchestrator,无 indexDb", () => {
     const tmpRoot = mkdtempSync(join(tmpdir(), "engine-bootstrap-mem-"));
     try {
-      const result = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+      const result = bootstrapRepositoryAndSearch({
+        dataRoot: tmpRoot,
+        env: { CO_ENGRAM_SEARCH_ENGINE: "memory" },
+      });
       expect(result.engineType).toBe("memory");
       expect(result.searchEngine).toBeInstanceOf(SearchOrchestrator);
       expect(result.indexDb).toBeUndefined();
@@ -144,7 +170,7 @@ describe("bootstrapRepositoryAndSearch", () => {
     }
   });
 
-  it("sqlite 模式:返回 SqliteSearchEngineAdapter + indexDb 已 open", () => {
+  it("显式 sqlite:返回 SqliteSearchEngineAdapter + indexDb 已 open", () => {
     const tmpRoot = mkdtempSync(join(tmpdir(), "engine-bootstrap-sqlite-"));
     let result: ReturnType<typeof bootstrapRepositoryAndSearch> | undefined;
     try {
@@ -165,11 +191,15 @@ describe("bootstrapRepositoryAndSearch", () => {
     }
   });
 
-  it("sqlite 模式 cold start:从已有 engrams/*.md 全量重建", () => {
+  it("sqlite cold start:从已有 engrams/*.md 全量重建", () => {
     const tmpRoot = mkdtempSync(join(tmpdir(), "engine-bootstrap-cold-"));
     try {
-      // 第一次 bootstrap(memory 模式)创建几条 engram
-      const memBootstrap = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+      // 第一次 bootstrap 显式用 memory 模式创建几条 engram —— 只落 .md 文件,
+      // 不进 sqlite 索引,这样下一次 sqlite bootstrap 才能真正触发 cold-start rebuild。
+      const memBootstrap = bootstrapRepositoryAndSearch({
+        dataRoot: tmpRoot,
+        env: { CO_ENGRAM_SEARCH_ENGINE: "memory" },
+      });
       for (let i = 0; i < 5; i++) {
         memBootstrap.repository.createEngram({
           title: `engram ${i}`,
@@ -180,7 +210,7 @@ describe("bootstrapRepositoryAndSearch", () => {
         });
       }
 
-      // 第二次 bootstrap(sqlite 模式)→ 应触发 cold start rebuild
+      // 第二次 bootstrap(显式 sqlite)→ 应触发 cold start rebuild
       const sqliteBootstrap = bootstrapRepositoryAndSearch({
         dataRoot: tmpRoot,
         env: { CO_ENGRAM_SEARCH_ENGINE: "sqlite" },

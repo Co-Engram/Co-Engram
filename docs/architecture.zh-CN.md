@@ -117,7 +117,7 @@ team-memory/
 - `engram-index.json` — 快速的 ULID → entry 查找,驱动 `engram_doctor` 增量扫描和 `engram_list_paths`
 - `digest.jsonl` — 检索编排器使用的每行一个 engram 的目录;在内容 hash 变化时重建
 - `graph.json` — synapse 图快照,用于快速遍历
-- `index.db` *(可选,通过 `CO_ENGRAM_SEARCH_ENGINE=sqlite` 启用)* — SQLite 派生索引(WAL + FTS5 trigram),用于规模化到 5k+ engram;详见下文[搜索引擎](#搜索引擎)
+- `index.db` *(0.2.0 起默认;通过 `CO_ENGRAM_SEARCH_ENGINE=memory` opt-out)* — SQLite 派生索引(WAL + FTS5 trigram),用于规模化到 5k+ engram;详见下文[搜索引擎](#搜索引擎)
 
 任何时候都可以通过删除 `.co-engram/` 并运行 `engram_recompute_importance` 来重建。
 
@@ -168,27 +168,29 @@ Every 7 days (rem):
 
 <a id="搜索引擎"></a>
 
-Co-Engram 在 `SearchEngine` 接口后面提供两个可互换的搜索后端。通过 `CO_ENGRAM_SEARCH_ENGINE` 环境变量切换(默认 `memory`)。
+Co-Engram 在 `SearchEngine` 接口后面提供两个可互换的搜索后端。通过 `CO_ENGRAM_SEARCH_ENGINE` 环境变量切换(默认 `sqlite`)。
 
-### `memory`(默认)
+### `sqlite`(默认,规模化路径)
+
+派生 SQLite 索引,位于 `.co-engram/index.db`(WAL 模式,FTS5 trigram 分词器)。为 5k+ engram 目标设计。0.2.0 起作为默认 —— 小规模(≤1k engram)冷启动几十毫秒、稳态开销可忽略;大规模下保持百毫秒级延迟,而 `memory` 在同等规模会突破 1 秒。
+
+- **文件系统始终是真理源。** SQLite 完全是派生数据 —— 删掉文件、运行 `engram_doctor`、或直接重启,都会在冷启动时从 `engrams/*.md` 全量重建。
+- **Write-through。** `EngramRepository.createEngram / updateEngram / deleteEngram / mutateFrontmatter` 在文件落盘成功后,透明地把派生行 upsert/delete 到 SQLite。SQLite 写失败在 repository 层是 fail-silent(文件真理仍生效;`engram_doctor` + 冷启动会修复漂移)。
+- **召回率与 `memory` 持平。** 对于短于 trigram 最小长度(3 UTF-16 码元)的查询,LIKE 回退覆盖 title + summary + content_tokens + domain 标签。≥3 字符时,FTS5 trigram 在相同文本上的召回与 memory-FTS 一致(回归套件 Jaccard = 1.0)。
+- **冷启动。** 首次启动且仓库非空时,会在单个事务内触发一次性全量重建。热启动(db 已有行)是 no-op。
+- **并发。** WAL 允许多个 reader 进程加单个 writer 并存。两个宿主适配器(`claude-code-mcp`、`openclaw-plugin`)可以同时挂载同一个 `dataRoot`。
+- **Fail-safe 回退。** 启动时若 SQLite 不可用(Node < 22.17、文件系统权限错误、schema 损坏、磁盘满),`bootstrapRepositoryAndSearch` 会捕获错误,打印 `[co-engram] search engine: sqlite unavailable (...) falling back to memory`,然后透明地降级到 `memory` 引擎 —— 宿主启动永远不会崩溃。
+- **Node 版本要求。** 使用内置的 `node:sqlite` 模块(Node 22.17 起稳定)。每个包的 `engines.node` 字段都收紧到 `>=22.17.0`;旧版本 Node 会通过上面的 fail-safe 静默落到 `memory`。
+
+### `memory`(opt-out)
 
 进程内 FTS,基于 `digest.jsonl` 行。分词器是 bigram + word。适用于仓库规模 ≤ ~1k engram —— 每次 `rebuildSearchIndex()` 都要重新解析 `digest.jsonl`,FTS 索引驻留在堆内存。
 
 - 除 `digest.jsonl` 外零磁盘占用。
 - 每次 watcher 失效都重新计算(小规模下代价低)。
-- 历史默认值,无需任何额外启用步骤。
+- 设置 `CO_ENGRAM_SEARCH_ENGINE=memory` 显式 opt-out SQLite —— 适用于嵌入式 / 只读 fs / 沙箱部署等不希望产生 `index.db` 副作用的场景。
 
-### `sqlite`(opt-in,规模化路径)
-
-派生 SQLite 索引,位于 `.co-engram/index.db`(WAL 模式,FTS5 trigram 分词器)。为 5k+ engram 目标设计。
-
-- **文件系统始终是真理源。** SQLite 完全是派生数据 —— 删掉文件、运行 `engram_doctor`、或直接以 `CO_ENGRAM_SEARCH_ENGINE=sqlite` 重启,都会在冷启动时从 `engrams/*.md` 全量重建。
-- **Write-through。** `EngramRepository.createEngram / updateEngram / deleteEngram / mutateFrontmatter` 在文件落盘成功后,透明地把派生行 upsert/delete 到 SQLite。SQLite 写失败在 repository 层是 fail-silent(文件真理仍生效;`engram_doctor` + 冷启动会修复漂移)。
-- **召回率与 `memory` 持平。** 对于短于 trigram 最小长度(3 UTF-16 码元)的查询,LIKE 回退覆盖 title + summary + content_tokens + domain 标签。≥3 字符时,FTS5 trigram 在相同文本上的召回与 memory-FTS 一致(回归套件 Jaccard = 1.0)。
-- **冷启动。** 首次以 `CO_ENGRAM_SEARCH_ENGINE=sqlite` 启动且仓库非空时,会在单个事务内触发一次性全量重建。热启动(db 已有行)是 no-op。
-- **并发。** WAL 允许多个 reader 进程加单个 writer 并存。两个宿主适配器(`claude-code-mcp`、`openclaw-plugin`)可以同时挂载同一个 `dataRoot`。
-
-未知值回退到 `memory`(fail-safe —— 拼错也不会破坏启动)。
+未知值回退到 `sqlite`(fail-safe 走向更强引擎 —— 拼错也不会让你意外降级到不 scale 的后端)。
 
 ## 边界规则
 

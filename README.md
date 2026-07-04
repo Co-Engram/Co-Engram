@@ -782,7 +782,7 @@ All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`                | Days in `.trash/` before physical purge (`0` = never)                                                                               |
 | `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                  | Claude Code only. `0` disables the watcher that mirrors `~/.claude/projects/*/memory/*.md` into **proposals** (pending your accept; see [host-claude-code.md](./docs/host-claude-code.md#auto-memory-sync-claude-code--co-engram-proposals)) |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | Override the auto-memory projects root (Claude Code only)                                                                           |
-| `CO_ENGRAM_SEARCH_ENGINE`                 | `memory`             | Search backend. `memory` = in-process FTS over digest lines (scales poorly past ~1k engrams). `sqlite` = derived SQLite index with FTS5 trigram + LIKE fallback (5k+ target). Unknown values fall back to `memory` (fail-safe). See [docs/architecture.md](./docs/architecture.md#search-engine). |
+| `CO_ENGRAM_SEARCH_ENGINE`                 | `sqlite`             | Search backend. `sqlite` = derived SQLite index with FTS5 trigram + LIKE fallback (default; scales to 5k+ engrams; requires Node 22.17+ — auto-falls back to `memory` on older Node or filesystem errors). `memory` = in-process FTS over digest lines (scales poorly past ~1k engrams; opt-out for restricted / read-only-fs / embedded deployments). Unknown values fall back to `sqlite` (fail-safe toward the stronger engine). See [docs/architecture.md](./docs/architecture.md#search-engine). |
 
 ### OpenClaw manifest config
 

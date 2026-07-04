@@ -117,7 +117,7 @@ Gitignored `.co-engram/` inside the data repo. Derived artifacts:
 - `engram-index.json` — fast ULID → entry lookup, drives `engram_doctor` incremental scans and `engram_list_paths`
 - `digest.jsonl` — one-line-per-engram catalog used by the retrieval orchestrator; rebuilt when content hashes change
 - `graph.json` — synapse graph snapshot for fast traversal
-- `index.db` *(optional, opt-in via `CO_ENGRAM_SEARCH_ENGINE=sqlite`)* — SQLite-derived index (WAL + FTS5 trigram) for scaling to 5k+ engrams; see [Search Engine](#search-engine) below
+- `index.db` *(default since 0.2.0; opt-out via `CO_ENGRAM_SEARCH_ENGINE=memory`)* — SQLite-derived index (WAL + FTS5 trigram) for scaling to 5k+ engrams; see [Search Engine](#search-engine) below
 
 Rebuildable at any time by deleting `.co-engram/` and running `engram_recompute_importance`.
 
@@ -168,27 +168,29 @@ Every 7 days (rem):
 
 <a id="search-engine"></a>
 
-Co-Engram ships two interchangeable search backends behind the `SearchEngine` interface. Pick one with the `CO_ENGRAM_SEARCH_ENGINE` env var (default: `memory`).
+Co-Engram ships two interchangeable search backends behind the `SearchEngine` interface. Pick one with the `CO_ENGRAM_SEARCH_ENGINE` env var (default: `sqlite`).
 
-### `memory` (default)
+### `sqlite` (default, scaling path)
+
+Derived SQLite index at `.co-engram/index.db` (WAL mode, FTS5 trigram tokenizer). Designed for the 5k+ engram target. Default since 0.2.0 — at small scale (≤1k engrams) cold start is a few dozen ms and steady-state overhead is negligible; at large scale it stays sub-100ms where `memory` blows past 1s.
+
+- **Filesystem stays the source of truth.** SQLite is purely derived — drop the file, run `engram_doctor` or just restart, and it gets rebuilt from `engrams/*.md` on cold start.
+- **Write-through.** `EngramRepository.createEngram / updateEngram / deleteEngram / mutateFrontmatter` transparently upsert/delete the derived row after the file lands. SQLite write failures are fail-silent at the repository layer (file truth still wins; `engram_doctor` + cold start reconcile drift).
+- **Recall parity with `memory`.** The LIKE fallback covers title + summary + content_tokens + domain tags for queries below the trigram minimum length (3 UTF-16 code units). At ≥3 chars, FTS5 trigram matches memory-FTS recall on the same text (Jaccard = 1.0 in the regression suite).
+- **Cold start.** First launch against a non-empty repo triggers a one-shot full rebuild inside a single transaction. Hot start (db already has rows) is a no-op.
+- **Concurrency.** WAL allows multiple reader processes alongside a single writer. Both host adapters (`claude-code-mcp`, `openclaw-plugin`) can mount the same `dataRoot` simultaneously.
+- **Fail-safe fallback.** If SQLite is unavailable at boot time (Node < 22.17, file system permission error, schema corruption, disk full), `bootstrapRepositoryAndSearch` catches the error, logs `[co-engram] search engine: sqlite unavailable (...) falling back to memory`, and transparently degrades to the `memory` engine — host startup never crashes.
+- **Node version requirement.** Uses the built-in `node:sqlite` module (stabilized in Node 22.17). The `engines.node` field in every package is pinned to `>=22.17.0`; older Node silently falls through to the `memory` fallback above.
+
+### `memory` (opt-out)
 
 In-process FTS over `digest.jsonl` lines. Tokenizer is bigram + word. Suitable for repos up to ~1k engrams — `digest.jsonl` is parsed on every `rebuildSearchIndex()` call, and the FTS index lives in heap.
 
 - Zero disk footprint beyond `digest.jsonl`.
 - Recomputed on every watcher invalidation (cheap at small scale).
-- The historical default; nothing new to enable.
+- Set `CO_ENGRAM_SEARCH_ENGINE=memory` to opt out of SQLite — useful for embedded / read-only-fs / sandboxed deployments where the `index.db` side-effect is undesirable.
 
-### `sqlite` (opt-in, scaling path)
-
-Derived SQLite index at `.co-engram/index.db` (WAL mode, FTS5 trigram tokenizer). Designed for the 5k+ engram target.
-
-- **Filesystem stays the source of truth.** SQLite is purely derived — drop the file, run `engram_doctor` or just restart with `CO_ENGRAM_SEARCH_ENGINE=sqlite`, and it gets rebuilt from `engrams/*.md` on cold start.
-- **Write-through.** `EngramRepository.createEngram / updateEngram / deleteEngram / mutateFrontmatter` transparently upsert/delete the derived row after the file lands. SQLite write failures are fail-silent at the repository layer (file truth still wins; `engram_doctor` + cold start reconcile drift).
-- **Recall parity with `memory`.** The LIKE fallback covers title + summary + content_tokens + domain tags for queries below the trigram minimum length (3 UTF-16 code units). At ≥3 chars, FTS5 trigram matches memory-FTS recall on the same text (Jaccard = 1.0 in the regression suite).
-- **Cold start.** First launch with `CO_ENGRAM_SEARCH_ENGINE=sqlite` against a non-empty repo triggers a one-shot full rebuild inside a single transaction. Hot start (db already has rows) is a no-op.
-- **Concurrency.** WAL allows multiple reader processes alongside a single writer. Both host adapters (`claude-code-mcp`, `openclaw-plugin`) can mount the same `dataRoot` simultaneously.
-
-Unknown values fall back to `memory` (fail-safe — a typo never breaks startup).
+Unknown values fall back to `sqlite` (fail-safe toward the stronger engine — a typo never silently downgrades you to the less-scalable backend).
 
 ## Boundary Rules
 
