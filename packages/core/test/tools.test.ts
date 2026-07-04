@@ -1021,11 +1021,11 @@ describe("engram_list", () => {
     );
     refreshSearch();
     const result = engramListTool.execute(
-      { filter: { domainTags: ["x"] } },
+      { filter: { domainTags: ["x"] }, limit: 100 },
       ctx,
     );
-    expect(result.total).toBe(1);
-    expect(result.results[0]!.title).toBe("A");
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]!.title).toBe("A");
   });
 
   it("按 createdBy 过滤（真实数据，非硬编码）", () => {
@@ -1050,11 +1050,11 @@ describe("engram_list", () => {
       ctx,
     );
     const result = engramListTool.execute(
-      { filter: { createdBy: ["alice"] } },
+      { filter: { createdBy: ["alice"] }, limit: 100 },
       ctx,
     );
-    expect(result.total).toBe(1);
-    expect(result.results[0]!.title).toBe("A");
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]!.title).toBe("A");
   });
 
   it("按 minImportance 过滤（真实数据，非硬编码）", () => {
@@ -1081,11 +1081,11 @@ describe("engram_list", () => {
       ctx,
     );
     const result = engramListTool.execute(
-      { filter: { minImportance: 0.5 } },
+      { filter: { minImportance: 0.5 }, limit: 100 },
       ctx,
     );
-    expect(result.total).toBe(1);
-    expect(result.results[0]!.title).toBe("A");
+    expect(result.items.length).toBe(1);
+    expect(result.items[0]!.title).toBe("A");
   });
 
   it("无 filter 时返回所有", () => {
@@ -1109,8 +1109,8 @@ describe("engram_list", () => {
       },
       ctx,
     );
-    const result = engramListTool.execute({}, ctx);
-    expect(result.total).toBe(2);
+    const result = engramListTool.execute({ limit: 100 }, ctx);
+    expect(result.items.length).toBe(2);
   });
 });
 

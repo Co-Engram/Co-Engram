@@ -364,10 +364,31 @@ export const EngramSearchInputSchema = z.object({
 // engram_list
 // ============================================================
 
-export const EngramListInputSchema = z.object({
-  filter: SearchFilterSchema.optional(),
-  limit: z.number().int().positive().max(500).default(100),
-});
+export const EngramListInputSchema = z
+  .object({
+    filter: SearchFilterSchema.optional(),
+    limit: z.number().int().positive().max(500),
+    cursor: z.string().nullable().optional(),
+  })
+  .strict();
+
+/**
+ * engram_list 工具返回 shape(BREAKING,Phase 3 PR3)。
+ *
+ * - items: 当前页的 Catalog Entry 列表(已按 importance DESC / updatedAt DESC / id ASC 排序)
+ * - nextCursor: 下一页的 opaque token;null 表示已是最后一页
+ *
+ * 调用方翻页:把上一次返回的 nextCursor 原样作为下一次 input.cursor 传入。
+ */
+export interface EngramListToolResult {
+  items: Array<{
+    id: string;
+    title: string;
+    kind: string;
+    domainTags: readonly string[];
+  }>;
+  nextCursor: string | null;
+}
 
 // ============================================================
 // synapse_create
@@ -434,10 +455,61 @@ export const SkillInvokeInputSchema = z.object({
 // （M1：候选提示机制）
 // ============================================================
 
-export const EngramListProposalsInputSchema = z.object({
-  /** 是否包含已 accepted/dismissed 的提案（默认 false，只列 pending） */
-  includeAll: z.boolean().default(false),
-});
+export const EngramListProposalsInputSchema = z
+  .object({
+    /** 是否包含已 accepted/dismissed 的提案（默认 false，只列 pending） */
+    includeAll: z.boolean().default(false),
+    /**
+     * 返回上限(必填,1-500)。与 cursor 配合做翻页。
+     *
+     * 提案列表通常远小于 engram 列表(典型 <100),但保留 cursor 分页保持
+     * API 形态一致性,也覆盖 proposal-engine 候选量随观察窗口增长的场景。
+     */
+    limit: z.number().int().positive().max(500),
+    /**
+     * 分页 cursor(上一页返回的 nextCursor)。
+     *
+     * 编码上一页最后一条的 sort key(createdAt + entityId)。
+     * 下一页返回排序更靠后的提案。
+     */
+    cursor: z.string().nullable().optional(),
+  })
+  .strict();
+
+/**
+ * engram_list_proposals 工具的返回 shape(Task 3.5 cursor 分页)。
+ */
+export interface EngramListProposalsToolResult {
+  readonly items: ReadonlyArray<{
+    entityId: string;
+    occurrences: number;
+    sampleQuotes: readonly string[];
+    centroidExcerpt: string;
+    firstSeenAt: string;
+    lastSeenAt: string;
+    createdAt: string;
+    status: "pending" | "accepted" | "dismissed";
+    source: "conversation" | "auto-memory" | "external-markdown";
+    slug?: string;
+    proposedTitle?: string;
+    proposedSummary?: string;
+    proposedKind?: string;
+    proposedDomainTags?: readonly string[];
+    proposedContextTags?: readonly string[];
+    proposedImportance?: number;
+    proposedVisibility?: string;
+    proposedEncodingContext?: string;
+    proposedSourceType?: string;
+    proposedDecayHalfLifeDays?: number | null;
+    proposedCreatedBy?: string;
+    suggestedTitle?: string;
+    necessityReason?: string;
+    necessityRule?: string;
+    acceptedEngramId?: string;
+    sourcePath?: string;
+  }>;
+  readonly nextCursor: string | null;
+}
 
 export const EngramAcceptProposalInputSchema = z.object({
   /** 簇 id(= proposal.entityId;auto-memory 来源形如 `am:<slug>`) */

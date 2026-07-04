@@ -213,10 +213,10 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
     engramAcceptProposalTool.execute({ entityId }, buildCtx());
 
     const listResult = engramListProposalsTool.execute(
-      { includeAll: true },
+      { includeAll: true, limit: 100 },
       buildCtx(),
     );
-    const target = listResult.proposals.find((p) => p.entityId === entityId);
+    const target = listResult.items.find((p) => p.entityId === entityId);
     expect(target?.status).toBe("accepted");
     expect(target?.acceptedEngramId).toBeTruthy();
   });
@@ -269,5 +269,91 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
 
     const result = engramAcceptProposalTool.execute({ entityId }, buildCtx());
     expect(repo.readEngram(result.engramId).visibility).toBe("public");
+  });
+});
+
+// ============================================================
+// engram_list_proposals · cursor 分页(Task 3.5)
+// ============================================================
+
+describe("engram_list_proposals · cursor 分页 shape", () => {
+  function seedN(n: number): string[] {
+    const ids: string[] = [];
+    for (let i = 0; i < n; i++) {
+      engine.proposeExternalMarkdown({
+        sourcePath: `p-${i}.md`,
+        title: `T${i}`,
+        content: `C${i}`,
+        domainTags: ["imported"],
+        kind: "observation",
+      });
+      // proposeExternalMarkdown 用内部时钟生成 entityId/createdAt;
+      // 通过 listAll 拿到刚创建的 id 用于断言
+      ids.push(engine.listAll()[engine.listAll().length - 1]!.entityId);
+    }
+    return ids;
+  }
+
+  it("limit 缺失时 schema 校验失败", () => {
+    expect(() =>
+      engramListProposalsTool.execute({ includeAll: true } as never, buildCtx()),
+    ).toThrow(/limit/);
+  });
+
+  it("limit > 500 被 schema 拒绝", () => {
+    expect(() =>
+      engramListProposalsTool.execute(
+        { includeAll: true, limit: 501 },
+        buildCtx(),
+      ),
+    ).toThrow();
+  });
+
+  it("limit = 0 被拒绝(positive)", () => {
+    expect(() =>
+      engramListProposalsTool.execute(
+        { includeAll: true, limit: 0 },
+        buildCtx(),
+      ),
+    ).toThrow();
+  });
+
+  it("接受 named input + 返回 { items, nextCursor }", () => {
+    seedN(1);
+    const result = engramListProposalsTool.execute(
+      { includeAll: true, limit: 50 },
+      buildCtx(),
+    );
+    expect(result).toHaveProperty("items");
+    expect(result).toHaveProperty("nextCursor");
+    expect(Array.isArray(result.items)).toBe(true);
+    expect(result.items.length).toBe(1);
+    expect(result.nextCursor).toBeNull();
+  });
+
+  it("cursor 翻页稳定:第二页不与第一页重复,无遗漏", () => {
+    seedN(25);
+    const seenIds = new Set<string>();
+    let cursor: string | null = null;
+    let iterations = 0;
+    const maxIterations = 10;
+    while (iterations < maxIterations) {
+      const result = engramListProposalsTool.execute(
+        cursor
+          ? { includeAll: true, limit: 10, cursor }
+          : { includeAll: true, limit: 10 },
+        buildCtx(),
+      );
+      expect(result.items.length).toBeGreaterThan(0);
+      for (const item of result.items) {
+        expect(seenIds.has(item.entityId)).toBe(false);
+        seenIds.add(item.entityId);
+      }
+      cursor = result.nextCursor;
+      if (cursor === null) break;
+      iterations++;
+    }
+    expect(seenIds.size).toBe(25);
+    expect(cursor).toBeNull();
   });
 });

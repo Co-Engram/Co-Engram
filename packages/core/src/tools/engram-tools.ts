@@ -35,6 +35,12 @@ import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_CONFIG } from "../reinforcement
 import { checkDuplicateSync } from "../dedup/dedupe.js";
 import { mergeEngram } from "../dedup/merge.js";
 import { recomputeImportance } from "../importance/vector.js";
+import {
+  compareSortKey,
+  decodeCursor,
+  encodeCursor,
+  type SortKey,
+} from "../storage/index-db-cursor.js";
 import { manualResolveContradiction } from "../contradiction/index.js";
 import { closeLearningLoop } from "../learning/loop.js";
 import { upgradeVerification } from "../verification/index.js";
@@ -64,6 +70,7 @@ import {
   type EngramDeleteToolInput,
   type EngramSearchToolInput,
   type EngramListToolInput,
+  type EngramListToolResult,
   type EngramReinforceToolInput,
   type EngramReportFailureToolInput,
   type EngramArchiveToolInput,
@@ -668,10 +675,11 @@ export const engramSearchTool: Tool<
 
 export const engramListTool: Tool<
   EngramListToolInput,
-  { results: EngramCatalogEntry[]; total: number }
+  EngramListToolResult
 > = {
   name: "engram_list",
-  description: "按过滤器列出 Engram（无查询，按元数据过滤，直接读最新数据）。",
+  description:
+    "按过滤器列出 Engram(无查询,按元数据过滤,cursor 分页)。limit 必填(1-500)。",
   inputSchema: EngramListInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramListToolInput>(
@@ -685,16 +693,59 @@ export const engramListTool: Tool<
       lines.push(engramToDigestLine(engram));
     }
     const filtered = lines.filter((line) => matchesFilter(line, parsed.filter));
-    const limited = filtered.slice(0, parsed.limit);
-    return {
-      results: limited.map((line) => ({
-        id: line.id,
-        title: line.title,
-        kind: line.kind as EngramCatalogEntry["kind"],
-        domainTags: line.domainTags,
-      })),
-      total: filtered.length,
-    };
+
+    // 稳定排序:importance DESC, updatedAt DESC, id ASC
+    // 与 SortKey 的 compareSortKey 顺序严格一致(cursor 解码后能精确定位)
+    const sorted = [...filtered].sort((a, b) => {
+      const ka: SortKey = {
+        importance: a.importance,
+        updatedAt: Date.parse(a.updatedAt ?? "1970-01-01"),
+        id: a.id,
+      };
+      const kb: SortKey = {
+        importance: b.importance,
+        updatedAt: Date.parse(b.updatedAt ?? "1970-01-01"),
+        id: b.id,
+      };
+      return compareSortKey(ka, kb);
+    });
+
+    // cursor 过滤:跳过 sort key <= cursor 的项(compareSortKey 返回 -1 或 0)
+    let startIdx = 0;
+    if (parsed.cursor) {
+      const ck = decodeCursor(parsed.cursor);
+      startIdx = sorted.findIndex((line) => {
+        const key: SortKey = {
+          importance: line.importance,
+          updatedAt: Date.parse(line.updatedAt ?? "1970-01-01"),
+          id: line.id,
+        };
+        return compareSortKey(key, ck) > 0;
+      });
+      if (startIdx === -1) startIdx = sorted.length;
+    }
+
+    const slice = sorted.slice(startIdx, startIdx + parsed.limit);
+    const items = slice.map((line) => ({
+      id: line.id,
+      title: line.title,
+      kind: line.kind as EngramCatalogEntry["kind"],
+      domainTags: line.domainTags,
+    }));
+
+    const hasMore = startIdx + parsed.limit < sorted.length && items.length > 0;
+    const nextCursor =
+      hasMore && slice.length > 0
+        ? encodeCursor({
+            importance: slice[slice.length - 1]!.importance,
+            updatedAt: Date.parse(
+              slice[slice.length - 1]!.updatedAt ?? "1970-01-01",
+            ),
+            id: slice[slice.length - 1]!.id,
+          })
+        : null;
+
+    return { items, nextCursor };
   },
 };
 

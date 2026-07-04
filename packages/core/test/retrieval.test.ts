@@ -214,9 +214,14 @@ describe("SearchOrchestrator", () => {
     ];
     const orchestrator = new SearchOrchestrator();
     orchestrator.build(lines);
-    const results = orchestrator.listByFilter({ domainTags: ["x"] });
-    expect(results).toHaveLength(1);
-    expect(results[0].id).toBe("a");
+    const result = orchestrator.listByFilter({
+      filter: { domainTags: ["x"] },
+      limit: 100,
+      cursor: null,
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0].id).toBe("a");
+    expect(result.nextCursor).toBeNull();
   });
 
   it("setWeights 配置三因子权重", () => {
@@ -269,9 +274,12 @@ describe("SearchOrchestrator", () => {
     ];
     const orchestrator = new SearchOrchestrator();
     orchestrator.build(lines);
-    const results = orchestrator.listByImportance();
-    expect(results[0].id).toBe("b");
-    expect(results[0].score).toBeGreaterThan(results[1].score);
+    const result = orchestrator.listByImportance({
+      limit: 100,
+      cursor: null,
+    });
+    expect(result.items[0].id).toBe("b");
+    expect(result.items[0].id).not.toBe(result.items[1].id);
   });
 
   it("排序稳定性：相同输入相同输出", () => {

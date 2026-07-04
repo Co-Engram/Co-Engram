@@ -1,12 +1,12 @@
 /**
- * engram_audit_query 工具测试(Task 3.3)
+ * engram_audit_query 工具测试(Task 3.3 + Task 3.4 cursor 分页)
  *
- * 验证 AuditLog 数据通过工具层暴露给 agent / 用户。
+ * 验证 AuditLog 数据通过工具层暴露给 agent / 用户,新 shape `{ items, nextCursor }`。
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { AuditLog } from "../src/observability/audit-log.js";
 import { engramAuditQueryTool } from "../src/tools/audit-query-tool.js";
@@ -31,34 +31,118 @@ afterEach(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("engram_audit_query (Task 3.3)", () => {
-  it("returns events filtered by engramId", () => {
+/**
+ * 直接写 audit.jsonl,用确定性 ts 覆盖多条 entry。
+ *
+ * AuditLog.append 用 new Date().toISOString(),无法注入时钟。测试需要
+ * 确定性 ts 序列(尤其是 cursor 分页测试)时,绕过 append 直接写文件。
+ */
+function writeAuditLines(
+  lines: ReadonlyArray<{ ts: string; action: string; engramId?: string }>,
+): void {
+  mkdirSync(dirname(audit.path), { recursive: true });
+  const text =
+    lines
+      .map((l) => JSON.stringify(l))
+      .join("\n") + "\n";
+  writeFileSync(audit.path, text, "utf8");
+}
+
+describe("engram_audit_query (Task 3.3 + 3.4)", () => {
+  it("limit 缺失时 schema 校验失败", () => {
+    expect(() =>
+      engramAuditQueryTool.execute({ engramId: "E1" } as never, ctx),
+    ).toThrow(/limit/);
+  });
+
+  it("limit > 1000 被 schema 拒绝", () => {
+    expect(() =>
+      engramAuditQueryTool.execute({ limit: 1001 }, ctx),
+    ).toThrow();
+  });
+
+  it("limit = 0 被拒绝(positive)", () => {
+    expect(() => engramAuditQueryTool.execute({ limit: 0 }, ctx)).toThrow();
+  });
+
+  it("returns items filtered by engramId", () => {
     audit.append({ actor: "user", action: "create", engramId: "E1" });
     audit.append({ actor: "user", action: "create", engramId: "E2" });
     audit.append({ actor: "user", action: "update", engramId: "E1" });
 
-    const result = engramAuditQueryTool.execute({ engramId: "E1" }, ctx);
-    expect(result.events).toHaveLength(2);
-    expect(result.events.every((e) => e.engramId === "E1")).toBe(true);
+    const result = engramAuditQueryTool.execute(
+      { engramId: "E1", limit: 100 },
+      ctx,
+    );
+    expect(result.items).toHaveLength(2);
+    expect(result.items.every((e) => e.engramId === "E1")).toBe(true);
+    expect(result.nextCursor).toBeNull();
   });
 
-  it("returns events filtered by action", () => {
+  it("returns items filtered by action", () => {
     audit.append({ actor: "user", action: "create", engramId: "E1" });
     audit.append({ actor: "user", action: "reinforce", engramId: "E1" });
     audit.append({ actor: "user", action: "create", engramId: "E2" });
 
-    const result = engramAuditQueryTool.execute({ action: "reinforce" }, ctx);
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]!.action).toBe("reinforce");
+    const result = engramAuditQueryTool.execute(
+      { action: "reinforce", limit: 100 },
+      ctx,
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.action).toBe("reinforce");
   });
 
-  it("respects limit and reports truncated flag", () => {
-    for (let i = 0; i < 10; i++) {
-      audit.append({ actor: "user", action: "create", engramId: `E${i}` });
-    }
+  it("limit 截断 + nextCursor 提供分页边界", () => {
+    // 用确定性 ts 写 10 条,确保 cursor 分页可预测
+    const lines = Array.from({ length: 10 }, (_, i) => ({
+      ts: `2024-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
+      action: "create",
+      engramId: `E${i}`,
+    }));
+    writeAuditLines(lines);
+
     const result = engramAuditQueryTool.execute({ limit: 5 }, ctx);
-    expect(result.events).toHaveLength(5);
-    expect(result.count).toBe(5);
+    expect(result.items).toHaveLength(5);
+    // AuditLog.query 时间正序:第一页应是最新 5 条(E5..E9)
+    expect(result.items.map((e) => e.engramId)).toEqual([
+      "E5",
+      "E6",
+      "E7",
+      "E8",
+      "E9",
+    ]);
+    // nextCursor = oldest in page = E5 的 ts
+    expect(result.nextCursor).toBe(
+      "2024-01-06T00:00:00.000Z",
+    );
+  });
+
+  it("cursor 翻页:第二页更早事件,无重复,无遗漏", () => {
+    const lines = Array.from({ length: 10 }, (_, i) => ({
+      ts: `2024-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`,
+      action: "create",
+      engramId: `E${i}`,
+    }));
+    writeAuditLines(lines);
+
+    const seenIds = new Set<string>();
+    let cursor: string | null = null;
+    let iterations = 0;
+    while (iterations < 5) {
+      const result = engramAuditQueryTool.execute(
+        cursor ? { limit: 4, cursor } : { limit: 4 },
+        ctx,
+      );
+      for (const item of result.items) {
+        expect(seenIds.has(item.engramId!)).toBe(false);
+        seenIds.add(item.engramId!);
+      }
+      cursor = result.nextCursor;
+      if (cursor === null) break;
+      iterations++;
+    }
+    expect(seenIds.size).toBe(10);
+    expect(cursor).toBeNull();
   });
 
   it("filters by since/until ISO8601 range", () => {
@@ -66,30 +150,48 @@ describe("engram_audit_query (Task 3.3)", () => {
     const mid = "2024-06-01T00:00:00.000Z";
     const young = "2024-12-01T00:00:00.000Z";
 
-    // AuditLog.append 用 new Date().toISOString(),无法注入。
-    // 我们直接写文件绕过:
-    const { writeFileSync, mkdirSync } = require("node:fs");
-    const { dirname } = require("node:path");
-    mkdirSync(dirname(audit.path), { recursive: true });
-    const lines = [
-      JSON.stringify({ ts: old, actor: "user", action: "create", engramId: "E_old" }),
-      JSON.stringify({ ts: mid, actor: "user", action: "create", engramId: "E_mid" }),
-      JSON.stringify({ ts: young, actor: "user", action: "create", engramId: "E_young" }),
-    ].join("\n") + "\n";
-    writeFileSync(audit.path, lines, "utf8");
+    writeAuditLines([
+      { ts: old, action: "create", engramId: "E_old" },
+      { ts: mid, action: "create", engramId: "E_mid" },
+      { ts: young, action: "create", engramId: "E_young" },
+    ]);
 
     const result = engramAuditQueryTool.execute(
-      { since: "2024-03-01T00:00:00.000Z", until: "2024-09-01T00:00:00.000Z" },
+      {
+        since: "2024-03-01T00:00:00.000Z",
+        until: "2024-09-01T00:00:00.000Z",
+        limit: 100,
+      },
       ctx,
     );
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0]!.engramId).toBe("E_mid");
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.engramId).toBe("E_mid");
+  });
+
+  it("cursor 与 until 互斥(cursor 优先)", () => {
+    // cursor 编码了 until 边界,显式传 until 应被忽略
+    writeAuditLines([
+      { ts: "2024-01-01T00:00:00.000Z", action: "create", engramId: "E1" },
+      { ts: "2024-02-01T00:00:00.000Z", action: "create", engramId: "E2" },
+      { ts: "2024-03-01T00:00:00.000Z", action: "create", engramId: "E3" },
+    ]);
+    // cursor = E2 的 ts → 只返回 E1(strictly older)
+    const result = engramAuditQueryTool.execute(
+      {
+        cursor: "2024-02-01T00:00:00.000Z",
+        until: "2024-12-31T00:00:00.000Z", // 应被忽略
+        limit: 100,
+      },
+      ctx,
+    );
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.engramId).toBe("E1");
   });
 
   it("throws clear error when auditLog not injected", () => {
     const ctxNoAudit = { repository: stubRepo } as ToolContext;
     expect(() =>
-      engramAuditQueryTool.execute({}, ctxNoAudit),
+      engramAuditQueryTool.execute({ limit: 10 }, ctxNoAudit),
     ).toThrow(/auditLog/);
   });
 
@@ -99,21 +201,27 @@ describe("engram_audit_query (Task 3.3)", () => {
     expect(engramAuditQueryTool.description).toContain("{{concept:");
   });
 
-  it("returns empty array when no events match filter", () => {
+  it("returns empty items when no events match filter", () => {
     audit.append({ actor: "user", action: "create", engramId: "E1" });
-    const result = engramAuditQueryTool.execute({ engramId: "nonexistent" }, ctx);
-    expect(result.events).toHaveLength(0);
-    expect(result.count).toBe(0);
+    const result = engramAuditQueryTool.execute(
+      { engramId: "nonexistent", limit: 100 },
+      ctx,
+    );
+    expect(result.items).toHaveLength(0);
+    expect(result.nextCursor).toBeNull();
   });
 
-  it("returns events in time-ascending order (AuditLog.query semantics)", () => {
+  it("returns items in time-ascending order (AuditLog.query semantics)", () => {
     // AuditLog.query 内部从尾部往前读再 reverse,最终是时间正序
     audit.append({ actor: "user", action: "create", engramId: "E1" });
     audit.append({ actor: "user", action: "update", engramId: "E1" });
     audit.append({ actor: "user", action: "reinforce", engramId: "E1" });
 
-    const result = engramAuditQueryTool.execute({ engramId: "E1" }, ctx);
-    expect(result.events.map((e) => e.action)).toEqual([
+    const result = engramAuditQueryTool.execute(
+      { engramId: "E1", limit: 100 },
+      ctx,
+    );
+    expect(result.items.map((e) => e.action)).toEqual([
       "create",
       "update",
       "reinforce",

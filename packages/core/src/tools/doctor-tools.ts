@@ -117,6 +117,11 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
 // ============================================================
 // engram_list_paths
 // ============================================================
+//
+// Task 3.5 形态对齐确认:本工具的「limit」语义已经是 `maxDepth`(目录树深度),
+// 而非结果数量;目录树一次性返回,无 cursor。这与 plan 的「list_paths 的 limit
+// 含义改 maxDepth,不变 cursor 语义(目录树一次性返回即可)」一致 —— 当前
+// 实现已满足,无需修改。保留 maxDepth 可选(默认 5,上限 10)。
 
 export const EngramListPathsInputSchema = z
   .object({

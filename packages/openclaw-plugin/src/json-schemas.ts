@@ -357,9 +357,13 @@ export const engramSearchSchema: JsonSchemaObject = {
 export const engramListSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
+  required: ["limit"],
   properties: {
     filter: searchFilterSchema,
-    limit: { type: "integer", minimum: 1, maximum: 500, default: 100 },
+    // Task 3.1:limit 改必填(1-500),无默认值;调用方必须显式声明。
+    limit: { type: "integer", minimum: 1, maximum: 500 },
+    // Task 3.1:cursor 分页(上一页返回的 nextCursor 原样回传)
+    cursor: { type: "string", nullable: true },
   },
 };
 

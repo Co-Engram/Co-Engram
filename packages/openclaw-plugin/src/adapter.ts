@@ -64,7 +64,9 @@ export function toToolResult(
  * 已识别模式(全部渲染为 type:'text',避免 OpenClaw UI 把 JSON 渲染成
  * 图表卡片让 agent 误判为"图片没显示"):
  *
- *   1. { results: [...], total }  — engram_list / engram_search / memory_search
+ *   1a. { results: [...], total }  — engram_search / memory_search(无 cursor)
+ *   1b. { items: [...], nextCursor }  — engram_list / engram_audit_query /
+ *       engram_list_proposals(Task 3.4/3.5 cursor 分页 shape)
  *   2. { tier: 'catalog'|'digest'|'content'|'meta'|'synapses', ... }  — engram_get
  *   3. { id, content, metadata, relatedIds }  — memory_get
  *
@@ -78,9 +80,13 @@ function renderForLlm(data: unknown, ctx: ToolContext): string | null {
   if (!data || typeof data !== "object") return null;
   const obj = data as Record<string, unknown>;
 
-  // 模式 1:列表型
+  // 模式 1a:列表型(legacy results shape)
   if (Array.isArray(obj["results"])) {
     return renderListResult(obj, ctx);
+  }
+  // 模式 1b:cursor 分页 shape(items + nextCursor)
+  if (Array.isArray(obj["items"])) {
+    return renderCursorListResult(obj, ctx);
   }
   // 模式 2:engram_get(tier-based) — tier 是已知字符串即识别
   //   catalog/digest/content/meta 都有 entry;synapses 只有 bundle(无 entry)
@@ -102,7 +108,7 @@ function renderForLlm(data: unknown, ctx: ToolContext): string | null {
   return null;
 }
 
-/** 渲染列表型结果(engram_list / engram_search / memory_search) */
+/** 渲染列表型结果(engram_search / memory_search,legacy results shape) */
 function renderListResult(
   obj: Record<string, unknown>,
   ctx: ToolContext,
@@ -177,6 +183,95 @@ function renderListResult(
   }
 
   lines.push("");
+  lines.push("用户想看某条的完整内容时,根据 id 调 engram_get 或 memory_get。");
+  return lines.join("\n");
+}
+
+/**
+ * 渲染 cursor 分页列表型结果(engram_list / engram_audit_query /
+ * engram_list_proposals,Task 3.4/3.5 shape:`{ items, nextCursor }`)。
+ *
+ * 与 renderListResult 的差异:
+ *   - 没有 `total`(cursor 分页不预知总数)
+ *   - 渲染「展示前 N 条」而非「共 X 条」
+ *   - 若 nextCursor 非空,在末尾追加翻页提示(告诉 agent 把 nextCursor 回传
+ *     到下一页的 cursor 参数即可继续)
+ *
+ * 兼容 items 中元素的不同 shape:engram_list 是 catalog entry(id/title/kind/
+ * domainTags),engram_audit_query 是 AuditEntry(ts/actor/action/engramId),
+ * engram_list_proposals 是 proposal DTO(entityId/createdAt/status/...)。
+ * 渲染策略:取通用字段 + 按 shape 分支补特化字段。
+ */
+function renderCursorListResult(
+  obj: Record<string, unknown>,
+  ctx: ToolContext,
+): string {
+  const items = obj["items"] as readonly unknown[];
+  const nextCursor =
+    typeof obj["nextCursor"] === "string"
+      ? (obj["nextCursor"] as string)
+      : null;
+  const lines: string[] = [];
+  lines.push(`展示 ${items.length} 条${nextCursor ? "(还有更多,见末尾翻页提示)" : ""}:`);
+  lines.push("");
+
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i] as Record<string, unknown> | undefined;
+    if (!item || typeof item !== "object") continue;
+    // 通用主键:engram_list/audit_query 用 id;list_proposals 用 entityId
+    const id = String(item["id"] ?? item["entityId"] ?? "?");
+    const title = String(item["title"] ?? item["proposedTitle"] ?? "(无标题)");
+    // audit_query 项:ts / actor / action / engramId
+    const ts = readStringField(item["ts"], null);
+    const action = readStringField(item["action"], null);
+    const actor = readStringField(item["actor"], null);
+    const engramId = readStringField(item["engramId"], null);
+    // list_proposals 项:status / source
+    const status = readStringField(item["status"], null);
+    const source = readStringField(item["source"], null);
+    // catalog entry:kind / domainTags / score
+    const meta =
+      typeof item["metadata"] === "object"
+        ? (item["metadata"] as Record<string, unknown>)
+        : {};
+    const kind = item["kind"]
+      ? String(item["kind"])
+      : meta["kind"]
+        ? String(meta["kind"])
+        : "";
+    const rawTags = Array.isArray(item["domainTags"])
+      ? item["domainTags"]
+      : Array.isArray(meta["tags"])
+        ? meta["tags"]
+        : [];
+    const tags = rawTags.map(String).join(", ");
+    const score =
+      typeof item["score"] === "number"
+        ? ` (score: ${(item["score"] as number).toFixed(2)})`
+        : "";
+    const explicitSummary = item["summary"] ? String(item["summary"]) : "";
+    const summary =
+      explicitSummary || (id !== "?" ? safeReadDigestSummary(ctx, id) : "");
+
+    lines.push(`${i + 1}. **${title}**${score}`);
+    lines.push(`   - id: \`${id}\``);
+    if (kind) lines.push(`   - kind: ${kind}`);
+    if (tags) lines.push(`   - tags: ${tags}`);
+    if (status) lines.push(`   - status: ${status}`);
+    if (source) lines.push(`   - source: ${source}`);
+    if (ts) lines.push(`   - ts: ${ts}`);
+    if (actor) lines.push(`   - actor: ${actor}`);
+    if (action) lines.push(`   - action: ${action}`);
+    if (engramId) lines.push(`   - engramId: \`${engramId}\``);
+    if (summary) lines.push(`   - summary: ${summary}`);
+  }
+
+  lines.push("");
+  if (nextCursor) {
+    lines.push(
+      `还有更多结果 — 把 nextCursor 原样回传到下一页的 \`cursor\` 参数即可继续翻页。`,
+    );
+  }
   lines.push("用户想看某条的完整内容时,根据 id 调 engram_get 或 memory_get。");
   return lines.join("\n");
 }

@@ -27,7 +27,68 @@ import {
   type EngramListProposalsToolInput,
   type EngramAcceptProposalToolInput,
   type EngramDismissProposalToolInput,
+  type EngramListProposalsToolResult,
 } from "./schemas.js";
+
+// ============================================================
+// engram_list_proposals — cursor 分页 helper(Task 3.5)
+// ============================================================
+
+/**
+ * Proposal sort key:createdAt DESC + entityId ASC。
+ *
+ * 选择 createdAt 而非 lastSeenAt:createdAt 是不可变的(提案首次创建时间),
+ * 适合做稳定分页;lastSeenAt 在 observe 时被更新,会导致 cursor 漂移。
+ * entityId ASC 作为 tiebreaker 保证完全稳定。
+ */
+type ProposalSortKey = readonly [createdAt: string, entityId: string];
+
+function proposalSortKey(p: Proposal): ProposalSortKey {
+  return [p.createdAt, p.entityId];
+}
+
+function encodeProposalCursor(key: ProposalSortKey): string {
+  return Buffer.from(JSON.stringify(key), "utf8").toString("base64url");
+}
+
+function decodeProposalCursor(cursor: string): ProposalSortKey {
+  let json: string;
+  try {
+    json = Buffer.from(cursor, "base64url").toString("utf8");
+  } catch {
+    throw new Error("invalid proposal cursor: base64 decode failed");
+  }
+  let arr: unknown;
+  try {
+    arr = JSON.parse(json);
+  } catch {
+    throw new Error("invalid proposal cursor: JSON parse failed");
+  }
+  if (
+    !Array.isArray(arr) ||
+    arr.length !== 2 ||
+    typeof arr[0] !== "string" ||
+    typeof arr[1] !== "string"
+  ) {
+    throw new Error("invalid proposal cursor: shape mismatch");
+  }
+  return [arr[0] as string, arr[1] as string];
+}
+
+/**
+ * 比较 proposal sort key。
+ *
+ * 返回 -1 表示 a 排在 b 前面,1 表示 a 排在 b 后面,0 表示相等。
+ * 顺序:createdAt 大→小(最新优先);同 createdAt 时 entityId 字典序升序(稳定)。
+ *
+ * 用于 cursor 分页:`compareProposalKey(item, cursor) > 0` 的项是 cursor 之后
+ * 的项(应包含在下一页);`<= 0` 的项是 cursor 之前或等于的(跳过)。
+ */
+function compareProposalKey(a: ProposalSortKey, b: ProposalSortKey): number {
+  if (a[0] !== b[0]) return a[0] > b[0] ? -1 : 1;
+  if (a[1] !== b[1]) return a[1] < b[1] ? -1 : 1;
+  return 0;
+}
 
 // ============================================================
 // engram_list_proposals
@@ -35,45 +96,11 @@ import {
 
 export const engramListProposalsTool: Tool<
   EngramListProposalsToolInput,
-  {
-    proposals: ReadonlyArray<{
-      entityId: string;
-      occurrences: number;
-      sampleQuotes: readonly string[];
-      centroidExcerpt: string;
-      firstSeenAt: string;
-      lastSeenAt: string;
-      createdAt: string;
-      status: Proposal["status"];
-      source: ProposalSource;
-      slug?: string;
-      // auto-memory 来源时携带的预填字段(便于 LLM/用户判断是否直接 accept)
-      proposedTitle?: string;
-      proposedSummary?: string;
-      proposedKind?: string;
-      proposedDomainTags?: readonly string[];
-      proposedContextTags?: readonly string[];
-      proposedImportance?: number;
-      proposedVisibility?: string;
-      proposedEncodingContext?: string;
-      proposedSourceType?: string;
-      proposedDecayHalfLifeDays?: number | null;
-      proposedCreatedBy?: string;
-      // conversation 来源时携带的建议标题(LLM 具象化的草稿)
-      suggestedTitle?: string;
-      necessityReason?: string;
-      necessityRule?: string;
-      // accept 后填:对应 engram 的 id(host 可据此读取 engram 或清理原始 .md)
-      acceptedEngramId?: string;
-      // external-markdown 来源时携带:相对 dataRoot 的 .md 路径
-      sourcePath?: string;
-    }>;
-    total: number;
-  }
+  EngramListProposalsToolResult
 > = {
   name: "engram_list_proposals",
   description:
-    "列出主题候选提案。当某主题在对话中被多次提及但无匹配 engram 时,系统会生成 pending 提案等待确认。默认只返回 pending;传 includeAll=true 可查看历史 accepted/dismissed。每条提案带 source 字段(conversation=对话流聚类 / auto-memory=Claude Code auto-memory 文件);auto-memory 来源还带 proposedTitle/proposedContent/proposedDomainTags 等预填字段,可直接 accept 无需重复填表。",
+    "列出主题候选提案(cursor 分页)。当某主题在对话中被多次提及但无匹配 engram 时,系统会生成 pending 提案等待确认。默认只返回 pending;传 includeAll=true 可查看历史 accepted/dismissed。每条提案带 source 字段(conversation=对话流聚类 / auto-memory=Claude Code auto-memory 文件);auto-memory 来源还带 proposedTitle/proposedContent/proposedDomainTags 等预填字段,可直接 accept 无需重复填表。limit 必填(1-500),翻页把 nextCursor 原样回传到下一页的 cursor 参数。",
   inputSchema: EngramListProposalsInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramListProposalsToolInput>(
@@ -86,8 +113,27 @@ export const engramListProposalsTool: Tool<
     const all = parsed.includeAll
       ? ctx.proposalEngine.listAll()
       : ctx.proposalEngine.listPending();
+    // 稳定排序:createdAt DESC + entityId ASC
+    const sorted = [...all].sort((a, b) =>
+      compareProposalKey(proposalSortKey(a), proposalSortKey(b)),
+    );
+    // cursor 过滤:跳过 cursor 之前/等于的项
+    let startIdx = 0;
+    if (parsed.cursor) {
+      const ck = decodeProposalCursor(parsed.cursor);
+      startIdx = sorted.findIndex(
+        (p) => compareProposalKey(proposalSortKey(p), ck) > 0,
+      );
+      if (startIdx === -1) startIdx = sorted.length;
+    }
+    const slice = sorted.slice(startIdx, startIdx + parsed.limit);
+    const hasMore = startIdx + parsed.limit < sorted.length && slice.length > 0;
+    const nextCursor =
+      hasMore && slice.length > 0
+        ? encodeProposalCursor(proposalSortKey(slice[slice.length - 1]!))
+        : null;
     return {
-      proposals: all.map((p) => {
+      items: slice.map((p) => {
         const base: {
           entityId: string;
           occurrences: number;
@@ -152,7 +198,7 @@ export const engramListProposalsTool: Tool<
         }
         return base;
       }),
-      total: all.length,
+      nextCursor,
     };
   },
 };
