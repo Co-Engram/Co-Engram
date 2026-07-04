@@ -112,9 +112,22 @@ Each result is self-describing — callers do not need a follow-up `engram_get` 
 
 ### `engram_list`
 
-List engrams by metadata filter (no full-text query).
+List engrams by metadata filter (no full-text query) with cursor pagination.
 
-**Optional:** same `filter` as `engram_search`, `limit` (default 100, max 500)
+**Required:** `limit: number` (1-500)
+
+**Optional:** same `filter` as `engram_search`, `cursor: string | null` (opaque pagination token returned as `nextCursor` from the previous page; pass it verbatim to fetch the next page)
+
+**Returns:**
+
+```ts
+{
+  items: Array<{ id: string, title: string, kind: EngramKind, domainTags: string[] }>,
+  nextCursor: string | null  // null when no more results
+}
+```
+
+Items are sorted by `importance DESC, updatedAt DESC, id ASC` for stable pagination. Pass the returned `nextCursor` to the next call's `cursor` parameter to continue.
 
 ### `engram_reinforce`
 
@@ -319,13 +332,26 @@ This is the "prompted candidates" hybrid: not fully automatic (you stay in contr
 
 ### `engram_list_proposals`
 
-List pending memory candidates (topics seen ≥ N times but not recorded).
+List pending memory candidates (topics seen ≥ N times but not recorded) with cursor pagination.
 
-**Optional:** `includeAll: boolean` (default `false` — only pending proposals returned; set `true` to also include accepted/dismissed history)
+**Required:** `limit: number` (1-500)
 
-**Returns:** `{ proposals: Proposal[], total: number }`
+**Optional:** `includeAll: boolean` (default `false` — only pending proposals returned; set `true` to also include accepted/dismissed history), `cursor: string | null` (opaque pagination token)
 
-Each proposal includes sample quotes, occurrence count, and first/last seen timestamps — enough context to decide accept vs dismiss without re-reading the original conversation.
+**Returns:**
+
+```ts
+{
+  items: Array<{ entityId: string, occurrences: number, sampleQuotes: string[],
+                 centroidExcerpt: string, firstSeenAt: string, lastSeenAt: string,
+                 createdAt: string, status: "pending" | "accepted" | "dismissed",
+                 source: "conversation" | "auto-memory" | "external-markdown",
+                 /* auto-memory source carries proposedTitle/proposedContent/etc */ }>,
+  nextCursor: string | null  // null when no more results
+}
+```
+
+Items are sorted by `createdAt DESC, entityId ASC` for stable pagination. Each proposal includes sample quotes, occurrence count, and first/last seen timestamps — enough context to decide accept vs dismiss without re-reading the original conversation.
 
 ### `engram_accept_proposal`
 
@@ -358,31 +384,33 @@ These tools help an LLM (or a human) inspect the physical layout of the memory r
 
 ### `engram_audit_query`
 
-Query the audit log (team-memory's event history, `audit.jsonl`). Surfaces the data that `AuditLog.query` already exposes internally so an agent or user can answer "what happened to this engram?" without opening the viewer or reading the file directly.
+Query the audit log (team-memory's event history, `audit.jsonl`) with cursor pagination. Surfaces the data that `AuditLog.query` already exposes internally so an agent or user can answer "what happened to this engram?" without opening the viewer or reading the file directly.
+
+**Required:** `limit: number` (1-1000)
 
 **Optional inputs:**
 
 - `engramId: string` — filter to one engram's full history
 - `action: AuditAction` — filter by event type (`create`, `update`, `update_lifecycle`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`, `noise_filtered`, `necessity_rejected`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`)
 - `since: string` (ISO 8601, inclusive), `until: string` (ISO 8601, exclusive)
-- `limit: number` (default 100, max 1000)
+- `cursor: string | null` — opaque pagination token (encodes the oldest entry's `ts` from the previous page; pass it verbatim to fetch strictly older events). Mutually exclusive with `until` (cursor wins).
 
 **Returns:**
 
 ```ts
 {
-  events: Array<{
+  items: Array<{
     ts: string,          // ISO 8601 timestamp
     actor: "user" | "system" | "llm-arbiter",
     action: AuditAction,
     engramId?: string,
     metadata: Record<string, unknown>
   }>,
-  count: number          // === events.length
+  nextCursor: string | null  // null when no more results
 }
 ```
 
-Events are returned in chronological order. Common use cases: "who reinforced this and when?", "why did this engram's importance jump?", "what was the verdict on the last merge conflict?"
+Events are returned in chronological order (newest N within the filter, ascending within the page). Common use cases: "who reinforced this and when?", "why did this engram's importance jump?", "what was the verdict on the last merge conflict?"
 
 ### `engram_doctor`
 

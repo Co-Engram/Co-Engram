@@ -435,7 +435,7 @@ create(synapse): 01J...A --extends--> 01J...C
 
 - **CI 浅克隆**:`git clone --depth 1`
 - 若内容包含许多内嵌图片的大型 Markdown 文件,使用 **Git LFS**
-- **周期性归档清扫**:`engram_list({ filter: { status: [archived] } })` 然后批量 forget
+- **周期性归档清扫**:`engram_list({ filter: { status: [archived] }, limit: 500 })` 然后批量 forget(超过 500 条用 cursor 翻页)
 
 ## 备份策略
 

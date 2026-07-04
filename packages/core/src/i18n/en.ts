@@ -333,7 +333,7 @@ WHEN NOT TO CALL:
 - User wants a specific engram (use engram_get)
 
 RETURNS: Nested { path, engramCount, children } tree rooted at '/'. Optional maxDepth (1-10, default 5).`,
-  "tool.engram_audit_query.agent": `Query the audit log (audit.jsonl) and return matching events.
+  "tool.engram_audit_query.agent": `Query the audit log (audit.jsonl) and return matching events (cursor pagination).
 
 WHEN TO CALL:
 - "modification history of this engram" (who created / reinforced / contradicted)
@@ -345,7 +345,9 @@ WHEN NOT TO CALL:
 - Want current engram state (use engram_get)
 - Want effectiveness charts (open viewer web UI)
 
-RETURNS: { events: AuditEvent[], count }. Chronological order; each has ts / actor / action / engramId / metadata.`,
+RETURNS: { items: AuditEvent[], nextCursor: string|null }. limit required (1-1000);
+pass nextCursor verbatim into the next call's cursor parameter to continue (mutually exclusive with until — cursor wins).
+Items in chronological order; each has ts / actor / action / engramId / metadata.`,
   // 13 new agent descriptions for previously-uncovered tools
   "tool.engram_archive.agent": `Archive a memory (exclude from default retrieval, but preserve data).
 
@@ -552,9 +554,10 @@ Error conditions: not found throws; post-check detects engram still exists (race
 Invariant: irreversible (vs engram_forget which keeps files). Git history is the only recovery.
 Warning: prefer engram_archive or engram_forget for soft removal.`,
   "tool.engram_list.technical": `List engrams by filter (no query — pure metadata filter, reads latest state).
-Input: { filter?: same as engram_search; limit?, cursor? }
+Input: { filter?: same as engram_search; limit: 1..500 (required); cursor?: string|null }
+Returns: { items: [{id,title,kind,domainTags}], nextCursor: string|null }.
 Side effects: none.
-Pagination: cursor-based, opaque token.
+Pagination: cursor-based, opaque token; nextCursor=null means no more results. Sort: importance DESC, updatedAt DESC, id ASC.
 Invariant: reads engram-index.json (catalog); does not read full content. Faster than engram_search for listing.`,
   "tool.engram_reinforce.technical": `Report effective retrieval (LTP). Input: { id, effectiveness: 0..1, note? }
 Updates: effectiveRetrievals += 1; reinforcementScore += effectiveness; importance += effectiveness × 0.02 (clamped [0,1]).
@@ -645,11 +648,12 @@ P1: tool-sequence executes parameterized tool chain; prompt-template renders and
 Side effects: depends on template (tool-sequence may write engrams).
 Error conditions: not found throws; parameter validation throws.
 Invariant: skill execution is logged for provenance.`,
-  "tool.engram_list_proposals.technical": `List pending proposals. Input: { includeAll?: boolean }
+  "tool.engram_list_proposals.technical": `List pending proposals. Input: { includeAll?: boolean; limit: 1..500 (required); cursor?: string|null }
 Default: returns only pending. includeAll=true returns accepted/dismissed history.
+Returns: { items: [{entityId, occurrences, sampleQuotes, status, createdAt, source, ...proposed*}], nextCursor: string|null }.
+Pagination: cursor-based, opaque token; sort order createdAt DESC, entityId ASC.
 Proposal engine: topics mentioned ≥3 times in conversation without matching engram generate pending proposal.
-Side effects: none (read-only).
-Returns: array of { proposalId, title, similarity, sampleMessage, status, createdAt }.`,
+Side effects: none (read-only).`,
   "tool.engram_accept_proposal.technical": `Accept proposal. Input: { entityId, title?, content?, domainTags?, kind?, createdBy? }
 Side effects: creates engram (calls engram_create internally); marks proposal status=accepted; suppresses future duplicate proposals for same topic; appends audit.
 Error conditions: proposal not found throws; already accepted/dismissed throws.

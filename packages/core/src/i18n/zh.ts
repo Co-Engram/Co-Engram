@@ -335,7 +335,7 @@ export const zh = {
 - 用户想要某条 engram(用 engram_get)
 
 返回:嵌套 { path, engramCount, children } 树,根为 '/'。可选 maxDepth(1-10,默认 5)。`,
-  "tool.engram_audit_query.agent": `查询 audit 审计日志(audit.jsonl),返回匹配的事件。
+  "tool.engram_audit_query.agent": `查询 audit 审计日志(audit.jsonl),返回匹配的事件(cursor 分页)。
 
 何时调用:
 - "这个 engram 的修改历史"(谁创建 / reinforce / contradicted)
@@ -347,7 +347,9 @@ export const zh = {
 - 想看 engram 当前状态(用 engram_get)
 - 想看有效性图表(打开 viewer 网页 UI)
 
-返回:{ events: AuditEvent[], count }。按时间正序;每条含 ts / actor / action / engramId / metadata。`,
+返回:{ items: AuditEvent[], nextCursor: string|null }。limit 必填(1-1000);
+翻页把 nextCursor 原样回传到下一页的 cursor 参数(与 until 互斥,cursor 优先)。
+items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
   // 13 个原未覆盖工具的 agent 描述
   "tool.engram_archive.agent": `归档记忆(移出默认检索,但保留数据可恢复)。
 
@@ -554,9 +556,10 @@ Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UP
 不变量:不可逆(vs engram_forget 保留文件)。Git 历史是唯一恢复途径。
 警告:软移除优先用 engram_archive 或 engram_forget。`,
   "tool.engram_list.technical": `按 filter 列出 engram(无 query,纯元数据过滤,读最新状态)。
-输入:{ filter?: 同 engram_search;limit?,cursor? }
+输入:{ filter?: 同 engram_search;limit: 1..500(必填);cursor?: string|null }
+返回:{ items: [{id,title,kind,domainTags}], nextCursor: string|null }。
 副作用:无。
-分页:cursor-based,opaque token。
+分页:cursor-based,opaque token;nextCursor=null 表示无更多。排序:importance DESC, updatedAt DESC, id ASC。
 不变量:读 engram-index.json(catalog);不读完整内容。比 engram_search 列举更快。`,
   "tool.engram_reinforce.technical": `上报有效检索(LTP)。输入:{ id, effectiveness: 0..1, note? }
 更新:effectiveRetrievals += 1;reinforcementScore += effectiveness;importance += effectiveness × 0.02(clamp [0,1])。
@@ -647,11 +650,12 @@ P1:tool-sequence 执行参数化工具链;prompt-template 渲染并返回 prompt
 副作用:取决于模板(tool-sequence 可能写 engram)。
 错误条件:未找到抛错;参数校验抛错。
 不变量:skill 执行记入 provenance 日志。`,
-  "tool.engram_list_proposals.technical": `列出待处理提案。输入:{ includeAll?: boolean }
+  "tool.engram_list_proposals.technical": `列出待处理提案。输入:{ includeAll?: boolean;limit: 1..500(必填);cursor?: string|null }
 默认:只返回 pending。includeAll=true 返回 accepted/dismissed 历史。
+返回:{ items: [{entityId, occurrences, sampleQuotes, status, createdAt, source, ...proposed*}], nextCursor: string|null }。
+分页:cursor-based,opaque token;排序 createdAt DESC, entityId ASC。
 提案引擎:对话中提及 ≥3 次但无匹配 engram 的主题生成 pending 提案。
-副作用:无(只读)。
-返回:{ proposalId, title, similarity, sampleMessage, status, createdAt } 数组。`,
+副作用:无(只读)。`,
   "tool.engram_accept_proposal.technical": `接受提案。输入:{ entityId, title?, content?, domainTags?, kind?, createdBy? }
 副作用:创建 engram(内部调 engram_create);标记提案 status=accepted;抑制同主题未来重复提案;append audit。
 错误条件:提案未找到抛错;已 accepted/dismissed 抛错。

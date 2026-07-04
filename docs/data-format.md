@@ -435,7 +435,7 @@ After thousands of engrams, consider:
 
 - **Shallow clones** for CI: `git clone --depth 1`
 - **Git LFS** if content includes many large Markdown files with embedded images
-- **Periodic archive sweeps**: `engram_list({ filter: { status: [archived] } })` then bulk forget
+- **Periodic archive sweeps**: `engram_list({ filter: { status: [archived] }, limit: 500 })` then bulk forget (cursor-paginate if more than 500 archived)
 
 ## Backup Strategy
 

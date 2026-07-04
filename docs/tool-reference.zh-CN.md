@@ -112,9 +112,22 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 ### `engram_list`
 
-按元数据过滤列出 engram(不进行全文检索)。
+按元数据过滤列出 engram(不进行全文检索),使用 cursor 分页。
 
-**可选:** 与 `engram_search` 相同的 `filter`,`limit`(默认 100,最大 500)
+**必填:** `limit: number`(1-500)
+
+**可选:** 与 `engram_search` 相同的 `filter`;`cursor: string | null`(上一页返回的 `nextCursor`,原样回传到下一页的 `cursor` 参数即可继续翻页)
+
+**返回值:**
+
+```ts
+{
+  items: Array<{ id: string, title: string, kind: EngramKind, domainTags: string[] }>,
+  nextCursor: string | null  // 没有更多结果时为 null
+}
+```
+
+排序:`importance DESC, updatedAt DESC, id ASC`(稳定排序,翻页无重复/无遗漏)。
 
 ### `engram_reinforce`
 
@@ -319,13 +332,26 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 ### `engram_list_proposals`
 
-列出待处理的记忆候选(被看到 ≥ N 次但尚未记录的主题)。
+列出待处理的记忆候选(被看到 ≥ N 次但尚未记录的主题),使用 cursor 分页。
 
-**可选:** `includeAll: boolean`(默认 `false` —— 只返回待处理提案;设为 `true` 可一并包含已接受/已驳回的历史)
+**必填:** `limit: number`(1-500)
 
-**返回值:** `{ proposals: Proposal[], total: number }`
+**可选:** `includeAll: boolean`(默认 `false` —— 只返回待处理提案;设为 `true` 可一并包含已接受/已驳回的历史);`cursor: string | null`(分页 token)
 
-每个提案都包含样例引用、出现次数以及首次/末次出现的时间戳 —— 足以在不重读原始对话的情况下决定是接受还是驳回。
+**返回值:**
+
+```ts
+{
+  items: Array<{ entityId: string, occurrences: number, sampleQuotes: string[],
+                 centroidExcerpt: string, firstSeenAt: string, lastSeenAt: string,
+                 createdAt: string, status: "pending" | "accepted" | "dismissed",
+                 source: "conversation" | "auto-memory" | "external-markdown",
+                 /* auto-memory 来源还携带 proposedTitle/proposedContent 等 */ }>,
+  nextCursor: string | null  // 没有更多结果时为 null
+}
+```
+
+排序:`createdAt DESC, entityId ASC`(稳定排序)。每个提案都包含样例引用、出现次数以及首次/末次出现的时间戳 —— 足以在不重读原始对话的情况下决定是接受还是驳回。
 
 ### `engram_accept_proposal`
 
@@ -358,31 +384,33 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 ### `engram_audit_query`
 
-查询审计日志(team-memory 的事件历史,即 `audit.jsonl`)。把 `AuditLog.query` 内部已暴露的数据透出给 agent 或用户,这样无需打开 viewer 或直接读文件就能回答"这个 engram 发生了什么?"。
+查询审计日志(team-memory 的事件历史,即 `audit.jsonl`),使用 cursor 分页。把 `AuditLog.query` 内部已暴露的数据透出给 agent 或用户,这样无需打开 viewer 或直接读文件就能回答"这个 engram 发生了什么?"。
+
+**必填:** `limit: number`(1-1000)
 
 **可选输入:**
 
 - `engramId: string` —— 过滤某个 engram 的完整历史
 - `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`)
 - `since: string`(ISO 8601,包含)、`until: string`(ISO 8601,不包含)
-- `limit: number`(默认 100,最大 1000)
+- `cursor: string | null` —— 分页 token(编码上一页 oldest entry 的 `ts`;原样回传到下一页的 `cursor` 参数即可继续翻更早的事件)。与 `until` 互斥(同时传时 cursor 优先)。
 
 **返回值:**
 
 ```ts
 {
-  events: Array<{
+  items: Array<{
     ts: string,          // ISO 8601 timestamp
     actor: "user" | "system" | "llm-arbiter",
     action: AuditAction,
     engramId?: string,
     metadata: Record<string, unknown>
   }>,
-  count: number          // === events.length
+  nextCursor: string | null  // 没有更多结果时为 null
 }
 ```
 
-事件按时间升序返回。常见用法:"谁在什么时候强化了这个 engram?"、"为什么这个 engram 的 importance 跳变?"、"上次合并冲突的裁决是什么?"。
+事件按时间升序返回(在过滤范围内取最新 N 条,页内升序)。常见用法:"谁在什么时候强化了这个 engram?"、"为什么这个 engram 的 importance 跳变?"、"上次合并冲突的裁决是什么?"。
 
 ### `engram_doctor`
 
