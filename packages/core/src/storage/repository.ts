@@ -111,6 +111,9 @@ import {
 import {
   IndexDb,
   type EngramIndexEntry as SqliteEngramIndexEntry,
+  type EngramQueryRow,
+  encodeQueryCursor,
+  decodeQueryCursor,
 } from "./index-db.js";
 
 /** Repository 配置 */
@@ -324,6 +327,12 @@ export class EngramRepository {
       domainTags: frontmatter.domainTags ?? [],
       summary: frontmatter.summary ?? "",
       contentTokens: content,
+      // v2 schema 新增字段:让 viewer /api/engrams 可走 SQL ORDER BY/ LIMIT,
+      // 消除 N+1 readEngram 卡死。retrievalCount 在 frontmatter 里是 number,
+      // bumpRetrievalStats 也走全量 upsert(经 mutateFrontmatter → 这里)。
+      // createdAt 是 ISO string,转 epoch ms 与 engrams 表对齐。
+      retrievalCount: frontmatter.retrievalCount ?? 0,
+      createdAt: frontmatter.createdAt ? Date.parse(frontmatter.createdAt) : Date.parse(frontmatter.updatedAt),
     };
     try {
       this.indexDb.upsertEngram(entry);
@@ -1095,6 +1104,136 @@ export class EngramRepository {
       });
     }
     return result;
+  }
+
+  /**
+   * 列表查询(viewer /api/engrams 用):支持过滤 / 排序 / cursor 分页,
+   * 返回字段直接够 viewer 渲染(无需 N+1 readEngram)。
+   *
+   * 注入 indexDb 时走 SQL(5k+ scale),否则 fallback 到内存 listEngrams +
+   * enriched N+1 readEngram(慢但小规模 OK,memory engine 场景)。两条路径
+   * 返回 shape 一致,viewer 不感知后端差异。
+   *
+   * cursor 由 encodeQueryCursor 生成(见 index-db.ts),半开区间保证翻页稳定。
+   * total 不依赖 cursor,UI 显示"共 N 条"用。
+   */
+  queryEngramsForList(opts: {
+    readonly kind?: string;
+    readonly domainTags?: readonly string[];
+    readonly sort?: "createdAt" | "updatedAt" | "importance" | "retrievalCount" | "title";
+    readonly descending?: boolean;
+    readonly limit?: number;
+    readonly cursor?: string;
+  }): {
+    readonly results: readonly EngramQueryRow[];
+    readonly total: number;
+    readonly nextCursor: string | null;
+  } {
+    const limit = Math.max(1, Math.min(opts.limit ?? 50, 200));
+
+    if (this.indexDb) {
+      try {
+        const { results, total } = this.indexDb.queryEngrams(opts);
+        const last = results[results.length - 1];
+        let nextCursor: string | null = null;
+        if (results.length === limit && last) {
+          const sortField = opts.sort ?? "updatedAt";
+          const sortValue =
+            sortField === "createdAt"
+              ? last.createdAt
+              : sortField === "importance"
+                ? last.importance
+                : sortField === "retrievalCount"
+                  ? last.retrievalCount
+                  : sortField === "title"
+                    ? last.title
+                    : last.updatedAt;
+          nextCursor = encodeQueryCursor(sortValue, last.id);
+        }
+        return { results, total, nextCursor };
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径,viewer 仍可用
+      }
+    }
+
+    // memory fallback:listEngrams + enriched,在前端期望 shape 上对齐
+    const all = this.listEngrams();
+    const kindFilter = opts.kind;
+    const tagFilters = opts.domainTags ?? [];
+    const filtered = all.filter((e) => {
+      if (kindFilter && e.kind !== kindFilter) return false;
+      if (tagFilters.length > 0) {
+        return tagFilters.some((t) => e.domainTags.includes(t));
+      }
+      return true;
+    });
+    const enriched: EngramQueryRow[] = filtered.map((entry) => {
+      let full: {
+        summary?: string;
+        importance?: number;
+        createdAt?: string;
+        updatedAt?: string;
+        retrievalCount?: number;
+        visibility?: string;
+        status?: string;
+        confidence?: number;
+        contentSize?: number;
+      } | null = null;
+      try {
+        full = this.readEngram(entry.id);
+      } catch {
+        full = null;
+      }
+      return {
+        id: entry.id,
+        title: entry.title,
+        kind: entry.kind,
+        importance: full?.importance ?? 0,
+        confidence: full?.confidence ?? 0,
+        updatedAt: full?.updatedAt ? Date.parse(full.updatedAt) : 0,
+        createdAt: full?.createdAt ? Date.parse(full.createdAt) : 0,
+        contentSize: full?.contentSize ?? 0,
+        visibility: full?.visibility ?? "public",
+        status: full?.status ?? "active",
+        summary: full?.summary ?? "",
+        retrievalCount: full?.retrievalCount ?? 0,
+      };
+    });
+    const sortField = opts.sort ?? "updatedAt";
+    const descending = opts.descending ?? true;
+    enriched.sort((a, b) => {
+      const av = a[sortField];
+      const bv = b[sortField];
+      if (av === bv) return 0;
+      if (typeof av === "number" && typeof bv === "number") {
+        return descending ? bv - av : av - bv;
+      }
+      const ac = String(av ?? "");
+      const bc = String(bv ?? "");
+      return descending ? bc.localeCompare(ac) : ac.localeCompare(bc);
+    });
+    const total = enriched.length;
+    let startIdx = 0;
+    if (opts.cursor) {
+      const decoded = decodeQueryCursor(opts.cursor);
+      if (decoded) {
+        const [sortVal, idVal] = decoded;
+        startIdx = enriched.findIndex((row) => {
+          const rv = row[sortField];
+          if (String(rv) !== String(sortVal)) return false;
+          return row.id === idVal;
+        });
+        if (startIdx >= 0) startIdx += 1;
+      }
+    }
+    const slice = enriched.slice(startIdx, startIdx + limit);
+    const last = slice[slice.length - 1];
+    let nextCursor: string | null = null;
+    if (slice.length === limit && last) {
+      const sortValue = last[sortField];
+      nextCursor = encodeQueryCursor(sortValue, last.id);
+    }
+    return { results: slice, total, nextCursor };
   }
 
   /**

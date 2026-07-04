@@ -132,6 +132,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
     const all = data.results || [];
     CO_ENGRAM._engramsCache = all;
+    CO_ENGRAM._engramsTotal = data.total ?? all.length;
     CO_ENGRAM._engramsViewMode = CO_ENGRAM._engramsViewMode || 'card';
 
     const T = CO_ENGRAM_T;
@@ -158,7 +159,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'card' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'card\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card')) + '</button>'
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'tree' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'tree\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.tree')) + '</button>'
       + '</div>'
-      + '<span class="chip" id="engrams-count">' + CO_ENGRAM.escapeHtml(T.t('engrams.countTotal', { n: all.length })) + '</span>'
+      + '<span class="chip" id="engrams-count">' + CO_ENGRAM.escapeHtml(T.t('engrams.countTotal', { n: data.total ?? all.length })) + '</span>'
       + '</div>'
       + '<div id="engrams-body"></div>';
 
@@ -212,7 +213,7 @@ window.CO_ENGRAM_ENGRAMS = {
     const body = document.getElementById('engrams-body');
     if (!body) return;
     const countEl = document.getElementById('engrams-count');
-    if (countEl) countEl.textContent = T.t('engrams.countFiltered', { shown: filtered.length, total: cache.length });
+    if (countEl) countEl.textContent = T.t('engrams.countFiltered', { shown: filtered.length, total: CO_ENGRAM._engramsTotal ?? cache.length });
 
     if (!filtered.length) {
       body.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
@@ -843,7 +844,7 @@ window.CO_ENGRAM_AUDIT = {
       // 并行拉 audit + engrams(后者用来判断 engramId 是否仍存在,决定显示可点 chip 还是灰色)
       [data, engramsData] = await Promise.all([
         CO_ENGRAM.apiGet('/api/audit?limit=500'),
-        CO_ENGRAM.apiGet('/api/engrams?limit=10000').catch(() => ({ results: [] })),
+        CO_ENGRAM.apiGet('/api/engrams').catch(() => ({ results: [] })),
       ]);
     } catch (e) { tl.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>'; return; }
 

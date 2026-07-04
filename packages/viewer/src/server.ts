@@ -348,15 +348,15 @@ async function routeApi(
 
   // /api/engrams
   //
-  // 返回 catalog + 完整排序字段(title/kind/domainTags 来自 catalog,
-  // summary/importance/createdAt/updatedAt/retrievalCount 来自完整 engram)。
-  // 单纯返回 catalog 会让前端排序下拉菜单(createdAt/importance/retrievalCount)
-  // 失效——这些字段不在 catalog tier 里。
+  // 走 SQLite SQL ORDER BY + LIMIT + cursor pagination(派生索引层),彻底消除
+  // 旧实现的 N+1 readEngram —— 1024 条 engram 在旧路径下让 gateway event loop
+  // 完全堵塞。详见 repository.queryEngramsForList / IndexDb.queryEngrams。
+  //
+  // 不注入 indexDb(memory 引擎)时,repository 自动 fallback 到 listEngrams +
+  // enriched N+1(小规模可接受)。返回 shape 一致,viewer 不感知。
+  //
+  // 默认 limit=50,max 200(防止前端失控拖垮后端);cursor 来自上一页的 nextCursor。
   if (path === "/api/engrams" && req.method === "GET") {
-    // 兼容两种参数名:
-    //   - tag(旧版,单数,精确匹配单个 tag)
-    //   - domainTags(新版,复数,可多次出现,任一匹配即保留)
-    // kind 过滤单值匹配。
     const tagFilter = url.searchParams.get("tag") ?? undefined;
     const kindFilter = url.searchParams.get("kind") ?? undefined;
     const domainTagFilters = url.searchParams
@@ -365,72 +365,32 @@ async function routeApi(
     const sortParam = url.searchParams.get("sort") ?? undefined;
     const orderParam = (url.searchParams.get("order") ?? "desc").toLowerCase();
     const limitRaw = url.searchParams.get("limit");
-    const limit = limitRaw ? Number(limitRaw) : undefined;
+    // 默认 200:覆盖前端 client-side filter 大多数场景;max 500 防失控
+    const limit =
+      limitRaw && Number.isFinite(Number(limitRaw))
+        ? Math.min(Number(limitRaw), 500)
+        : 200;
+    const cursor = url.searchParams.get("cursor") ?? undefined;
     const descending = orderParam !== "asc";
-    const entries = ctx.repository.listEngrams();
-    const filtered = entries.filter((e) => {
-      if (kindFilter && e.kind !== kindFilter) return false;
-      if (tagFilter && !e.domainTags.includes(tagFilter)) return false;
-      if (domainTagFilters.length > 0) {
-        // 任一 domainTags 参数匹配 engram 的 tag 即保留(OR 语义)
-        const matched = domainTagFilters.some((t) => e.domainTags.includes(t));
-        if (!matched) return false;
-      }
-      return true;
+
+    const result = ctx.repository.queryEngramsForList({
+      ...(kindFilter ? { kind: kindFilter } : {}),
+      domainTags: [...(tagFilter ? [tagFilter] : []), ...domainTagFilters],
+      ...(sortParam
+        ? {
+            sort: sortParam as
+              | "createdAt"
+              | "updatedAt"
+              | "importance"
+              | "retrievalCount"
+              | "title",
+          }
+        : {}),
+      descending,
+      limit,
+      ...(cursor ? { cursor } : {}),
     });
-    const enriched = filtered.map((entry) => {
-      let full: {
-        summary?: string;
-        importance?: number;
-        createdAt?: string;
-        updatedAt?: string;
-        retrievalCount?: number;
-        visibility?: string;
-      } | null = null;
-      try {
-        full = ctx.repository.readEngram(entry.id);
-      } catch {
-        full = null;
-      }
-      return {
-        ...entry,
-        summary: full?.summary ?? "",
-        importance: full?.importance ?? 0,
-        retrievalCount: full?.retrievalCount ?? 0,
-        createdAt: full?.createdAt ?? "",
-        updatedAt: full?.updatedAt ?? "",
-        visibility: full?.visibility ?? "public",
-      };
-    });
-    // 排序:支持 createdAt / updatedAt / importance / retrievalCount / title
-    // 不识别的 sort 值保持原顺序(repository.listEngrams 的自然顺序)
-    const sortField = sortParam as
-      | "createdAt"
-      | "updatedAt"
-      | "importance"
-      | "retrievalCount"
-      | "title"
-      | undefined;
-    if (sortField) {
-      enriched.sort((a, b) => {
-        const av = a[sortField];
-        const bv = b[sortField];
-        if (av === bv) return 0;
-        if (typeof av === "number" && typeof bv === "number") {
-          return descending ? bv - av : av - bv;
-        }
-        // 字符串比较(createdAt/updatedAt/title)
-        const ac = String(av ?? "");
-        const bc = String(bv ?? "");
-        return descending ? bc.localeCompare(ac) : ac.localeCompare(bc);
-      });
-    }
-    // limit:截断到指定数量;不传或 NaN 时返回全部
-    const limited =
-      typeof limit === "number" && Number.isFinite(limit) && limit > 0
-        ? enriched.slice(0, limit)
-        : enriched;
-    respondJson(res, 200, { results: limited, total: enriched.length });
+    respondJson(res, 200, result);
     return;
   }
 

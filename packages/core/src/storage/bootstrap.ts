@@ -163,5 +163,8 @@ function engramToIndexEntry(e: Engram): EngramIndexEntry {
     domainTags: [...e.domainTags],
     summary: e.summary,
     contentTokens: e.content,
+    // v2 schema:让 viewer /api/engrams SQL 排序/分页可达
+    retrievalCount: e.retrievalCount,
+    createdAt: Date.parse(e.createdAt),
   };
 }
