@@ -23,6 +23,7 @@
 import type { EngramRepository } from "../storage/repository.js";
 import type { ImportanceVector } from "../types/engram.js";
 import { recencyDecay } from "../retrieval/scoring.js";
+import { effectiveAge } from "../lifecycle/freshness.js";
 
 /** 五维权重（和必须为 1） */
 export interface ImportanceWeights {
@@ -91,23 +92,20 @@ export function deriveNetworkImportance(
 }
 
 /**
- * 派生 temporal 维度（艾宾浩斯衰退）
+ * 派生 temporal 维度(艾宾浩斯衰退)
  *
  * `temporal = recencyDecay(ageDays, decayHalfLifeDays)`
  *
- * - decayHalfLifeDays=null → 1（永不衰退）
- * - 从未 lastEffectiveAt → 0（年龄无穷大）
+ * - decayHalfLifeDays=null → 1(永不衰退)
+ * - 衰退起点 = `lastEffectiveAt ?? createdAt`:未生效 engram 从创建时间起衰退
  */
 export function deriveTemporalImportance(
   lastEffectiveAt: string | null | undefined,
+  createdAt: string,
   decayHalfLifeDays: number | null,
   now: Date,
 ): number {
-  if (!lastEffectiveAt) return 0;
-  const ts = new Date(lastEffectiveAt).getTime();
-  if (Number.isNaN(ts)) return 0;
-  const ageMs = now.getTime() - ts;
-  const ageDays = ageMs < 0 ? 0 : ageMs / (1000 * 60 * 60 * 24);
+  const ageDays = effectiveAge(lastEffectiveAt, createdAt, now);
   return recencyDecay(ageDays, decayHalfLifeDays);
 }
 
@@ -205,6 +203,7 @@ export function recomputeImportance(
   const network = deriveNetworkImportance(engram.incomingSynapseCount);
   const temporal = deriveTemporalImportance(
     engram.lastEffectiveAt,
+    engram.createdAt,
     engram.decayHalfLifeDays,
     now,
   );

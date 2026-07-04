@@ -935,6 +935,7 @@ export const engramArchiveTool: Tool<
       status: "archived",
       freshness: computeFreshness(
         updated.lastEffectiveAt,
+        updated.createdAt,
         updated.decayHalfLifeDays,
       ),
     };
@@ -987,6 +988,7 @@ export const engramRestoreTool: Tool<
       status: "active",
       freshness: computeFreshness(
         updated.lastEffectiveAt,
+        updated.createdAt,
         updated.decayHalfLifeDays,
       ),
       ...(restoredFromTrash ? { restoredFromTrash: true } : {}),

@@ -80,8 +80,6 @@ const VIEWER_RUNTIME_KEYS = [
   "decay.forgotten",
   "decay.neverDecays",
   "decay.neverDecaysTip",
-  "decay.neverEffective",
-  "decay.neverEffectiveTip",
   "decay.levelLabel",
 
   // engrams list view

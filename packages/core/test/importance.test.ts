@@ -162,32 +162,37 @@ describe("deriveNetworkImportance", () => {
 
 describe("deriveTemporalImportance", () => {
   const now = new Date("2026-06-20T00:00:00Z");
+  const FIXED_CREATED_AT = "2020-01-01T00:00:00Z";
 
-  it("从未 lastEffectiveAt → 0", () => {
-    expect(deriveTemporalImportance(null, 90, now)).toBe(0);
-    expect(deriveTemporalImportance(undefined, 90, now)).toBe(0);
+  it("未生效 engram 用 createdAt 兜底,新记忆也按艾宾浩斯衰退", () => {
+    const created10DaysAgo = new Date(
+      now.getTime() - 10 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    // 未生效 + 10 天前创建 → recency = 0.5^(10/90) ≈ 0.926
+    expect(deriveTemporalImportance(null, created10DaysAgo, 90, now)).toBeGreaterThan(0.9);
+    expect(deriveTemporalImportance(undefined, created10DaysAgo, 90, now)).toBeGreaterThan(0.9);
   });
 
-  it("decayHalfLifeDays=null → 1（永不衰退）", () => {
-    expect(deriveTemporalImportance("2020-01-01T00:00:00Z", null, now)).toBe(1);
+  it("decayHalfLifeDays=null → 1(永不衰退)", () => {
+    expect(deriveTemporalImportance("2020-01-01T00:00:00Z", FIXED_CREATED_AT, null, now)).toBe(1);
   });
 
   it("刚 lastEffectiveAt → 接近 1", () => {
     const recent = "2026-06-19T00:00:00Z"; // 1 天前
-    expect(deriveTemporalImportance(recent, 90, now)).toBeGreaterThan(0.99);
+    expect(deriveTemporalImportance(recent, FIXED_CREATED_AT, 90, now)).toBeGreaterThan(0.99);
   });
 
   it("很久以前 lastEffectiveAt → 接近 0", () => {
     const old = "2020-01-01T00:00:00Z"; // 数年前
-    expect(deriveTemporalImportance(old, 30, now)).toBeLessThan(0.01);
+    expect(deriveTemporalImportance(old, FIXED_CREATED_AT, 30, now)).toBeLessThan(0.01);
   });
 
-  it("半衰期精确：刚好 decayHalfLifeDays → 0.5", () => {
+  it("半衰期精确:刚好 decayHalfLifeDays → 0.5", () => {
     // 90 天前 lastEffectiveAt, decay=90 → recency = 0.5^(90/90) = 0.5
     const ninetyDaysAgo = new Date(
       now.getTime() - 90 * 24 * 60 * 60 * 1000,
     ).toISOString();
-    expect(deriveTemporalImportance(ninetyDaysAgo, 90, now)).toBeCloseTo(
+    expect(deriveTemporalImportance(ninetyDaysAgo, FIXED_CREATED_AT, 90, now)).toBeCloseTo(
       0.5,
       3,
     );
@@ -285,14 +290,18 @@ describe("recomputeImportance", () => {
     expect(() => recomputeImportance(repo, "no/such")).toThrow(/not found/);
   });
 
-  it("默认重算：network/temporal 派生，personal/team/project 保留 0.5", () => {
+  it("默认重算:network/temporal 派生,personal/team/project 保留 0.5", () => {
     const e = makeEngram({});
     const result = recomputeImportance(repo, e.id, { now: NOW });
     expect(result.next.personal).toBe(0.5);
     expect(result.next.team).toBe(0.5);
     expect(result.next.project).toBe(0.5);
     expect(result.next.network).toBe(0); // 0 incoming
-    expect(result.next.temporal).toBe(0); // 从未 lastEffectiveAt
+    // 未生效 engram 的 temporal 基于 createdAt 派生(艾宾浩斯衰退)
+    // createEngram 写入 createdAt=now(),NOW=2026-06-20;若 createdAt > NOW(时钟偏差)→ effectiveAge=0 → temporal=1
+    // 若 createdAt < NOW → temporal = 0.5^(ageDays/90),随时间衰减
+    expect(result.next.temporal).toBeGreaterThan(0);
+    expect(result.next.temporal).toBeLessThanOrEqual(1);
     expect(result.next.composite).toBeGreaterThan(0);
   });
 

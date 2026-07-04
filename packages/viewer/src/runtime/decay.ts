@@ -20,24 +20,25 @@ export const DECAY_RUNTIME = `
 window.CO_ENGRAM_DECAY = (function() {
   'use strict';
 
-  function computeDecayState(lastEffectiveAt, halfLifeDays, now) {
+  function computeDecayState(lastEffectiveAt, createdAt, halfLifeDays, now) {
     const nowMs = (now || new Date()).getTime();
 
     // 永不衰退
     if (halfLifeDays === null || halfLifeDays === undefined || halfLifeDays <= 0) {
       return null;
     }
-    // 从未生效
-    if (!lastEffectiveAt) {
+
+    // 衰退起点 = lastEffectiveAt ?? createdAt(未生效用创建时间)
+    // 与 core/src/lifecycle/freshness.ts:effectiveAge 保持一致:
+    //   优先 lastEffectiveAt(若为合法时间戳);否则 fallback createdAt;两者都损坏返回 null
+    var lastEffMs = lastEffectiveAt ? new Date(lastEffectiveAt).getTime() : NaN;
+    var createdMs = createdAt ? new Date(createdAt).getTime() : NaN;
+    var refMs = !isNaN(lastEffMs) ? lastEffMs : createdMs;
+    if (isNaN(refMs)) {
       return null;
     }
 
-    const lastEffective = new Date(lastEffectiveAt).getTime();
-    if (isNaN(lastEffective)) {
-      return null;
-    }
-
-    let ageMs = nowMs - lastEffective;
+    let ageMs = nowMs - refMs;
     if (ageMs < 0) {
       // 时钟偏差(极少见):视为 fresh,ageDays=0
       ageMs = 0;
@@ -75,15 +76,10 @@ window.CO_ENGRAM_DECAY = (function() {
   function renderDecayBar(decay, halfLifeDays) {
     const T = window.CO_ENGRAM_T;
     if (!decay) {
-      // 永不衰退 / 从未生效 — 加 title 悬停解释成因
-      const isNeverDecays = (halfLifeDays === null || halfLifeDays === undefined || halfLifeDays <= 0);
-      const msg = isNeverDecays
-        ? T.t('decay.neverDecays')
-        : T.t('decay.neverEffective');
-      const tipKey = isNeverDecays ? 'decay.neverDecaysTip' : 'decay.neverEffectiveTip';
-      const tipText = T.t(tipKey);
-      const titleAttr = (tipText && tipText !== tipKey) ? ' title="' + tipText.replaceAll('"', '&quot;') + '"' : '';
-      return '<div class="decay-empty"' + titleAttr + '>' + msg + '</div>';
+      // 永不衰退(decayHalfLifeDays=null) — 加 title 悬停解释成因
+      const tipText = T.t('decay.neverDecaysTip');
+      const titleAttr = (tipText && tipText !== 'decay.neverDecaysTip') ? ' title="' + tipText.replaceAll('"', '&quot;') + '"' : '';
+      return '<div class="decay-empty"' + titleAttr + '>' + T.t('decay.neverDecays') + '</div>';
     }
 
     const colorClass = 'freshness-' + decay.currentLevel;

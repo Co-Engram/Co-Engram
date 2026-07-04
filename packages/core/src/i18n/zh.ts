@@ -1007,9 +1007,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "decay.neverDecays": "永不衰退",
   "decay.neverDecaysTip":
     "该记忆 decayHalfLifeDays=null,系统不跟踪其衰退进度。",
-  "decay.neverEffective": "尚未被有效使用",
-  "decay.neverEffectiveTip":
-    "该记忆自创建以来未触发过正向强化(engram_reinforce / close_learning_loop success),系统暂无 lastEffectiveAt 时间戳,无法计算衰退进度。被有效使用后将自动开始跟踪。",
   "decay.levelLabel": "当前:${level}",
 
   // 列表视图(engrams.<area>.<name>)

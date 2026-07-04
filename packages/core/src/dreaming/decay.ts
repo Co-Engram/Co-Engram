@@ -80,6 +80,7 @@ export function applyDecayBatch(
 
     const freshness = computeFreshness(
       engram.lastEffectiveAt,
+      engram.createdAt,
       engram.decayHalfLifeDays,
       now,
     );

@@ -255,9 +255,9 @@ describe("SearchOrchestrator", () => {
     const orchestrator = new SearchOrchestrator();
     orchestrator.build(lines);
     const results = orchestrator.search("ADB");
-    // 两条 relevance 同（都是 title 命中），importance 不同
-    // 但 lastEffectiveAt=null → recency 都为 0
-    // score = 0.5×1 + 0.3×0 + 0.2×importance
+    // 两条 relevance 同(都是 title 命中),importance 不同
+    // createdAt 相同 → recency 相同(都按 createdAt 衰退)
+    // score = 0.5×1 + 0.3×recency + 0.2×importance
     // b (0.2×0.9=0.18) > a (0.2×0.2=0.04)
     expect(results[0].id).toBe("b");
   });

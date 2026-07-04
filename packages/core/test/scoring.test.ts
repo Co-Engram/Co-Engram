@@ -140,14 +140,16 @@ describe("computeThreeFactorScore", () => {
     expect(DEFAULT_WEIGHTS.gamma).toBe(0.2);
   });
 
-  it("全 0 输入 → 0", () => {
+  it("全 0 输入 + 久远 createdAt → 接近 0", () => {
     const line = makeLine({
       importance: 0,
       reinforcementScore: 0,
       decayHalfLifeDays: 1,
+      lastEffectiveAt: null,
+      createdAt: "1900-01-01T00:00:00Z", // 久远 → ageDays 巨大 → recency≈0
     });
-    // lastEffectiveAt=null → ageDays=∞ → recency=0
-    expect(computeThreeFactorScore(0, line)).toBe(0);
+    // relevance=0, recency≈0, importance=0 → score≈0
+    expect(computeThreeFactorScore(0, line)).toBeCloseTo(0, 3);
   });
 
   it("relevance=1 + 最近有效 + 高 importance → 接近 1", () => {
@@ -163,14 +165,14 @@ describe("computeThreeFactorScore", () => {
     expect(computeThreeFactorScore(1, line, { now })).toBeCloseTo(0.9977, 3);
   });
 
-  it("recency=0（ageDays=∞）时仍有 relevance+importance 贡献", () => {
+  it("recency≈0(lastEffectiveAt 很久以前)时仍有 relevance+importance 贡献", () => {
     const line = makeLine({
       importance: 0.5,
       reinforcementScore: 0,
-      lastEffectiveAt: null,
+      lastEffectiveAt: "1900-01-01T00:00:00Z", // 久远 → ageDays 巨大 → recency≈0
       decayHalfLifeDays: 90,
     });
-    // relevance=0.8, recency=0, importance=0.5
+    // relevance=0.8, recency≈0, importance=0.5
     // score = 0.5×0.8 + 0.3×0 + 0.2×0.5 = 0.4 + 0 + 0.1 = 0.5
     expect(computeThreeFactorScore(0.8, line)).toBeCloseTo(0.5, 3);
   });
@@ -178,7 +180,7 @@ describe("computeThreeFactorScore", () => {
   it("权重可配置", () => {
     const line = makeLine({
       importance: 0.5,
-      lastEffectiveAt: null, // recency=0
+      lastEffectiveAt: null, // 用 createdAt 兜底;但 beta=0 时 recency 不贡献
     });
     const weights: ThreeFactorWeights = { alpha: 1, beta: 0, gamma: 0 };
     // 纯 relevance

@@ -333,7 +333,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
     // 衰退进度段(替代固定半衰期显示)
     const hasHalfLife = d.decayHalfLifeDays !== undefined && d.decayHalfLifeDays !== null;
-    const decay = hasHalfLife ? D.computeDecayState(d.lastEffectiveAt, d.decayHalfLifeDays) : null;
+    const decay = hasHalfLife ? D.computeDecayState(d.lastEffectiveAt, d.createdAt, d.decayHalfLifeDays) : null;
     const decayLine = hasHalfLife
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('decayHalfLifeDays') + '>' + T.fieldLabel('decayProgress') + '</span><div class="decay-block">' + D.renderDecayBar(decay, d.decayHalfLifeDays) + '</div></div>'
       : '';

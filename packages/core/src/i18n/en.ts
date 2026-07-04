@@ -1011,9 +1011,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "decay.neverDecays": "Never decays",
   "decay.neverDecaysTip":
     "This engram has decayHalfLifeDays=null; the system does not track its decay.",
-  "decay.neverEffective": "Not yet effectively used",
-  "decay.neverEffectiveTip":
-    "This engram has not been positively reinforced (engram_reinforce / close_learning_loop success) since creation, so lastEffectiveAt is unset and decay cannot be computed. Tracking begins after the first effective use.",
   "decay.levelLabel": "Current: ${level}",
 
   // List view (engrams.<area>.<name>)

@@ -21,6 +21,7 @@
  */
 
 import type { DigestLine } from "../index/types.js";
+import { effectiveAge } from "../lifecycle/freshness.js";
 
 /** 三因子权重配置 */
 export interface ThreeFactorWeights {
@@ -99,11 +100,14 @@ export function effectiveImportance(
 /**
  * 从 DigestLine + relevance 计算三因子得分
  *
+ * recency 维度的衰退计时起点 = `lastEffectiveAt ?? line.lastEffectiveAt ?? line.createdAt`:
+ * 未生效 engram 用 createdAt 兜底,新记忆从编码完成起开始衰退(艾宾浩斯模型)。
+ *
  * @param relevance - 归一化相关度 [0,1]
- * @param line - DigestLine（含 recency/importance 数据）
- * @param lastEffectiveAt - 最后有效检索时间（可选，省略则用 line.lastEffectiveAt）
- * @param now - 当前时间（可选，便于测试；省略则 new Date()）
- * @param weights - 权重配置（可选，省略用默认）
+ * @param line - DigestLine(含 recency/importance 数据,需有 createdAt)
+ * @param lastEffectiveAt - 最后有效检索时间(可选,省略则用 line.lastEffectiveAt)
+ * @param now - 当前时间(可选,便于测试;省略则 new Date())
+ * @param weights - 权重配置(可选,省略用默认)
  */
 export function computeThreeFactorScore(
   relevance: number,
@@ -119,7 +123,7 @@ export function computeThreeFactorScore(
 
   const now = options.now ?? new Date();
   const lastEffective = options.lastEffectiveAt ?? line.lastEffectiveAt;
-  const ageDays = computeAgeDays(lastEffective, now);
+  const ageDays = effectiveAge(lastEffective, line.createdAt, now);
 
   const recency = recencyDecay(ageDays, line.decayHalfLifeDays);
   const importance = effectiveImportance(
@@ -198,16 +202,4 @@ function clamp01(x: number): number {
   if (x < 0) return 0;
   if (x > 1) return 1;
   return x;
-}
-
-function computeAgeDays(
-  lastEffectiveAt: string | null | undefined,
-  now: Date,
-): number {
-  if (!lastEffectiveAt) return Number.POSITIVE_INFINITY; // 从未有效 → age = ∞ → recency → 0
-  const ts = new Date(lastEffectiveAt).getTime();
-  if (Number.isNaN(ts)) return Number.POSITIVE_INFINITY;
-  const ageMs = now.getTime() - ts;
-  if (ageMs < 0) return 0; // 时钟偏差/未来
-  return ageMs / (1000 * 60 * 60 * 24);
 }
