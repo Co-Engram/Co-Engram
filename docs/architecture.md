@@ -117,6 +117,7 @@ Gitignored `.co-engram/` inside the data repo. Derived artifacts:
 - `engram-index.json` — fast ULID → entry lookup, drives `engram_doctor` incremental scans and `engram_list_paths`
 - `digest.jsonl` — one-line-per-engram catalog used by the retrieval orchestrator; rebuilt when content hashes change
 - `graph.json` — synapse graph snapshot for fast traversal
+- `index.db` *(optional, opt-in via `CO_ENGRAM_SEARCH_ENGINE=sqlite`)* — SQLite-derived index (WAL + FTS5 trigram) for scaling to 5k+ engrams; see [Search Engine](#search-engine) below
 
 Rebuildable at any time by deleting `.co-engram/` and running `engram_recompute_importance`.
 
@@ -162,6 +163,32 @@ Every 7 days (rem):
   + metacognition 5-dim scoring
   → upgrade or refute verificationStatus
 ```
+
+## Search Engine
+
+<a id="search-engine"></a>
+
+Co-Engram ships two interchangeable search backends behind the `SearchEngine` interface. Pick one with the `CO_ENGRAM_SEARCH_ENGINE` env var (default: `memory`).
+
+### `memory` (default)
+
+In-process FTS over `digest.jsonl` lines. Tokenizer is bigram + word. Suitable for repos up to ~1k engrams — `digest.jsonl` is parsed on every `rebuildSearchIndex()` call, and the FTS index lives in heap.
+
+- Zero disk footprint beyond `digest.jsonl`.
+- Recomputed on every watcher invalidation (cheap at small scale).
+- The historical default; nothing new to enable.
+
+### `sqlite` (opt-in, scaling path)
+
+Derived SQLite index at `.co-engram/index.db` (WAL mode, FTS5 trigram tokenizer). Designed for the 5k+ engram target.
+
+- **Filesystem stays the source of truth.** SQLite is purely derived — drop the file, run `engram_doctor` or just restart with `CO_ENGRAM_SEARCH_ENGINE=sqlite`, and it gets rebuilt from `engrams/*.md` on cold start.
+- **Write-through.** `EngramRepository.createEngram / updateEngram / deleteEngram / mutateFrontmatter` transparently upsert/delete the derived row after the file lands. SQLite write failures are fail-silent at the repository layer (file truth still wins; `engram_doctor` + cold start reconcile drift).
+- **Recall parity with `memory`.** The LIKE fallback covers title + summary + content_tokens + domain tags for queries below the trigram minimum length (3 UTF-16 code units). At ≥3 chars, FTS5 trigram matches memory-FTS recall on the same text (Jaccard = 1.0 in the regression suite).
+- **Cold start.** First launch with `CO_ENGRAM_SEARCH_ENGINE=sqlite` against a non-empty repo triggers a one-shot full rebuild inside a single transaction. Hot start (db already has rows) is a no-op.
+- **Concurrency.** WAL allows multiple reader processes alongside a single writer. Both host adapters (`claude-code-mcp`, `openclaw-plugin`) can mount the same `dataRoot` simultaneously.
+
+Unknown values fall back to `memory` (fail-safe — a typo never breaks startup).
 
 ## Boundary Rules
 

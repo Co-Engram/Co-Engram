@@ -30,7 +30,7 @@ export interface ToolMeta {
 export interface ToolContext {
   readonly repository: import("../storage/repository.js").EngramRepository;
   readonly indexOrchestrator?: import("../index/orchestrator.js").IndexOrchestrator;
-  readonly searchOrchestrator?: import("../retrieval/orchestrator.js").SearchOrchestrator;
+  readonly searchOrchestrator?: import("../retrieval/search-engine.js").SearchEngine;
   readonly graphTraverser?: import("../graph/traverse.js").GraphTraverser;
   /**
    * 当前会话 id（用于 behavioral signals 追踪）。

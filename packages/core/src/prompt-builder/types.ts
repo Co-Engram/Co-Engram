@@ -9,6 +9,7 @@
 
 import type { Language } from "../i18n/index.js";
 import type { PromptSignalSnapshot } from "../prompt-signals/types.js";
+import type { PathOverviewItem } from "./path-overview.js";
 
 /**
  * 自进化信号(从 PromptSignalSnapshot 派生)
@@ -37,6 +38,16 @@ export interface BuildPromptInput {
   readonly signals?: PromptSignals;
   /** 待处理 proposal 数量;0 时不注入 proposal 提醒 */
   readonly proposalCount?: number;
+  /**
+   * 仓库目录概览(常驻 system prompt 注入,depth=1)。
+   *
+   * undefined / 空数组时跳过。提供时由 host adapter 从
+   * `repository.listPathTree()` 截断后传入。
+   *
+   * 与 signals 不同:目录是**结构信息**(静态、廉价),不走自进化路径。
+   * 设计判断详见 `path-overview.ts` 模块注释。
+   */
+  readonly pathOverview?: readonly PathOverviewItem[];
 }
 
 /**

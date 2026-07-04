@@ -717,6 +717,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Pending proposals: ${count} memory candidate(s) awaiting review. Call engram_list_proposals to inspect, engram_accept_proposal to record, or engram_dismiss_proposal to suppress.",
   "prompt.memory.frequent_topics":
     "Frequent topics in this team-memory: ${tags}. These are domains where memory_search is most likely to return useful context.",
+  "prompt.memory.repo_overview":
+    "Memory repo structure (top-level, depth=1):\n${tree}\nCall engram_list_paths(maxDepth=N) for deeper levels.",
   "prompt.memory.missed_topics":
     "Recently missed topics (consider searching proactively): ${topics}. Past turns suggest these should have triggered memory_search but did not.",
   "prompt.memory.low_confidence_topics":

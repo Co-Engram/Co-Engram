@@ -94,7 +94,7 @@ plugins:
 
 由于 `openclaw.plugin.json` 声明了 `"kind": "memory"`,OpenClaw 会将 Co-Engram 视作**首要记忆插件**(与 `memory-core` 互斥)。启动时插件调用 `api.registerMemoryCapability({ promptBuilder })`,向 agent 系统提示词注入一个 "## Memory Recall" 小节。该小节在每一轮对话时都会重建,分三层:
 
-1. **基础引导(始终启用)** —— 何时调用 `memory_search` / 何时跳过 / 如何解读 `truthScore`。
+1. **基础引导(始终启用)** —— 何时调用 `memory_search` / 何时跳过 / 如何解读 `truthScore`。同时内嵌 depth=1 仓库结构概览(顶级目录 + engram 数量),让 LLM 在 search 之前先看到仓库布局;更深层级通过 `engram_list_paths(maxDepth=N)` 按需展开。
 2. **候选提醒(条件触发)** —— 若候选引擎有待处理候选,会以一行文案点出数量及应调用的工具。
 3. **自演化信号(条件触发)** —— 取自 `<dataRoot>/.co-engram/prompt-signals.json`,由 `light` 维护阶段每 5 分钟写入一次:
    - `topTags`:所有 engram 中出现频次最高的 5 个 domain 标签(阈值:≥3 次)。

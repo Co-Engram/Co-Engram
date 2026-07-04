@@ -94,7 +94,7 @@ plugins:
 
 Because `openclaw.plugin.json` declares `"kind": "memory"`, OpenClaw treats Co-Engram as the **primary memory plugin** (mutually exclusive with `memory-core`). On startup the plugin calls `api.registerMemoryCapability({ promptBuilder })` to inject a "## Memory Recall" section into the agent system prompt. The section is rebuilt every conversation turn with three layers:
 
-1. **Base guidance (always on)** — when to call `memory_search` / when to skip / how to interpret `truthScore`.
+1. **Base guidance (always on)** — when to call `memory_search` / when to skip / how to interpret `truthScore`. Also embeds a depth=1 repo-structure overview (top-level directories + engram counts) so the LLM sees the warehouse layout before searching; deeper levels are pulled on demand via `engram_list_paths(maxDepth=N)`.
 2. **Proposal reminder (conditional)** — if the proposal engine has pending candidates, a one-liner names the count and tool to invoke.
 3. **Self-evolving signals (conditional)** — populated from `<dataRoot>/.co-engram/prompt-signals.json`, written by the `light` maintenance stage every 5 minutes:
    - `topTags`: the 5 most frequent domain tags across all engrams (threshold: ≥3 occurrences).

@@ -8,6 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
   EngramRepository,
   SearchOrchestrator,
+  bootstrapRepositoryAndSearch,
   AuditLog,
   EffectivenessTracker,
   ProposalEngine,
@@ -21,6 +22,7 @@ import {
   DEFAULT_LANGUAGE,
   autoOnboardMergeDriver,
   resolveMergeDriverBundle,
+  pathOverviewFromTree,
   type Language,
   type MaintenanceConfig,
   type ProposalEngineConfig,
@@ -173,11 +175,12 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     dataRootAutoCreated = true;
   }
 
-  const repository = new EngramRepository({
-    rootPath: config.dataRoot,
-    ...(config.language ? { language: config.language } : {}),
-  });
-  const searchOrchestrator = new SearchOrchestrator();
+  const { repository, searchEngine: searchOrchestrator } =
+    bootstrapRepositoryAndSearch({
+      dataRoot: config.dataRoot,
+      ...(config.language ? { language: config.language } : {}),
+    });
+  // SQLite 模式 build 是 no-op(write-through 已维护);memory 模式 build 真正生效
   rebuildSearchIndex(searchOrchestrator, repository);
 
   const signalSink = createDefaultSignalSink(config.dataRoot);
@@ -232,7 +235,16 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ctx.proposalEngine?.listPending().length ?? 0,
     config.dataRoot,
   );
-  const instructions = buildServerInstructions(language, profile, sessionState);
+  const pathOverview = pathOverviewFromTree(
+    ctx.repository.listPathTree(),
+    1,
+  );
+  const instructions = buildServerInstructions(
+    language,
+    profile,
+    sessionState,
+    pathOverview,
+  );
 
   const server = new McpServer(
     {
@@ -531,9 +543,13 @@ function findInstalledMergeDriverBundle(): string | null {
  * 用 collectDigestLines 取真实 DigestLine[],让三因子打分能用真实 importance /
  * decayHalfLifeDays / retrievalCount 等字段(之前的 stub 实现把这些字段全部
  * 默认成 0.5/90/0,导致 importance 因子对排名完全无贡献)。
+ *
+ * SearchEngine 接口实现:
+ * - memory(SearchOrchestrator):真正重建 ftsIndex
+ * - sqlite(SqliteSearchEngineAdapter):no-op,write-through 已维护索引
  */
 export function rebuildSearchIndex(
-  search: SearchOrchestrator,
+  search: SearchOrchestrator | import("@co-engram/core").SearchEngine,
   repo: EngramRepository,
 ): void {
   search.build(collectDigestLines(repo));

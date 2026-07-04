@@ -18,6 +18,10 @@
  */
 
 import type { Language } from "@co-engram/core";
+import {
+  formatPathOverview,
+  type PathOverviewItem,
+} from "@co-engram/core";
 import type { ToolProfile } from "./tool-profile.js";
 import { PROFILE_TOOL_SETS } from "./tool-profile.js";
 
@@ -61,14 +65,24 @@ export function buildServerInstructions(
   language: Language,
   profile: ToolProfile,
   state?: InstructionSessionState,
+  pathOverview?: readonly PathOverviewItem[],
 ): string {
   const base = language === "zh" ? buildZh(profile) : buildEn(profile);
-  if (!state) return base;
-  const dynamic =
-    language === "zh"
-      ? buildDynamicZh(profile, state)
-      : buildDynamicEn(profile, state);
-  return `${base}\n\n${dynamic}`;
+  const overview =
+    pathOverview && pathOverview.length > 0
+      ? formatPathOverview(pathOverview, language)
+      : "";
+  if (!state && !overview) return base;
+  const parts = [base];
+  if (overview) parts.push(overview);
+  if (state) {
+    const dynamic =
+      language === "zh"
+        ? buildDynamicZh(profile, state)
+        : buildDynamicEn(profile, state);
+    parts.push(dynamic);
+  }
+  return parts.join("\n\n");
 }
 
 function buildEn(profile: ToolProfile): string {

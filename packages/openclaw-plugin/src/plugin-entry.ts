@@ -27,6 +27,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import {
   EngramRepository,
   SearchOrchestrator,
+  bootstrapRepositoryAndSearch,
   AuditLog,
   EffectivenessTracker,
   ProposalEngine,
@@ -46,12 +47,14 @@ import {
   collectDigestLines,
   resolveBootstrapDataRootSync,
   DEFAULT_LANGUAGE,
+  pathOverviewFromTree,
   type ToolContext,
   type SignalSink,
   type MaintenanceConfig,
   type Language,
   type PromptSignalSnapshot,
   type NecessityEvaluator,
+  type PathOverviewItem,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -113,10 +116,15 @@ export function createCoEngramContext(
     mkdirSync(fullConfig.dataRoot, { recursive: true });
   }
 
-  const repository = new EngramRepository({
-    rootPath: fullConfig.dataRoot,
-    ...(fullConfig.language ? { language: fullConfig.language } : {}),
-  });
+  // Task 2.3:统一通过 bootstrap 装配 repository + searchEngine,根据
+  // CO_ENGRAM_SEARCH_ENGINE 选择 memory(默认)/ sqlite 模式。
+  // SQLite 模式自动打开 .co-engram/index.db,注入 repository 开启 write-through,
+  // 并在 db 为空时 cold start 全量重建。
+  const { repository, searchEngine: searchOrchestrator } =
+    bootstrapRepositoryAndSearch({
+      dataRoot: fullConfig.dataRoot,
+      ...(fullConfig.language ? { language: fullConfig.language } : {}),
+    });
 
   // 启动迁移:首次启动或语言切换时,把所有文件重写为目标格式。
   // 迁移是幂等的(已是目标格式则跳过),因此每次启动都跑也无副作用。
@@ -131,8 +139,8 @@ export function createCoEngramContext(
     }
   }
 
-  const searchOrchestrator = new SearchOrchestrator();
-  // P0: 启动时从现有数据构建索引；P1 改为增量
+  // SQLite 模式 build 是 no-op(write-through 已维护);memory 模式 build 真正生效
+  // P0: 启动时从现有数据构建索引;P1 改为增量
   rebuildSearchIndex(searchOrchestrator, repository);
 
   // P4: 创建 signal sink（默认 FileSignalSink,写 dataRoot/.co-engram/signals.jsonl）
@@ -236,7 +244,7 @@ function resolveNecessityEvaluator(
  * importance 因子对排名无贡献,高重要性 engram 没法浮上来。
  */
 export function rebuildSearchIndex(
-  search: SearchOrchestrator,
+  search: SearchOrchestrator | import("@co-engram/core").SearchEngine,
   repo: EngramRepository,
 ): void {
   search.build(collectDigestLines(repo));
@@ -365,10 +373,13 @@ export function registerCoEngramTools(
   // co-engram 作为 kind: "memory" 主要插件,提供引导文字
   if (api.registerMemoryCapability) {
     const proposalEngine = ctx.proposalEngine;
+    const repository = ctx.repository;
     const promptBuilder = createCoEngramPromptBuilder({
       language,
       signals: config.promptSignals,
       proposalCountProvider: () => proposalEngine?.listPending().length ?? 0,
+      pathOverviewProvider: () =>
+        pathOverviewFromTree(repository.listPathTree(), 1),
     });
     api.registerMemoryCapability({ promptBuilder });
   }
@@ -533,10 +544,12 @@ export function registerCoEngramTools(
   }
   ctx.repository.startWatching();
   ctx.repository.addInvalidateListener(() => {
-    rebuildSearchIndex(
-      ctx.searchOrchestrator as SearchOrchestrator,
-      ctx.repository,
-    );
+    if (ctx.searchOrchestrator) {
+      rebuildSearchIndex(
+        ctx.searchOrchestrator,
+        ctx.repository,
+      );
+    }
   });
 
   // viewer 启动由调用方(entry.ts)通过 startCoEngramViewer 单独管理,
@@ -633,11 +646,11 @@ export function createCoEngramTools(config: CoEngramPluginConfig = {}) {
   return {
     ctx,
     tools: adaptAllTools(wrappedTools, ctx),
-    rebuild: () =>
-      rebuildSearchIndex(
-        ctx.searchOrchestrator as SearchOrchestrator,
-        ctx.repository,
-      ),
+    rebuild: () => {
+      if (ctx.searchOrchestrator) {
+        rebuildSearchIndex(ctx.searchOrchestrator, ctx.repository);
+      }
+    },
   };
 }
 

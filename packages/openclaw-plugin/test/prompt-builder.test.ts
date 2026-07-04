@@ -37,7 +37,11 @@ describe("OpenClaw adapter / re-export 完整性", () => {
       availableTools: makeTools(["memory_search"]),
       language: "en",
     });
-    expect(lines.length).toBe(4);
+    // base section 至少 4 行(section_header + when_to_search +
+    // when_not_to_search + reading_results);visibilityRisk 等条件段额外加。
+    // 精确结构契约由 @co-engram/core/test/prompt-builder.test.ts 固化,
+    // 这里只验证 adapter re-export 不丢内容。
+    expect(lines.length).toBeGreaterThanOrEqual(4);
   });
 
   it("memory_search 已注册时返回非空 section(OpenClaw 协议)", () => {
@@ -53,7 +57,7 @@ describe("OpenClaw adapter / re-export 完整性", () => {
       availableTools: makeTools(["memory_get"]),
       language: "en",
     });
-    expect(lines.length).toBe(4);
+    expect(lines.length).toBeGreaterThanOrEqual(4);
   });
 
   it("未注册任何 memory 工具时返回空", () => {
@@ -80,7 +84,6 @@ describe("OpenClaw adapter / createCoEngramPromptBuilder", () => {
       signals: makeSnapshot({ topTags: ["调试"] }),
     });
     const lines = builder({ availableTools: makeTools(["memory_search"]) });
-    expect(lines.length).toBe(5);
     expect(lines.some((l) => l.includes("调试"))).toBe(true);
   });
 
@@ -95,16 +98,21 @@ describe("OpenClaw adapter / createCoEngramPromptBuilder", () => {
     });
     const lines = builder({ availableTools: makeTools(["memory_search"]) });
     expect(callCount).toBe(1);
-    expect(lines.length).toBe(5);
+    // proposalCount=2 应注入至少 1 行 proposal_reminder,触发"待审核"提示。
+    // 用 includes 检查内容存在,而不是硬编码精确行数(避免和 core 契约重复)。
+    expect(lines.some((l) => l.includes("2"))).toBe(true);
   });
 
   it("proposalCountProvider 返回 0 不注入", () => {
-    const builder = createCoEngramPromptBuilder({
+    // 对照 baseline(无 provider)与 provider=0 的输出:proposalCount=0 时
+    // 不应注入 proposal_reminder 段,所以两者应严格相等。
+    const params = { availableTools: makeTools(["memory_search"]) };
+    const baselineBuilder = createCoEngramPromptBuilder({ language: "en" });
+    const zeroBuilder = createCoEngramPromptBuilder({
       language: "en",
       proposalCountProvider: () => 0,
     });
-    const lines = builder({ availableTools: makeTools(["memory_search"]) });
-    expect(lines.length).toBe(4);
+    expect(zeroBuilder(params)).toEqual(baselineBuilder(params));
   });
 
   it("工具未注册时 builder 返回空", () => {

@@ -27,6 +27,7 @@ import type {
   PromptBuilder,
   PromptSignals,
 } from "./types.js";
+import { formatPathOverview, type PathOverviewItem } from "./path-overview.js";
 
 export type { BuildPromptInput, PromptBuilder, PromptSignals };
 
@@ -66,6 +67,7 @@ function buildVisibilityRiskSection(language: Language): readonly string[] {
  *
  * 包含:
  *   - section header
+ *   - 仓库目录概览(条件性,depth=1 常驻注入)
  *   - 何时调用 memory_search(语义检索场景)
  *   - 何时调用 engram_list(列举场景,仅当 engram_list 可用时注入)
  *   - 何时跳过(负向引导)
@@ -76,11 +78,18 @@ function buildVisibilityRiskSection(language: Language): readonly string[] {
 function buildBaseSection(
   language: Language,
   availableTools: ReadonlySet<string>,
+  pathOverview: readonly PathOverviewItem[] | undefined,
 ): readonly string[] {
   const lines: string[] = [
     translatePrompt(language, "prompt.memory.section_header"),
-    translatePrompt(language, "prompt.memory.when_to_search"),
   ];
+  // 仓库结构概览:depth=1 顶级目录,常驻注入(结构信息不走自进化)
+  // 让 LLM 在 search 之前先看到仓库布局;空列表跳过。
+  if (pathOverview && pathOverview.length > 0) {
+    const overview = formatPathOverview(pathOverview, language);
+    if (overview) lines.push(overview);
+  }
+  lines.push(translatePrompt(language, "prompt.memory.when_to_search"));
   // 仅当 engram_list 在可用工具集时才注入列举场景引导
   // (避免对未注册 engram_list 的 host adapter 误导 agent)
   if (availableTools.has("engram_list")) {
@@ -180,7 +189,7 @@ export function buildCoEngramMemoryPrompt(
   if (!hasSearch && !hasGet && !hasEngramSearch && !hasEngramGet) return [];
 
   const sections: readonly (readonly string[])[] = [
-    buildBaseSection(language, input.availableTools),
+    buildBaseSection(language, input.availableTools, input.pathOverview),
     buildVisibilityRiskSection(language),
     buildSignalsSection(input.signals, language),
     buildProposalSection(input.proposalCount ?? 0, language),
@@ -196,11 +205,13 @@ export function buildCoEngramMemoryPrompt(
  *   - language:固定(adapter 注册时确定)
  *   - signals:固定 snapshot(adapter 注册时读取,下次重启刷新)
  *   - proposalCount:动态(每次调用时通过 provider 获取)
+ *   - pathOverview:动态(每次调用时通过 provider 获取 depth=1 目录概览)
  */
 export function createPromptBuilder(options: {
   readonly language?: Language;
   readonly signals?: PromptSignals;
   readonly proposalCountProvider?: () => number;
+  readonly pathOverviewProvider?: () => readonly PathOverviewItem[];
 }): PromptBuilder {
   return (input: BuildPromptInput) =>
     buildCoEngramMemoryPrompt({
@@ -208,5 +219,6 @@ export function createPromptBuilder(options: {
       language: options.language,
       signals: options.signals,
       proposalCount: options.proposalCountProvider?.() ?? 0,
+      pathOverview: options.pathOverviewProvider?.(),
     });
 }

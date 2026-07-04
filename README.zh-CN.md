@@ -782,6 +782,7 @@ viewer 按宿主使用不同默认端口,Claude Code 与 OpenClaw 可在同一�
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`               | 在 `.trash/` 中多少天后物理删除(`0` = 永不)                                                                             |
 | `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                 | 仅 Claude Code。设为 `0` 关闭监听器 —— 该监听器把 `~/.claude/projects/*/memory/*.md` 镜像成 **待审批 proposal**(需 accept 才成为 engram;详见 [host-claude-code.md](./docs/host-claude-code.zh-CN.md#auto-memory-同步claude-code--co-engram-proposal)) |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | 覆盖 auto-memory 项目根目录(仅 Claude Code)                                                                              |
+| `CO_ENGRAM_SEARCH_ENGINE`                 | `memory`            | 搜索后端。`memory` = 进程内 FTS(基于 digest 行,engram 数超过 ~1k 性能下降)。`sqlite` = 派生 SQLite 索引,FTS5 trigram 分词 + LIKE 回退(目标 5k+)。未知值回退到 `memory`(fail-safe)。详见 [architecture.md](./docs/architecture.zh-CN.md#搜索引擎)。 |
 
 ### OpenClaw manifest 配置
 

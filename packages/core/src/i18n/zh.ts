@@ -719,6 +719,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "待处理提案:${count} 条候选记忆待审阅。调用 engram_list_proposals 查看,engram_accept_proposal 入库,或 engram_dismiss_proposal 忽略。",
   "prompt.memory.frequent_topics":
     "当前 team-memory 的高频话题:${tags}。这些领域调用 memory_search 最有可能返回有用上下文。",
+  "prompt.memory.repo_overview":
+    "记忆仓库结构(顶级目录,depth=1):\n${tree}\n需要看深层目录时调 engram_list_paths(maxDepth=N)。",
   "prompt.memory.missed_topics":
     "最近遗漏的话题(建议主动搜索):${topics}。历史对话显示这些话题本应触发 memory_search 但未触发。",
   "prompt.memory.low_confidence_topics":
