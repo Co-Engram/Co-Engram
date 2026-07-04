@@ -126,13 +126,21 @@ CO_ENGRAM.on('engrams', async function() {
 window.CO_ENGRAM_ENGRAMS = {
   async render(root) {
     root.innerHTML = '<div class="loading">加载记忆印迹中</div>';
-    let data;
-    try { data = await CO_ENGRAM.apiGet('/api/engrams'); }
+
+    // 初始化 paginator(只在首次创建;后续 tab 切换 / PATCH 后 reload 复用)
+    if (!CO_ENGRAM._engramsPager) {
+      CO_ENGRAM._engramsPager = CO_ENGRAM.createPaginator({
+        endpoint: '/api/engrams',
+        pageSize: 200,
+      });
+    }
+
+    try { await CO_ENGRAM._engramsPager.load(); }
     catch (e) { root.innerHTML = '<div class="empty">加载失败:' + CO_ENGRAM.escapeHtml(e.message) + '</div>'; return; }
 
-    const all = data.results || [];
+    const all = CO_ENGRAM._engramsPager.getItems();
     CO_ENGRAM._engramsCache = all;
-    CO_ENGRAM._engramsTotal = data.total ?? all.length;
+    CO_ENGRAM._engramsTotal = CO_ENGRAM._engramsPager.getTotal();
     CO_ENGRAM._engramsViewMode = CO_ENGRAM._engramsViewMode || 'card';
 
     const T = CO_ENGRAM_T;
@@ -159,7 +167,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'card' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'card\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card')) + '</button>'
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'tree' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'tree\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.tree')) + '</button>'
       + '</div>'
-      + '<span class="chip" id="engrams-count">' + CO_ENGRAM.escapeHtml(T.t('engrams.countTotal', { n: data.total ?? all.length })) + '</span>'
+      + '<span class="chip" id="engrams-count">已加载 ' + all.length + ' / 共 ' + CO_ENGRAM._engramsTotal + '</span>'
       + '</div>'
       + '<div id="engrams-body"></div>';
 
@@ -178,7 +186,8 @@ window.CO_ENGRAM_ENGRAMS = {
   setView(mode) { this.setMode(mode); },
 
   applyFilter() {
-    const cache = CO_ENGRAM._engramsCache || [];
+    const pager = CO_ENGRAM._engramsPager;
+    const cache = pager ? pager.getItems() : (CO_ENGRAM._engramsCache || []);
     const q = ((document.getElementById('engrams-q') || {}).value || '').toLowerCase();
     const kind = (document.getElementById('engrams-kind') || {}).value || '';
     const visibility = (document.getElementById('engrams-visibility') || {}).value || '';
@@ -212,8 +221,10 @@ window.CO_ENGRAM_ENGRAMS = {
 
     const body = document.getElementById('engrams-body');
     if (!body) return;
+    const total = pager ? pager.getTotal() : (CO_ENGRAM._engramsTotal ?? cache.length);
+    const hasMore = pager ? pager.hasMore() : false;
     const countEl = document.getElementById('engrams-count');
-    if (countEl) countEl.textContent = T.t('engrams.countFiltered', { shown: filtered.length, total: CO_ENGRAM._engramsTotal ?? cache.length });
+    if (countEl) countEl.textContent = '已显示 ' + filtered.length + ' / 已加载 ' + cache.length + ' / 共 ' + total;
 
     if (!filtered.length) {
       body.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
@@ -223,10 +234,23 @@ window.CO_ENGRAM_ENGRAMS = {
     if (mode === 'tree') {
       // 目录视图:按 domainTags[0] 或 kind 分组
       CO_ENGRAM_ENGRAMS._renderTree(filtered, body);
-      return;
+    } else {
+      // 卡片视图
+      this._renderCards(filtered, body);
     }
 
-    // 卡片视图
+    // 末尾追加 load-more 按钮(cursor 分页)
+    if (hasMore) {
+      const moreRow = document.createElement('div');
+      moreRow.className = 'load-more-row';
+      moreRow.style.cssText = 'text-align:center;padding:1rem 0;grid-column:1/-1';
+      moreRow.innerHTML = '<button class="btn" onclick="CO_ENGRAM_ENGRAMS.loadMore()">加载更多(已加载 ' + cache.length + ' / 共 ' + total + ')</button>';
+      body.appendChild(moreRow);
+    }
+  },
+
+  _renderCards(filtered, body) {
+    const T = CO_ENGRAM_T;
     body.innerHTML = '<div class="grid cols-3">' + filtered.map(e => {
       const tags = (e.domainTags || []).slice(0, 4)
         .map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
@@ -251,6 +275,14 @@ window.CO_ENGRAM_ENGRAMS = {
         + (tags ? '<div class="card-meta">' + tags + more + '</div>' : '')
         + '</div>';
     }).join('') + '</div>';
+  },
+
+  async loadMore() {
+    const pager = CO_ENGRAM._engramsPager;
+    if (!pager || !pager.hasMore()) return;
+    try { await pager.loadMore(); }
+    catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+    this.applyFilter();
   },
 
   // 目录视图:按 domainTags[0](无则归入"未分类")→ kind 两层结构
@@ -503,8 +535,7 @@ window.CO_ENGRAM_ENGRAMS = {
       CO_ENGRAM._currentEngram = updated;
       this._renderView(updated);
       try {
-        const data = await CO_ENGRAM.apiGet('/api/engrams');
-        CO_ENGRAM._engramsCache = data.results || [];
+        if (CO_ENGRAM._engramsPager) { await CO_ENGRAM._engramsPager.load(); }
         this.applyFilter();
       } catch {}
     } catch (e) { alert(T.t('viewer.common.saveFailed', { err: (e.message || e) })); }
@@ -538,8 +569,7 @@ window.CO_ENGRAM_ENGRAMS = {
       this._renderView(updated);
       // 刷新列表缓存,确保 badge 同步
       try {
-        var data = await CO_ENGRAM.apiGet('/api/engrams');
-        CO_ENGRAM._engramsCache = data.results || [];
+        if (CO_ENGRAM._engramsPager) { await CO_ENGRAM._engramsPager.load(); }
         this.applyFilter();
       } catch {}
     } catch (e) {
@@ -581,18 +611,28 @@ window.CO_ENGRAM_PROPOSALS = {
   async render(root) {
     const T = CO_ENGRAM_T;
     root.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.loading.proposals')) + '</div>';
-    let data;
-    try { data = await CO_ENGRAM.apiGet('/api/proposals?status=all'); }
+
+    // 初始化 paginator:status 作为 server-side filter(切 status 时 reset + load)
+    this._currentStatus = this._currentStatus || 'pending';
+    if (!CO_ENGRAM._proposalsPager) {
+      CO_ENGRAM._proposalsPager = CO_ENGRAM.createPaginator({
+        endpoint: '/api/proposals',
+        pageSize: 50,
+        getExtraParams: function() { return { status: CO_ENGRAM_PROPOSALS._currentStatus }; },
+      });
+    }
+
+    try { await CO_ENGRAM._proposalsPager.load(); }
     catch (e) { root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>'; return; }
 
-    if (data.enabled === false) {
+    // 检查 enabled=false(proposals engine 未启用)
+    const lastResp = CO_ENGRAM._proposalsPager.getLastResponse();
+    if (lastResp && lastResp.enabled === false) {
       root.innerHTML = '<div class="empty"><div class="icon">💤</div>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.disabledHint')) + '</div>';
       return;
     }
 
-    const all = data.results || [];
-    CO_ENGRAM._proposalsCache = all;
-    this._setStatus('pending');
+    this._render();
   },
 
   /**
@@ -629,27 +669,48 @@ window.CO_ENGRAM_PROPOSALS = {
     return { title, kind };
   },
 
-  _setStatus(status) {
+  async _setStatus(status) {
+    this._currentStatus = status;
+    if (CO_ENGRAM._proposalsPager) {
+      try { await CO_ENGRAM._proposalsPager.load(); }
+      catch (e) { /* 加载失败保留当前 items,_render 会展示 */ }
+    }
+    this._render();
+  },
+
+  async loadMore() {
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager || !pager.hasMore()) return;
+    try { await pager.loadMore(); }
+    catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+    this._render();
+  },
+
+  _render() {
     const T = CO_ENGRAM_T;
-    const cache = CO_ENGRAM._proposalsCache || [];
-    const filtered = status === 'all' ? cache : cache.filter(p => p.status === status);
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager) return;
+    const items = pager.getItems();
+    const total = pager.getTotal();
+    const currentStatus = this._currentStatus || 'pending';
     const root = document.getElementById('proposals-content');
     if (!root) return;
 
     const STATUS_KEY = { pending: 'viewer.proposals.status.pending', accepted: 'viewer.proposals.status.accepted', dismissed: 'viewer.proposals.status.dismissed', all: 'viewer.proposals.status.all' };
     const statusLabel = (s) => T.t(STATUS_KEY[s] || 'viewer.proposals.status.pending');
 
-    const buttons = (current) => ['pending', 'accepted', 'dismissed', 'all'].map(s =>
-      '<button class="tab ' + (s === current ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
-      + CO_ENGRAM.escapeHtml(statusLabel(s)) + ' (' + (s === 'all' ? cache.length : cache.filter(p => p.status === s).length) + ')</button>'
+    const buttons = ['pending', 'accepted', 'dismissed', 'all'].map(s =>
+      '<button class="tab ' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
+      + CO_ENGRAM.escapeHtml(statusLabel(s)) + '</button>'
     ).join('');
 
-    let html = '<div style="margin-bottom:1rem">' + buttons(status) + '</div>';
-    if (!filtered.length) {
-      html += '<div class="empty"><div class="icon">✓</div>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(status) })) + '</div>';
+    let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
+      + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + '</span></div>';
+    if (!items.length) {
+      html += '<div class="empty"><div class="icon">✓</div>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>';
     } else {
       html += '<div class="grid cols-3">';
-      for (const p of filtered) {
+      for (const p of items) {
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const preview = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
@@ -675,6 +736,10 @@ window.CO_ENGRAM_PROPOSALS = {
         html += '</div>';
       }
       html += '</div>';
+      if (pager.hasMore()) {
+        html += '<div class="load-more-row" style="text-align:center;padding:1rem 0;grid-column:1/-1">'
+          + '<button class="btn" onclick="CO_ENGRAM_PROPOSALS.loadMore()">加载更多(已加载 ' + items.length + ' / 共 ' + total + ')</button></div>';
+      }
     }
     root.innerHTML = html;
   },
@@ -686,7 +751,7 @@ window.CO_ENGRAM_PROPOSALS = {
    */
   open(entityId) {
     const T = CO_ENGRAM_T;
-    const cache = CO_ENGRAM._proposalsCache || [];
+    const cache = CO_ENGRAM._proposalsPager ? CO_ENGRAM._proposalsPager.getItems() : (CO_ENGRAM._proposalsCache || []);
     const p = cache.find(x => x.entityId === entityId);
     if (!p) { CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.notFound', { id: entityId })) + '</div>'); return; }
     CO_ENGRAM._currentProposal = p;
@@ -839,21 +904,41 @@ window.CO_ENGRAM_AUDIT = {
     const tl = document.getElementById('audit-timeline');
     if (!tl) return;
     tl.innerHTML = '<div class="loading">' + T.t('viewer.loading.audit') + '</div>';
-    let data, engramsData;
+
+    // 初始化 paginator(audit cursor 分页,默认 limit=100)
+    if (!CO_ENGRAM._auditPager) {
+      CO_ENGRAM._auditPager = CO_ENGRAM.createPaginator({
+        endpoint: '/api/audit',
+        pageSize: 100,
+      });
+    }
+
+    let engramsData;
     try {
-      // 并行拉 audit + engrams(后者用来判断 engramId 是否仍存在,决定显示可点 chip 还是灰色)
-      [data, engramsData] = await Promise.all([
-        CO_ENGRAM.apiGet('/api/audit?limit=500'),
-        CO_ENGRAM.apiGet('/api/engrams').catch(() => ({ results: [] })),
+      // 并行:audit 走 paginator + engrams 直接拿 id 集(后者判断 engramId 是否仍存在)
+      [engramsData] = await Promise.all([
+        CO_ENGRAM._auditPager.load(),
+        CO_ENGRAM.apiGet('/api/engrams?limit=500').catch(() => ({ results: [] })),
       ]);
     } catch (e) { tl.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>'; return; }
 
-    if (data.enabled === false) {
+    const lastResp = CO_ENGRAM._auditPager.getLastResponse();
+    if (lastResp && lastResp.enabled === false) {
       tl.innerHTML = '<div class="empty"><div class="icon">💤</div>' + T.t('viewer.audit.disabledHint') + '</div>';
       return;
     }
     this._existingIds = new Set((engramsData.results || []).map(e => e.id));
-    this._cache = (data.results || []).slice().sort((a, b) => (a.ts < b.ts ? 1 : -1));
+    this._cache = CO_ENGRAM._auditPager.getItems().slice();
+    this._renderStats();
+    this.applyFilter();
+  },
+
+  async loadMore() {
+    const pager = CO_ENGRAM._auditPager;
+    if (!pager || !pager.hasMore()) return;
+    try { await pager.loadMore(); }
+    catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+    this._cache = pager.getItems().slice();
     this._renderStats();
     this.applyFilter();
   },
@@ -918,9 +1003,19 @@ window.CO_ENGRAM_AUDIT = {
     }
 
     const ACTOR_LETTER = { user: 'U', llm: 'L', system: 'S' };
-    tl.innerHTML = filtered.slice(0, 300).map(e => {
+    let html = filtered.slice(0, 300).map(e => {
       return CO_ENGRAM_AUDIT.renderRow(e, ACTOR_LETTER);
     }).join('');
+    if (filtered.length > 300) {
+      html += '<div class="muted" style="text-align:center;padding:0.5rem">仅显示前 300 条过滤结果(共 ' + filtered.length + ' 条匹配,加载更多可扩大范围)</div>';
+    }
+    if (CO_ENGRAM._auditPager && CO_ENGRAM._auditPager.hasMore()) {
+      const items = CO_ENGRAM._auditPager.getItems();
+      const total = CO_ENGRAM._auditPager.getTotal();
+      html += '<div class="load-more-row" style="text-align:center;padding:1rem 0">'
+        + '<button class="btn" onclick="CO_ENGRAM_AUDIT.loadMore()">加载更多(已加载 ' + items.length + ' / 共 ' + total + ')</button></div>';
+    }
+    tl.innerHTML = html;
   },
 
   /** 点击 action 标签 → 按该 action 精确过滤;再次点同一个 → 清除 */

@@ -222,6 +222,71 @@ const CO_ENGRAM = (function() {
     return r.json().catch(function() { return {}; });
   }
 
+  // === Cursor paginator 工厂 ===
+  // 给 engrams/proposals/audit 共用,管理 items 累积 + nextCursor + 重置。
+  // 调用方负责:渲染 items、渲染 load-more 按钮、提供额外 query params(filter/sort)。
+  // 共同根因(2026-07 viewer 修复):5 个 UX 痛点共同形状是"缺分页抽象",此工厂是
+  // 该根因的单一抽象解。详细设计见 packages/viewer/src/cursor-pagination.ts。
+  //
+  // 用法:
+  //   const pager = CO_ENGRAM.createPaginator({
+  //     endpoint: '/api/proposals',
+  //     pageSize: 50,
+  //     getExtraParams: () => ({ status: 'pending' }),
+  //   });
+  //   await pager.load();            // 第一页
+  //   pager.getItems();              // 累积的 items
+  //   pager.hasMore();               // 是否还有下一页
+  //   await pager.loadMore();        // 翻下一页(loadMore 内部更新 items / hasMore)
+  //   await pager.load();            // 重置 + 第一页(filter 变化时调用)
+  function createPaginator(opts) {
+    var items = [];
+    var nextCursor = null;
+    var total = 0;
+    var loading = false;
+    var lastResponse = null;
+
+    function buildUrl() {
+      var params = new URLSearchParams();
+      params.set('limit', String(opts.pageSize));
+      if (nextCursor) params.set('cursor', nextCursor);
+      var extra = opts.getExtraParams ? opts.getExtraParams() : {};
+      for (var k in extra) {
+        var v = extra[k];
+        if (v != null && v !== '') params.set(k, String(v));
+      }
+      return opts.endpoint + '?' + params.toString();
+    }
+
+    async function _load(reset) {
+      if (loading) return;
+      loading = true;
+      if (reset) {
+        items = [];
+        nextCursor = null;
+      }
+      try {
+        var data = await apiGet(buildUrl());
+        lastResponse = data;
+        items = reset ? (data.results || []) : items.concat(data.results || []);
+        nextCursor = data.nextCursor || null;
+        total = (data.total != null) ? data.total : items.length;
+      } finally {
+        loading = false;
+      }
+    }
+
+    return {
+      load: function() { return _load(true); },
+      loadMore: function() { return nextCursor ? _load(false) : Promise.resolve(); },
+      getItems: function() { return items; },
+      getTotal: function() { return total; },
+      hasMore: function() { return nextCursor !== null; },
+      isLoading: function() { return loading; },
+      getLastResponse: function() { return lastResponse; }
+    };
+  }
+
   // === Tab 切换 ===
   function showTab(name) {
     CO_ENGRAM_STATE.tab = name;
@@ -296,6 +361,7 @@ const CO_ENGRAM = (function() {
     tip: tip,
     getToken: getToken, setToken: setToken, loadToken: loadToken,
     authHeaders: authHeaders, apiGet: apiGet, apiJson: apiJson,
+    createPaginator: createPaginator,
     showTab: showTab, openDrawer: openDrawer, closeDrawer: closeDrawer,
     clearSearch: clearSearch,
     auditActionClass: auditActionClass,

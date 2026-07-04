@@ -61,6 +61,11 @@ import {
   isGitRepo,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
+import {
+  paginateWithCursor,
+  encodeCursor,
+  decodeCursor,
+} from "./cursor-pagination.js";
 
 /** Viewer 配置 */
 export interface ViewerServerConfig {
@@ -510,19 +515,43 @@ async function routeApi(
   }
 
   // /api/proposals
+  //
+  // 走 paginateWithCursor(lastSeenAt desc + entityId 升序作 tiebreak)。
+  // 默认 limit=50,max 200(防止前端失控拖垮后端);cursor 来自上一页的 nextCursor。
+  // status=all 时不过滤;status=pending(默认)/accepted/dismissed 按 p.status 过滤。
   if (path === "/api/proposals" && req.method === "GET") {
     if (!ctx.proposalEngine) {
-      respondJson(res, 200, { results: [], total: 0, enabled: false });
+      respondJson(res, 200, {
+        results: [],
+        total: 0,
+        nextCursor: null,
+        enabled: false,
+      });
       return;
     }
     const status = url.searchParams.get("status") ?? "pending";
+    const limitRaw = url.searchParams.get("limit");
+    const limit =
+      limitRaw && Number.isFinite(Number(limitRaw))
+        ? Math.min(Number(limitRaw), 200)
+        : 50;
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+
     const all = ctx.proposalEngine.listAll();
-    const filtered = all.filter((p) =>
-      status === "all" ? true : p.status === status,
-    );
+    const result = paginateWithCursor({
+      items: all,
+      getSortKey: (p) => p.lastSeenAt,
+      getTiebreak: (p) => p.entityId,
+      descending: true,
+      limit,
+      cursor,
+      filter: status === "all" ? undefined : (p) => p.status === status,
+    });
+
     respondJson(res, 200, {
-      results: filtered,
-      total: filtered.length,
+      results: result.results,
+      total: result.total,
+      nextCursor: result.nextCursor,
       enabled: true,
     });
     return;
@@ -613,9 +642,21 @@ async function routeApi(
   }
 
   // /api/audit
+  //
+  // 走 paginateWithCursor(ts desc + 数组索引作 tiebreak)。
+  // 默认 limit=100,max 500;cursor 来自上一页的 nextCursor。
+  // 数据源:AuditLog.query 内部已经"从尾部反向读 + reverse",所以返回的数组
+  // 是按时间正序。paginateWithCursor descending=true 会重排为"最新在前"。
+  // 上限 50000 条(约 10MB),覆盖典型使用;超出部分不返回(cursor 分页只翻
+  // 最近 50000 条)。
   if (path === "/api/audit" && req.method === "GET") {
     if (!ctx.auditLog) {
-      respondJson(res, 200, { results: [], total: 0, enabled: false });
+      respondJson(res, 200, {
+        results: [],
+        total: 0,
+        nextCursor: null,
+        enabled: false,
+      });
       return;
     }
     // action 支持逗号分隔多值:?action=accept,propose → 数组
@@ -629,8 +670,14 @@ async function routeApi(
     const engramId = url.searchParams.get("engramId") ?? undefined;
     const since = url.searchParams.get("since") ?? undefined;
     const until = url.searchParams.get("until") ?? undefined;
-    const limit = Number(url.searchParams.get("limit") ?? 200);
-    const entries = ctx.auditLog.query({
+    const limitRaw = url.searchParams.get("limit");
+    const limit =
+      limitRaw && Number.isFinite(Number(limitRaw))
+        ? Math.min(Number(limitRaw), 500)
+        : 100;
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+
+    const allEntries = ctx.auditLog.query({
       ...(actionList.length === 1
         ? { action: actionList[0] as AuditAction }
         : actionList.length > 1
@@ -639,11 +686,25 @@ async function routeApi(
       ...(engramId ? { engramId } : {}),
       ...(since ? { since } : {}),
       ...(until ? { until } : {}),
-      limit,
+      limit: 50000,
     });
+
+    // 附加 _idx 作 tiebreak(同 ts 时稳定排序);ts 是毫秒精度,碰撞概率低
+    // 但密集审计场景仍可能,用 _idx 兜底
+    const indexed = allEntries.map((entry, i) => ({ entry, _idx: i }));
+    const result = paginateWithCursor({
+      items: indexed,
+      getSortKey: (x) => x.entry.ts,
+      getTiebreak: (x) => String(x._idx),
+      descending: true,
+      limit,
+      cursor,
+    });
+
     respondJson(res, 200, {
-      results: entries,
-      total: entries.length,
+      results: result.results.map((x) => x.entry),
+      total: result.total,
+      nextCursor: result.nextCursor,
       enabled: true,
     });
     return;
