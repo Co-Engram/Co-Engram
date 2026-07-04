@@ -1254,35 +1254,32 @@ function buildGraph(ctx: ToolContext): GraphResponse {
     domainTags: e.domainTags,
   }));
 
+  // 关键性能路径:原实现 `for entry: readSynapses(entry.id)` 是 N×M 灾难
+  // (readSynapses 内部走 collectAllSynapses 扫全量 synapse 文件,
+  //  1446 entries × 1446 synapses = ~2M readFileSync)。
+  // 改成单次 collectAllSynapses → 单次扫盘 → ~1446 readFileSync。
+  // synapse 是 per-edge 单文件,collectAllSynapses 每条 edge 只返回一次,
+  // 不需要 seenSynapseIds 去重(原去重是为抵消 readSynapses 把 bidirectional
+  // 同时算作两端 outgoing 的副作用,collectAllSynapses 没这问题)。
   const edges: GraphResponse["edges"][number][] = [];
-  // bidirectional synapse 会同时出现在两端的 outgoing 里(对 A 是出、对 B 也是出),
-  // 直接遍历会让同一 id 的 edge 进列表两次,前端 vis-network DataSet 拒绝重复 id。
-  // 用 Set 按 synapse id 去重;directional 不受影响(只在起点 outgoing 出现一次)。
-  const seenSynapseIds = new Set<string>();
-  for (const entry of entries) {
-    try {
-      const synapses = ctx.repository.readSynapses(entry.id);
-      if (synapses.outgoing) {
-        for (const s of synapses.outgoing) {
-          if (seenSynapseIds.has(s.id)) continue;
-          seenSynapseIds.add(s.id);
-          edges.push({
-            id: s.id,
-            from: entry.id,
-            to: s.to,
-            kind: s.kind,
-            weight: s.weight,
-            evidenceCount: s.evidence?.length ?? 0,
-            direction: s.direction,
-            ...(s.resolutionState?.status
-              ? { resolutionStatus: s.resolutionState.status }
-              : {}),
-          });
-        }
-      }
-    } catch {
-      // 跳过读取失败的 engram
+  try {
+    for (const synapse of ctx.repository.collectAllSynapses()) {
+      const s = synapse.synapse;
+      edges.push({
+        id: s.id,
+        from: s.from,
+        to: s.to,
+        kind: s.kind,
+        weight: s.weight,
+        evidenceCount: s.evidence?.length ?? 0,
+        direction: s.direction,
+        ...(s.resolutionState?.status
+          ? { resolutionStatus: s.resolutionState.status }
+          : {}),
+      });
     }
+  } catch {
+    // synapse 目录不可用就降级为无边图
   }
 
   return { nodes, edges };

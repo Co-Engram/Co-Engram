@@ -20,13 +20,14 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Language } from "../i18n/index.js";
-import type { Engram } from "../types/engram.js";
 import {
   createSearchEngine,
   resolveSearchEngineType,
   type SearchEngine,
   type SearchEngineType,
 } from "../retrieval/search-engine.js";
+import { computeContentSize } from "./hash.js";
+import { readEngramFile, type EngramFile } from "./engram-store.js";
 import { EngramRepository } from "./repository.js";
 import { IndexDb, type EngramIndexEntry } from "./index-db.js";
 
@@ -95,12 +96,17 @@ export function bootstrapRepositoryAndSearch(
       let indexedCount = 0;
       if (coldStart) {
         const entries: EngramIndexEntry[] = [];
-        // listEngrams 返回 EngramCatalogEntry[],取 .id 作为 readEngram 入参
-        for (const catalog of repository.listEngrams()) {
+        // 关键性能路径:跳过 repository.readEngram(它会调 assembleEngram →
+        // listSynapsesForEngram 扫整个 synapses/ 目录,N+1+N 翻倍)。
+        // 直接 readEngramFile 拿 frontmatter + content,投影到 SQLite entry。
+        // N=1446 实测:从 ~3min 降到 ~10s(主要剩 readFileSync + parseEngramFile)。
+        // listEngramIndex 返回 EngramIndexEntry[](含 path),直接走 path →
+        // readEngramFile,跳过 catalog.id → resolvePath 间接层。
+        for (const entry of repository.listEngramIndex()) {
           try {
-            const engram = repository.readEngram(catalog.id);
-            if (!engram) continue;
-            entries.push(engramToIndexEntry(engram));
+            const filePath = join(opts.dataRoot, entry.path);
+            const file = readEngramFile(filePath);
+            entries.push(engramFileToIndexEntry(file));
           } catch {
             // 跳过损坏 engram;doctor 自愈路径会单独处理
           }
@@ -148,23 +154,31 @@ export function bootstrapRepositoryAndSearch(
   return { repository, searchEngine, engineType: "memory" };
 }
 
-/** Engram → EngramIndexEntry 投影(与 repository.syncEngramToIndex 同义) */
-function engramToIndexEntry(e: Engram): EngramIndexEntry {
+/**
+ * EngramFile → EngramIndexEntry 投影(cold-start 用,跳过 assembleEngram)。
+ *
+ * 字段映射与 `repository.syncEngramToIndex` 保持一致;差异在于 source 是
+ * frontmatter + content(原始),而非已装配的 Engram 对象(含 synapse 统计
+ * 等派生数据)。SQLite index.db 不存 synapse 字段,所以投影等价。
+ */
+function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
+  const f = file.frontmatter;
+  const content = file.content ?? "";
   return {
-    id: e.id,
-    title: e.title,
-    kind: e.kind,
-    importance: e.importance,
-    confidence: e.confidence,
-    updatedAt: Date.parse(e.updatedAt),
-    contentSize: e.contentSize,
-    visibility: e.visibility,
-    status: e.status,
-    domainTags: [...e.domainTags],
-    summary: e.summary,
-    contentTokens: e.content,
+    id: f.id,
+    title: f.title,
+    kind: f.kind,
+    importance: f.importance ?? 0.5,
+    confidence: f.confidence ?? 0.5,
+    updatedAt: Date.parse(f.updatedAt),
+    contentSize: typeof f.contentSize === "number" ? f.contentSize : computeContentSize(content),
+    visibility: f.visibility ?? "public",
+    status: f.status ?? "active",
+    domainTags: [...(f.domainTags ?? [])],
+    summary: f.summary ?? "",
+    contentTokens: content,
     // v2 schema:让 viewer /api/engrams SQL 排序/分页可达
-    retrievalCount: e.retrievalCount,
-    createdAt: Date.parse(e.createdAt),
+    retrievalCount: f.retrievalCount ?? 0,
+    createdAt: Date.parse(f.createdAt),
   };
 }
