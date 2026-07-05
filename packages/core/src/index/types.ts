@@ -66,6 +66,12 @@ export interface DigestLine {
   readonly incomingSynapseCount: number;
   /** activeContradictionCount（缓存） */
   readonly activeContradictionCount: number;
+  /**
+   * 验证状态(scoring 用 truthFactor 派生)。
+   * 缺省 null 视为 unverified(truthFactor=0.3)。
+   * 取值见 types/engram.ts VerificationStatus。
+   */
+  readonly verificationStatus: string | null;
 }
 
 /** Graph 索引节点 */

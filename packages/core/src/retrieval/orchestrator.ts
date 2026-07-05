@@ -1,16 +1,16 @@
 /**
  * 检索编排器
  *
- * 协调 FTS / 过滤器 / 三因子排序，返回 Catalog Entry 列表
+ * 协调 FTS / 过滤器 / 四因子排序,返回 Catalog Entry 列表
  *
- * P1 阶段实现（2.3）：
- *   - FTS 相关度（归一化到 [0,1]）
- *   - 三因子打分：α·relevance + β·recency + γ·importance
+ * 实现:
+ *   - FTS 相关度(归一化到 [0,1])
+ *   - 四因子打分:α·relevance + β·recency + γ·effectiveImportance + δ·strength
  *   - 权重可通过 setWeights() 配置
- *   - 同输入同输出（prompt cache 友好）
+ *   - 同输入同输出(prompt cache 友好)
  *
- * P2 阶段会增加：
- *   - 向量余弦相似度（RRF 融合）
+ * P2 阶段会增加:
+ *   - 向量余弦相似度(RRF 融合)
  *   - 动态自适应披露集成
  *
  * @module @co-engram/core/retrieval
@@ -22,10 +22,10 @@ import type { DigestLine } from "../index/types.js";
 import { buildFtsIndex, searchFts, type FtsIndex } from "./fts.js";
 import { applyFilter } from "./filter.js";
 import {
-  computeThreeFactorScore,
+  computeFourFactorScore,
   DEFAULT_WEIGHTS,
   validateWeights,
-  type ThreeFactorWeights,
+  type FourFactorWeights,
 } from "./scoring.js";
 import {
   compareSortKey,
@@ -112,7 +112,7 @@ export interface SimpleSearchResult {
 export class SearchOrchestrator {
   private ftsIndex: FtsIndex | null = null;
   private lines: readonly DigestLine[] = [];
-  private weights: ThreeFactorWeights = DEFAULT_WEIGHTS;
+  private weights: FourFactorWeights = DEFAULT_WEIGHTS;
   private nowFn: () => Date = () => new Date();
 
   /**
@@ -124,17 +124,17 @@ export class SearchOrchestrator {
   }
 
   /**
-   * 配置三因子权重（默认 α=0.5, β=0.3, γ=0.2）
+   * 配置四因子权重(默认 α=0.5, β=0.2, γ=0.2, δ=0.1)
    *
    * 会校验和为 1。
    */
-  setWeights(weights: ThreeFactorWeights): void {
+  setWeights(weights: FourFactorWeights): void {
     validateWeights(weights);
     this.weights = weights;
   }
 
   /** 读取当前权重 */
-  getWeights(): ThreeFactorWeights {
+  getWeights(): FourFactorWeights {
     return this.weights;
   }
 
@@ -176,7 +176,7 @@ export class SearchOrchestrator {
       if (!line) continue;
       if (!applyFilter([line], filter).includes(line)) continue;
       const relevance = maxFts > 0 ? hit.score / maxFts : 0;
-      const score = computeThreeFactorScore(relevance, line, {
+      const score = computeFourFactorScore(relevance, line, {
         now,
         weights: this.weights,
       });
@@ -231,9 +231,9 @@ export class SearchOrchestrator {
    * 让翻页 cursor 精确;recency 因子已隐含在 updatedAt 字段(updatedAt 越
    * 新排序越靠前,等效于"最近有效的最重要 engram")。
    *
-   * 与历史实现差异:旧版用 computeThreeFactorScore 排序,新版用 SortKey。
+   * 与历史实现差异:旧版用 computeFourFactorScore 排序,新版用 SortKey。
    * 行为变化:仅当两条 engram 的 importance 相同但 updatedAt 不同时,新版
-   * 严格按 updatedAt 排序,旧版按 computeThreeFactorScore 的 recency 因子
+   * 严格按 updatedAt 排序,旧版按 computeFourFactorScore 的 recency 因子
    * 排序。两者语义等价(都是 "importance 主 + recency 次"),但公式不同。
    * 由于 listByImportance 当前无外部 caller,这个变化无破坏性影响。
    */

@@ -50,6 +50,7 @@ export function readDigestLine(
     outgoingSynapseCount: engram.outgoingSynapseCount,
     incomingSynapseCount: engram.incomingSynapseCount,
     activeContradictionCount: engram.activeContradictionCount,
+    verificationStatus: engram.verificationStatus ?? null,
   };
 }
 

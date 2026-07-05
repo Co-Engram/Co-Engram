@@ -1,57 +1,67 @@
 /**
- * 三因子检索打分
+ * 四因子检索打分
  *
- * 实现 spec 3.7：
- *   score = α·relevance + β·recency + γ·importance
+ * score = α·relevance + β·recency + γ·effectiveImportance + δ·strength
  *
- * 其中：
- *   - relevance ∈ [0,1]：来自 FTS 归一化分（或向量余弦，P2 引入）
- *   - recency ∈ [0,1]：`0.5^(ageDays / deriveHalfLifeDays(importance))`（Ebbinghaus 衰退）
- *     · 半衰期从 importance 派生(机制 D):重要记忆衰退慢
- *     · ageDays ≤ 0（未来/刚刚）→ recency=1
- *   - importance ∈ [0,1]：`engram.importance × (1 + reinforcementScore)`
- *     · reinforcementScore 由 P1 2.1 三信号追踪累积
- *     · 用 min 截断到 [0,1]，避免上溢
+ *   - relevance ∈ [0,1]:FTS 归一化分(或向量余弦,P2 引入)
+ *   - recency ∈ [0,1]:`0.5^(ageDays / deriveHalfLifeDays(importance))`
+ *     (艾宾浩斯衰退;半衰期由 importance 派生 —— 重要记忆衰退慢)
+ *   - effectiveImportance ∈ [0,1]:dynamics.effectiveImportance(importance, truthFactor)
+ *     真相约束(importance × (0.3 + 0.7 × truthFactor))——
+ *     高价值 + 高可信 → 全力使用;高价值 + 低可信 → 减弱;低价值 → 自然低分
+ *   - strength ∈ [0,1]:clamp01(reinforcementScore)
+ *     用户反馈累积(RPE 强化 - LTD 失败);独立于 importance,反映"被实际用得多 + 用得好"
  *
- * 默认权重：α=0.5, β=0.3, γ=0.2（spec 3.7 / 决策 9）
+ * 默认权重(spec §3.7):α=0.5, β=0.2, γ=0.2, δ=0.1
  *
- * 排序稳定性：相同输入产生相同输出（不依赖 Math.random/Date.now）。
+ * truthFactor 由 verificationStatus 派生:verified=1.0 / probable=0.7 /
+ * plausible=0.5 / unverified=0.3 / refuted=0。refuted 默认不进检索
+ * (filter 已排除),此处保留映射确保即使混入也得 0 分。
+ *
+ * 排序稳定性:相同输入产生相同输出(不依赖 Math.random/Date.now)。
  *
  * @module @co-engram/core/retrieval
  */
 
 import type { DigestLine } from "../index/types.js";
 import { effectiveAge } from "../lifecycle/freshness.js";
-import { deriveHalfLifeDays } from "../importance/dynamics.js";
+import {
+  deriveHalfLifeDays,
+  effectiveImportance as computeEffectiveImportance,
+} from "../importance/dynamics.js";
+import type { VerificationStatus } from "../types/engram.js";
 
-/** 三因子权重配置 */
-export interface ThreeFactorWeights {
-  /** relevance 权重（语义/关键词匹配） */
+/** 四因子权重配置 */
+export interface FourFactorWeights {
+  /** relevance 权重(语义/关键词匹配) */
   readonly alpha: number;
-  /** recency 权重（艾宾浩斯衰退） */
+  /** recency 权重(艾宾浩斯衰退) */
   readonly beta: number;
-  /** importance 权重（价值） */
+  /** effectiveImportance 权重(价值 × 真相约束) */
   readonly gamma: number;
+  /** strength 权重(用户反馈累积) */
+  readonly delta: number;
 }
 
-/** 默认权重（spec 3.7：α=0.5, β=0.3, γ=0.2） */
-export const DEFAULT_WEIGHTS: ThreeFactorWeights = {
+/** 默认权重(spec §3.7:α=0.5, β=0.2, γ=0.2, δ=0.1) */
+export const DEFAULT_WEIGHTS: FourFactorWeights = {
   alpha: 0.5,
-  beta: 0.3,
+  beta: 0.2,
   gamma: 0.2,
+  delta: 0.1,
 };
 
 /**
- * 校验权重和为 1（容差 0.001）
+ * 校验权重和为 1(容差 0.001)+ 每个权重 ∈ [0,1]
  */
-export function validateWeights(w: ThreeFactorWeights): void {
-  const sum = w.alpha + w.beta + w.gamma;
+export function validateWeights(w: FourFactorWeights): void {
+  const sum = w.alpha + w.beta + w.gamma + w.delta;
   if (Math.abs(sum - 1) > 0.001) {
     throw new Error(
-      `Weights must sum to 1, got ${sum} (α=${w.alpha} β=${w.beta} γ=${w.gamma})`,
+      `Weights must sum to 1, got ${sum} (α=${w.alpha} β=${w.beta} γ=${w.gamma} δ=${w.delta})`,
     );
   }
-  for (const v of [w.alpha, w.beta, w.gamma]) {
+  for (const v of [w.alpha, w.beta, w.gamma, w.delta]) {
     if (v < 0 || v > 1) {
       throw new Error(`Weight must be in [0,1], got ${v}`);
     }
@@ -65,7 +75,7 @@ export function validateWeights(w: ThreeFactorWeights): void {
  *
  * 半衰期从 importance 实时派生(机制 D):重要记忆衰退慢。
  *
- * - ageDays<=0 → 1（未来或刚刚）
+ * - ageDays<=0 → 1(未来或刚刚)
  */
 export function recencyDecay(ageDays: number, importance: number): number {
   if (ageDays <= 0) return 1;
@@ -75,46 +85,48 @@ export function recencyDecay(ageDays: number, importance: number): number {
 }
 
 /**
- * 有效重要性
+ * verificationStatus → truthFactor 映射(机制 D 的"真相约束"输入)
  *
- * `effectiveImportance = importance × (1 + reinforcementScore)`
- *
- * 截断到 [0,1]，避免 reinforcement 累积导致 > 1。
- *
- * - reinforcementScore 由 P1 2.1 累积（每次 reinforce 加 effectiveness）
- * - 高 reinforcement → importance 接近原值上限
+ * 用于 dynamics.effectiveImportance(importance, truthFactor):refuted=0,
+ * verified=1.0,中间档线性插值。缺失或未知 → 0.3(等同 unverified)。
  */
-export function effectiveImportance(
-  importance: number,
-  reinforcementScore: number,
+export function truthFactorFromStatus(
+  status?: VerificationStatus | string | null,
 ): number {
-  if (reinforcementScore <= 0) {
-    return clamp01(importance);
+  switch (status) {
+    case "verified":
+      return 1.0;
+    case "probable":
+      return 0.7;
+    case "plausible":
+      return 0.5;
+    case "refuted":
+      return 0;
+    case "unverified":
+    default:
+      return 0.3;
   }
-  // 衰减式提升：避免 importance × (1+∞) → 1
-  // P1 简化：直接 importance × (1 + reinforcementScore)，clamp 到 [0,1]
-  return clamp01(importance * (1 + reinforcementScore));
 }
 
 /**
- * 从 DigestLine + relevance 计算三因子得分
+ * 从 DigestLine + relevance 计算四因子得分
  *
  * recency 维度的衰退计时起点 = `lastEffectiveAt ?? line.lastEffectiveAt ?? line.createdAt`:
  * 未生效 engram 用 createdAt 兜底,新记忆从编码完成起开始衰退(艾宾浩斯模型)。
  *
  * @param relevance - 归一化相关度 [0,1]
- * @param line - DigestLine(含 recency/importance 数据,需有 createdAt)
+ * @param line - DigestLine(含 importance / reinforcementScore / verificationStatus)
  * @param lastEffectiveAt - 最后有效检索时间(可选,省略则用 line.lastEffectiveAt)
  * @param now - 当前时间(可选,便于测试;省略则 new Date())
  * @param weights - 权重配置(可选,省略用默认)
  */
-export function computeThreeFactorScore(
+export function computeFourFactorScore(
   relevance: number,
   line: DigestLine,
   options: {
     lastEffectiveAt?: string | null;
     now?: Date;
-    weights?: ThreeFactorWeights;
+    weights?: FourFactorWeights;
   } = {},
 ): number {
   const weights = options.weights ?? DEFAULT_WEIGHTS;
@@ -125,31 +137,31 @@ export function computeThreeFactorScore(
   const ageDays = effectiveAge(lastEffective, line.createdAt, now);
 
   const recency = recencyDecay(ageDays, line.importance);
-  const importance = effectiveImportance(
-    line.importance,
-    line.reinforcementScore,
-  );
+  const truthFactor = truthFactorFromStatus(line.verificationStatus);
+  const effImp = computeEffectiveImportance(line.importance, truthFactor);
+  const strength = clamp01(line.reinforcementScore);
 
   return (
     weights.alpha * clamp01(relevance) +
     weights.beta * recency +
-    weights.gamma * importance
+    weights.gamma * effImp +
+    weights.delta * strength
   );
 }
 
 /**
- * 三因子批量打分（保持原数组顺序，稳定排序友好）
+ * 四因子批量打分(保持原数组顺序,稳定排序友好)
  */
-export function computeThreeFactorScores(
+export function computeFourFactorScores(
   items: ReadonlyArray<{ id: string; relevance: number; line: DigestLine }>,
   options: {
     now?: Date;
-    weights?: ThreeFactorWeights;
+    weights?: FourFactorWeights;
   } = {},
 ): ReadonlyArray<{ id: string; score: number }> {
   return items.map((item) => ({
     id: item.id,
-    score: computeThreeFactorScore(item.relevance, item.line, options),
+    score: computeFourFactorScore(item.relevance, item.line, options),
   }));
 }
 
@@ -157,15 +169,15 @@ export function computeThreeFactorScores(
  * Reciprocal Rank Fusion (RRF)
  *
  * 将多个 rank list 融合为一个综合 rank。
- * 常用场景：FTS top-K + 向量 top-K → 综合 top-K。
+ * 常用场景:FTS top-K + 向量 top-K → 综合 top-K。
  *
- * 公式：`score(d) = Σ 1 / (k + rank_i(d))`，其中 k 默认 60（业界经验值）。
+ * 公式:`score(d) = Σ 1 / (k + rank_i(d))`,其中 k 默认 60(业界经验值)。
  *
- * - rank 从 1 开始；未出现在某 list 中的 doc 不贡献分
+ * - rank 从 1 开始;未出现在某 list 中的 doc 不贡献分
  * - 输出按融合分倒序
  *
- * @param rankedLists - 多个有序 id 列表（每个 list 已经按相关度从高到低排好）
- * @param k - 平滑常数（默认 60）
+ * @param rankedLists - 多个有序 id 列表(每个 list 已经按相关度从高到低排好)
+ * @param k - 平滑常数(默认 60)
  */
 export function reciprocalRankFusion(
   rankedLists: ReadonlyArray<ReadonlyArray<string>>,
@@ -187,7 +199,7 @@ export function reciprocalRankFusion(
     .map(([id, score]) => ({ id, score }))
     .sort((a, b) => {
       if (a.score !== b.score) return b.score - a.score;
-      // 稳定排序：同分按 id 字典序（保证可重现）
+      // 稳定排序:同分按 id 字典序(保证可重现)
       return a.id < b.id ? -1 : 1;
     });
 }

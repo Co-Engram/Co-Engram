@@ -1,13 +1,13 @@
 import { describe, it, expect } from "vitest";
 import {
-  computeThreeFactorScore,
-  computeThreeFactorScores,
+  computeFourFactorScore,
+  computeFourFactorScores,
   recencyDecay,
-  effectiveImportance,
+  truthFactorFromStatus,
   reciprocalRankFusion,
   validateWeights,
   DEFAULT_WEIGHTS,
-  type ThreeFactorWeights,
+  type FourFactorWeights,
 } from "../src/retrieval/scoring.js";
 import { deriveHalfLifeDays } from "../src/importance/dynamics.js";
 import type { DigestLine } from "../src/index/types.js";
@@ -41,6 +41,7 @@ function makeLine(overrides: Partial<DigestLine> = {}): DigestLine {
     outgoingSynapseCount: 0,
     incomingSynapseCount: 0,
     activeContradictionCount: 0,
+    verificationStatus: null,
     ...overrides,
   };
 }
@@ -56,13 +57,13 @@ describe("validateWeights", () => {
 
   it("和不等于 1 抛错", () => {
     expect(() =>
-      validateWeights({ alpha: 0.5, beta: 0.3, gamma: 0.4 }),
+      validateWeights({ alpha: 0.5, beta: 0.3, gamma: 0.3, delta: 0.1 }),
     ).toThrow(/sum to 1/);
   });
 
   it("权重为负抛错", () => {
     expect(() =>
-      validateWeights({ alpha: -0.1, beta: 0.6, gamma: 0.5 }),
+      validateWeights({ alpha: -0.1, beta: 0.5, gamma: 0.5, delta: 0.1 }),
     ).toThrow(/\[0,1\]/);
   });
 });
@@ -97,7 +98,6 @@ describe("recencyDecay", () => {
 
   it("高 importance → halflife 更长 → 同样 ageDays 下 recency 更高", () => {
     const ageDays = 30;
-    // 高重要性衰退慢,recency 更接近 1
     expect(recencyDecay(ageDays, 0.9)).toBeGreaterThan(
       recencyDecay(ageDays, 0.1),
     );
@@ -105,92 +105,137 @@ describe("recencyDecay", () => {
 });
 
 // ============================================================
-// effectiveImportance
+// truthFactorFromStatus
 // ============================================================
 
-describe("effectiveImportance", () => {
-  it("reinforcementScore=0 → importance 不变", () => {
-    expect(effectiveImportance(0.5, 0)).toBe(0.5);
+describe("truthFactorFromStatus", () => {
+  it("verified → 1.0", () => {
+    expect(truthFactorFromStatus("verified")).toBe(1.0);
   });
 
-  it("reinforcementScore>0 → importance 提升", () => {
-    // 0.5 × (1 + 0.4) = 0.7
-    expect(effectiveImportance(0.5, 0.4)).toBeCloseTo(0.7, 5);
+  it("probable → 0.7", () => {
+    expect(truthFactorFromStatus("probable")).toBeCloseTo(0.7, 5);
   });
 
-  it("importance×(1+rs) > 1 → clamp 到 1", () => {
-    // 0.8 × (1 + 0.5) = 1.2 → 1
-    expect(effectiveImportance(0.8, 0.5)).toBe(1);
+  it("plausible → 0.5", () => {
+    expect(truthFactorFromStatus("plausible")).toBeCloseTo(0.5, 5);
   });
 
-  it("importance=0 → 0", () => {
-    expect(effectiveImportance(0, 1)).toBe(0);
+  it("unverified → 0.3", () => {
+    expect(truthFactorFromStatus("unverified")).toBeCloseTo(0.3, 5);
   });
 
-  it("reinforcementScore<0 → 不削弱(视为 0)", () => {
-    expect(effectiveImportance(0.5, -0.3)).toBe(0.5);
+  it("refuted → 0(即使是高 importance 也得 0 分)", () => {
+    expect(truthFactorFromStatus("refuted")).toBe(0);
+  });
+
+  it("null/undefined/未知 → 0.3(等同 unverified)", () => {
+    expect(truthFactorFromStatus(null)).toBeCloseTo(0.3, 5);
+    expect(truthFactorFromStatus(undefined)).toBeCloseTo(0.3, 5);
+    expect(truthFactorFromStatus("garbage")).toBeCloseTo(0.3, 5);
   });
 });
 
 // ============================================================
-// computeThreeFactorScore
+// computeFourFactorScore
 // ============================================================
 
-describe("computeThreeFactorScore", () => {
-  it("默认权重 α=0.5 β=0.3 γ=0.2", () => {
+describe("computeFourFactorScore", () => {
+  it("默认权重 α=0.5 β=0.2 γ=0.2 δ=0.1", () => {
     expect(DEFAULT_WEIGHTS.alpha).toBe(0.5);
-    expect(DEFAULT_WEIGHTS.beta).toBe(0.3);
+    expect(DEFAULT_WEIGHTS.beta).toBe(0.2);
     expect(DEFAULT_WEIGHTS.gamma).toBe(0.2);
+    expect(DEFAULT_WEIGHTS.delta).toBe(0.1);
   });
 
-  it("全 0 输入 + 久远 createdAt → 接近 0", () => {
+  it("全 0 输入 + 久远 createdAt + refuted → 接近 0", () => {
     const line = makeLine({
       importance: 0,
       reinforcementScore: 0,
       lastEffectiveAt: null,
-      createdAt: "1900-01-01T00:00:00Z", // 久远 → ageDays 巨大 → recency≈0
+      verificationStatus: "refuted",
+      createdAt: "1900-01-01T00:00:00Z",
     });
-    expect(computeThreeFactorScore(0, line)).toBeCloseTo(0, 3);
+    expect(computeFourFactorScore(0, line)).toBeCloseTo(0, 3);
   });
 
-  it("relevance=1 + 最近有效 + 高 importance → 接近 1", () => {
+  it("relevance=1 + 最近有效 + 高 importance + verified → 接近 1", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const importance = 0.9;
     const halfLife = deriveHalfLifeDays(importance);
     const line = makeLine({
       importance,
       reinforcementScore: 0,
-      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(), // 1 天前
+      verificationStatus: "verified",
+      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(),
     });
-    // relevance=1, recency=0.5^(1/halfLife), importance=0.9
     const expectedRecency = Math.pow(0.5, 1 / halfLife);
+    // truthFactor=1.0 → effImp = 0.9 × (0.3 + 0.7 × 1.0) = 0.9
+    const expectedEffImp = 0.9 * (0.3 + 0.7 * 1.0);
+    const expectedStrength = 0;
     const expected =
-      0.5 * 1 + 0.3 * expectedRecency + 0.2 * importance;
-    expect(computeThreeFactorScore(1, line, { now })).toBeCloseTo(
+      0.5 * 1 +
+      0.2 * expectedRecency +
+      0.2 * expectedEffImp +
+      0.1 * expectedStrength;
+    expect(computeFourFactorScore(1, line, { now })).toBeCloseTo(
       expected,
       3,
     );
   });
 
-  it("recency≈0(lastEffectiveAt 很久以前)时仍有 relevance+importance 贡献", () => {
-    const line = makeLine({
+  it("strength 维度独立于 importance:同 importance 但 reinforcementScore 不同 → 分数不同", () => {
+    const now = new Date("2026-06-20T00:00:00Z");
+    const baseLine = makeLine({
       importance: 0.5,
       reinforcementScore: 0,
-      lastEffectiveAt: "1900-01-01T00:00:00Z",
+      verificationStatus: "unverified",
+      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(),
     });
-    // relevance=0.8, recency≈0, importance=0.5
-    // score = 0.5×0.8 + 0.3×0 + 0.2×0.5 = 0.4 + 0 + 0.1 = 0.5
-    expect(computeThreeFactorScore(0.8, line)).toBeCloseTo(0.5, 3);
+    const reinforcedLine = makeLine({
+      ...baseLine,
+      reinforcementScore: 0.5,
+      id: "reinforced",
+    });
+    const s1 = computeFourFactorScore(0.5, baseLine, { now });
+    const s2 = computeFourFactorScore(0.5, reinforcedLine, { now });
+    expect(s2).toBeGreaterThan(s1);
+    // strength 贡献差 = 0.1 × (0.5 - 0) = 0.05
+    expect(s2 - s1).toBeCloseTo(0.05, 3);
+  });
+
+  it("verificationStatus 提升时 effImp 增大,分数随之提升(truthFactor 约束)", () => {
+    const now = new Date("2026-06-20T00:00:00Z");
+    const unverifiedLine = makeLine({
+      importance: 0.8,
+      reinforcementScore: 0,
+      verificationStatus: "unverified",
+      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(),
+    });
+    const verifiedLine = makeLine({
+      ...unverifiedLine,
+      verificationStatus: "verified",
+      id: "verified",
+    });
+    const s1 = computeFourFactorScore(0.5, unverifiedLine, { now });
+    const s2 = computeFourFactorScore(0.5, verifiedLine, { now });
+    expect(s2).toBeGreaterThan(s1);
   });
 
   it("权重可配置", () => {
     const line = makeLine({
       importance: 0.5,
-      lastEffectiveAt: null, // 用 createdAt 兜底;但 beta=0 时 recency 不贡献
+      lastEffectiveAt: null,
+      verificationStatus: "unverified",
     });
-    const weights: ThreeFactorWeights = { alpha: 1, beta: 0, gamma: 0 };
+    const weights: FourFactorWeights = {
+      alpha: 1,
+      beta: 0,
+      gamma: 0,
+      delta: 0,
+    };
     // 纯 relevance
-    expect(computeThreeFactorScore(0.7, line, { weights })).toBeCloseTo(
+    expect(computeFourFactorScore(0.7, line, { weights })).toBeCloseTo(
       0.7,
       3,
     );
@@ -200,34 +245,36 @@ describe("computeThreeFactorScore", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const line = makeLine({
       importance: 0.6,
+      verificationStatus: "plausible",
       lastEffectiveAt: new Date(now.getTime() - 10 * DAY).toISOString(),
     });
-    const s1 = computeThreeFactorScore(0.7, line, { now });
-    const s2 = computeThreeFactorScore(0.7, line, { now });
+    const s1 = computeFourFactorScore(0.7, line, { now });
+    const s2 = computeFourFactorScore(0.7, line, { now });
     expect(s1).toBe(s2);
   });
 
   it("lastEffectiveAt=undefined 用 line.lastEffectiveAt", () => {
     const line = makeLine({ lastEffectiveAt: null });
-    expect(computeThreeFactorScore(0.5, line)).toBeGreaterThanOrEqual(0);
+    expect(computeFourFactorScore(0.5, line)).toBeGreaterThanOrEqual(0);
   });
 
   it("options.lastEffectiveAt 覆盖 line", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const line = makeLine({ lastEffectiveAt: null });
-    const score = computeThreeFactorScore(0.5, line, {
+    const score = computeFourFactorScore(0.5, line, {
       now,
       lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(),
     });
-    expect(score).toBeGreaterThan(0.5 * 0.5); // recency>0 贡献
+    // relevance=0.5 × 0.5 + recency>0 × 0.2 + effImp>0 × 0.2 + 0 × 0.1
+    expect(score).toBeGreaterThan(0.5 * 0.5);
   });
 });
 
 // ============================================================
-// computeThreeFactorScores (批量)
+// computeFourFactorScores (批量)
 // ============================================================
 
-describe("computeThreeFactorScores", () => {
+describe("computeFourFactorScores", () => {
   it("保持原数组顺序", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const items = [
@@ -242,7 +289,7 @@ describe("computeThreeFactorScores", () => {
         line: makeLine({ id: "b", lastEffectiveAt: null }),
       },
     ];
-    const result = computeThreeFactorScores(items, { now });
+    const result = computeFourFactorScores(items, { now });
     expect(result.length).toBe(2);
     expect(result[0].id).toBe("a");
     expect(result[1].id).toBe("b");
@@ -254,7 +301,7 @@ describe("computeThreeFactorScores", () => {
       { id: "low", relevance: 0.3, line: makeLine({ id: "low" }) },
       { id: "high", relevance: 0.9, line: makeLine({ id: "high" }) },
     ];
-    const result = computeThreeFactorScores(items, { now });
+    const result = computeFourFactorScores(items, { now });
     const high = result.find((r) => r.id === "high")!.score;
     const low = result.find((r) => r.id === "low")!.score;
     expect(high).toBeGreaterThan(low);
@@ -312,29 +359,31 @@ describe("reciprocalRankFusion", () => {
 });
 
 // ============================================================
-// 端到端:三因子 vs 纯 relevance
+// 端到端:四因子 vs 纯 relevance
 // ============================================================
 
-describe("三因子 vs 纯 relevance(验收)", () => {
+describe("四因子 vs 纯 relevance(验收)", () => {
   it("近期高 importance 的 engram 优先于纯 relevance 高但陈旧的", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    // A: relevance=0.5,但近期有效,importance=0.9
+    // A: relevance=0.5,但近期有效,importance=0.9,verified
     const lineA = makeLine({
       id: "a",
       importance: 0.9,
       reinforcementScore: 0,
-      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(), // 1 天前
+      verificationStatus: "verified",
+      lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(),
     });
-    // B: relevance=0.9,但很久没用了,importance=0.3
+    // B: relevance=0.9,但很久没用了,importance=0.3,unverified
     const lineB = makeLine({
       id: "b",
       importance: 0.3,
       reinforcementScore: 0,
+      verificationStatus: "unverified",
       lastEffectiveAt: new Date(now.getTime() - 365 * DAY).toISOString(),
     });
 
-    const scoreA = computeThreeFactorScore(0.5, lineA, { now });
-    const scoreB = computeThreeFactorScore(0.9, lineB, { now });
+    const scoreA = computeFourFactorScore(0.5, lineA, { now });
+    const scoreB = computeFourFactorScore(0.9, lineB, { now });
     expect(scoreA).toBeGreaterThan(scoreB);
   });
 });
