@@ -65,7 +65,6 @@ function toDigestLine(entry: {
     domainTags: entry.domainTags,
     contextTags: [] as readonly string[],
     importance: 0.5,
-    emotionalValence: "neutral" as const,
     freshness: "fresh" as const,
     status: "active" as const,
     sourceType: "firsthand" as const,

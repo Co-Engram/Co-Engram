@@ -24,7 +24,6 @@ const ENGRAM_STATUS_ENUM = [
   "forgotten",
 ] as const;
 const ENGRAM_FRESHNESS_ENUM = ["fresh", "aging", "stale", "forgotten"] as const;
-const EMOTIONAL_VALENCE_ENUM = ["positive", "negative", "neutral"] as const;
 const SOURCE_TYPE_ENUM = ["firsthand", "secondhand", "inferred"] as const;
 const VISIBILITY_ENUM = ["public", "team", "private", "restricted"] as const;
 const DISCLOSURE_TIER_ENUM = [
@@ -107,10 +106,6 @@ const searchFilterSchema: JsonSchemaObject = {
       type: "array",
       items: { type: "string", enum: ENGRAM_FRESHNESS_ENUM },
     },
-    emotionalValence: {
-      type: "array",
-      items: { type: "string", enum: EMOTIONAL_VALENCE_ENUM },
-    },
     createdBy: { type: "array", items: { type: "string" } },
     createdAfter: { type: "string", description: "ISO 8601 时间戳" },
     createdBefore: { type: "string", description: "ISO 8601 时间戳" },
@@ -137,7 +132,6 @@ export const engramCreateSchema: JsonSchemaObject = {
     encodingContext: optionalStringField("编码情境"),
     importance: numberField("重要性 [0,1]"),
     confidence: numberField("置信度 [0,1]"),
-    emotionalValence: { type: "string", enum: EMOTIONAL_VALENCE_ENUM },
     sourceType: { type: "string", enum: SOURCE_TYPE_ENUM },
     visibility: { type: "string", enum: VISIBILITY_ENUM },
     decayHalfLifeDays: {
@@ -209,7 +203,6 @@ export const engramUpdateSchema: JsonSchemaObject = {
     encodingContext: optionalStringField("编码情境"),
     importance: numberField("重要性 [0,1]"),
     confidence: numberField("置信度 [0,1]"),
-    emotionalValence: { type: "string", enum: EMOTIONAL_VALENCE_ENUM },
     decayHalfLifeDays: {
       type: ["integer", "null"],
       minimum: 1,

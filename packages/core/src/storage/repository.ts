@@ -36,7 +36,6 @@ import type {
   EngramSourceType,
   EngramStatus,
   EngramUpdateInput,
-  EmotionalValence,
   EngramVisibility,
   ImportanceVector,
   VerificationStatus,
@@ -769,7 +768,6 @@ export class EngramRepository {
       version: 1,
       importance: input.importance ?? DEFAULT_IMPORTANCE,
       confidence: input.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE[sourceType],
-      emotionalValence: input.emotionalValence ?? "neutral",
       sourceType,
       evidenceCount: 0,
       retrievalCount: 0,
@@ -902,8 +900,6 @@ export class EngramRepository {
     const newContextTags = input.contextTags ?? oldFrontmatter.contextTags;
     const newEncodingContext =
       input.encodingContext ?? oldFrontmatter.encodingContext;
-    const newEmotionalValence =
-      input.emotionalValence ?? oldFrontmatter.emotionalValence ?? "neutral";
     const newImportance =
       input.importance ?? oldFrontmatter.importance ?? DEFAULT_IMPORTANCE;
     const newConfidence =
@@ -941,7 +937,6 @@ export class EngramRepository {
       version: (oldFrontmatter.version ?? 1) + 1,
       importance: newImportance,
       confidence: newConfidence,
-      emotionalValence: newEmotionalValence,
       decayHalfLifeDays: newDecayHalfLife,
       visibility: newVisibility,
       encodingContext: newEncodingContext,
@@ -1304,7 +1299,6 @@ export class EngramRepository {
       domainTags: engram.domainTags,
       summary: engram.summary,
       importance: engram.importance,
-      emotionalValence: engram.emotionalValence,
       freshness: engram.freshness,
       updatedAt: engram.updatedAt,
       contentSize: engram.contentSize,
@@ -2060,7 +2054,6 @@ export class EngramRepository {
       version: fm.version ?? 1,
       importance: fm.importance ?? DEFAULT_IMPORTANCE,
       confidence: fm.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE.firsthand,
-      emotionalValence: fm.emotionalValence ?? "neutral",
       sourceType: fm.sourceType ?? "firsthand",
       evidenceCount: fm.evidenceCount ?? 0,
       importanceVector: (fm as { importanceVector?: ImportanceVector })

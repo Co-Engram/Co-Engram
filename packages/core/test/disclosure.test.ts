@@ -265,7 +265,6 @@ function makeDigestLine(
     domainTags: ["t"],
     contextTags: [],
     importance: engram.importance ?? 0.5,
-    emotionalValence: "neutral",
     freshness: "fresh",
     status: "active",
     sourceType: "firsthand",

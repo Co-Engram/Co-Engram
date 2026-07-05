@@ -690,7 +690,6 @@ describe("GET /api/search", () => {
       domainTags: e.domainTags,
       contextTags: [],
       importance: 0.5,
-      emotionalValence: "neutral" as const,
       freshness: "fresh" as const,
       status: "active" as const,
       sourceType: "firsthand" as const,

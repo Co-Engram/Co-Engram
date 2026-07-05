@@ -148,7 +148,7 @@ function truncate(text: string, limit: number): string {
 /**
  * 把 EngramDigest 转为 MemorySearchHit
  *
- * 隐藏 co-engram 内部术语（emotionalValence / freshness / sourceType 等），
+ * 隐藏 co-engram 内部术语（freshness / sourceType 等），
  * 只暴露对 LLM 决策有用的字段。
  */
 function digestToHit(digest: EngramDigest, score: number): MemorySearchHit {

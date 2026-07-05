@@ -12,7 +12,6 @@ const ENUM_COVERAGE: Record<string, readonly string[]> = {
   freshness: ["fresh", "aging", "stale", "forgotten"],
   status: ["draft", "active", "archived", "forgotten"],
   sourceType: ["firsthand", "secondhand", "inferred"],
-  emotionalValence: ["positive", "neutral", "negative"],
   verificationStatus: [
     "unverified",
     "plausible",
@@ -50,7 +49,6 @@ const VIEWER_RUNTIME_KEYS = [
   "field.label.evidenceCount",
   "field.label.lastEffective",
   "field.label.reinforcementScore",
-  "field.label.emotionalValence",
   "field.label.sourceType",
   "field.label.verificationStatus",
   "field.label.decayHalfLife",

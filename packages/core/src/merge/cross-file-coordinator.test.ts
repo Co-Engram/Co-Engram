@@ -44,7 +44,6 @@ function makeEngram(id: string, overrides: Partial<Engram> = {}): Engram {
     version: 1,
     importance: 0.5,
     confidence: 0.5,
-    emotionalValence: "neutral",
     sourceType: "firsthand",
     evidenceCount: 0,
     retrievalCount: 0,

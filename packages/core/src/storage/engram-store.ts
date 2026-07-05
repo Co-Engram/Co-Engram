@@ -56,7 +56,6 @@ import { parse, stringify } from "yaml";
 
 import type {
   EngramKind,
-  EmotionalValence,
   EngramSourceType,
   EngramVisibility,
   VerificationStatus,
@@ -94,7 +93,6 @@ export interface EngramFrontmatter {
   readonly version: number;
   readonly importance?: number;
   readonly confidence?: number;
-  readonly emotionalValence?: EmotionalValence;
   readonly sourceType?: EngramSourceType;
   readonly evidenceCount?: number;
   readonly retrievalCount?: number;

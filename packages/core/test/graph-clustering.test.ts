@@ -48,7 +48,6 @@ function makeNode(
     importance: overrides.importance ?? 0.5,
     freshness: overrides.freshness ?? "fresh",
     status: overrides.status ?? "active",
-    emotionalValence: overrides.emotionalValence ?? "neutral",
     createdBy: overrides.createdBy ?? "alice",
     createdAt: overrides.createdAt ?? "2026-01-01T00:00:00Z",
     updatedAt: overrides.updatedAt ?? "2026-01-01T00:00:00Z",

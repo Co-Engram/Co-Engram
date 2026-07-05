@@ -23,7 +23,6 @@ function makeDigest(
     domainTags: input.domainTags ?? ["default"],
     contextTags: input.contextTags ?? [],
     importance: input.importance ?? 0.5,
-    emotionalValence: input.emotionalValence ?? "neutral",
     freshness: input.freshness ?? "fresh",
     status: input.status ?? "active",
     sourceType: input.sourceType ?? "firsthand",

@@ -520,7 +520,7 @@ RETURNS: Full content + metadata (importance, tags, kind) + related memory IDs.`
   // Allows implementation terms (FTS / LTP / Hebbian / RPE). Documents parameter semantics,
   // error conditions, side effects, and invariants. Used in technical docs, API contracts, debug.
   "tool.engram_search.technical": `FTS5 full-text search (Chinese bigram tokenizer + English word tokenizer).
-Input: { query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, emotionalValence?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
+Input: { query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
 Side effects: none (read-only). Does not update lastRetrievedAt (use engram_reinforce for that).
 Error conditions: empty query throws; limit clamped to [1, 100].
 Invariant: archived engrams excluded unless filter.status includes 'archived'.
@@ -536,13 +536,13 @@ Input: { id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synap
 Side effects: none. Does NOT update lastRetrievedAt (use engram_reinforce).
 Error conditions: not found throws; invalid tier throws.
 truthScore field exposed here (field-name reference allowed).`,
-  "tool.engram_create.technical": `Create new engram. Input: { title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, emotionalValence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+  "tool.engram_create.technical": `Create new engram. Input: { title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
 kind enum: observation | fact | pattern | procedure | hypothesis.
 Dedupe mode (default true): DUPLICATE reinforces existing (calls recordRetrievalSuccess); UPDATE merges content; NEW creates.
 Side effects: writes engrams/<slug>.md + .meta.json + .synapses.json; appends audit event; marks repo dirty.
 Error conditions: missing required fields throws; invalid kind throws.
 Invariant: slug uniqueness enforced; collision appends suffix.`,
-  "tool.engram_update.technical": `Update engram fields. Input: { id, title?, content?, summary?, importance?, domainTags?, contextTags?, emotionalValence?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+  "tool.engram_update.technical": `Update engram fields. Input: { id, title?, content?, summary?, importance?, domainTags?, contextTags?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
 Optimistic lock: version field checked (Finding 231 — pending impl).
 Side effects: rewrites .md + .meta.json; appends audit; updates digest/graph index incrementally; marks dirty.
 Error conditions: not found throws; version mismatch throws (when implemented).
@@ -691,7 +691,7 @@ Invariant: engramCount is cumulative for subtree (includes children).`,
   "tool.memory_search.technical": `OpenClaw-compatible alias of engram_search. Same FTS5 backend, simplified schema.
 Input: { query, maxResults?, minScore? }
 Side effects: none.
-Returns: { results: MemorySearchHit[], total }. MemorySearchHit hides internal fields (emotionalValence, freshness, sourceType).
+Returns: { results: MemorySearchHit[], total }. MemorySearchHit hides internal fields (freshness, sourceType).
 Invariant: maxResults clamped to [1, 50]; minScore clamped to [0, 1].`,
   "tool.memory_get.technical": `OpenClaw-compatible alias of engram_get (content tier). Same backend.
 Input: { id }
@@ -946,10 +946,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "enum.sourceType.secondhand": "Secondhand",
   "enum.sourceType.inferred": "Inferred",
 
-  "enum.emotionalValence.positive": "Positive",
-  "enum.emotionalValence.neutral": "Neutral",
-  "enum.emotionalValence.negative": "Negative",
-
   "enum.verificationStatus.unverified": "Unverified",
   "enum.verificationStatus.plausible": "Plausible",
   "enum.verificationStatus.probable": "Probable",
@@ -981,7 +977,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "field.label.evidenceCount": "Evidence count:",
   "field.label.lastEffective": "Last effective:",
   "field.label.reinforcementScore": "Reinforcement score:",
-  "field.label.emotionalValence": "Emotional valence:",
   "field.label.sourceType": "Source type:",
   "field.label.verificationStatus": "Verification status:",
   "field.label.decayHalfLife": "Decay half-life:",
@@ -1683,12 +1678,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "tip.visibility.private": "Private: visible only to the creator.",
   "tip.visibility.restricted":
     "Restricted: requires specific permissions to view.",
-  "tip.emotionalValence.positive":
-    "Positive: encoded with positive emotion (success / praise / resolution). Reinforcement weight is slightly higher.",
-  "tip.emotionalValence.negative":
-    "Negative: encoded with negative emotion (failure / warning / refutation). Used to flag future decisions.",
-  "tip.emotionalValence.neutral":
-    "Neutral: no clear emotional valence at encoding; purely declarative.",
   "tip.sourceType.firsthand":
     "Firsthand: directly experienced / observed; highest credibility.",
   "tip.sourceType.secondhand":

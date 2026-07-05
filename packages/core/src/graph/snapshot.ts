@@ -5,7 +5,7 @@
  * 零额外存储：完全基于派生缓存，图视图本身不触发对权威源的读取。
  *
  * 过滤器（spec §12.6）：
- *   - 节点：kind / domainTags / freshness / status / emotionalValence / createdBy / createdAt 范围 / importance 阈值 / orphansOnly
+ *   - 节点：kind / domainTags / freshness / status / createdBy / createdAt 范围 / importance 阈值 / orphansOnly
  *   - 边：kinds / minWeight / hideContradicts
  *   - 预设：orphans / strong / contradictions / lineage
  *
@@ -16,7 +16,6 @@ import type {
   EngramKind,
   EngramFreshness,
   EngramStatus,
-  EmotionalValence,
 } from "../types/engram.js";
 import type { SynapseKind, SynapseFamily } from "../types/synapse.js";
 import type { DigestLine, GraphEdge, GraphIndex } from "../index/types.js";
@@ -32,7 +31,6 @@ export interface GraphFilter {
   readonly domainTags?: readonly string[];
   readonly freshness?: readonly EngramFreshness[];
   readonly status?: readonly EngramStatus[];
-  readonly emotionalValence?: readonly EmotionalValence[];
   readonly createdBy?: readonly string[];
   /** createdAt 起始（ISO） */
   readonly createdAfter?: string;
@@ -74,7 +72,6 @@ export interface SnapshotNode {
   readonly importance: number;
   readonly freshness: string;
   readonly status: string;
-  readonly emotionalValence: string;
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
@@ -203,7 +200,6 @@ export function buildGraphSnapshot(input: BuildSnapshotInput): GraphSnapshot {
       importance: line.importance,
       freshness: line.freshness,
       status: line.status,
-      emotionalValence: line.emotionalValence,
       createdBy: line.createdBy,
       createdAt: line.createdAt,
       updatedAt: line.updatedAt,
@@ -252,11 +248,6 @@ function matchesNodeFilter(line: DigestLine, filter: GraphFilter): boolean {
   )
     return false;
   if (filter.status && !filter.status.includes(line.status as EngramStatus))
-    return false;
-  if (
-    filter.emotionalValence &&
-    !filter.emotionalValence.includes(line.emotionalValence as EmotionalValence)
-  )
     return false;
   if (filter.createdBy && !filter.createdBy.includes(line.createdBy))
     return false;

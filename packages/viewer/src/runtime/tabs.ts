@@ -350,11 +350,7 @@ window.CO_ENGRAM_ENGRAMS = {
     const tags = (d.domainTags || []).map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
     const ctxTags = (d.contextTags || []).map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
 
-    // 价值评估段(emotionalValence + sourceType + verificationStatus + 衰退进度 + 强化信号)
-    const valence = d.emotionalValence;
-    const valenceLine = valence
-      ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('emotionalValence.' + valence) + '>' + T.fieldLabel('emotionalValence') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('emotionalValence', valence)) + '</div>'
-      : '';
+    // 价值评估段(sourceType + verificationStatus + 衰退进度 + 强化信号)
     const source = d.sourceType;
     const sourceLine = source
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('sourceType.' + source) + '>' + T.fieldLabel('sourceType') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('sourceType', source)) + '</div>'
@@ -380,8 +376,8 @@ window.CO_ENGRAM_ENGRAMS = {
     const scoreLine = (d.reinforcementScore !== undefined && d.reinforcementScore !== 0)
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('reinforcementScore') + '>' + T.fieldLabel('reinforcementScore') + '</span>' + T.formatScoreBand(d.reinforcementScore) + '</div>'
       : '';
-    const valueSection = (valenceLine || sourceLine || verifLine || decayLine || evidenceLine || lastEffLine || scoreLine)
-      ? '<h3>' + T.sectionLabel('valueAssessment') + '</h3>' + valenceLine + sourceLine + verifLine + decayLine + evidenceLine + lastEffLine + scoreLine
+    const valueSection = (sourceLine || verifLine || decayLine || evidenceLine || lastEffLine || scoreLine)
+      ? '<h3>' + T.sectionLabel('valueAssessment') + '</h3>' + sourceLine + verifLine + decayLine + evidenceLine + lastEffLine + scoreLine
       : '';
 
     // 多维重要性段(可选)
@@ -1351,7 +1347,6 @@ window.CO_ENGRAM_TRASH = {
     const fm = d.frontmatter || {};
     const kind = fm.kind ? T.enumLabel('kind', fm.kind) : '';
     const status = fm.status ? T.enumLabel('status', fm.status) : '';
-    const valence = fm.emotionalValence ? T.enumLabel('emotionalValence', fm.emotionalValence) : '';
     const source = fm.sourceType ? T.enumLabel('sourceType', fm.sourceType) : '';
 
     const body = '<div class="warn-banner" style="padding:0.6rem 0.8rem;margin-bottom:0.8rem">'
@@ -1368,7 +1363,6 @@ window.CO_ENGRAM_TRASH = {
         : '')
       + '<div class="field"><span class="field-label">' + T.t('viewer.trash.partitionField') + '</span>' + CO_ENGRAM.escapeHtml(d.partition || '—')
       + ' <span class="field-label"' + CO_ENGRAM.tip('lastEffectiveAt') + '>' + T.t('viewer.trash.trashedAtField') + '</span>' + CO_ENGRAM.escapeHtml(d.trashedAt || '—') + '</div>'
-      + (valence ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('emotionalValence.' + fm.emotionalValence) + '>' + T.fieldLabel('emotionalValence') + ':</span>' + CO_ENGRAM.escapeHtml(valence) + '</div>' : '')
       + (source ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('sourceType.' + fm.sourceType) + '>' + T.fieldLabel('sourceType') + ':</span>' + CO_ENGRAM.escapeHtml(source) + '</div>' : '')
       + (fm.createdBy ? '<div class="field"><span class="field-label">' + T.t('viewer.trash.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(fm.createdBy) + '</div>' : '')
       + '<h3>' + T.t('viewer.trash.contentSection') + '</h3><div class="markdown-body">' + CO_ENGRAM.renderMarkdown(d.content || '') + '</div>'

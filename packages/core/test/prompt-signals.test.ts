@@ -40,7 +40,6 @@ function makeEngram(
     version: 1,
     importance: 0.5,
     confidence: 0.8,
-    emotionalValence: "neutral",
     sourceType: "firsthand",
     evidenceCount: 0,
     retrievalCount: 0,

@@ -270,7 +270,6 @@ function buildDigestLines(): DigestLine[] {
     domainTags: f.domainTags,
     contextTags: [],
     importance: f.importance,
-    emotionalValence: "neutral",
     freshness: "fresh",
     status: "active",
     sourceType: "firsthand",

@@ -522,7 +522,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
   // 允许实现术语(FTS / LTP / Hebbian / RPE)。记录参数语义、错误条件、副作用、不变量。
   // 用于技术文档、API 契约、debug。
   "tool.engram_search.technical": `FTS5 全文检索(中文 bigram tokenizer + 英文 word tokenizer)。
-输入:{ query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, emotionalValence?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
+输入:{ query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
 副作用:无(只读)。不更新 lastRetrievedAt(用 engram_reinforce)。
 错误条件:空 query 抛错;limit 钳到 [1, 100]。
 不变量:archived engram 默认排除,除非 filter.status 包含 'archived'。
@@ -538,13 +538,13 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 副作用:无。不更新 lastRetrievedAt(用 engram_reinforce)。
 错误条件:未找到抛错;无效 tier 抛错。
 truthScore 字段在此暴露(允许字段名引用)。`,
-  "tool.engram_create.technical": `创建新 engram。输入:{ title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, emotionalValence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+  "tool.engram_create.technical": `创建新 engram。输入:{ title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
 kind 枚举:observation | fact | pattern | procedure | hypothesis。
 Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UPDATE 合并 content;NEW 创建。
 副作用:写 engrams/<slug>.md + .meta.json + .synapses.json;append audit;mark repo dirty。
 错误条件:缺必填字段抛错;无效 kind 抛错。
 不变量:slug 唯一性强制;冲突加后缀。`,
-  "tool.engram_update.technical": `更新 engram 字段。输入:{ id, title?, content?, summary?, importance?, domainTags?, contextTags?, emotionalValence?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+  "tool.engram_update.technical": `更新 engram 字段。输入:{ id, title?, content?, summary?, importance?, domainTags?, contextTags?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
 乐观锁:version 字段校验(Finding 231 — 待实现)。
 副作用:重写 .md + .meta.json;append audit;增量更新 digest/graph 索引;mark dirty。
 错误条件:未找到抛错;version 不匹配抛错(实现后)。
@@ -693,7 +693,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "tool.memory_search.technical": `engram_search 的 OpenClaw 兼容别名。同样 FTS5 后端,简化 schema。
 输入:{ query, maxResults?, minScore? }
 副作用:无。
-返回:{ results: MemorySearchHit[], total }。MemorySearchHit 隐藏内部字段(emotionalValence、freshness、sourceType)。
+返回:{ results: MemorySearchHit[], total }。MemorySearchHit 隐藏内部字段(freshness、sourceType)。
 不变量:maxResults 钳到 [1, 50];minScore 钳到 [0, 1]。`,
   "tool.memory_get.technical": `engram_get(content tier)的 OpenClaw 兼容别名。同样后端。
 输入:{ id }
@@ -942,10 +942,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "enum.sourceType.secondhand": "二手",
   "enum.sourceType.inferred": "推断",
 
-  "enum.emotionalValence.positive": "正向",
-  "enum.emotionalValence.neutral": "中性",
-  "enum.emotionalValence.negative": "负向",
-
   "enum.verificationStatus.unverified": "未验证",
   "enum.verificationStatus.plausible": "似真",
   "enum.verificationStatus.probable": "较可能",
@@ -977,7 +973,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "field.label.evidenceCount": "证据数:",
   "field.label.lastEffective": "最近有效:",
   "field.label.reinforcementScore": "强化分数:",
-  "field.label.emotionalValence": "情感极性:",
   "field.label.sourceType": "来源类型:",
   "field.label.verificationStatus": "验证状态:",
   "field.label.decayHalfLife": "衰退半衰期:",
@@ -1630,12 +1625,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "tip.visibility.team": "团队 (team):仅同团队可见。",
   "tip.visibility.private": "私有 (private):仅创建者可见。",
   "tip.visibility.restricted": "受限 (restricted):需特定权限才能查看。",
-  "tip.emotionalValence.positive":
-    "积极 (positive):该记忆编码时带有正向情绪(成功/赞赏/解决)。强化权重略高。",
-  "tip.emotionalValence.negative":
-    "消极 (negative):该记忆编码时带有负向情绪(失败/警告/反驳)。用于警示未来决策。",
-  "tip.emotionalValence.neutral":
-    "中性 (neutral):编码时无明显情绪倾向,纯陈述性记忆。",
   "tip.sourceType.firsthand": "一手 (firsthand):亲历/直接观测,可信度最高。",
   "tip.sourceType.secondhand": "二手 (secondhand):转述/文档/他人经验,需交叉验证。",
   "tip.sourceType.inferred": "推断 (inferred):从其他记忆归纳得出,无直接证据。",

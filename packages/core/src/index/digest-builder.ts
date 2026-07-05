@@ -34,7 +34,6 @@ export function readDigestLine(
     contextTags: engram.contextTags,
     importance: engram.importance,
     importanceVector: engram.importanceVector,
-    emotionalValence: engram.emotionalValence,
     freshness: engram.freshness,
     status: engram.status,
     sourceType: engram.sourceType,

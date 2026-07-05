@@ -58,12 +58,6 @@ export function matchesFilter(
     }
   }
 
-  if (filter.emotionalValence && filter.emotionalValence.length > 0) {
-    if (!filter.emotionalValence.includes(line.emotionalValence)) {
-      return false;
-    }
-  }
-
   if (filter.createdBy && filter.createdBy.length > 0) {
     if (!filter.createdBy.includes(line.createdBy)) {
       return false;

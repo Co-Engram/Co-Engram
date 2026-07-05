@@ -35,8 +35,6 @@ export interface DigestLine {
   readonly importance: number;
   /** 多维重要性向量（可选，spec §8） */
   readonly importanceVector?: ImportanceVector;
-  /** 情绪效价 */
-  readonly emotionalValence: string;
   /** 新鲜度 */
   readonly freshness: string;
   /** 生命周期状态 */

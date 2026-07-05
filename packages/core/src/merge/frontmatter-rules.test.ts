@@ -36,7 +36,6 @@ describe("classifyField", () => {
     expect(classifyField("kinds")).toBe("updatedAt_arbitrated");
     expect(classifyField("importance")).toBe("updatedAt_arbitrated");
     expect(classifyField("confidence")).toBe("updatedAt_arbitrated");
-    expect(classifyField("emotionalValence")).toBe("updatedAt_arbitrated");
     expect(classifyField("decayHalfLifeDays")).toBe("updatedAt_arbitrated");
     expect(classifyField("visibility")).toBe("updatedAt_arbitrated");
     expect(classifyField("status")).toBe("updatedAt_arbitrated");

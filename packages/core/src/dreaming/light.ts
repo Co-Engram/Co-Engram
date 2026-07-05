@@ -94,7 +94,6 @@ export function runLightDreaming(
       encodingContext: engram.encodingContext,
       importance: engram.importance,
       confidence: engram.confidence,
-      emotionalValence: engram.emotionalValence,
       sourceType: engram.sourceType,
       visibility: engram.visibility,
       decayHalfLifeDays: engram.decayHalfLifeDays,

@@ -53,13 +53,6 @@ export type EngramStatus =
 export type EngramFreshness = "fresh" | "aging" | "stale" | "forgotten";
 
 /**
- * 情绪效价
- *
- * 神经科学依据：杏仁核-海马交互。正性/负性事件通过不同回路处理。
- */
-export type EmotionalValence = "positive" | "negative" | "neutral";
-
-/**
  * 来源类型
  *
  * 默认 confidence：
@@ -136,7 +129,6 @@ export interface EngramCatalogEntry {
 export interface EngramDigest extends EngramCatalogEntry {
   readonly summary: string;
   readonly importance: number;
-  readonly emotionalValence: EmotionalValence;
   readonly freshness: EngramFreshness;
   readonly updatedAt: string;
   readonly contentSize: number;
@@ -173,7 +165,6 @@ export interface Engram {
   /* === 价值评估 === */
   readonly importance: number;
   readonly confidence: number;
-  readonly emotionalValence: EmotionalValence;
   readonly sourceType: EngramSourceType;
   readonly evidenceCount: number;
 
@@ -226,7 +217,6 @@ export interface EngramCreateInput {
   readonly contextTags?: readonly string[];
   readonly encodingContext?: string;
   readonly createdBy: string;
-  readonly emotionalValence?: EmotionalValence;
   readonly sourceType?: EngramSourceType;
   readonly importance?: number;
   readonly confidence?: number;
@@ -248,7 +238,6 @@ export interface EngramUpdateInput {
   readonly contextTags?: readonly string[];
   readonly encodingContext?: string;
   readonly updatedBy: string;
-  readonly emotionalValence?: EmotionalValence;
   readonly importance?: number;
   readonly confidence?: number;
   readonly decayHalfLifeDays?: number | null;

@@ -54,7 +54,6 @@ export interface SearchFilter {
   readonly kinds?: readonly string[];
   readonly status?: readonly string[];
   readonly freshness?: readonly string[];
-  readonly emotionalValence?: readonly string[];
   readonly createdBy?: readonly string[];
   readonly createdAfter?: string;
   readonly createdBefore?: string;

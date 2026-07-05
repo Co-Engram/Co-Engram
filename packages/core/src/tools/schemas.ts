@@ -49,12 +49,6 @@ export const EngramFreshnessSchema = z.enum([
   "forgotten",
 ]);
 
-export const EmotionalValenceSchema = z.enum([
-  "positive",
-  "negative",
-  "neutral",
-]);
-
 export const EngramSourceTypeSchema = z.enum([
   "firsthand",
   "secondhand",
@@ -108,7 +102,6 @@ export const EngramCreateInputSchema = z.object({
   encodingContext: z.string().optional(),
   importance: z.number().min(0).max(1).optional(),
   confidence: z.number().min(0).max(1).optional(),
-  emotionalValence: EmotionalValenceSchema.optional(),
   sourceType: EngramSourceTypeSchema.optional(),
   visibility: EngramVisibilitySchema.optional(),
   decayHalfLifeDays: z.number().int().positive().nullable().optional(),
@@ -166,7 +159,6 @@ export const EngramUpdateInputSchema = z.object({
   encodingContext: z.string().optional(),
   importance: z.number().min(0).max(1).optional(),
   confidence: z.number().min(0).max(1).optional(),
-  emotionalValence: EmotionalValenceSchema.optional(),
   decayHalfLifeDays: z.number().int().positive().nullable().optional(),
   visibility: EngramVisibilitySchema.optional(),
   updatedBy: z.string().min(1),
@@ -236,7 +228,6 @@ export const SearchFilterSchema = z
     kinds: z.array(z.string()).optional(),
     status: z.array(z.string()).optional(),
     freshness: z.array(z.string()).optional(),
-    emotionalValence: z.array(z.string()).optional(),
     createdBy: z.array(z.string()).optional(),
     createdAfter: z.string().optional(),
     createdBefore: z.string().optional(),

@@ -14,7 +14,6 @@ function makeLine(overrides: Partial<DigestLine>): DigestLine {
     domainTags: ["test"],
     contextTags: [],
     importance: 0.5,
-    emotionalValence: "neutral",
     freshness: "fresh",
     status: "active",
     sourceType: "firsthand",
