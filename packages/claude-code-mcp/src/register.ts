@@ -63,7 +63,6 @@ const WRITE_TOOL_NAMES = new Set([
   "contradiction_resolve",
   "close_learning_loop",
   "engram_accept_proposal",
-  "engram_recompute_importance",
   "engram_synthesize",
 ]);
 

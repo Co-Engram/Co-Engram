@@ -34,7 +34,6 @@ import { reinforceRelated } from "../reinforcement/related.js";
 import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_CONFIG } from "../reinforcement/config.js";
 import { checkDuplicateSync } from "../dedup/dedupe.js";
 import { mergeEngram } from "../dedup/merge.js";
-import { recomputeImportance } from "../importance/vector.js";
 import {
   compareSortKey,
   decodeCursor,
@@ -59,7 +58,6 @@ import {
   EngramArchiveInputSchema,
   EngramRestoreInputSchema,
   EngramForgetInputSchema,
-  EngramRecomputeImportanceInputSchema,
   ContradictionResolveInputSchema,
   CloseLearningLoopInputSchema,
   UpgradeVerificationInputSchema,
@@ -76,7 +74,6 @@ import {
   type EngramArchiveToolInput,
   type EngramRestoreToolInput,
   type EngramForgetToolInput,
-  type EngramRecomputeImportanceToolInput,
   type ContradictionResolveToolInput,
   type CloseLearningLoopToolInput,
   type UpgradeVerificationToolInput,
@@ -1063,56 +1060,6 @@ export const engramForgetTool: Tool<
 };
 
 // ============================================================
-// engram_recompute_importance（P2：多维重要性）
-// ============================================================
-
-export const engramRecomputeImportanceTool: Tool<
-  EngramRecomputeImportanceToolInput,
-  {
-    id: string;
-    previous?: {
-      personal: number;
-      team: number;
-      project: number;
-      network: number;
-      temporal: number;
-      composite: number;
-    };
-    next: {
-      personal: number;
-      team: number;
-      project: number;
-      network: number;
-      temporal: number;
-      composite: number;
-    };
-    persisted: boolean;
-  }
-> = {
-  name: "engram_recompute_importance",
-  description:
-    "重新计算 engram 的多维重要性（personal/team/project/network/temporal）。network 和 temporal 由系统派生（incomingSynapseCount + 艾宾浩斯衰退），其余可通过 overrides 手动设置。结果 composite 写回 engram.importance。",
-  inputSchema: EngramRecomputeImportanceInputSchema,
-  execute(input, ctx) {
-    const parsed = validateInput<EngramRecomputeImportanceToolInput>(
-      EngramRecomputeImportanceInputSchema,
-      input,
-    );
-    const result = recomputeImportance(ctx.repository, parsed.id, {
-      overrides: parsed.overrides,
-      persist: parsed.persist,
-      updatedBy: parsed.updatedBy,
-    });
-    return {
-      id: result.id,
-      previous: result.previous,
-      next: result.next,
-      persisted: result.persisted,
-    };
-  },
-};
-
-// ============================================================
 // contradiction_resolve（P2：spec §3.9 人工裁决）
 // ============================================================
 
@@ -1333,7 +1280,6 @@ export const ALL_ENGRAM_TOOLS: readonly Tool[] = [
   engramArchiveTool,
   engramRestoreTool,
   engramForgetTool,
-  engramRecomputeImportanceTool,
   contradictionResolveTool,
   closeLearningLoopTool,
   upgradeVerificationTool,

@@ -105,7 +105,7 @@ interface ScoreField {
 - `raw` is rounded to 2 decimals to prevent floating-point noise from leaking to the UI (e.g., `0.018000000000000002` becomes `0.02`).
 - `band` is a language-neutral enum so the core stays host-agnostic — the viewer or host adapter localizes it (`高/中/低` in Chinese, `high/medium/low` in English) via the i18n dictionary, not by the core.
 
-**Where it shows up:** `engram_get`, `engram_search`, `engram_reinforce`, `engram_report_failure`, `engram_recompute_importance`, and the viewer's effectiveness report all return `ScoreField` for any user-facing numeric.
+**Where it shows up:** `engram_get`, `engram_search`, `engram_reinforce`, `engram_report_failure`, and the viewer's effectiveness report all return `ScoreField` for any user-facing numeric.
 
 For ad-hoc string formatting inside core (e.g., embedding a score in an audit reason), `formatScore(score, lang)` returns `"high(0.84)"` / `"高(0.84)"` directly.
 

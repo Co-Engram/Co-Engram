@@ -240,27 +240,6 @@ export const SearchFilterSchema = z
   .strict();
 
 // ============================================================
-// engram_recompute_importance（P2：多维重要性）
-// ============================================================
-
-export const EngramRecomputeImportanceInputSchema = z.object({
-  id: z.string().min(1),
-  /** 手动覆盖 personal/team/project（network/temporal 永远派生） */
-  overrides: z
-    .object({
-      personal: z.number().min(0).max(1),
-      team: z.number().min(0).max(1),
-      project: z.number().min(0).max(1),
-    })
-    .partial()
-    .optional(),
-  /** 是否落盘（默认 true） */
-  persist: z.boolean().default(true),
-  /** 调用者标识 */
-  updatedBy: z.string().min(1).default("engram_recompute_importance"),
-});
-
-// ============================================================
 // contradiction_resolve（P2：矛盾解决，spec §3.9）
 // ============================================================
 
@@ -603,9 +582,6 @@ export type EngramReportFailureToolInput = z.infer<
 export type EngramArchiveToolInput = z.infer<typeof EngramArchiveInputSchema>;
 export type EngramRestoreToolInput = z.infer<typeof EngramRestoreInputSchema>;
 export type EngramForgetToolInput = z.infer<typeof EngramForgetInputSchema>;
-export type EngramRecomputeImportanceToolInput = z.infer<
-  typeof EngramRecomputeImportanceInputSchema
->;
 export type ContradictionResolveToolInput = z.infer<
   typeof ContradictionResolveInputSchema
 >;

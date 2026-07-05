@@ -69,13 +69,6 @@ tags:
   - gotcha
 summary: Use Object.assign({}, ...parts) to merge readonly configs
 importance: 0.62
-importanceVector:
-  personal: 0.7
-  team: 0.6
-  project: 0.8
-  network: 0.4
-  temporal: 0.5
-  composite: 0.62
 confidence: 0.85
 emotionalValence: neutral
 sourceType: firsthand
@@ -122,7 +115,6 @@ const merged = Object.assign({}, ...parts)
 | `tags`                                                | string[]        | 自由格式的上下文标签                                                 |
 | `summary`                                             | string          | 一行摘要                                                             |
 | `importance`                                          | number `[0, 1]` | 综合重要性分数                                                       |
-| `importanceVector`                                    | object          | 按受众的重要性(`personal/team/project/network/temporal/composite`)   |
 | `confidence`                                          | number `[0, 1]` | 基于 `sourceType` 的初始置信度                                       |
 | `sourceType`                                          | enum            | `firsthand` / `secondhand` / `inferred`;影响默认 confidence          |
 | `decayHalfLifeDays`                                   | number 或 null  | Ebbinghaus 半衰期;`null` = 永不衰减                                  |

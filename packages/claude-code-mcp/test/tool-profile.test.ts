@@ -38,8 +38,8 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.standard.size).toBe(19);
   });
 
-  it("full = 29 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(29);
+  it("full = 28 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(28);
   });
 
   // ============================================================
@@ -82,7 +82,6 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
       "engram_archive",
       "engram_restore",
       "engram_forget",
-      "engram_recompute_importance",
       "synapse_get",
       "synapse_list",
       "synapse_delete",
@@ -104,7 +103,6 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
       "engram_archive",
       "engram_restore",
       "engram_forget",
-      "engram_recompute_importance",
       "synapse_get",
       "synapse_list",
       "synapse_delete",
@@ -198,7 +196,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(29);
+    expect(filtered.length).toBe(28);
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -233,7 +231,6 @@ describe("filterToolsByProfile / 过滤行为", () => {
       "engram_archive",
       "engram_restore",
       "engram_forget",
-      "engram_recompute_importance",
       "synapse_get",
       "synapse_list",
       "synapse_delete",

@@ -119,7 +119,7 @@ Gitignored `.co-engram/` inside the data repo. Derived artifacts:
 - `graph.json` — synapse graph snapshot for fast traversal
 - `index.db` *(default since 0.2.0; opt-out via `CO_ENGRAM_SEARCH_ENGINE=memory`)* — SQLite-derived index (WAL + FTS5 trigram) for scaling to 5k+ engrams; see [Search Engine](#search-engine) below
 
-Rebuildable at any time by deleting `.co-engram/` and running `engram_recompute_importance`.
+Rebuildable at any time by deleting `.co-engram/` and triggering an incremental rebuild (e.g. via `engram_doctor` or restarting the host).
 
 ## Data Flow
 

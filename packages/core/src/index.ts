@@ -19,7 +19,6 @@ export * from "./reinforcement/index.js";
 export * from "./dedup/index.js";
 export * from "./dreaming/index.js";
 export * from "./evolution/index.js";
-export * from "./importance/index.js";
 export * from "./contradiction/index.js";
 export * from "./learning/index.js";
 export * from "./provenance/index.js";

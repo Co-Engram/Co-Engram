@@ -367,7 +367,7 @@ Stage timing and thresholds can be overridden via env vars or config.
 | `engram_dismiss_proposal` | proposal        | **Permanent dismiss** by default (dismissedUntil unset); `dismissDays > 0` enables N-day cooldown |
 | `engram_doctor`           | (index)         | Self-heal: slug/index/move fixes                                                                |
 
-**Full-profile-only mutators**: `engram_archive`, `engram_restore`, `engram_forget`, `engram_recompute_importance`, `synapse_get/list/delete`, `skill_*`, `upgrade_verification`, `get_evolution_lineage`. These are typically triggered by the maintenance engine or CLI, not exposed to the everyday LLM.
+**Full-profile-only mutators**: `engram_archive`, `engram_restore`, `engram_forget`, `synapse_get/list/delete`, `skill_*`, `upgrade_verification`, `get_evolution_lineage`. These are typically triggered by the maintenance engine or CLI, not exposed to the everyday LLM.
 
 ---
 

@@ -280,7 +280,7 @@ export interface ScoreField {
  *   1. round 到 2 位小数,杀掉浮点噪声(0.018000000000000002 → 0.02)
  *   2. 计算 band(high/medium/low),供 host adapter 渲染
  *
- * 单独抽出是因为多个工具(engram_get / engram_reinforce / engram_recompute_importance /
+ * 单独抽出是因为多个工具(engram_get / engram_reinforce /
  * engram_search)都要做同样的处理,集中一处避免漂移。
  */
 export function formatScoreField(raw: number): ScoreField {

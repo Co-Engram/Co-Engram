@@ -171,14 +171,6 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 - `id: string`
 - `reason: string`
 
-### `engram_recompute_importance`
-
-重新计算多维 importance(personal/team/project/network/temporal)。Network 即 synapse 图的度数,temporal 即 Ebbinghaus 衰减。最终将复合值写回 `engram.importance`。
-
-**必填输入:** `id: string`
-
-**可选:** `overrides: { personal, team, project }`、`persist: boolean`(默认 true)、`updatedBy: string`
-
 ## Synapses
 
 ### `synapse_create`

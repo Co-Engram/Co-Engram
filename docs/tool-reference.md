@@ -171,14 +171,6 @@ Active retrieval-induced forgetting (RIF). File preserved in Git but excluded fr
 - `id: string`
 - `reason: string`
 
-### `engram_recompute_importance`
-
-Recalculate the multi-dimensional importance (personal/team/project/network/temporal). Network = synapse graph degree, temporal = Ebbinghaus decay. Writes the composite back to `engram.importance`.
-
-**Required inputs:** `id: string`
-
-**Optional:** `overrides: { personal, team, project }`, `persist: boolean` (default true), `updatedBy: string`
-
 ## Synapses
 
 ### `synapse_create`

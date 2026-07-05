@@ -30,8 +30,6 @@ export const en: TranslationDict = {
     "Restore a memory from archived or forgotten state back to active, re-entering default search.",
   "tool.engram_forget":
     "Actively forget a memory. Files remain (Git-tracked); the memory leaves all default search immediately. A reason is required. Automatic cleanup follows: moved to trash after 30 days, physically deleted after another 365 days; recoverable until physical deletion.",
-  "tool.engram_recompute_importance":
-    "Recompute a memory's multi-dimensional importance (personal/team/project/network/temporal). Network and temporal dimensions are system-derived; the rest can be set manually.",
 
   // ===== Learning loop tools (4) =====
   "tool.contradiction_resolve":
@@ -390,18 +388,6 @@ WHEN NOT TO CALL:
 - You want it still searchable (use engram_archive instead)
 
 RETURNS: { forgotten: true } + reason recorded. Sweep: .trash/ after 30 days, physical delete after another 365 days.`,
-  "tool.engram_recompute_importance.agent": `Recompute a memory's multi-dimensional importance score.
-
-WHEN TO CALL:
-- After significant retrieval/use patterns changed (bulk reinforce or failure)
-- User asks to "re-rank" / "re-score" / "refresh importance" a memory
-- Debugging unexpected search ranking
-
-WHEN NOT TO CALL:
-- Just to refresh a timestamp (use engram_update)
-- As a routine operation (importance updates automatically on reinforce/failure)
-
-RETURNS: Recomputed importance vector (personal/team/project/network/temporal) + new composite score written back to engram.importance.`,
   "tool.upgrade_verification.agent": `Upgrade a memory's verification status (unverified → plausible → probable → verified).
 
 WHEN TO CALL:
@@ -588,12 +574,6 @@ Sweep pipeline (maintenance): forgotten → 30d → .trash/ (removed from main i
 Side effects: writes .meta.json (status + forgottenAt); rebuilds digest; appends audit.
 Error conditions: not found throws; empty reason throws.
 Recovery: engram_restore anytime before physical purge; after purge, only git history.`,
-  "tool.engram_recompute_importance.technical": `Recompute multi-dimensional importance. Input: { id, overrides?: { personal?, team?, project? } }
-Dimensions: personal / team / project (user-settable); network (incomingSynapseCount-derived); temporal (Ebbinghaus decay).
-Composite = weighted sum (spec §8). Written back to engram.importance.
-Side effects: writes .meta.json (importance + importanceVector); appends audit.
-Error conditions: not found throws.
-Invariant: network + temporal are always system-derived; overrides only affect the other three.`,
   "tool.contradiction_resolve.technical": `Resolve contradicts synapse. Input: { fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
 Updates: synapse.resolutionState = 'resolved'; appends to evidence[]; if verdict=archive, loser engram status → archived.
 Side effects: writes synapse file + .meta.json (if archive); appends audit.
@@ -969,7 +949,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "field.label.freshness": "Freshness:",
   "field.label.importance": "Importance:",
   "field.label.valueAssessment": "Value Assessment",
-  "field.label.multiDimImportance": "Multi-dim Importance",
   "field.label.encodingContext": "Memory Formation Context",
   "field.label.encodingContextValue": "Memory formation context:",
   "field.label.perspective": "Perspective:",
@@ -986,7 +965,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "section.content": "Content",
   "section.stats": "Stats",
   "section.valueAssessment": "Value Assessment",
-  "section.multiDimImportance": "Multi-dim Importance",
   "section.encodingContext": "Memory Formation Context",
 
   // Action buttons (action.<name>)
@@ -1332,12 +1310,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.detail.evidenceCount": "Evidence (${n})",
   "viewer.detail.noEvidence": "No evidence",
   "viewer.detail.confidenceEvidence": "confidence ${n}",
-  "viewer.detail.dim.personal": "Personal:",
-  "viewer.detail.dim.team": "Team:",
-  "viewer.detail.dim.project": "Project:",
-  "viewer.detail.dim.network": "Network:",
-  "viewer.detail.dim.temporal": "Temporal:",
-  "viewer.detail.dim.composite": "Composite:",
   "viewer.scoreBand.high": "High",
   "viewer.scoreBand.medium": "Medium",
   "viewer.scoreBand.low": "Low",
@@ -1492,10 +1464,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>Importance & confidence</strong>",
   "viewer.help.conceptImportanceDesc":
     "Two independent 0-1 numbers. Importance is derived from reinforcement signals + time decay and affects retrieval weight; confidence reflects how trustworthy the memory is (a metacognition score) and is decoupled from importance.",
-  "viewer.help.conceptVector":
-    "<strong>Importance vector (importanceVector)</strong>",
-  "viewer.help.conceptVectorDesc":
-    "Decomposes importance into 5 dimensions: personal/team/project/network/temporal for fine-grained control. If present, engram detail view shows a dedicated section.",
   "viewer.help.conceptLifecycle":
     "<strong>Lifecycle</strong>",
   "viewer.help.conceptLifecycleDesc":
@@ -1581,7 +1549,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Tool profiles =====
   "viewer.help.profilesTitle": "Tool profiles",
   "viewer.help.profilesBody":
-    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Counts come from <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal (12)</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (19, default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>). <strong>full (29)</strong>: all native tools except the experimental <code>skill_invoke</code> (P0 stub). Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
+    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Counts come from <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal (12)</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (19, default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>). <strong>full (28)</strong>: all native tools except the experimental <code>skill_invoke</code> (P0 stub). Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
 
   // ===== Save & sync =====
   "viewer.help.syncTitle": "Save and sync to remote",
@@ -1761,17 +1729,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Encoding context: background description when the memory was created; used for context-dependent recall.",
   "tip.perspective":
     "Perspective: observation viewpoint identifier (multi-perspective retention mechanism, spec §5.3).",
-  "tip.importanceVector":
-    "Multi-dim importance: splits importance into 5 independent dimensions for fine-grained control.",
-  "tip.importanceDim.personal":
-    "Personal: relevance to the current user's work.",
-  "tip.importanceDim.team": "Team: collaborative value for the whole team.",
-  "tip.importanceDim.project":
-    "Project: alignment with current project goals.",
-  "tip.importanceDim.network":
-    "Network: derived from synapse count; reflects knowledge-graph centrality.",
-  "tip.importanceDim.temporal":
-    "Temporal: derived from lastEffectiveAt + half-life; recently reinforced memories score higher.",
   "tip.freshness.fresh":
     "Fresh: ageDays ≤ halfLife; recently reinforced, top weight in the recall pool.",
   "tip.freshness.aging":

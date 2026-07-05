@@ -95,21 +95,6 @@ export type VerificationStatus =
   | "refuted";
 
 /**
- * 多维重要性向量（spec §8 字段表）
- *
- * personal/team/project 手动维护；network/temporal 派生；composite 加权聚合。
- * 详见 src/importance/vector.ts。
- */
-export interface ImportanceVector {
-  readonly personal: number;
-  readonly team: number;
-  readonly project: number;
-  readonly network: number;
-  readonly temporal: number;
-  readonly composite: number;
-}
-
-/**
  * Catalog Entry（Tier 0，最小开销）
  *
  * 用于检索结果列表的最小展示单元
@@ -168,9 +153,6 @@ export interface Engram {
   readonly sourceType: EngramSourceType;
   readonly evidenceCount: number;
 
-  /* === 多维重要性（spec §8，可选；P2 3.3 引入） === */
-  readonly importanceVector?: ImportanceVector;
-
   /* === 三信号检索统计 === */
   readonly retrievalCount: number;
   readonly effectiveRetrievals: number;
@@ -220,7 +202,6 @@ export interface EngramCreateInput {
   readonly importance?: number;
   readonly confidence?: number;
   readonly visibility?: EngramVisibility;
-  readonly importanceVector?: ImportanceVector;
   readonly perspective?: string;
 }
 
@@ -239,6 +220,5 @@ export interface EngramUpdateInput {
   readonly importance?: number;
   readonly confidence?: number;
   readonly visibility?: EngramVisibility;
-  readonly importanceVector?: ImportanceVector;
   readonly perspective?: string;
 }

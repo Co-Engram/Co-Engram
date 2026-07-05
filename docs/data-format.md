@@ -69,13 +69,6 @@ tags:
   - gotcha
 summary: Use Object.assign({}, ...parts) to merge readonly configs
 importance: 0.62
-importanceVector:
-  personal: 0.7
-  team: 0.6
-  project: 0.8
-  network: 0.4
-  temporal: 0.5
-  composite: 0.62
 confidence: 0.85
 emotionalValence: neutral
 sourceType: firsthand
@@ -122,7 +115,6 @@ const merged = Object.assign({}, ...parts)
 | `tags`                                                | string[]            | Free-form context tags                                                       |
 | `summary`                                             | string              | One-line summary                                                             |
 | `importance`                                          | number `[0, 1]`     | Composite importance score                                                   |
-| `importanceVector`                                    | object              | Per-audience importance (`personal/team/project/network/temporal/composite`) |
 | `confidence`                                          | number `[0, 1]`     | Initial confidence based on `sourceType`                                     |
 | `sourceType`                                          | enum                | `firsthand` / `secondhand` / `inferred`; affects default confidence          |
 | `decayHalfLifeDays`                                   | number or null      | Ebbinghaus half-life; `null` = never decays                                  |

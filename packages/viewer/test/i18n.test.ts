@@ -41,7 +41,6 @@ const VIEWER_RUNTIME_KEYS = [
   "field.label.freshness",
   "field.label.importance",
   "field.label.valueAssessment",
-  "field.label.multiDimImportance",
   "field.label.encodingContext",
   "field.label.encodingContextValue",
   "field.label.perspective",
@@ -58,7 +57,6 @@ const VIEWER_RUNTIME_KEYS = [
   "section.content",
   "section.stats",
   "section.valueAssessment",
-  "section.multiDimImportance",
   "section.encodingContext",
 
   // action buttons

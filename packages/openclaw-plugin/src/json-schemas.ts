@@ -262,32 +262,6 @@ export const engramForgetSchema: JsonSchemaObject = {
   },
 };
 
-export const engramRecomputeImportanceSchema: JsonSchemaObject = {
-  type: "object",
-  additionalProperties: false,
-  required: ["id"],
-  properties: {
-    id: engramIdField,
-    overrides: {
-      type: "object",
-      description:
-        "手动覆盖 personal/team/project 维度（network/temporal 系统派生）",
-      additionalProperties: false,
-      properties: {
-        personal: { type: "number", minimum: 0, maximum: 1 },
-        team: { type: "number", minimum: 0, maximum: 1 },
-        project: { type: "number", minimum: 0, maximum: 1 },
-      },
-    },
-    persist: {
-      type: "boolean",
-      default: true,
-      description: "是否写回 meta.yaml",
-    },
-    updatedBy: stringField("调用者标识", 100),
-  },
-};
-
 export const contradictionResolveSchema: JsonSchemaObject = {
   type: "object",
   additionalProperties: false,
@@ -449,7 +423,6 @@ export const TOOL_JSON_SCHEMAS: Readonly<Record<string, JsonSchemaObject>> = {
   engram_archive: engramArchiveSchema,
   engram_restore: engramRestoreSchema,
   engram_forget: engramForgetSchema,
-  engram_recompute_importance: engramRecomputeImportanceSchema,
   contradiction_resolve: contradictionResolveSchema,
   close_learning_loop: closeLearningLoopSchema,
   synapse_create: synapseCreateSchema,

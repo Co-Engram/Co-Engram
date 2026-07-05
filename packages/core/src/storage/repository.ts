@@ -37,7 +37,6 @@ import type {
   EngramStatus,
   EngramUpdateInput,
   EngramVisibility,
-  ImportanceVector,
   VerificationStatus,
   Synapse,
   SynapseCreateInput,
@@ -912,11 +911,6 @@ export class EngramRepository {
       DEFAULT_CONFIDENCE_BY_SOURCE.firsthand;
     const newVisibility =
       input.visibility ?? oldFrontmatter.visibility ?? "public";
-    const newImportanceVector =
-      input.importanceVector === undefined
-        ? (oldFrontmatter as { importanceVector?: ImportanceVector })
-            .importanceVector
-        : input.importanceVector;
     const newPerspective =
       input.perspective === undefined
         ? oldFrontmatter.perspective
@@ -941,7 +935,6 @@ export class EngramRepository {
       encodingContext: newEncodingContext,
       perspective: newPerspective,
       contextTags: newContextTags,
-      importanceVector: newImportanceVector,
     };
 
     // 处理 slug 变化:title 变 + slug 未锁定 → 重新 slugify + rename
@@ -1725,22 +1718,6 @@ export class EngramRepository {
   }
 
   /**
-   * 更新多维重要性向量(不触发 version++)。
-   *
-   * 同时把 fm.importance 设为 vector.composite,保证检索公式读到最新综合分。
-   */
-  updateImportanceVector(
-    id: string,
-    input: { vector: ImportanceVector; updatedBy?: string },
-  ): void {
-    this.mutateFrontmatter(id, (fm) => ({
-      ...fm,
-      importance: input.vector.composite,
-      importanceVector: input.vector,
-    }));
-  }
-
-  /**
    * 更新 verificationStatus(不触发 version++)。
    */
   updateVerificationStatus(id: string, status: VerificationStatus): void {
@@ -1788,7 +1765,7 @@ export class EngramRepository {
     );
 
     // Task 1.5:同步投影到 SQLite(若注入)。mutateFrontmatter 被
-    // bumpRetrievalStats / updateLifecycle / updateImportanceVector /
+    // bumpRetrievalStats / updateLifecycle /
     // updateVerificationStatus 复用,会改 importance / status / updatedAt
     // 等 SQLite 排序/过滤列,必须同步否则 SQLite 数据陈旧。
     this.syncEngramToIndex(newFrontmatter, oldFile.content);
@@ -2121,8 +2098,6 @@ export class EngramRepository {
       confidence: fm.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE.firsthand,
       sourceType: fm.sourceType ?? "firsthand",
       evidenceCount: fm.evidenceCount ?? 0,
-      importanceVector: (fm as { importanceVector?: ImportanceVector })
-        .importanceVector,
       retrievalCount: fm.retrievalCount ?? 0,
       effectiveRetrievals: fm.effectiveRetrievals ?? 0,
       failedUses: fm.failedUses ?? 0,

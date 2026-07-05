@@ -92,7 +92,6 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_archive",
     "engram_restore",
     "engram_forget",
-    "engram_recompute_importance",
     "synapse_create",
     "synapse_get",
     "synapse_list",

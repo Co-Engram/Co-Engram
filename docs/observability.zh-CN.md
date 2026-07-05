@@ -105,7 +105,7 @@ interface ScoreField {
 - `raw` 固定 2 位小数,杜绝浮点噪声泄漏到 UI(例如 `0.018000000000000002` 会变成 `0.02`)。
 - `band` 是语言中立的枚举,保持 core 层 host-agnostic —— 由 viewer 或 host adapter 通过 i18n 字典本地化(`高/中/低` 或 `high/medium/low`),而不是由 core 层硬编码。
 
-**出现位置:** `engram_get`、`engram_search`、`engram_reinforce`、`engram_report_failure`、`engram_recompute_importance`,以及 viewer 的 effectiveness 报告,所有面向用户的数值字段都返回 `ScoreField`。
+**出现位置:** `engram_get`、`engram_search`、`engram_reinforce`、`engram_report_failure`,以及 viewer 的 effectiveness 报告,所有面向用户的数值字段都返回 `ScoreField`。
 
 若需在 core 内部把分数嵌入字符串(例如审计 reason),`formatScore(score, lang)` 直接返回 `"高(0.84)"` / `"high(0.84)"`。
 

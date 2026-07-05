@@ -364,7 +364,7 @@ rpe       = actual - expected
 | `engram_dismiss_proposal` | proposal   | 默认**永久驳回**(dismissedUntil 留空);显式 `dismissDays > 0` 时 N 天冷却 |
 | `engram_doctor`           | (索引)     | 自愈:slug/索引/移动文件修复                                                                 |
 
-**仅 full profile 可见**:`engram_archive`、`engram_restore`、`engram_forget`、`engram_recompute_importance`、`synapse_get/list/delete`、`skill_*`、`upgrade_verification`、`get_evolution_lineage`。这些工具通常由维护引擎或 CLI 触发,不对日常 LLM 暴露。
+**仅 full profile 可见**:`engram_archive`、`engram_restore`、`engram_forget`、`synapse_get/list/delete`、`skill_*`、`upgrade_verification`、`get_evolution_lineage`。这些工具通常由维护引擎或 CLI 触发,不对日常 LLM 暴露。
 
 ---
 

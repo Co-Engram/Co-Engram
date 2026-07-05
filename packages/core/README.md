@@ -93,8 +93,8 @@ flowchart TB
 
 Co-Engram exposes **25 native tools** grouped into five concerns, plus 2 OpenClaw-compatible `memory_*` wrappers (registered only under `@co-engram/openclaw`).
 
-**Engrams** (12) — the core memory units
-`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget` · `engram_recompute_importance`
+**Engrams** (11) — the core memory units
+`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget`
 
 **Synapses** (4) — typed connections between engrams
 `synapse_create` · `synapse_get` · `synapse_list` · `synapse_delete`

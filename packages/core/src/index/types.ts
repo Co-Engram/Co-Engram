@@ -11,7 +11,6 @@ import type {
   EngramCatalogEntry,
   EngramDigest,
   EngramId,
-  ImportanceVector,
 } from "../types/engram.js";
 import type { SynapseKind } from "../types/synapse.js";
 
@@ -31,10 +30,8 @@ export interface DigestLine {
   readonly domainTags: readonly string[];
   /** 情境标签 */
   readonly contextTags: readonly string[];
-  /** 重要性 [0,1]（recomputeImportance 后为 composite） */
+  /** 重要性 [0,1](单一动态字段,由 D1 dynamics 后验更新) */
   readonly importance: number;
-  /** 多维重要性向量（可选，spec §8） */
-  readonly importanceVector?: ImportanceVector;
   /** 新鲜度 */
   readonly freshness: string;
   /** 生命周期状态 */

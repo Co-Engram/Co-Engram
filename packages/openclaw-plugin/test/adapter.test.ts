@@ -113,7 +113,7 @@ describe("adaptTool", () => {
 // ============================================================
 
 describe("adaptAllTools", () => {
-  it("批量适配所有原生工具(registry 当前 30 个,含 skill_invoke stub + engram_audit_query)", () => {
+  it("批量适配所有原生工具(registry 当前 29 个,含 skill_invoke stub + engram_audit_query)", () => {
     const { tools } = createCoEngramTools({ dataRoot: tmpDir });
     expect(tools.map((t) => t.name).sort()).toEqual([
       "close_learning_loop",
@@ -130,7 +130,6 @@ describe("adaptAllTools", () => {
       "engram_list",
       "engram_list_paths",
       "engram_list_proposals",
-      "engram_recompute_importance",
       "engram_reinforce",
       "engram_report_failure",
       "engram_restore",
@@ -148,7 +147,7 @@ describe("adaptAllTools", () => {
       "upgrade_verification",
     ]);
     // 数字不硬编码,跟列表长度走 —— 列表本身是 regression guard,防止工具被无意移除。
-    expect(tools.length).toBe(30);
+    expect(tools.length).toBe(29);
   });
 });
 

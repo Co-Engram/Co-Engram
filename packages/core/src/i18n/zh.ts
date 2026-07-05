@@ -1267,12 +1267,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.detail.evidenceCount": "证据 (${n})",
   "viewer.detail.noEvidence": "无证据",
   "viewer.detail.confidenceEvidence": "置信度 ${n}",
-  "viewer.detail.dim.personal": "个人:",
-  "viewer.detail.dim.team": "团队:",
-  "viewer.detail.dim.project": "项目:",
-  "viewer.detail.dim.network": "网络:",
-  "viewer.detail.dim.temporal": "时间:",
-  "viewer.detail.dim.composite": "复合:",
   "viewer.scoreBand.high": "高",
   "viewer.scoreBand.medium": "中",
   "viewer.scoreBand.low": "低",
@@ -1423,10 +1417,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>重要性(importance)与置信度(confidence)</strong>",
   "viewer.help.conceptImportanceDesc":
     "两个独立的 0-1 数值。重要性由强化信号 + 时间衰减派生,影响召回权重;置信度反映该记忆成立的可信程度(元认知评分),与重要性解耦。",
-  "viewer.help.conceptVector":
-    "<strong>多维重要性向量(importanceVector)</strong>",
-  "viewer.help.conceptVectorDesc":
-    "把重要性拆解为 personal/team/project/network/temporal 5 个维度,便于精细化调控。查看 engram 详情时如果存在,会显示在专门的段落里。",
   "viewer.help.conceptLifecycle":
     "<strong>生命周期</strong>",
   "viewer.help.conceptLifecycleDesc":
@@ -1512,7 +1502,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 工具 profile =====
   "viewer.help.profilesTitle": "工具 profile",
   "viewer.help.profilesBody":
-    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(19,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>)。<strong>full(29)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
+    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(19,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>)。<strong>full(28)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
 
   // ===== 保存与同步 =====
   "viewer.help.syncTitle": "保存与同步到远端",
@@ -1667,15 +1657,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "记忆产生情境 (encodingContext):记忆创建时的背景描述,用于情境依赖回忆。",
   "tip.perspective":
     "视角 (perspective):该记忆的观察视角标识(多视角保留机制,spec §5.3)。",
-  "tip.importanceVector":
-    "多维重要性 (importanceVector):把 importance 拆解为 5 个独立维度,便于精细化调控。",
-  "tip.importanceDim.personal": "个人维度 (personal):对当前用户的工作关联度。",
-  "tip.importanceDim.team": "团队维度 (team):对整个团队的协作价值。",
-  "tip.importanceDim.project": "项目维度 (project):与当前项目目标的契合度。",
-  "tip.importanceDim.network":
-    "网络维度 (network):基于突触连接数派生,反映知识图谱中心性。",
-  "tip.importanceDim.temporal":
-    "时间维度 (temporal):基于 lastEffectiveAt + 半衰期派生,近期强化的得分高。",
   "tip.freshness.fresh":
     "鲜活 (fresh):ageDays ≤ halfLife,最近被有效强化过,在召回池中权重最高。",
   "tip.freshness.aging":

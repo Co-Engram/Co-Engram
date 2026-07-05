@@ -119,7 +119,7 @@ team-memory/
 - `graph.json` — synapse 图快照,用于快速遍历
 - `index.db` *(0.2.0 起默认;通过 `CO_ENGRAM_SEARCH_ENGINE=memory` opt-out)* — SQLite 派生索引(WAL + FTS5 trigram),用于规模化到 5k+ engram;详见下文[搜索引擎](#搜索引擎)
 
-任何时候都可以通过删除 `.co-engram/` 并运行 `engram_recompute_importance` 来重建。
+任何时候都可以通过删除 `.co-engram/` 并触发增量重建(如通过 `engram_doctor` 或重启宿主)来重建。
 
 ## 数据流
 

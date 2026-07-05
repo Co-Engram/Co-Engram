@@ -33,7 +33,6 @@ export function readDigestLine(
     domainTags: engram.domainTags,
     contextTags: engram.contextTags,
     importance: engram.importance,
-    importanceVector: engram.importanceVector,
     freshness: engram.freshness,
     status: engram.status,
     sourceType: engram.sourceType,
