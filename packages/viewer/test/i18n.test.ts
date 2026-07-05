@@ -76,8 +76,6 @@ const VIEWER_RUNTIME_KEYS = [
   // decay visualization
   "decay.daysToNext",
   "decay.forgotten",
-  "decay.neverDecays",
-  "decay.neverDecaysTip",
   "decay.levelLabel",
 
   // engrams list view

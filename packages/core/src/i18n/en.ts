@@ -1009,9 +1009,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // Decay visualization (decay.<name>)
   "decay.daysToNext": "${days} days to next downgrade",
   "decay.forgotten": "Forgotten",
-  "decay.neverDecays": "Never decays",
-  "decay.neverDecaysTip":
-    "Half-life is derived from importance; very low-importance engrams decay within hours.",
   "decay.levelLabel": "Current: ${level}",
 
   // List view (engrams.<area>.<name>)
@@ -1753,8 +1750,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Failed uses: times the hit was reported as \"invalid/outdated\". Too many failures trigger forgetting.",
   "tip.reinforcementScore":
     "Reinforcement score: cumulative positive reinforcement signal.",
-  "tip.decayHalfLifeDays":
-    "Decay half-life (days), derived from importance via deriveHalfLifeDays (halflife = 50 × (importance + 0.1)^2.5). Important memories decay slowly.",
   "tip.lastEffectiveAt":
     "Last effective at: timestamp of the most recent successful adoption/reinforcement.",
   "tip.evidenceCount":

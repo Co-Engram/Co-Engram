@@ -1005,9 +1005,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // 衰退可视化(decay.<name>)
   "decay.daysToNext": "距下次降级还剩 ${days} 天",
   "decay.forgotten": "已遗忘",
-  "decay.neverDecays": "永不衰退",
-  "decay.neverDecaysTip":
-    "该记忆衰退进度暂时无法计算(importance 缺失或时间戳损坏)。",
   "decay.levelLabel": "当前:${level}",
 
   // 列表视图(engrams.<area>.<name>)
@@ -1681,8 +1678,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "tip.failedUses":
     "失败使用 (failedUses):命中后被报告「无效/过时」的次数。失败过多会触发遗忘。",
   "tip.reinforcementScore": "强化分数 (reinforcementScore):累计的正向强化信号。",
-  "tip.decayHalfLifeDays":
-    "衰退半衰期 (天),从 importance 派生(halflife = 50 × (importance + 0.1)^2.5),重要记忆衰退更慢。",
   "tip.lastEffectiveAt":
     "最近一次有效 (lastEffectiveAt):该记忆最后一次被实际采纳/强化成功的时间戳。",
   "tip.evidenceCount":
