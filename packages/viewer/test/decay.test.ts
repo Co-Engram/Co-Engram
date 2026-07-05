@@ -10,6 +10,10 @@ import { DECAY_RUNTIME } from "../src/runtime/decay.js";
  *
  * DECAY_RUNTIME 依赖 window.CO_ENGRAM_T(t / enumLabel / decayLabel),所以测试前先注入
  * 一个最小化的 stub(语义对齐 viewer/src/runtime/i18n.ts 的 fallback 逻辑)。
+ *
+ * D1 之后(decayHalfLifeDays 字段删除):衰退起点仍取 lastEffectiveAt ?? createdAt,
+ * 半衰期由 importance 实时派生 — deriveHalfLifeDays(importance) = 50 * (imp + 0.1)^2.5。
+ * 没有"永不衰退"概念;null 仅在时间戳损坏时出现,renderDecayBar(null) 返回空字符串。
  */
 
 function makeWindowStub(lang: "zh" | "en" = "zh") {
@@ -53,7 +57,7 @@ function loadDecayRuntime(lang: "zh" | "en" = "zh") {
     computeDecayState: (
       lastEffectiveAt: string | null | undefined,
       createdAt: string,
-      halfLifeDays: number | null | undefined,
+      importance: number,
       now?: Date,
     ) => {
       progressPct: number;
@@ -61,17 +65,19 @@ function loadDecayRuntime(lang: "zh" | "en" = "zh") {
       daysToNext: number | null;
     } | null;
     renderDecayBar: (
-      decay: {
-        progressPct: number;
-        currentLevel: string;
-        daysToNext: number | null;
-      } | null,
-      halfLifeDays: number | null | undefined,
+      decay:
+        | {
+            progressPct: number;
+            currentLevel: string;
+            daysToNext: number | null;
+          }
+        | null,
     ) => string;
+    deriveHalfLifeDays: (importance: number) => number;
   };
 }
 
-const HALF_LIFE = 90; // 90 天半衰期(与 fixtures 常用值一致)
+const IMP = 1.0; // importance=1.0 → halfLife ≈ 63.45 天(深度巩固)
 const NOW = new Date("2026-06-27T00:00:00Z");
 const CREATED_AT = NOW.toISOString(); // 默认 createdAt = now(新建 engram)
 
@@ -79,98 +85,131 @@ function daysAgo(days: number): string {
   return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-describe("viewer runtime / computeDecayState 边界", () => {
+describe("viewer runtime / deriveHalfLifeDays 公式(D1 机制 D)", () => {
   const decay = loadDecayRuntime();
 
-  it("halfLifeDays null → 返回 null(永不衰退)", () => {
-    expect(decay.computeDecayState(daysAgo(10), CREATED_AT, null, NOW)).toBeNull();
+  it("importance=0 → halfLife 仍 > 0(快速遗忘但不为零)", () => {
+    // 50 * 0.1^2.5 ≈ 0.158
+    expect(decay.deriveHalfLifeDays(0)).toBeGreaterThan(0);
+    expect(decay.deriveHalfLifeDays(0)).toBeCloseTo(0.158, 2);
   });
 
-  it("halfLifeDays undefined → 返回 null", () => {
-    expect(decay.computeDecayState(daysAgo(10), CREATED_AT, undefined, NOW)).toBeNull();
+  it("importance=0.5 → halfLife ≈ 14 天(中等记忆)", () => {
+    // 50 * 0.6^2.5 ≈ 13.93
+    expect(decay.deriveHalfLifeDays(0.5)).toBeCloseTo(13.93, 1);
   });
 
-  it("halfLifeDays <= 0 → 返回 null", () => {
-    expect(decay.computeDecayState(daysAgo(10), CREATED_AT, 0, NOW)).toBeNull();
-    expect(decay.computeDecayState(daysAgo(10), CREATED_AT, -5, NOW)).toBeNull();
+  it("importance=1.0 → halfLife ≈ 63 天(深度巩固)", () => {
+    // 50 * 1.1^2.5 ≈ 63.45
+    expect(decay.deriveHalfLifeDays(1.0)).toBeCloseTo(63.45, 1);
   });
+
+  it("halfLife 随 importance 单调递增", () => {
+    expect(decay.deriveHalfLifeDays(0)).toBeLessThan(decay.deriveHalfLifeDays(0.5));
+    expect(decay.deriveHalfLifeDays(0.5)).toBeLessThan(decay.deriveHalfLifeDays(1.0));
+  });
+});
+
+describe("viewer runtime / computeDecayState 边界", () => {
+  const decay = loadDecayRuntime();
+  const halfLife = decay.deriveHalfLifeDays(IMP); // ≈ 63.45
 
   it("lastEffectiveAt=null + createdAt 存在 → 用 createdAt 兜底算衰退", () => {
     // 新建 engram(lastEffectiveAt=null, createdAt=10 天前)→ 还在 fresh 阶段
-    const r = decay.computeDecayState(null, daysAgo(10), HALF_LIFE, NOW);
+    const r = decay.computeDecayState(null, daysAgo(10), IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
-    expect(r!.daysToNext).toBe(HALF_LIFE - 10);
+    expect(r!.daysToNext).toBe(Math.ceil(halfLife - 10));
   });
 
   it("lastEffectiveAt=undefined + createdAt 存在 → 用 createdAt 兜底", () => {
-    const r = decay.computeDecayState(undefined, daysAgo(10), HALF_LIFE, NOW);
+    const r = decay.computeDecayState(undefined, daysAgo(10), IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
   });
 
   it("lastEffectiveAt=null + createdAt 也缺失 → 返回 null", () => {
-    expect(decay.computeDecayState(null, "", HALF_LIFE, NOW)).toBeNull();
+    expect(decay.computeDecayState(null, "", IMP, NOW)).toBeNull();
   });
 
   it("lastEffectiveAt 非法 + createdAt 合法 → 用 createdAt 兜底", () => {
     // lastEffectiveAt 损坏,fallback 到 createdAt
-    const r = decay.computeDecayState("not-a-date", daysAgo(30), HALF_LIFE, NOW);
+    const r = decay.computeDecayState("not-a-date", daysAgo(30), IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
   });
 
   it("lastEffectiveAt 优先于 createdAt", () => {
     // lastEffectiveAt=10 天前,createdAt=100 天前 → 应该用 lastEffectiveAt
-    const r = decay.computeDecayState(daysAgo(10), daysAgo(100), HALF_LIFE, NOW);
+    const r = decay.computeDecayState(daysAgo(10), daysAgo(100), IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
-    expect(r!.daysToNext).toBe(HALF_LIFE - 10);
+    expect(r!.daysToNext).toBe(Math.ceil(halfLife - 10));
   });
 
   it("ageDays = 0(刚生效)→ fresh, progressPct=0, daysToNext=halfLife", () => {
-    const r = decay.computeDecayState(NOW.toISOString(), CREATED_AT, HALF_LIFE, NOW);
+    const r = decay.computeDecayState(NOW.toISOString(), CREATED_AT, IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
     expect(r!.progressPct).toBeCloseTo(0, 1);
-    expect(r!.daysToNext).toBe(HALF_LIFE);
+    expect(r!.daysToNext).toBe(Math.ceil(halfLife));
   });
 
   it("ageDays < halfLife(还在 fresh 阶段)→ fresh", () => {
-    const r = decay.computeDecayState(daysAgo(30), CREATED_AT, HALF_LIFE, NOW);
+    const ageDays = halfLife * 0.3; // 30% of halfLife
+    const r = decay.computeDecayState(daysAgo(ageDays), CREATED_AT, IMP, NOW);
     expect(r!.currentLevel).toBe("fresh");
     expect(r!.progressPct).toBeGreaterThan(0);
     expect(r!.progressPct).toBeLessThan(25);
-    expect(r!.daysToNext).toBe(HALF_LIFE - 30);
+    expect(r!.daysToNext).toBe(Math.ceil(halfLife - ageDays));
   });
 
-  it("ageDays = halfLife(刚好到 fresh 上界,<=)→ 仍 fresh", () => {
-    // 边界归入当前阶段(对应 core/freshness.ts 的 <= 阈值)
-    const r = decay.computeDecayState(daysAgo(HALF_LIFE), CREATED_AT, HALF_LIFE, NOW);
+  it("ageDays 略小于 halfLife(0.99×,明确在 fresh 内)→ fresh", () => {
+    // 浮点边界不可靠(halfLife≈63.45 不是整数),用 0.99× 明确在内侧
+    const r = decay.computeDecayState(daysAgo(halfLife * 0.99), CREATED_AT, IMP, NOW);
     expect(r!.currentLevel).toBe("fresh");
-    expect(r!.progressPct).toBeCloseTo(25, 1);
-    expect(r!.daysToNext).toBe(0); // 刚到边界,距 aging 还剩 0
+    expect(r!.progressPct).toBeCloseTo(25, 0); // 接近 25%(fresh 上界)
+    expect(r!.daysToNext).toBeLessThanOrEqual(1); // 接近 0 即可
   });
 
-  it("ageDays = halfLife*2(刚好到 aging 上界,<=)→ 仍 aging", () => {
-    const r = decay.computeDecayState(daysAgo(HALF_LIFE * 2), CREATED_AT, HALF_LIFE, NOW);
+  it("ageDays 略大于 halfLife(1.01×,明确进入 aging)→ aging", () => {
+    const r = decay.computeDecayState(daysAgo(halfLife * 1.01), CREATED_AT, IMP, NOW);
     expect(r!.currentLevel).toBe("aging");
-    expect(r!.progressPct).toBeCloseTo(50, 1);
-    expect(r!.daysToNext).toBe(0);
+    expect(r!.progressPct).toBeGreaterThan(25);
+    expect(r!.progressPct).toBeLessThan(50);
   });
 
-  it("ageDays = halfLife*4(刚好到 stale 上界,<=)→ 仍 stale", () => {
-    const r = decay.computeDecayState(daysAgo(HALF_LIFE * 4), CREATED_AT, HALF_LIFE, NOW);
+  it("ageDays 略小于 halfLife*2(1.99×,明确在 aging 内)→ aging", () => {
+    const r = decay.computeDecayState(daysAgo(halfLife * 1.99), CREATED_AT, IMP, NOW);
+    expect(r!.currentLevel).toBe("aging");
+    expect(r!.progressPct).toBeCloseTo(50, 0);
+  });
+
+  it("ageDays 略大于 halfLife*2(2.01×,明确进入 stale)→ stale", () => {
+    const r = decay.computeDecayState(daysAgo(halfLife * 2.01), CREATED_AT, IMP, NOW);
     expect(r!.currentLevel).toBe("stale");
-    expect(r!.progressPct).toBeCloseTo(100, 1);
-    expect(r!.daysToNext).toBe(0);
+    expect(r!.progressPct).toBeGreaterThan(50);
+    expect(r!.progressPct).toBeLessThan(100);
+  });
+
+  it("ageDays 略小于 halfLife*4(3.99×,明确在 stale 内)→ stale", () => {
+    const r = decay.computeDecayState(daysAgo(halfLife * 3.99), CREATED_AT, IMP, NOW);
+    expect(r!.currentLevel).toBe("stale");
+    expect(r!.progressPct).toBeCloseTo(100, 0);
+  });
+
+  it("ageDays 略大于 halfLife*4(4.01×,明确进入 forgotten)→ forgotten", () => {
+    const r = decay.computeDecayState(daysAgo(halfLife * 4.01), CREATED_AT, IMP, NOW);
+    expect(r!.currentLevel).toBe("forgotten");
+    expect(r!.progressPct).toBe(100);
+    expect(r!.daysToNext).toBeNull();
   });
 
   it("ageDays 刚超过 halfLife*4(> 阈值)→ forgotten, daysToNext=null", () => {
     const r = decay.computeDecayState(
-      daysAgo(HALF_LIFE * 4 + 1),
+      daysAgo(halfLife * 4 + 1),
       CREATED_AT,
-      HALF_LIFE,
+      IMP,
       NOW,
     );
     expect(r!.currentLevel).toBe("forgotten");
@@ -179,7 +218,7 @@ describe("viewer runtime / computeDecayState 边界", () => {
   });
 
   it("ageDays 远超 halfLife*4 → forgotten, progressPct clamp 到 100", () => {
-    const r = decay.computeDecayState(daysAgo(HALF_LIFE * 10), CREATED_AT, HALF_LIFE, NOW);
+    const r = decay.computeDecayState(daysAgo(halfLife * 10), CREATED_AT, IMP, NOW);
     expect(r!.currentLevel).toBe("forgotten");
     expect(r!.progressPct).toBe(100);
     expect(r!.daysToNext).toBeNull();
@@ -188,110 +227,117 @@ describe("viewer runtime / computeDecayState 边界", () => {
   it("ageDays < 0(时钟偏差,极少见)→ 按 fresh 处理, ageDays 视为 0", () => {
     // lastEffectiveAt 在 now 之后 1 天 → 视为 fresh
     const future = new Date(NOW.getTime() + 24 * 60 * 60 * 1000).toISOString();
-    const r = decay.computeDecayState(future, CREATED_AT, HALF_LIFE, NOW);
+    const r = decay.computeDecayState(future, CREATED_AT, IMP, NOW);
     expect(r).not.toBeNull();
     expect(r!.currentLevel).toBe("fresh");
     expect(r!.progressPct).toBe(0);
-    expect(r!.daysToNext).toBe(HALF_LIFE);
+    expect(r!.daysToNext).toBe(Math.ceil(halfLife));
+  });
+
+  it("importance=0(极低重要性)→ halfLife 很小,几乎立即 forgotten", () => {
+    // importance=0 → halfLife ≈ 0.158 天;10 天前 → 远超 halfLife*4
+    const r = decay.computeDecayState(daysAgo(10), CREATED_AT, 0, NOW);
+    expect(r!.currentLevel).toBe("forgotten");
+    expect(r!.progressPct).toBe(100);
+    expect(r!.daysToNext).toBeNull();
   });
 });
 
 describe("viewer runtime / renderDecayBar DOM", () => {
   const decay = loadDecayRuntime("zh");
+  const halfLife = decay.deriveHalfLifeDays(IMP);
 
-  it('decay=null + halfLifeDays=null → 显示"永不衰退"文案', () => {
-    const html = decay.renderDecayBar(null, null);
-    expect(html).toContain("decay-empty");
-    expect(html).toContain("永不衰退");
+  it("decay=null(时间戳损坏)→ 返回空字符串(不再有'永不衰退'概念)", () => {
+    const html = decay.renderDecayBar(null);
+    expect(html).toBe("");
   });
 
   it("fresh 状态 → 渲染进度条 + 倒计时 + freshness-fresh class", () => {
-    const state = decay.computeDecayState(daysAgo(30), CREATED_AT, HALF_LIFE, NOW)!;
-    const html = decay.renderDecayBar(state, HALF_LIFE);
+    const ageDays = halfLife * 0.3;
+    const state = decay.computeDecayState(daysAgo(ageDays), CREATED_AT, IMP, NOW)!;
+    const html = decay.renderDecayBar(state);
     expect(html).toContain("decay-bar");
     expect(html).toContain("decay-fill");
     expect(html).toContain("freshness-fresh");
     expect(html).toContain("decay-countdown");
-    expect(html).toContain("60"); // daysToNext = 90 - 30
+    const expectedDays = Math.ceil(halfLife - ageDays);
+    expect(html).toContain(String(expectedDays));
   });
 
   it('forgotten 状态 → 倒计时位置显示"已遗忘",进度条满', () => {
     const state = decay.computeDecayState(
-      daysAgo(HALF_LIFE * 5),
+      daysAgo(halfLife * 5),
       CREATED_AT,
-      HALF_LIFE,
+      IMP,
       NOW,
     )!;
-    const html = decay.renderDecayBar(state, HALF_LIFE);
+    const html = decay.renderDecayBar(state);
     expect(html).toContain("freshness-forgotten");
     expect(html).toContain("已遗忘");
     expect(html).toContain("width:100.0%");
   });
 
   it("progressPct 渲染时保留 1 位小数", () => {
-    // ageDays=30, halfLife=90 → progressPct = 30/360 * 100 ≈ 8.3
-    const state = decay.computeDecayState(daysAgo(30), CREATED_AT, HALF_LIFE, NOW)!;
-    const html = decay.renderDecayBar(state, HALF_LIFE);
+    const ageDays = halfLife * 0.3;
+    const state = decay.computeDecayState(daysAgo(ageDays), CREATED_AT, IMP, NOW)!;
+    const html = decay.renderDecayBar(state);
     expect(html).toMatch(/width:\d+\.\d+%/);
   });
 
-  it('英文 lang → 倒计时显示 "${days} days to next downgrade"', () => {
+  it('英文 lang → 倒计时显示 "{days} days to next downgrade"', () => {
     const decayEn = loadDecayRuntime("en");
-    const state = decayEn.computeDecayState(daysAgo(30), CREATED_AT, HALF_LIFE, NOW)!;
-    const html = decayEn.renderDecayBar(state, HALF_LIFE);
-    expect(html).toContain("60 days to next downgrade");
+    const ageDays = halfLife * 0.3;
+    const state = decayEn.computeDecayState(daysAgo(ageDays), CREATED_AT, IMP, NOW)!;
+    const html = decayEn.renderDecayBar(state);
+    const expectedDays = Math.ceil(halfLife - ageDays);
+    expect(html).toContain(expectedDays + " days to next downgrade");
     expect(html).toContain("Fresh");
   });
 
   it('英文 lang + forgotten → "Forgotten"', () => {
     const decayEn = loadDecayRuntime("en");
     const state = decayEn.computeDecayState(
-      daysAgo(HALF_LIFE * 5),
+      daysAgo(halfLife * 5),
       CREATED_AT,
-      HALF_LIFE,
+      IMP,
       NOW,
     )!;
-    const html = decayEn.renderDecayBar(state, HALF_LIFE);
+    const html = decayEn.renderDecayBar(state);
     expect(html).toContain("Forgotten");
-  });
-
-  it('英文 lang + halfLifeDays=null → "Never decays"', () => {
-    const decayEn = loadDecayRuntime("en");
-    const html = decayEn.renderDecayBar(null, null);
-    expect(html).toContain("Never decays");
   });
 });
 
 describe("viewer runtime / 公式与 core computeFreshness 对齐", () => {
   const decay = loadDecayRuntime();
+  const halfLife = decay.deriveHalfLifeDays(IMP);
 
   it("freshness 阈值:ageDays ≤ halfLife → fresh, ≤ 2× → aging, ≤ 4× → stale, > 4× → forgotten", () => {
     // 在阈值正中央各取一点,验证分级正确
     expect(
-      decay.computeDecayState(daysAgo(HALF_LIFE * 0.5), CREATED_AT, HALF_LIFE, NOW)!
+      decay.computeDecayState(daysAgo(halfLife * 0.5), CREATED_AT, IMP, NOW)!
         .currentLevel,
     ).toBe("fresh");
     expect(
-      decay.computeDecayState(daysAgo(HALF_LIFE * 1.5), CREATED_AT, HALF_LIFE, NOW)!
+      decay.computeDecayState(daysAgo(halfLife * 1.5), CREATED_AT, IMP, NOW)!
         .currentLevel,
     ).toBe("aging");
     expect(
-      decay.computeDecayState(daysAgo(HALF_LIFE * 3), CREATED_AT, HALF_LIFE, NOW)!
+      decay.computeDecayState(daysAgo(halfLife * 3), CREATED_AT, IMP, NOW)!
         .currentLevel,
     ).toBe("stale");
     expect(
-      decay.computeDecayState(daysAgo(HALF_LIFE * 5), CREATED_AT, HALF_LIFE, NOW)!
+      decay.computeDecayState(daysAgo(halfLife * 5), CREATED_AT, IMP, NOW)!
         .currentLevel,
     ).toBe("forgotten");
   });
 
   it("progressPct 在 fresh/aging/stale/forgotten 区间单调递增", () => {
     const pct = (d: number) =>
-      decay.computeDecayState(daysAgo(d), CREATED_AT, HALF_LIFE, NOW)!.progressPct;
-    expect(pct(0)).toBeLessThanOrEqual(pct(HALF_LIFE * 0.5));
-    expect(pct(HALF_LIFE * 0.5)).toBeLessThanOrEqual(pct(HALF_LIFE * 1.5));
-    expect(pct(HALF_LIFE * 1.5)).toBeLessThanOrEqual(pct(HALF_LIFE * 3));
-    expect(pct(HALF_LIFE * 3)).toBeLessThanOrEqual(pct(HALF_LIFE * 5));
-    expect(pct(HALF_LIFE * 5)).toBeLessThanOrEqual(100);
+      decay.computeDecayState(daysAgo(d), CREATED_AT, IMP, NOW)!.progressPct;
+    expect(pct(0)).toBeLessThanOrEqual(pct(halfLife * 0.5));
+    expect(pct(halfLife * 0.5)).toBeLessThanOrEqual(pct(halfLife * 1.5));
+    expect(pct(halfLife * 1.5)).toBeLessThanOrEqual(pct(halfLife * 3));
+    expect(pct(halfLife * 3)).toBeLessThanOrEqual(pct(halfLife * 5));
+    expect(pct(halfLife * 5)).toBeLessThanOrEqual(100);
   });
 });
