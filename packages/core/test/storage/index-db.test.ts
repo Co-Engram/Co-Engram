@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { IndexDb } from "../../src/storage/index-db.js";
+import { IndexDb, encodeQueryCursor } from "../../src/storage/index-db.js";
 import type { EngramIndexEntry, SynapseIndexEntry } from "../../src/storage/index-db.js";
 
 let dbDir: string;
@@ -244,6 +244,133 @@ describe("IndexDb UPSERT", () => {
       .prepare("SELECT count(*) as n FROM engram_fts WHERE id = ?")
       .get(sampleEngram.id) as { n: number };
     expect(fts.n).toBe(0);
+    db.close();
+  });
+});
+
+describe("IndexDb.queryEngrams cursor 翻页", () => {
+  // 回归 bug:count(*) 误把 cursor 条件带进 WHERE,导致 total 随 cursor 前进递减。
+  // UI 上看到「已加载 1026 / 共 26」的反转 —— cursor 推到末页时 total = 末页剩余数。
+  // 修复后:任何 cursor 位置 total 都应等于绝对仓库总数。
+  it("cursor 推进时 total 不变(等于仓库总数)", () => {
+    const db = new IndexDb({ dbPath });
+    db.open();
+    const totalInserted = 25;
+    for (let i = 0; i < totalInserted; i++) {
+      db.upsertEngram({
+        ...sampleEngram,
+        id: `p-${i.toString().padStart(3, "0")}`,
+        title: `engram ${i}`,
+        updatedAt: 1718000000000 + i,
+      });
+    }
+
+    const limit = 10;
+    // page 1:无 cursor
+    const r1 = db.queryEngrams({ sort: "updatedAt", descending: true, limit });
+    expect(r1.total).toBe(25);
+    expect(r1.results.length).toBe(10);
+
+    // 用 page 1 末条造 cursor → page 2
+    const last1 = r1.results[r1.results.length - 1]!;
+    const cursor1 = encodeQueryCursor(last1.updatedAt, last1.id);
+    const r2 = db.queryEngrams({
+      sort: "updatedAt",
+      descending: true,
+      limit,
+      cursor: cursor1,
+    });
+    // 关键 bug 复现点:修复前 r2.total 会是 15(25 - 10)。修复后必须仍是 25。
+    expect(r2.total).toBe(25);
+    expect(r2.results.length).toBe(10);
+
+    // page 3 同样验证
+    const last2 = r2.results[r2.results.length - 1]!;
+    const cursor2 = encodeQueryCursor(last2.updatedAt, last2.id);
+    const r3 = db.queryEngrams({
+      sort: "updatedAt",
+      descending: true,
+      limit,
+      cursor: cursor2,
+    });
+    expect(r3.total).toBe(25);
+    expect(r3.results.length).toBe(5);
+    db.close();
+  });
+
+  it("kind 过滤时 total 反映该 kind 总数,与 cursor 无关", () => {
+    const db = new IndexDb({ dbPath });
+    db.open();
+    // 8 条 fact + 5 条 pattern
+    for (let i = 0; i < 8; i++) {
+      db.upsertEngram({
+        ...sampleEngram,
+        id: `f-${i}`,
+        kind: "fact",
+        updatedAt: 1718000000000 + i,
+      });
+    }
+    for (let i = 0; i < 5; i++) {
+      db.upsertEngram({
+        ...sampleEngram,
+        id: `p-${i}`,
+        kind: "pattern",
+        updatedAt: 1818000000000 + i,
+      });
+    }
+
+    const limit = 3;
+    const r1 = db.queryEngrams({ kind: "fact", limit });
+    expect(r1.total).toBe(8);
+    expect(r1.results.length).toBe(3);
+
+    const last1 = r1.results[r1.results.length - 1]!;
+    const cursor1 = encodeQueryCursor(last1.updatedAt, last1.id);
+    const r2 = db.queryEngrams({ kind: "fact", limit, cursor: cursor1 });
+    // bug 复现前:r2.total 会是 5(8 - 3)。修复后必须仍是 8。
+    expect(r2.total).toBe(8);
+    expect(r2.results.length).toBe(3);
+
+    const last2 = r2.results[r2.results.length - 1]!;
+    const cursor2 = encodeQueryCursor(last2.updatedAt, last2.id);
+    const r3 = db.queryEngrams({ kind: "fact", limit, cursor: cursor2 });
+    expect(r3.total).toBe(8);
+    expect(r3.results.length).toBe(2);
+    db.close();
+  });
+
+  it("domainTags 过滤时 total 反映该 tag 总数,与 cursor 无关", () => {
+    const db = new IndexDb({ dbPath });
+    db.open();
+    for (let i = 0; i < 6; i++) {
+      db.upsertEngram({
+        ...sampleEngram,
+        id: `t-${i}`,
+        domainTags: ["alpha"],
+        updatedAt: 1718000000000 + i,
+      });
+    }
+    for (let i = 0; i < 4; i++) {
+      db.upsertEngram({
+        ...sampleEngram,
+        id: `u-${i}`,
+        domainTags: ["beta"],
+        updatedAt: 1818000000000 + i,
+      });
+    }
+
+    const limit = 2;
+    const r1 = db.queryEngrams({ domainTags: ["beta"], limit });
+    expect(r1.total).toBe(4);
+
+    const last1 = r1.results[r1.results.length - 1]!;
+    const cursor1 = encodeQueryCursor(last1.updatedAt, last1.id);
+    const r2 = db.queryEngrams({
+      domainTags: ["beta"],
+      limit,
+      cursor: cursor1,
+    });
+    expect(r2.total).toBe(4);
     db.close();
   });
 });

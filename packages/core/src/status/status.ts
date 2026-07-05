@@ -110,9 +110,20 @@ export interface StatusSnapshot {
  * 计算仓库健康状态
  *
  * @param dataRoot team-memory 根目录
+ * @param opts.indexDb 可选 SQLite 索引层,有则走快路径(单次 GROUP BY),
+ *   无则 fallback 到 N+1 readEngram(CLI 场景,小仓库可接受)。viewer 必须传,
+ *   否则 1000+ engram 在同步 handler 里阻塞 event loop 30 秒。
  * @returns StatusSnapshot;即使 dataRoot 不存在也返回(便于 UI 显示诊断)
  */
-export function computeStatus(dataRoot: string): StatusSnapshot {
+export function computeStatus(
+  dataRoot: string,
+  opts: { readonly indexDb?: { countGrouped(): {
+    readonly byStatus: Readonly<Record<string, number>>;
+    readonly byKind: Readonly<Record<string, number>>;
+    readonly byVisibility: Readonly<Record<string, number>>;
+    readonly total: number;
+  } } } = {},
+): StatusSnapshot {
   const generatedAt = new Date().toISOString();
   const dataRootExists = existsSync(dataRoot);
   const configPath = join(dataRoot, ".co-engram", "config.json");
@@ -135,28 +146,46 @@ export function computeStatus(dataRoot: string): StatusSnapshot {
   // engram 统计(catalog 层,快;status 分布需要读 meta,见下方可选展开)
   const stats = { total: 0, byKind: {} as Record<string, number>, byStatus: {} as Record<string, number>, archived: 0, forgotten: 0 };
   if (dataRootExists && isEngramWarehouse) {
-    try {
-      const repo = new EngramRepository({ rootPath: dataRoot });
-      const all = repo.listEngrams();
-      stats.total = all.length;
-      for (const e of all) {
-        const kind = e.kind ?? "unknown";
-        stats.byKind[kind] = (stats.byKind[kind] ?? 0) + 1;
-      }
-      // status 分布需要读 meta(慢路径,但对诊断重要)
-      for (const e of all) {
-        try {
-          const full = repo.readEngram(e.id);
-          const status = full.status ?? "active";
-          stats.byStatus[status] = (stats.byStatus[status] ?? 0) + 1;
-          if (status === "archived") stats.archived += 1;
-          if (status === "forgotten") stats.forgotten += 1;
-        } catch {
-          // 单条 engram meta 读失败,跳过(下面 check 会标记)
+    // SQLite 快路径:viewer 注入 indexDb 时,一次 GROUP BY 拿到 status/kind/visibility
+    // 分布,彻底替代下面的 N+1 readEngram(1026 engram 同步读会让 viewer event loop 卡 30s)
+    if (opts.indexDb) {
+      try {
+        const g = opts.indexDb.countGrouped();
+        stats.total = g.total;
+        for (const [k, v] of Object.entries(g.byKind)) stats.byKind[k] = v;
+        for (const [s, v] of Object.entries(g.byStatus)) {
+          stats.byStatus[s] = v;
+          if (s === "archived") stats.archived += v;
+          if (s === "forgotten") stats.forgotten += v;
         }
+      } catch {
+        // SQLite 读失败,下面 check 会标记
       }
-    } catch {
-      // 仓库不可读,下面 check 会标记
+    } else {
+      // Fallback(CLI 场景,无 indexDb):N+1 readEngram
+      try {
+        const repo = new EngramRepository({ rootPath: dataRoot });
+        const all = repo.listEngrams();
+        stats.total = all.length;
+        for (const e of all) {
+          const kind = e.kind ?? "unknown";
+          stats.byKind[kind] = (stats.byKind[kind] ?? 0) + 1;
+        }
+        // status 分布需要读 meta(慢路径,但对诊断重要)
+        for (const e of all) {
+          try {
+            const full = repo.readEngram(e.id);
+            const status = full.status ?? "active";
+            stats.byStatus[status] = (stats.byStatus[status] ?? 0) + 1;
+            if (status === "archived") stats.archived += 1;
+            if (status === "forgotten") stats.forgotten += 1;
+          } catch {
+            // 单条 engram meta 读失败,跳过(下面 check 会标记)
+          }
+        }
+      } catch {
+        // 仓库不可读,下面 check 会标记
+      }
     }
   }
 

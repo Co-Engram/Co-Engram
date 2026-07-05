@@ -411,6 +411,12 @@ export class IndexDb {
               ? "e.title"
               : "e.updated_at";
     const idColumn = "e.id";
+
+    // count(*) 必须用「不含 cursor」的 where:否则 total 会随 cursor 前进而递减
+    // (返回的是「剩余数」而非「绝对总数」),UI 上「已加载 1026 / 共 26」的反转 bug
+    // 即源于此。snapshot 当前 where/params 长度,cursor 条件在快照之后追加。
+    const preCursorWhereCount = where.length;
+    const preCursorParamCount = params.length;
     if (opts.cursor) {
       const decoded = decodeQueryCursor(opts.cursor);
       if (decoded) {
@@ -427,11 +433,15 @@ export class IndexDb {
     }
 
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const countWhereClause = preCursorWhereCount > 0
+      ? `WHERE ${where.slice(0, preCursorWhereCount).join(" AND ")}`
+      : "";
+    const countParams = params.slice(0, preCursorParamCount);
 
     // total:不依赖 cursor,UI 显示总量用
     const totalRow = this.prepare(
-      `SELECT count(*) as n FROM engrams e ${whereClause}`,
-    ).get(...params) as { n: number };
+      `SELECT count(*) as n FROM engrams e ${countWhereClause}`,
+    ).get(...countParams) as { n: number };
     const total = totalRow?.n ?? 0;
 
     const rows = this.prepare(
@@ -449,6 +459,36 @@ export class IndexDb {
     ).all(...params, limit) as unknown as EngramQueryRow[];
 
     return { results: rows, total };
+  }
+
+  /**
+   * 按 status / kind / visibility 分组统计(单次 SQL,替代 N+1 readEngram)。
+   *
+   * viewer /api/status 用本方法替代 computeStatus 内的 N+1 readEngram 路径
+   * (1026 engrams 走 N+1 同步 readEngram 会让 viewer event loop 阻塞 30 秒)。
+   * 不传 indexDb 时(CLI 场景)computeStatus 仍走 N+1 兜底。
+   */
+  countGrouped(): {
+    readonly byStatus: Readonly<Record<string, number>>;
+    readonly byKind: Readonly<Record<string, number>>;
+    readonly byVisibility: Readonly<Record<string, number>>;
+    readonly total: number;
+  } {
+    const byStatus: Record<string, number> = {};
+    const byKind: Record<string, number> = {};
+    const byVisibility: Record<string, number> = {};
+    let total = 0;
+    const rows = this.prepare(
+      `SELECT status, kind, visibility, count(*) as n FROM engrams GROUP BY status, kind, visibility`,
+    ).all() as { status: string; kind: string; visibility: string; n: number }[];
+    for (const r of rows) {
+      const n = r.n;
+      total += n;
+      byStatus[r.status] = (byStatus[r.status] ?? 0) + n;
+      byKind[r.kind] = (byKind[r.kind] ?? 0) + n;
+      byVisibility[r.visibility] = (byVisibility[r.visibility] ?? 0) + n;
+    }
+    return { byStatus, byKind, byVisibility, total };
   }
 
   /**

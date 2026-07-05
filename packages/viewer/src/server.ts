@@ -351,7 +351,9 @@ async function routeApi(
       });
       return;
     }
-    respondJson(res, 200, computeStatus(dataRoot));
+    respondJson(res, 200, computeStatus(dataRoot, {
+      ...(ctx.repository?.indexDb ? { indexDb: ctx.repository.indexDb } : {}),
+    }));
     return;
   }
 
