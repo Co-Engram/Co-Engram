@@ -35,6 +35,8 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   type AuditAction,
   type ToolContext,
@@ -59,6 +61,8 @@ import {
   runInfraDoctor,
   commitFiles,
   isGitRepo,
+  GraphBuilder,
+  defaultCachePath,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 import {
@@ -1202,12 +1206,138 @@ interface StatsResponse {
 }
 
 function getStats(ctx: ToolContext): StatsResponse {
+  // 优先 SQLite fast path:1000+ engram 规模下,< 100ms
+  // 老路径走 listEngrams + N+1 readEngram,1026 ghost 让 /api/stats 卡 47s(2026-07 修复)
+  if (ctx.repository.indexDb) {
+    try {
+      return getStatsFromSqlite(ctx);
+    } catch (err) {
+      console.error("[viewer] SQLite stats failed, falling back:", err);
+    }
+  }
+  return getStatsLegacy(ctx);
+}
+
+/**
+ * SQLite fast path:一次 SQL 取 byKind/byStatus/topTags/totalEngrams/topContributors。
+ *
+ * 关键性能决策(2026-07):
+ *   - bySynapseKind/totalSynapses 走 graph.json 缓存(857KB,一次 JSON parse < 50ms),
+ *     而不是 collectAllSynapses() 扫 1826 个 synapse yaml 文件(每文件 ~25ms,总 47s)。
+ *   - graph.json 由 GraphBuilder 维护,与 engram 写入同步。stats 容忍 graph.json
+ *     略陈旧;若 mtime 久未更新,可后续触发重建。
+ *   - topContributors 走 SQL `GROUP BY created_by`(schema v3 加的列),
+ *     彻底消除 readEngram loop(26 条 readEngram × assembleEngram 卡 24s)。
+ *   - synapse contributors 暂省略 — graph.json 不含 createdBy 字段。
+ */
+function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
+  const db = ctx.repository.indexDb!;
+  const byKind: Record<string, number> = {};
+  const byStatus: Record<string, number> = {};
+  const bySynapseKind: Record<string, number> = {};
+
+  // 1. engrams: kind / status / totalEngrams(一次 SQL 多列聚合)
+  for (const r of db
+    .prepare(`SELECT kind, count(*) AS n FROM engrams GROUP BY kind`)
+    .all() as { kind: string; n: number }[]) {
+    byKind[r.kind] = r.n;
+  }
+  for (const r of db
+    .prepare(`SELECT status, count(*) AS n FROM engrams GROUP BY status`)
+    .all() as { status: string; n: number }[]) {
+    byStatus[r.status] = r.n;
+  }
+  const totalEngrams =
+    (db.prepare(`SELECT count(*) AS n FROM engrams`).get() as { n: number })
+      ?.n ?? 0;
+
+  // 2. bySynapseKind / totalSynapses:走 graph.json 缓存(避免 collectAllSynapses 47s)
+  const graph = readGraphCache(ctx);
+  let totalSynapses = 0;
+  for (const edge of graph.edges) {
+    bySynapseKind[edge.kind] = (bySynapseKind[edge.kind] ?? 0) + 1;
+    totalSynapses++;
+  }
+
+  // 3. topTags(SQLite ORDER BY count DESC LIMIT 10)
+  const tagRows = db.prepare(
+    `SELECT domain, count(*) AS n
+     FROM engram_domains
+     GROUP BY domain
+     ORDER BY n DESC, domain ASC
+     LIMIT 10`,
+  ).all() as { domain: string; n: number }[];
+  const topTags = tagRows.map((r) => ({ tag: r.domain, count: r.n }));
+
+  // 4. topContributors:v3 schema 加了 created_by 列,直接 SQL GROUP BY。
+  //    彻底消除 readEngram loop(之前 26 条 readEngram × assembleEngram 卡 24s,
+  //    根因是 assembleEngram 内部 listSynapsesForEngram 扫 1826 synapse 文件)。
+  const contributorRows = db.prepare(
+    `SELECT created_by AS actor, count(*) AS n
+     FROM engrams
+     WHERE created_by != ''
+     GROUP BY created_by
+     ORDER BY n DESC
+     LIMIT 10`,
+  ).all() as { actor: string; n: number }[];
+  const topContributors = contributorRows.map((r) => ({
+    actor: r.actor,
+    engramCount: r.n,
+    synapseCount: 0,
+    total: r.n,
+  }));
+
+  return {
+    totalEngrams,
+    totalSynapses,
+    byKind,
+    byStatus,
+    bySynapseKind,
+    topTags,
+    topContributors,
+    pendingProposals: ctx.proposalEngine?.listPending().length ?? 0,
+    auditEnabled: !!ctx.auditLog,
+    effectivenessEnabled: !!ctx.effectivenessTracker,
+    proposalEnabled: !!ctx.proposalEngine,
+  };
+}
+
+/**
+ * 读 graph.json 缓存(若存在),否则返回空图。
+ *
+ * 用于 /api/stats 的 bySynapseKind 聚合,避免 collectAllSynapses 扫盘 47s。
+ * graph.json 由 GraphBuilder 维护(startMaintenance / engram create 路径同步),
+ * 最新可能略有延迟但对 stats 这种聚合可接受。
+ */
+function readGraphCache(ctx: ToolContext): {
+  nodes: readonly { id: string }[];
+  edges: readonly { kind: string }[];
+} {
+  // 通过 repository.rootPath 拿 dataRoot(ctx 上没有 dataRoot 字段直接传到这里,
+  // 用 repository 的 config.rootPath 兜底)
+  const rootPath = (
+    ctx as unknown as { repository: { config: { rootPath: string } } }
+  ).repository.config.rootPath;
+  const graphPath = join(rootPath, ".co-engram", "graph.json");
+  try {
+    const raw = readFileSync(graphPath, "utf8");
+    const parsed = JSON.parse(raw) as {
+      nodes: { id: string }[];
+      edges: { kind: string }[];
+    };
+    return { nodes: parsed.nodes ?? [], edges: parsed.edges ?? [] };
+  } catch {
+    return { nodes: [], edges: [] };
+  }
+}
+
+/** Legacy fallback:小规模或 SQLite 不可用时走老路径(N+1 readEngram) */
+function getStatsLegacy(ctx: ToolContext): StatsResponse {
   const entries = ctx.repository.listEngrams();
   const byKind: Record<string, number> = {};
   const byStatus: Record<string, number> = {};
   const bySynapseKind: Record<string, number> = {};
   const tagCount: Record<string, number> = {};
-  // 贡献者统计:actor → {engram, synapse}
   const contributorMap: Record<string, { engram: number; synapse: number }> =
     {};
 
@@ -1224,7 +1354,6 @@ function getStats(ctx: ToolContext): StatsResponse {
 
   for (const entry of entries) {
     byKind[entry.kind] = (byKind[entry.kind] ?? 0) + 1;
-    // 读取完整 engram(catalog entry 没有 createdBy/status)
     try {
       const full = ctx.repository.readEngram(entry.id);
       byStatus[full.status] = (byStatus[full.status] ?? 0) + 1;
@@ -1237,7 +1366,6 @@ function getStats(ctx: ToolContext): StatsResponse {
     }
   }
 
-  // 突触按 kind 分组
   const allSynapses = ctx.repository.collectAllSynapses();
   for (const { synapse } of allSynapses) {
     bySynapseKind[synapse.kind] = (bySynapseKind[synapse.kind] ?? 0) + 1;
@@ -1295,6 +1423,47 @@ interface GraphResponse {
 }
 
 function buildGraph(ctx: ToolContext): GraphResponse {
+  // 性能路径(2026-07):优先读 graph.json 缓存(~50ms,JSON.parse 1MB),
+  // 由 IndexOrchestrator.fullRebuild / infra-doctor 在 cold-start 与
+  // 派生索引修复时写入。老路径 collectAllSynapses 扫盘 + YAML.parse
+  // 1826 个 synapse 文件 ≈ 1.5s,在 1000+ engram 规模下不可接受。
+  //
+  // graph.json schema 已扩展含 slug/domainTags/evidenceCount/resolutionStatus,
+  // viewer 不需要再拼装。字段缺失(老缓存)时用默认值兼容,降级路径仍保留。
+  if (ctx.repository?.rootPath) {
+    try {
+      const cachePath = defaultCachePath(ctx.repository.rootPath);
+      const graphBuilder = new GraphBuilder(ctx.repository, cachePath);
+      const cached = graphBuilder.read();
+      if (cached) {
+        return {
+          nodes: cached.nodes.map((n) => ({
+            id: n.id,
+            title: n.title,
+            ...(n.slug ? { slug: n.slug } : {}),
+            kind: n.kind,
+            domainTags: n.domainTags ?? [],
+          })),
+          edges: cached.edges.map((e) => ({
+            id: e.id,
+            from: e.from,
+            to: e.to,
+            kind: e.kind,
+            weight: e.weight,
+            evidenceCount: e.evidenceCount ?? 0,
+            direction: e.direction,
+            ...(e.resolutionStatus
+              ? { resolutionStatus: e.resolutionStatus }
+              : {}),
+          })),
+        };
+      }
+    } catch {
+      // graph.json 不可读或损坏,降级到 collectAllSynapses
+    }
+  }
+
+  // 降级路径:graph.json 不存在时,现场扫盘构建(慢路径,1.5s 量级)
   const entries = ctx.repository.listEngrams();
   // slug 取自 index(如果有);否则 undefined
   const slugById = new Map<string, string>();
@@ -1315,13 +1484,6 @@ function buildGraph(ctx: ToolContext): GraphResponse {
     domainTags: e.domainTags,
   }));
 
-  // 关键性能路径:原实现 `for entry: readSynapses(entry.id)` 是 N×M 灾难
-  // (readSynapses 内部走 collectAllSynapses 扫全量 synapse 文件,
-  //  1446 entries × 1446 synapses = ~2M readFileSync)。
-  // 改成单次 collectAllSynapses → 单次扫盘 → ~1446 readFileSync。
-  // synapse 是 per-edge 单文件,collectAllSynapses 每条 edge 只返回一次,
-  // 不需要 seenSynapseIds 去重(原去重是为抵消 readSynapses 把 bidirectional
-  // 同时算作两端 outgoing 的副作用,collectAllSynapses 没这问题)。
   const edges: GraphResponse["edges"][number][] = [];
   try {
     for (const synapse of ctx.repository.collectAllSynapses()) {
@@ -1357,6 +1519,11 @@ interface TrashListItem {
  *
  * 注:还包含逻辑上 status=forgotten/archived 但物理仍在 engrams/ 的记录,
  * 便于用户查看全貌。
+ *
+ * 性能修复(2026-07):
+ *   老实现对每个 listEngrams() 的 entry(曾经是 1026 ghost)调用 readEngram
+ *   来检查 status,导致 /api/trash 即使空也耗时 69s。改用 SQLite WHERE
+ *   status IN ('forgotten','archived') 一次查询解决(<10ms)。
  */
 function listTrashedSimple(ctx: ToolContext): TrashListItem[] {
   const trashed = listTrashed(ctx.repository);
@@ -1367,12 +1534,30 @@ function listTrashedSimple(ctx: ToolContext): TrashListItem[] {
   }));
 
   // 补充 status=forgotten/archived 但仍在主目录的记录
+  // 优先走 SQLite(<10ms);不可用时 fallback listEngrams + readEngram
+  const seen = new Set(out.map((o) => o.id));
+  if (ctx.repository.indexDb) {
+    try {
+      const rows = ctx.repository.indexDb.prepare(
+        `SELECT id FROM engrams WHERE status IN ('forgotten', 'archived')`,
+      ).all() as { id: string }[];
+      for (const r of rows) {
+        if (!seen.has(r.id)) {
+          out.push({ id: r.id });
+        }
+      }
+      return out;
+    } catch (err) {
+      console.error("[viewer] SQLite trash query failed, falling back:", err);
+    }
+  }
+  // Legacy fallback
   const entries = ctx.repository.listEngrams();
   for (const entry of entries) {
     try {
       const full = ctx.repository.readEngram(entry.id);
       if (full.status === "forgotten" || full.status === "archived") {
-        if (!out.some((o) => o.id === entry.id)) {
+        if (!seen.has(entry.id)) {
           out.push({ id: entry.id });
         }
       }

@@ -180,5 +180,7 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     // v2 schema:让 viewer /api/engrams SQL 排序/分页可达
     retrievalCount: f.retrievalCount ?? 0,
     createdAt: Date.parse(f.createdAt),
+    // v3 schema:让 viewer /api/stats topContributors 走 SQL GROUP BY
+    createdBy: f.createdBy ?? "",
   };
 }

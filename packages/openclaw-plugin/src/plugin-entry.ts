@@ -247,6 +247,18 @@ export function rebuildSearchIndex(
   search: SearchOrchestrator | import("@co-engram/core").SearchEngine,
   repo: EngramRepository,
 ): void {
+  // SQLite 模式下 build() 是 no-op(write-through 已维护 FTS 索引)。
+  // 但 collectDigestLines 会 N+1 readEngram × assembleEngram(扫 synapses/ 目录),
+  // 1000 engram 规模下让 plugin 启动卡 12+ 分钟(2026-07 cold-start 修复)。
+  // 走 SqliteSearchEngineAdapter 时跳过 digest 计算;memory 模式仍走全量。
+  const isSqliteEngine =
+    typeof search === "object" &&
+    search !== null &&
+    search.constructor &&
+    search.constructor.name === "SqliteSearchEngineAdapter";
+  if (isSqliteEngine) {
+    return;
+  }
   search.build(collectDigestLines(repo));
 }
 

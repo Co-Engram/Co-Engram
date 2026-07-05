@@ -47,12 +47,14 @@ CREATE TABLE IF NOT EXISTS engrams (
   status TEXT NOT NULL DEFAULT 'active',
   summary TEXT NOT NULL DEFAULT '',
   retrieval_count INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT 0
+  created_at INTEGER NOT NULL DEFAULT 0,
+  created_by TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_engrams_updated ON engrams(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_importance ON engrams(importance DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_created ON engrams(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_retrieval ON engrams(retrieval_count DESC, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_engrams_created_by ON engrams(created_by);
 
 -- 多值 tag
 CREATE TABLE IF NOT EXISTS engram_domains (
@@ -99,8 +101,12 @@ CREATE TABLE IF NOT EXISTS schema_version (
  * 配套 idx_engrams_created / idx_engrams_retrieval 索引。
  * 目的:viewer /api/engrams 改 SQL 查询后,这三个字段必须可在 SQLite 取得,
  * 避免 N+1 readEngram 卡死(1024 条 engram 让 gateway event loop 完全堵塞)。
+ *
+ * v3(2026-07):engrams 表加 created_by 列。
+ * 目的:viewer /api/stats 的 topContributors 聚合完全走 SQL,避免 26 条
+ * readEngram × assembleEngram(listSynapsesForEngram 扫 1826 文件)卡 24s。
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -133,6 +139,12 @@ export interface EngramIndexEntry {
   readonly retrievalCount?: number;
   /** epoch ms,viewer 按 createdAt 排序用。createEngram 写,后续不变 */
   readonly createdAt?: number;
+  /**
+   * 创建者标识(对应 frontmatter 的 createdBy 字段)。viewer /api/stats 的
+   * topContributors 聚合用此字段 GROUP BY,避免 N+1 readEngram 卡 24s
+   * (2026-07 schema v3 修复)。
+   */
+  readonly createdBy?: string;
 }
 
 /**
@@ -282,9 +294,10 @@ export class IndexDb {
   private upsertEngramUnsafe(entry: EngramIndexEntry): void {
     const retrievalCount = entry.retrievalCount ?? 0;
     const createdAt = entry.createdAt ?? entry.updatedAt;
+    const createdBy = entry.createdBy ?? "";
     this.prepare(`
-      INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status, summary, retrieval_count, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status, summary, retrieval_count, created_at, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         kind = excluded.kind,
@@ -296,7 +309,8 @@ export class IndexDb {
         status = excluded.status,
         summary = excluded.summary,
         retrieval_count = excluded.retrieval_count,
-        created_at = excluded.created_at
+        created_at = excluded.created_at,
+        created_by = excluded.created_by
     `).run(
       entry.id,
       entry.title,
@@ -310,6 +324,7 @@ export class IndexDb {
       entry.summary,
       retrievalCount,
       createdAt,
+      createdBy,
     );
     // domains 全量替换
     this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);

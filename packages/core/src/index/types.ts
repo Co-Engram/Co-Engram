@@ -81,6 +81,10 @@ export interface GraphNode {
   readonly importance: number;
   readonly outgoingCount: number;
   readonly incomingCount: number;
+  /** URL 友好 slug,viewer 用;由 frontmatter 或 title 派生 */
+  readonly slug?: string;
+  /** 领域标签,viewer 分组/过滤用 */
+  readonly domainTags?: readonly string[];
 }
 
 /** Graph 索引边 */
@@ -91,6 +95,10 @@ export interface GraphEdge {
   readonly kind: SynapseKind;
   readonly weight: number;
   readonly direction: "directional" | "bidirectional";
+  /** 证据条数,viewer 显示边权重;evidence?.length ?? 0 */
+  readonly evidenceCount?: number;
+  /** contradiction 裁决状态(仅 contradicts 边),viewer 染色用 */
+  readonly resolutionStatus?: string;
 }
 
 /** Graph 索引文件结构 */

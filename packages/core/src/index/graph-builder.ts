@@ -33,6 +33,17 @@ export class GraphBuilder {
     const allSynapses = this.repo.collectAllSynapses();
     const allEngrams = this.repo.listEngrams();
 
+    // 额外取 slug(viewer 路由跳转用,frontmatter 显式锁或从 title 派生)
+    // listEngramIndex 来自 engram-index.json,毫秒级,不扫盘
+    const slugById = new Map<string, string>();
+    try {
+      for (const e of this.repo.listEngramIndex()) {
+        slugById.set(e.id, e.slug);
+      }
+    } catch {
+      // 索引不可用就降级为不带 slug(viewer 端会用 id 跳转)
+    }
+
     const nodes: GraphNode[] = [];
     const edges: GraphEdge[] = [];
     const outgoingAdjacency: Record<string, string[]> = {};
@@ -63,23 +74,53 @@ export class GraphBuilder {
         kind: synapse.kind,
         weight: synapse.weight,
         direction: synapse.direction,
+        evidenceCount: synapse.evidence?.length ?? 0,
+        ...(synapse.resolutionState?.status
+          ? { resolutionStatus: synapse.resolutionState.status }
+          : {}),
       });
       outgoingAdjacency[fromId]!.push(synapse.id);
       incomingAdjacency[synapse.to]!.push(synapse.id);
     }
 
-    // 构建节点（读 digest 缓存或重新读）
+    // 构建节点
+    // importance 优先从 SQLite 一次性查(毫秒级);降级走 readEngram(N×扫盘,慢)
+    // 真实瓶颈(2026-07 1000 engram 规模):原 readEngram 循环 7+ 分钟未跑完,
+    // 因为 readEngram → assembleEngram → listSynapsesForEngram 扫整个 synapses/ 目录,
+    // 1026 × 1826 ≈ 1.8M operations。SQLite SELECT 一次性返回 1026 行,几毫秒。
+    const importanceById = new Map<string, number>();
+    if (this.repo.indexDb) {
+      try {
+        const rows = this.repo.indexDb.prepare(
+          "SELECT id, importance FROM engrams",
+        ).all() as { id: string; importance: number }[];
+        for (const r of rows) {
+          importanceById.set(r.id, r.importance);
+        }
+      } catch {
+        // SQLite 查询失败,降级到 readEngram
+      }
+    }
     for (const entry of allEngrams) {
-      const engram = this.repo.exists(entry.id)
-        ? this.repo.readEngram(entry.id)
-        : null;
+      let importance = importanceById.get(entry.id);
+      if (importance === undefined) {
+        const engram = this.repo.exists(entry.id)
+          ? this.repo.readEngram(entry.id)
+          : null;
+        importance = engram?.importance ?? 0.5;
+      }
+      const slug = slugById.get(entry.id);
       nodes.push({
         id: entry.id,
         title: entry.title,
         kind: entry.kind,
-        importance: engram?.importance ?? 0.5,
+        importance,
         outgoingCount: outgoingAdjacency[entry.id]?.length ?? 0,
         incomingCount: incomingAdjacency[entry.id]?.length ?? 0,
+        ...(slug ? { slug } : {}),
+        ...(entry.domainTags?.length
+          ? { domainTags: entry.domainTags }
+          : {}),
       });
     }
 

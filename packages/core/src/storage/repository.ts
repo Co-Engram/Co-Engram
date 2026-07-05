@@ -288,7 +288,12 @@ export class EngramRepository {
    * 派生数据,文件源真理仍然有效;doctor 自愈 + cold start rebuild 最终会
    * 修复 SQLite 与文件的不一致)。
    */
-  private readonly indexDb?: IndexDb;
+  /**
+   * 派生 SQLite 索引(若注入)。viewer 层聚合统计(/api/stats、/api/trash 等)
+   * 通过此字段直接走 SQL GROUP BY,避免 N+1 readEngram 在 1000+ engram 规模下
+   * 卡爆(2026-07 viewer 性能修复:ghost 1026 条让 /api/stats 47s)。
+   */
+  readonly indexDb?: IndexDb;
 
   constructor(config: RepositoryConfig, indexDb?: IndexDb) {
     this.config = config;
@@ -333,6 +338,9 @@ export class EngramRepository {
       // createdAt 是 ISO string,转 epoch ms 与 engrams 表对齐。
       retrievalCount: frontmatter.retrievalCount ?? 0,
       createdAt: frontmatter.createdAt ? Date.parse(frontmatter.createdAt) : Date.parse(frontmatter.updatedAt),
+      // v3 schema:让 viewer /api/stats topContributors 走 SQL GROUP BY,
+      // 避免 N+1 readEngram(listSynapsesForEngram 扫 1826 文件)卡 24s
+      createdBy: frontmatter.createdBy ?? "",
     };
     try {
       this.indexDb.upsertEngram(entry);
@@ -1098,10 +1106,31 @@ export class EngramRepository {
 
   // ─── Engram Catalog / Digest ───────────────────────────────────────────
 
-  /** 列出所有 engram(catalog 元数据) */
+  /**
+   * 列出所有真实存在文件的 engram(catalog 元数据)。
+   *
+   * Truth-filter(2026-07 viewer 性能修复):
+   *   engram-index.json 是 cache 而非 truth,但历史上有"用户删了 .md 文件
+   *   而 index 未同步 rebuild"的场景(例如 1026 entries 中 1000 条 ghost),
+   *   导致 listEngrams() 返回 ghost,下游 /api/stats、/api/trash 等遍历又对
+   *   每个 ghost 调 readEngram,引发 47~69 秒卡顿。
+   *
+   *   这里用 truthPaths(文件系统扫盘)做一次集合差集,只返回真实存在的 entry。
+   *   truthPaths 5 秒 cache,避免每次调用都扫盘。
+   *
+   *   检测到 ghost 时,异步触发 rebuildIndex(self-heal),让下一次调用即拿到
+   *   清理后的 index。
+   */
   listEngrams(): EngramCatalogEntry[] {
     const result: EngramCatalogEntry[] = [];
-    for (const entry of this.getIndex().entries.values()) {
+    const truthPaths = this.getTruthPaths();
+    let ghostDetected = false;
+    const allEntries = [...this.getIndex().entries.values()];
+    for (const entry of allEntries) {
+      if (!truthPaths.has(entry.path)) {
+        ghostDetected = true;
+        continue;
+      }
       result.push({
         id: entry.id,
         title: entry.title,
@@ -1109,7 +1138,40 @@ export class EngramRepository {
         domainTags: entry.domainTags,
       });
     }
+    if (ghostDetected) {
+      // 异步 rebuild,不阻塞当前请求;下次调用即拿到清理后的 index
+      queueMicrotask(() => {
+        try {
+          this.rebuildIndex();
+        } catch {
+          // rebuild 失败不阻塞;下次 listEngrams 会再次尝试
+        }
+      });
+    }
     return result;
+  }
+
+  /**
+   * 文件系统真相路径集合(相对 rootPath),5 秒 cache 避免每次调用都扫盘。
+   *
+   * 用于 listEngrams/listEngramIndex 的 truth-filter。cache 短是因为:
+   *   - 长 cache 期间用户删除文件 → 仍可能返回 ghost
+   *   - 短 cache 5s 内多次调用只在首次扫盘(~50ms / 1000 文件)
+   */
+  private truthPathsCache: { paths: Set<string>; ts: number } | null = null;
+  private getTruthPaths(): Set<string> {
+    const now = Date.now();
+    if (this.truthPathsCache && now - this.truthPathsCache.ts < 5000) {
+      return this.truthPathsCache.paths;
+    }
+    const paths = new Set<string>();
+    const root = this.config.rootPath;
+    for (const absPath of collectMarkdownFiles(root)) {
+      const rel = relative(root, absPath).split(sep).join("/");
+      paths.add(rel);
+    }
+    this.truthPathsCache = { paths, ts: now };
+    return paths;
   }
 
   /**
@@ -1960,7 +2022,16 @@ export class EngramRepository {
     const nodeMap = new Map<string, MutableNode>();
     nodeMap.set("", root);
 
+    // Truth-filter(与 listEngrams 一致):engram-index.json 可能含 ghost
+    // (外部 rm 了 .md 但 index 还没 rebuild)。直接拿 fs 文件列表做交集,
+    // 5s 缓存摊销开销。无此 filter 时,ghost 会让 path-tree 凭空多出目录。
+    const truthPaths = this.getTruthPaths();
+    let ghostDetected = false;
     for (const entry of this.getIndex().entries.values()) {
+      if (!truthPaths.has(entry.path)) {
+        ghostDetected = true;
+        continue;
+      }
       // entry.path 形如 "<domain1>/<domain2>/.../<slug>.md"
       // 最后一段是文件名,跳过;之前每段都是目录,需逐级累加(包含 root)
       const segments = entry.path.split("/");
@@ -1984,6 +2055,12 @@ export class EngramRepository {
         node.engramCount++;
         parentNode = node;
       }
+    }
+
+    if (ghostDetected) {
+      queueMicrotask(() => {
+        try { this.rebuildIndex(); } catch {}
+      });
     }
 
     return root as PathTreeNode;
