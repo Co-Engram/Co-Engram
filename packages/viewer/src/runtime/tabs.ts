@@ -361,7 +361,8 @@ window.CO_ENGRAM_ENGRAMS = {
         + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + privateIcon + CO_ENGRAM.escapeHtml(e.title) + '</div>'
         + '<div><span class="chip kind-' + e.kind + '"' + kindTip + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span> '
         + CO_ENGRAM.renderVisibilityBadge(e.visibility)
-        + CO_ENGRAM.importanceBar(e.importance) + '</div>'
+        + CO_ENGRAM.importanceBar(e.importance)
+        + CO_ENGRAM.renderImportanceChip(e.importance) + '</div>'
         + '<div class="card-meta">'
         + (e.retrievalCount != null ? '<span' + CO_ENGRAM.tip('retrievalCount') + '>' + CO_ENGRAM.escapeHtml(T.t('engrams.retrievalsCount', { n: e.retrievalCount })) + '</span>' : '')
         + createdCell
@@ -640,7 +641,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '</div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(d.title) + '</h2>'
       + '<div class="field"><span class="chip kind-' + d.kind + '"' + CO_ENGRAM.tip('kind.' + d.kind) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', d.kind)) + '</span> '
-      + CO_ENGRAM.importanceBar(d.importance) + ' <span class="kpi-sub"' + CO_ENGRAM.tip('importance') + '>' + T.fieldLabel('importance') + ' ' + T.formatScoreBand(d.importance) + '</span></div>'
+      + CO_ENGRAM.importanceBar(d.importance) + ' <span class="kpi-sub"' + CO_ENGRAM.tip('importance') + '>' + T.fieldLabel('importance') + ' ' + CO_ENGRAM.renderImportanceChip(d.importance) + '</span></div>'
       + '<div class="field"><span class="field-label">' + T.fieldLabel('id') + '</span><code>' + id + '</code></div>'
       + (tags ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + '</span>' + tags + '</div>' : '')
       + (ctxTags ? '<div class="field"><span class="field-label">' + T.fieldLabel('contextTags') + '</span>' + ctxTags + '</div>' : '')

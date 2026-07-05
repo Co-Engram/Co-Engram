@@ -1275,6 +1275,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.scoreBand.high": "高",
   "viewer.scoreBand.medium": "中",
   "viewer.scoreBand.low": "低",
+  "viewer.importance.tooltip": "当前重要性:${value}",
   "viewer.detail.searching": "Searching...",
   "viewer.detail.searchNoMatch": "无匹配结果",
   "viewer.detail.searchFailed": "Search failed: ${err}",

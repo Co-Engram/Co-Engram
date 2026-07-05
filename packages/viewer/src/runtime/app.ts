@@ -150,6 +150,17 @@ const CO_ENGRAM = (function() {
     return '<span class="importance-bar" title="importance=' + pct + '%"><span style="width:' + pct + '%"></span></span>';
   }
 
+  // Q2:importance 文字档位 chip(高/中/低),hover tooltip 显示精确数值。
+  // 阈值与 T.formatScoreBand 一致(≥0.7 high / ≥0.3 medium / <0.3 low)。
+  // 列表卡片 + 详情页 KPI 子标签共用,降低视觉噪音、强化语义化档位。
+  function renderImportanceChip(value) {
+    const T = window.CO_ENGRAM_T;
+    const imp = T.describeImportance(value);
+    if (imp.band === 'none') return '<span class="importance-chip imp-none">—</span>';
+    return '<span class="importance-chip imp-' + imp.band + '" title="' + escapeHtml(imp.tipText) + '">'
+      + escapeHtml(imp.label) + '</span>';
+  }
+
   // === Markdown 渲染(用于 engram/synapse 内容显示)===
   // marked.parse 把 markdown 转 HTML,DOMPurify.sanitize 消毒后返回。
   // 限定 ALLOWED_TAGS 防止 XSS(engram 内容来自 LLM/用户,可能含恶意脚本)。
@@ -357,6 +368,7 @@ const CO_ENGRAM = (function() {
     synapseFamily: synapseFamily, familyColor: familyColor,
     kindColor: kindColor, edgeColor: edgeColor,
     relativeTime: relativeTime, escapeHtml: escapeHtml, importanceBar: importanceBar,
+    renderImportanceChip: renderImportanceChip,
     renderMarkdown: renderMarkdown,
     tip: tip,
     getToken: getToken, setToken: setToken, loadToken: loadToken,

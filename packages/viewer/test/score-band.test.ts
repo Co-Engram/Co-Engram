@@ -25,7 +25,14 @@ function loadI18nRuntime(lang: "zh" | "en" = "zh") {
   vm.runInContext(I18N_RUNTIME, sandbox, { filename: "i18n.runtime.js" });
   return (sandbox.CO_ENGRAM_T as {
     formatScoreBand: (value: number | null | undefined) => string;
-  }).formatScoreBand;
+    describeImportance: (value: number | null | undefined) => {
+      band: string;
+      label: string;
+      valueText: string;
+      tipText: string;
+    };
+    bandLabel: (value: number | null | undefined) => string;
+  });
 }
 
 describe("viewer i18n / scoreBand dictionary", () => {
@@ -49,7 +56,7 @@ describe("viewer i18n / scoreBand dictionary", () => {
 });
 
 describe("viewer runtime / formatScoreBand 阈值与 core 一致", () => {
-  const formatScoreBand = loadI18nRuntime("zh");
+  const formatScoreBand = loadI18nRuntime("zh").formatScoreBand;
 
   it("null / undefined / NaN 返回 '—'", () => {
     expect(formatScoreBand(null)).toBe("—");
@@ -87,7 +94,7 @@ describe("viewer runtime / formatScoreBand 阈值与 core 一致", () => {
   });
 
   it("英文环境下输出英文 band label", () => {
-    const formatScoreBandEn = loadI18nRuntime("en");
+    const formatScoreBandEn = loadI18nRuntime("en").formatScoreBand;
     expect(formatScoreBandEn(0.95)).toBe("0.95 · High");
     expect(formatScoreBandEn(0.5)).toBe("0.50 · Medium");
     expect(formatScoreBandEn(0.1)).toBe("0.10 · Low");
@@ -98,5 +105,51 @@ describe("viewer runtime / renderSpaHtml 注入 formatScoreBand", () => {
   it("SPA HTML 含 formatScoreBand helper 暴露", () => {
     const html = renderSpaHtml({ language: "zh" });
     expect(html).toContain("formatScoreBand: formatScoreBand");
+  });
+});
+
+describe("viewer runtime / describeImportance (Q2 chip helper)", () => {
+  it("null / undefined / NaN → band 'none',label '—'", () => {
+    const T = loadI18nRuntime("zh");
+    expect(T.describeImportance(null).band).toBe("none");
+    expect(T.describeImportance(undefined).label).toBe("—");
+    expect(T.describeImportance(Number.NaN).band).toBe("none");
+  });
+
+  it("value ≥ 0.7 → high band + 高 label + 0.7X valueText", () => {
+    const T = loadI18nRuntime("zh");
+    const imp = T.describeImportance(0.78);
+    expect(imp.band).toBe("high");
+    expect(imp.label).toBe("高");
+    expect(imp.valueText).toBe("0.78");
+    expect(imp.tipText).toContain("0.78");
+  });
+
+  it("0.3 ≤ value < 0.7 → medium band", () => {
+    const T = loadI18nRuntime("zh");
+    expect(T.describeImportance(0.3).band).toBe("medium");
+    expect(T.describeImportance(0.5).label).toBe("中");
+    expect(T.describeImportance(0.69).band).toBe("medium");
+  });
+
+  it("value < 0.3 → low band", () => {
+    const T = loadI18nRuntime("zh");
+    expect(T.describeImportance(0.29).band).toBe("low");
+    expect(T.describeImportance(0).label).toBe("低");
+  });
+
+  it("bandLabel 复用 describeImportance.label", () => {
+    const T = loadI18nRuntime("zh");
+    expect(T.bandLabel(0.9)).toBe("高");
+    expect(T.bandLabel(0.5)).toBe("中");
+    expect(T.bandLabel(0.1)).toBe("低");
+  });
+
+  it("英文环境下 label/tipText 用英文", () => {
+    const T = loadI18nRuntime("en");
+    const imp = T.describeImportance(0.78);
+    expect(imp.label).toBe("High");
+    expect(imp.tipText).toContain("0.78");
+    expect(imp.tipText).toMatch(/importance/i);
   });
 });

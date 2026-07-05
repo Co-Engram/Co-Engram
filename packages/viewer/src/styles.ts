@@ -1300,6 +1300,36 @@ footer.app-footer {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
   box-shadow: 0 0 6px rgba(94, 234, 212, 0.4);
 }
+.importance-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  margin-left: 0.35rem;
+  font-size: 0.78em;
+  font-weight: 600;
+  border-radius: 8px;
+  vertical-align: middle;
+  cursor: help;
+  border: 1px solid transparent;
+}
+.importance-chip.imp-high {
+  color: var(--accent);
+  background: rgba(94, 234, 212, 0.14);
+  border-color: rgba(94, 234, 212, 0.35);
+}
+.importance-chip.imp-medium {
+  color: var(--fg-muted);
+  background: rgba(148, 163, 184, 0.12);
+  border-color: rgba(148, 163, 184, 0.32);
+}
+.importance-chip.imp-low {
+  color: var(--fg-muted);
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.22);
+}
+.importance-chip.imp-none {
+  color: var(--fg-muted);
+  background: transparent;
+}
 
 /* === Decay visualization (详情面板的衰退进度) === */
 .decay-block {

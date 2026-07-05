@@ -70,6 +70,27 @@ window.CO_ENGRAM_T = (function() {
     return rounded.toFixed(2) + ' · ' + t('viewer.scoreBand.' + band);
   }
 
+  // Q2:卡片/详情页 importance 行主显示纯文字档位(高/中/低),数字隐藏到 title 属性 hover 显示。
+  // 阈值与 formatScoreBand 一致;返回 {band, label, valueText, tipText} 由调用方拼 HTML。
+  function describeImportance(value) {
+    if (value === null || value === undefined || Number.isNaN(value)) {
+      return { band: 'none', label: '—', valueText: '', tipText: '' };
+    }
+    var rounded = Math.round(value * 100) / 100;
+    var band = rounded >= 0.7 ? 'high' : rounded >= 0.3 ? 'medium' : 'low';
+    var valueText = rounded.toFixed(2);
+    return {
+      band: band,
+      label: t('viewer.scoreBand.' + band),
+      valueText: valueText,
+      tipText: t('viewer.importance.tooltip', { value: valueText }),
+    };
+  }
+
+  function bandLabel(value) {
+    return describeImportance(value).label;
+  }
+
   function currentLang() {
     return LANG;
   }
@@ -82,6 +103,8 @@ window.CO_ENGRAM_T = (function() {
     actionLabel: actionLabel,
     decayLabel: decayLabel,
     formatScoreBand: formatScoreBand,
+    describeImportance: describeImportance,
+    bandLabel: bandLabel,
     currentLang: currentLang,
   };
 })();

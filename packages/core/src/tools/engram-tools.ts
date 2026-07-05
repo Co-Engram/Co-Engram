@@ -318,6 +318,7 @@ function readEngramViewAuto(
     outgoingSynapseCount: 0,
     incomingSynapseCount: 0,
     activeContradictionCount: 0,
+    verificationStatus: null,
   };
 
   const result = adaptiveDisclosure({
@@ -764,6 +765,7 @@ function engramToDigestLine(engram: Engram): DigestLine {
     outgoingSynapseCount: engram.outgoingSynapseCount,
     incomingSynapseCount: engram.incomingSynapseCount,
     activeContradictionCount: engram.activeContradictionCount,
+    verificationStatus: engram.verificationStatus ?? null,
   };
 }
 
