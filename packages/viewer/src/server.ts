@@ -868,9 +868,10 @@ async function routeApi(
           // 新语义:以 dataRoot 内 config.json 为单一权威,
           // env 已不再承载这些开关。
           maintenanceEnabled: persisted?.maintenance?.enabled === true,
-          viewerEnabled:
-            persisted?.viewer?.enabled === true ||
-            (!!ctx.proposalEngine && persisted?.viewer?.enabled !== false),
+          // viewer 自身就是当前响应 API 的 HTTP server,API 在响应即说明在跑。
+          // 之前的 persisted + ctx.proposalEngine 推算会在 proposalEngine 未注入时
+          // 错误地返回 false(用户在 UI 看到"Web 查看器:已禁用"但页面正常打开)。
+          viewerEnabled: true,
           profile: persisted?.toolsProfile ?? null,
           language,
           defaultCreatedBy: ctx.defaultCreatedBy || null,

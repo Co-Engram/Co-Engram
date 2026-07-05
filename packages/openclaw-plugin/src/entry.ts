@@ -260,16 +260,26 @@ const entry = {
       ...baseConfig,
     };
     const userConfig = resolveConfigLanguageSync(mergedConfig);
-    // dataRoot 已统一从 bootstrap(~/.co-engram/config.json)解析,不再读 userConfig。
-    // 把解析结果透传给 registerCoEngramTools / startCoEngramViewer,让 ctx 与 viewer
-    // 都拿到正确的 dataRoot(否则 viewer 的 /api/config 会返回 null,持久化配置读不到)。
+    // dataRoot 已统一从 bootstrap(~/.co-engram/config.json)解析。
+    // 历史 bug(2026-07):此处曾用 userConfig.dataRoot ?? bootstrapDataRoot,
+    // 导致用户在 viewer / CLI 改 bootstrap 后,重启时 plugin config 里残留的旧
+    // dataRoot 仍然 override bootstrap,用户感觉"重启不生效"。
+    // 现在反转优先级:bootstrap 单一权威;若 plugin config 仍带 dataRoot(已废弃),
+    // 只输出 deprecation 警告,不再使用其值。
     const { dataRoot: bootstrapDataRoot, warnings: bootstrapWarnings } =
       resolveBootstrapDataRootSync();
     for (const w of bootstrapWarnings) {
       process.stderr.write(`[co-engram] ${w}\n`);
     }
+    if (userConfig.dataRoot && userConfig.dataRoot !== bootstrapDataRoot) {
+      process.stderr.write(
+        `[co-engram] Plugin-config dataRoot='${userConfig.dataRoot}' is deprecated and now ignored. ` +
+          `Using bootstrap dataRoot='${bootstrapDataRoot}' from ~/.co-engram/config.json ` +
+          `(set via 'co-engram config data-root <path>' or the viewer config tab).\n`,
+      );
+    }
     const promptSignals = readPromptSignalsSync(bootstrapDataRoot);
-    const resolvedDataRoot = userConfig.dataRoot ?? bootstrapDataRoot;
+    const resolvedDataRoot = bootstrapDataRoot;
     const ctx = registerCoEngramTools(api, {
       ...userConfig,
       dataRoot: resolvedDataRoot,

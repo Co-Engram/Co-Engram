@@ -128,11 +128,14 @@ window.CO_ENGRAM_ENGRAMS = {
     root.innerHTML = '<div class="loading">加载记忆印迹中</div>';
 
     // 初始化 paginator(只在首次创建;后续 tab 切换 / PATCH 后 reload 复用)
+    // pageSize 200:repository.queryEngramsForList 内部 cap=200,设更大无收益;
+    // 1026 条需 6 次 loadMore(_loadRemainingInBackground 后台渐进,不阻塞首屏)
     if (!CO_ENGRAM._engramsPager) {
       CO_ENGRAM._engramsPager = CO_ENGRAM.createPaginator({
         endpoint: '/api/engrams',
         pageSize: 200,
       });
+      CO_ENGRAM._engramsViewStart = 0;
     }
 
     try { await CO_ENGRAM._engramsPager.load(); }
@@ -142,6 +145,12 @@ window.CO_ENGRAM_ENGRAMS = {
     CO_ENGRAM._engramsCache = all;
     CO_ENGRAM._engramsTotal = CO_ENGRAM._engramsPager.getTotal();
     CO_ENGRAM._engramsViewMode = CO_ENGRAM._engramsViewMode || 'card';
+
+    // 后台渐进加载剩余批次,让 totalPages 准确(不阻塞首屏渲染)
+    // 用户在首批 200 条内翻页时无需等待;翻到边界时 nextPage 会按需 await loadMore
+    if (CO_ENGRAM._engramsPager.hasMore()) {
+      this._loadRemainingInBackground();
+    }
 
     const T = CO_ENGRAM_T;
     const kindKeys = ['observation', 'fact', 'pattern', 'procedure', 'hypothesis'];
@@ -167,7 +176,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'card' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'card\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card')) + '</button>'
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'tree' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'tree\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.tree')) + '</button>'
       + '</div>'
-      + '<span class="chip" id="engrams-count">已加载 ' + all.length + ' / 共 ' + CO_ENGRAM._engramsTotal + '</span>'
+      + '<span class="chip" id="engrams-count">已加载 ' + all.length + ' / 共 ' + CO_ENGRAM._engramsTotal + (CO_ENGRAM._engramsPager && CO_ENGRAM._engramsPager.hasMore() ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '') + '</span>'
       + '</div>'
       + '<div id="engrams-body"></div>';
 
@@ -177,6 +186,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
   setMode(mode) {
     CO_ENGRAM._engramsViewMode = mode;
+    CO_ENGRAM._engramsViewStart = 0;  // 切换视图模式时回第一页
     const toggle = document.querySelector('.view-toggle');
     if (toggle) toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
     this.applyFilter();
@@ -215,6 +225,13 @@ window.CO_ENGRAM_ENGRAMS = {
       }
     }
 
+    // filter signature 变化时自动回第一页(用户改 filter 后,旧 viewStart 索引的页面内容不再相关)
+    const filterSig = qRaw + '|' + kind + '|' + visibility + '|' + sortKey + '-' + sortDir + '|' + (pathPrefix ?? '');
+    if (CO_ENGRAM._engramsLastFilterSig !== filterSig) {
+      CO_ENGRAM._engramsLastFilterSig = filterSig;
+      CO_ENGRAM._engramsViewStart = 0;
+    }
+
     let filtered = cache.filter(e => {
       if (kind && e.kind !== kind) return false;
       // visibility 过滤:
@@ -251,8 +268,12 @@ window.CO_ENGRAM_ENGRAMS = {
     if (!body) return;
     const total = pager ? pager.getTotal() : (CO_ENGRAM._engramsTotal ?? cache.length);
     const hasMore = pager ? pager.hasMore() : false;
+    const isLoading = pager ? pager.isLoading() : false;
     const countEl = document.getElementById('engrams-count');
-    if (countEl) countEl.textContent = '已显示 ' + filtered.length + ' / 已加载 ' + cache.length + ' / 共 ' + total;
+    if (countEl) {
+      const hint = (hasMore || isLoading) ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '';
+      countEl.textContent = '已加载 ' + cache.length + ' / 共 ' + total + hint;
+    }
 
     if (!filtered.length) {
       body.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
@@ -260,21 +281,66 @@ window.CO_ENGRAM_ENGRAMS = {
     }
 
     if (mode === 'tree') {
-      // 目录视图:按 domainTags[0] 或 kind 分组
+      // 目录视图:全量渲染(filtered 不分页,树形折叠已优化性能)
       CO_ENGRAM_ENGRAMS._renderTree(filtered, body);
-    } else {
-      // 卡片视图
-      this._renderCards(filtered, body);
+      return;
     }
 
-    // 末尾追加 load-more 按钮(cursor 分页)
-    if (hasMore) {
-      const moreRow = document.createElement('div');
-      moreRow.className = 'load-more-row';
-      moreRow.style.cssText = 'text-align:center;padding:1rem 0;grid-column:1/-1';
-      moreRow.innerHTML = '<button class="btn" onclick="CO_ENGRAM_ENGRAMS.loadMore()">加载更多(已加载 ' + cache.length + ' / 共 ' + total + ')</button>';
-      body.appendChild(moreRow);
+    // 卡片视图:客户端虚拟分页(每页 50),翻到边界时 gotoPage 触发 loadMore 扩容
+    const VIEW_SIZE = 50;
+    const maxStart = Math.max(0, filtered.length - VIEW_SIZE);
+    let viewStart = CO_ENGRAM._engramsViewStart || 0;
+    if (viewStart > maxStart) viewStart = maxStart;
+    if (viewStart < 0) viewStart = 0;
+    CO_ENGRAM._engramsViewStart = viewStart;
+    const visible = filtered.slice(viewStart, viewStart + VIEW_SIZE);
+    this._renderCards(visible, body);
+
+    // 翻页控件:« 上一页  1 2 3 … 22  下一页 »(数字页码可点击直达)
+    // totalPages 基于 server total(整个仓库的总量),让用户感知全貌
+    // 跳到未加载的页时 gotoPage 会按需 await loadMore 扩容
+    const totalPages = Math.max(1, Math.ceil(total / VIEW_SIZE));
+    const currentPage = Math.floor(viewStart / VIEW_SIZE) + 1;
+    const canPrev = viewStart > 0;
+    // canNext:filter 后当前页未到末尾,或 server 还有更多未加载
+    const filteredHasMoreInView = (viewStart + VIEW_SIZE) < filtered.length;
+    const canNext = filteredHasMoreInView || hasMore;
+    const navRow = document.createElement('div');
+    navRow.className = 'pager-nav';
+    navRow.style.cssText = 'text-align:center;padding:1rem 0;grid-column:1/-1;display:flex;gap:.4rem;justify-content:center;align-items:center;flex-wrap:wrap';
+    const prevDisabled = canPrev ? '' : ' disabled';
+    const nextDisabled = canNext ? '' : ' disabled';
+
+    // 数字页码:总页数 ≤ 9 全显;否则显示首末 + 当前页前后 2 页 + 省略号
+    const pageList = [];
+    if (totalPages <= 9) {
+      for (let i = 1; i <= totalPages; i++) pageList.push(i);
+    } else {
+      pageList.push(1);
+      if (currentPage > 4) pageList.push('ellipsis');
+      const start = Math.max(2, currentPage - 2);
+      const end = Math.min(totalPages - 1, currentPage + 2);
+      for (let i = start; i <= end; i++) pageList.push(i);
+      if (currentPage < totalPages - 3) pageList.push('ellipsis');
+      pageList.push(totalPages);
     }
+    let pageButtonsHtml = '';
+    for (const p of pageList) {
+      if (p === 'ellipsis') {
+        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+      } else if (p === currentPage) {
+        pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
+      } else {
+        pageButtonsHtml += '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.gotoPage(' + (p - 1) + ')" style="min-width:2.2rem">' + p + '</button>';
+      }
+    }
+
+    navRow.innerHTML =
+      '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_ENGRAMS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.prev')) + '</button>'
+      + pageButtonsHtml
+      + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_ENGRAMS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.next')) + '</button>'
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>';
+    body.appendChild(navRow);
   },
 
   _renderCards(filtered, body) {
@@ -305,12 +371,87 @@ window.CO_ENGRAM_ENGRAMS = {
     }).join('') + '</div>';
   },
 
-  async loadMore() {
+  // 后台渐进加载剩余批次,让 totalPages 尽早准确
+  // 不阻塞首屏(用户在首批内翻页无需等待),并发安全(pager 内部 isLoading 守护)
+  async _loadRemainingInBackground() {
     const pager = CO_ENGRAM._engramsPager;
-    if (!pager || !pager.hasMore()) return;
-    try { await pager.loadMore(); }
-    catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+    if (!pager) return;
+    while (pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) { break; }
+      // 每拉一批刷新 count chip + nav,让用户感知加载进度
+      this._refreshCountChip();
+    }
+    this._refreshCountChip();
+    // 如果当前页因新数据出现而仍然有效,也刷新 nav
     this.applyFilter();
+  },
+
+  // 刷新 count chip 文案(不打扰当前 card 渲染)
+  _refreshCountChip() {
+    const pager = CO_ENGRAM._engramsPager;
+    if (!pager) return;
+    const T = CO_ENGRAM_T;
+    const el = document.getElementById('engrams-count');
+    if (!el) return;
+    const hint = (pager.hasMore() || pager.isLoading()) ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '';
+    el.textContent = '已加载 ' + pager.getItems().length + ' / 共 ' + pager.getTotal() + hint;
+  },
+
+  prevPage() {
+    const VIEW_SIZE = 50;
+    const current = CO_ENGRAM._engramsViewStart || 0;
+    if (current <= 0) return;
+    CO_ENGRAM._engramsViewStart = Math.max(0, current - VIEW_SIZE);
+    this.applyFilter();
+    // 滚到列表顶部,让用户看到新页
+    const body = document.getElementById('engrams-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  // 跳到任意页(0-based index);已加载不足时按需 await loadMore 扩容
+  // 用户点击数字页码 1/2/3/.../22 时调用,允许跨多页跳转
+  async gotoPage(zeroBasedPage) {
+    const VIEW_SIZE = 50;
+    const pager = CO_ENGRAM._engramsPager;
+    if (!pager) return;
+    if (zeroBasedPage < 0) zeroBasedPage = 0;
+    const target = zeroBasedPage * VIEW_SIZE;
+    // 顺序 loadMore 直到已加载覆盖目标起点,或 server 数据耗尽
+    while (target >= pager.getItems().length && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) {
+        alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e })));
+        return;
+      }
+    }
+    CO_ENGRAM._engramsViewStart = target;
+    this.applyFilter();
+    const body = document.getElementById('engrams-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  async nextPage() {
+    const VIEW_SIZE = 50;
+    const pager = CO_ENGRAM._engramsPager;
+    if (!pager) return;
+    const current = CO_ENGRAM._engramsViewStart || 0;
+    const loaded = pager.getItems().length;
+    // 当前 filter 是 client-side,翻到下一页需要先确认有数据
+    // 如果当前已加载不够覆盖下一页起点,且 server 还有更多 → loadMore 再前进
+    if (current + VIEW_SIZE >= loaded && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) { alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e }))); return; }
+    }
+    CO_ENGRAM._engramsViewStart = current + VIEW_SIZE;
+    this.applyFilter();
+    const body = document.getElementById('engrams-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  // 兼容旧调用名 / 旧 onclick 引用 — 等价于 nextPage
+  async loadMore() {
+    await this.nextPage();
   },
 
   // 目录视图:基于 /api/path-tree 物理目录树(2026-07 改版)

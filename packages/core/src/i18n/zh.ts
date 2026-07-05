@@ -200,7 +200,7 @@ export const zh = {
 - 记忆只是不完整(用 engram_update)
 - 不确定(先问用户)
 
-机制说明:累积式负反馈 —— 单次调用只让 importance 下降一点(典型 −0.03),记忆仍在检索池里;多次累积后维护周期可能自动驳回。确定性事实失效不要走这条路,直接 engram_delete。
+机制说明:累积式负反馈 —— 单次调用让 importance 下降一档(默认 −0.1,D1 dynamics),记忆仍在检索池里;多次累积后维护周期可能自动驳回。确定性事实失效不要走这条路,直接 engram_delete。
 
 返回: { ok: true, importance, failureCount } + 审计已记录。`,
   "tool.engram_delete.agent": `永久删除一条记忆(立即失效,不可恢复)。
@@ -548,15 +548,15 @@ Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UP
 分页:cursor-based,opaque token;nextCursor=null 表示无更多。排序:importance DESC, updatedAt DESC, id ASC。
 不变量:读 engram-index.json(catalog);不读完整内容。比 engram_search 列举更快。`,
   "tool.engram_reinforce.technical": `上报有效检索(LTP)。输入:{ id, effectiveness: 0..1, note? }
-更新:effectiveRetrievals += 1;reinforcementScore += effectiveness;importance += effectiveness × 0.02(clamp [0,1])。
+更新:effectiveRetrievals += 1;reinforcementScore += effectiveness;importance = dynamics.updateOnReinforce(current, effectiveness)(默认 +0.1,clamp [0,1])。
 Hebbian 强化:邻居 engram(经 synapse)得 50% delta,contradicts synapse kind 除外。
-副作用:写目标 + 邻居的 .meta.json;append audit;append effectiveness signal。
+副作用:写目标 + 邻居的 .meta.json;append audit(action=importance_update, reason=reinforce);append effectiveness signal。
 错误条件:未找到抛错;effectiveness 越界抛错。
 注意:此路径与 maintenance applyRpeUpdate 不同(Finding 124)— tool 路径增长 importance,maintenance 路径不增长。`,
   "tool.engram_report_failure.technical": `上报失败使用(LTD)。输入:{ id, reason, context? }
-更新:failedUses += 1;retrievalCount += 1;importance -= 0.03(超阈值后 ×1.5 升级)。
-自动建议:failedUses ≥ 3 → 建议 archive;≥ 5 → 建议 forget。
-副作用:写 .meta.json;append audit;append effectiveness signal(failure)。
+更新:failedUses += 1;retrievalCount += 1;importance = dynamics.updateOnReportFailure(current)(默认 -0.1,固定)。
+自动建议:failedUses ≥ archiveThreshold(默认 3)→ 建议 archive;≥ forgetThreshold(默认 5)→ 建议 forget。
+副作用:写 .meta.json;append audit(action=importance_update, reason=report_failure);append effectiveness signal(failure)。
 错误条件:未找到抛错;空 reason 抛错。`,
   "tool.engram_archive.technical": `归档 engram。输入:{ id, reason? }
 状态转换:active → archived。
@@ -1004,6 +1004,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "engrams.viewInCards": "查看",
   "engrams.tree.cumulativeCount": "累积数量(本目录及所有子目录)",
   "engrams.tree.rootDirect": "根目录散落",
+  "engrams.pager.prev": "« 上一页",
+  "engrams.pager.next": "下一页 »",
+  "engrams.pager.pageInfo": "第 ${current} / ${total} 页(共 ${itemTotal} 条)",
+  "engrams.pager.first": "« 首页",
+  "engrams.pager.loadingHint": "正在加载更多……",
 
   // ===== 扩展枚举(替代 viewer 旧 CO_ENGRAM_LABELS) =====
   "enum.status.dormant": "休眠",
@@ -1279,7 +1284,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.config.sectionRuntime": "运行时开关(下次启动生效)",
   "viewer.config.sectionMetadata": "仓库信息",
   "viewer.config.pendingBanner":
-    "↻ ${fields} 已保存,重启 ${host} 后生效",
+    "${fields} 已保存,重启 ${host} 后生效",
   "viewer.config.runtimeHintPrefix": "(当前: ",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(未设置)",
@@ -1316,7 +1321,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "本页面所在 HTTP 服务(不可关闭,否则 UI 失联)",
   "viewer.config.dataRootReadOnly":
     "数据根目录已改为 CLI 单一入口:运行 <code>co-engram config data-root &lt;path&gt;</code> 修改。",
-  "viewer.config.dataRootSave": "保存",
+  "viewer.config.dataRootSave": "保存数据根目录",
   "viewer.config.dataRootEditableHint":
     "修改数据根目录后需重启宿主生效。也可在终端运行 <code>co-engram config data-root &lt;path&gt;</code>。",
   "viewer.config.dataRootUpdatedRestartRequired":
@@ -1344,8 +1349,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.config.dataRootWelcomeSuggestHome": "使用 ~/team-memory(推荐)",
   "viewer.config.dataRootWelcomeSuggestHidden": "使用 ~/.co-engram-data",
   "viewer.config.dataRootWelcomeCustom": "或输入自定义路径:",
-  "viewer.config.saveBar.reset": "重置",
-  "viewer.config.saveBar.save": "保存配置",
+  "viewer.config.saveBar.reset": "重置改动",
+  "viewer.config.saveBar.save": "保存全部改动",
   "viewer.config.saveSuccess": "✓ 配置已保存。",
   "viewer.config.saveSuccessWithRestart":
     "✓ 配置已保存。以下改动需重启 ${host} 才能生效:",
@@ -1423,13 +1428,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<code>draft → active → archived → forgotten</code>。遗忘的文件仍在仓库,但默认不召回。维护周期会自动评估并迁移状态。",
   "viewer.help.rulesTitle": "强化机制与规则参数(默认值)",
   "viewer.help.rulesIntro":
-    "记忆的 importance 分数会随使用反馈演化。下面是真实的默认参数(可在源码 ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG 找到),用 config.json 或对应配置项可覆盖。",
+    "记忆的 importance 分数会随使用反馈演化。下面是真实的默认参数(单次增减由 importance/dynamics.ts 治理;其余可在源码 ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG 找到),用 config.json 或对应配置项可覆盖。",
   "viewer.help.ruleLtp":
-    "<strong>LTP(长时程增强)</strong>:每次有效检索(effective=1),importance += <code>ltpGain</code>(默认 <code>0.02</code>)。10 次有效检索约能把 0.5 提升到 0.7。",
+    "<strong>LTP(长时程增强)</strong>:每次有效检索(effective=1),importance += <code>0.1</code>(<code>dynamics.updateOnReinforce</code>)。约 5 次有效检索能把 0.5 提升到 1.0。",
   "viewer.help.ruleLtd":
-    "<strong>LTD(长时程削弱)</strong>:每次失败使用,importance -= <code>ltdPenalty</code>(默认 <code>0.03</code>);累积失败超过 <code>failureThreshold</code>(默认 <code>3</code>)次后,按 <code>failureEscalation</code>(默认 <code>1.5</code>)倍率额外惩罚。",
+    "<strong>LTD(长时程削弱)</strong>:每次失败使用,importance -= <code>0.1</code>(<code>dynamics.updateOnReportFailure</code>,固定惩罚)。累积失败达到 <code>archiveThreshold</code>(默认 <code>3</code>)次建议 archive,达到 <code>forgetThreshold</code>(默认 <code>5</code>)次建议 forget。",
   "viewer.help.ruleHebbian":
-    "<strong>Hebbian 邻居扩散</strong>:强化一条记忆时,直接相连(通过 synapse)的邻居得到 <code>ltpGain × hebbianRatio</code>(默认 <code>hebbianRatio = 0.5</code>)的增益,contradicts 关系除外。",
+    "<strong>Hebbian 邻居扩散</strong>:强化一条记忆时,直接相连(通过 synapse)的邻居得到 <code>importanceDelta × hebbianRatio</code>(默认 <code>hebbianRatio = 0.5</code>)的增益,contradicts 关系除外。",
   "viewer.help.ruleWeights":
     "<strong>三因子检索权重</strong>:score = α·relevance + β·recency + γ·importance(默认 α=0.5 / β=0.3 / γ=0.2)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code> 衰退,半衰期从 importance 派生(机制 D)。",
   "viewer.help.ruleWindows":

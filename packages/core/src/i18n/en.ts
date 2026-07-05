@@ -195,7 +195,7 @@ WHEN NOT TO CALL:
 - Memory is just incomplete (use engram_update)
 - You're not sure (ask the user first)
 
-Mechanism: cumulative negative feedback — one call drops importance only slightly (typically −0.03); after several accumulations a maintenance cycle may auto-refute it. Deterministic invalidation should NOT go this route.
+Mechanism: cumulative negative feedback — one call drops importance by a fixed step (default −0.1, D1 dynamics); after several accumulations a maintenance cycle may auto-refute it. Deterministic invalidation should NOT go this route.
 
 RETURNS: { ok: true, importance, failureCount } + audit recorded.`,
   "tool.engram_delete.agent": `Permanently delete a memory (immediate, irreversible).
@@ -546,15 +546,15 @@ Side effects: none.
 Pagination: cursor-based, opaque token; nextCursor=null means no more results. Sort: importance DESC, updatedAt DESC, id ASC.
 Invariant: reads engram-index.json (catalog); does not read full content. Faster than engram_search for listing.`,
   "tool.engram_reinforce.technical": `Report effective retrieval (LTP). Input: { id, effectiveness: 0..1, note? }
-Updates: effectiveRetrievals += 1; reinforcementScore += effectiveness; importance += effectiveness × 0.02 (clamped [0,1]).
+Updates: effectiveRetrievals += 1; reinforcementScore += effectiveness; importance = dynamics.updateOnReinforce(current, effectiveness) (default +0.1, clamped [0,1]).
 Hebbian boost: neighbor engrams (via synapses) get 50% delta, except contradicts synapse kind.
-Side effects: writes .meta.json for target + neighbors; appends audit; appends effectiveness signal.
+Side effects: writes .meta.json for target + neighbors; appends audit (action=importance_update, reason=reinforce); appends effectiveness signal.
 Error conditions: not found throws; effectiveness out of range throws.
 Note: this path is distinct from maintenance applyRpeUpdate (Finding 124) — tool path grows importance, maintenance path does not.`,
   "tool.engram_report_failure.technical": `Report failed use (LTD). Input: { id, reason, context? }
-Updates: failedUses += 1; retrievalCount += 1; importance -= 0.03 (×1.5 escalation after threshold).
-Auto-suggest: failedUses ≥ 3 → suggest archive; ≥ 5 → suggest forget.
-Side effects: writes .meta.json; appends audit; appends effectiveness signal (failure).
+Updates: failedUses += 1; retrievalCount += 1; importance = dynamics.updateOnReportFailure(current) (default -0.1, fixed).
+Auto-suggest: failedUses ≥ archiveThreshold (default 3) → suggest archive; ≥ forgetThreshold (default 5) → suggest forget.
+Side effects: writes .meta.json; appends audit (action=importance_update, reason=report_failure); appends effectiveness signal (failure).
 Error conditions: not found throws; empty reason throws.`,
   "tool.engram_archive.technical": `Archive engram. Input: { id, reason? }
 Status transition: active → archived.
@@ -1008,6 +1008,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.viewInCards": "View in cards",
   "engrams.tree.cumulativeCount": "Cumulative count (this folder + all descendants)",
   "engrams.tree.rootDirect": "Root-level (no folder)",
+  "engrams.pager.prev": "« Prev",
+  "engrams.pager.next": "Next »",
+  "engrams.pager.pageInfo": "Page ${current} / ${total} (${itemTotal} items)",
+  "engrams.pager.first": "« First",
+  "engrams.pager.loadingHint": "Loading more…",
 
   // ===== Extended enums (replacing viewer's CO_ENGRAM_LABELS) =====
   "enum.status.dormant": "Dormant",
@@ -1322,7 +1327,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.config.sectionRuntime": "Runtime toggles (next launch)",
   "viewer.config.sectionMetadata": "Repository info",
   "viewer.config.pendingBanner":
-    "↻ ${fields} saved — restart ${host} to take effect",
+    "${fields} saved — restart ${host} to take effect",
   "viewer.config.runtimeHintPrefix": "(current: ",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(not set)",
@@ -1363,7 +1368,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "HTTP server hosting this page (cannot be turned off, or this UI disconnects)",
   "viewer.config.dataRootReadOnly":
     "Data root is now a single CLI entry point: run <code>co-engram config data-root &lt;path&gt;</code> to change it.",
-  "viewer.config.dataRootSave": "Save",
+  "viewer.config.dataRootSave": "Save data root",
   "viewer.config.dataRootEditableHint":
     "Changing the data root requires restarting the host to take effect. Alternatively run <code>co-engram config data-root &lt;path&gt;</code> in a terminal.",
   "viewer.config.dataRootUpdatedRestartRequired":
@@ -1391,8 +1396,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.config.dataRootWelcomeSuggestHome": "Use ~/team-memory (recommended)",
   "viewer.config.dataRootWelcomeSuggestHidden": "Use ~/.co-engram-data",
   "viewer.config.dataRootWelcomeCustom": "Or type a custom path:",
-  "viewer.config.saveBar.reset": "Reset",
-  "viewer.config.saveBar.save": "Save config",
+  "viewer.config.saveBar.reset": "Reset changes",
+  "viewer.config.saveBar.save": "Save all changes",
   "viewer.config.saveSuccess": "✓ Configuration saved.",
   "viewer.config.saveSuccessWithRestart":
     "✓ Configuration saved. The following changes require restarting ${host} to take effect:",
@@ -1470,13 +1475,13 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<code>draft → active → archived → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
   "viewer.help.rulesTitle": "Reinforcement rules & default parameters",
   "viewer.help.rulesIntro":
-    "Memory importance evolves with use feedback. Below are the real defaults (see ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG in source); override via config.json or the matching config keys.",
+    "Memory importance evolves with use feedback. Below are the real defaults (per-event deltas are governed by importance/dynamics.ts; other knobs live in ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG in source); override via config.json or the matching config keys.",
   "viewer.help.ruleLtp":
-    "<strong>LTP (Long-Term Potentiation)</strong>: per effective retrieval (effective=1), importance += <code>ltpGain</code> (default <code>0.02</code>). ~10 effective retrievals raise 0.5 to ~0.7.",
+    "<strong>LTP (Long-Term Potentiation)</strong>: per effective retrieval (effective=1), importance += <code>0.1</code> (<code>dynamics.updateOnReinforce</code>). ~5 effective retrievals raise 0.5 to 1.0.",
   "viewer.help.ruleLtd":
-    "<strong>LTD (Long-Term Depression)</strong>: per failed use, importance -= <code>ltdPenalty</code> (default <code>0.03</code>; once cumulative failures exceed <code>failureThreshold</code> (default <code>3</code>), an extra <code>failureEscalation</code> (default <code>1.5</code>) multiplier applies).",
+    "<strong>LTD (Long-Term Depression)</strong>: per failed use, importance -= <code>0.1</code> (<code>dynamics.updateOnReportFailure</code>, fixed penalty). Cumulative failures reaching <code>archiveThreshold</code> (default <code>3</code>) suggest archive; reaching <code>forgetThreshold</code> (default <code>5</code>) suggest forget.",
   "viewer.help.ruleHebbian":
-    "<strong>Hebbian neighbor spread</strong>: when a memory is reinforced, direct neighbors (via synapse) gain <code>ltpGain × hebbianRatio</code> (default <code>hebbianRatio = 0.5</code>); contradicts edges excluded.",
+    "<strong>Hebbian neighbor spread</strong>: when a memory is reinforced, direct neighbors (via synapse) gain <code>importanceDelta × hebbianRatio</code> (default <code>hebbianRatio = 0.5</code>); contradicts edges excluded.",
   "viewer.help.ruleWeights":
     "<strong>Three-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance (defaults α=0.5 / β=0.3 / γ=0.2). recency follows Ebbinghaus half-life <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code>, derived from importance (mechanism D).",
   "viewer.help.ruleWindows":
