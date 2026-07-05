@@ -601,8 +601,9 @@ describe("EngramRepository — F3: deleteEngram 顺序契约", () => {
     expect(entry).toBeDefined();
     unlinkSync(join(tmpDir, entry!.path));
 
-    // 此时:index 有 entry,文件不存在
-    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(true);
+    // 此时:index 有 entry(listEngramIndex 直接读 index cache),文件不存在
+    // (listEngrams 走 truth filter 会过滤 ghost,改用 listEngramIndex 验证 stale state)
+    expect(repo.listEngramIndex().some((e) => e.id === a.id)).toBe(true);
     expect(repo.exists(a.id)).toBe(false);
 
     // deleteEngram 应该幂等清掉 index entry,不抛错
@@ -610,7 +611,7 @@ describe("EngramRepository — F3: deleteEngram 顺序契约", () => {
 
     // 关键:index 已清(若顺序是「先文件后 index」,文件已不存在 → deleteEngramFile
     // 静默 noop → 但 index 删除仍会执行,因为 F3 的新顺序是先删 index)
-    expect(repo.listEngrams().some((e) => e.id === a.id)).toBe(false);
+    expect(repo.listEngramIndex().some((e) => e.id === a.id)).toBe(false);
   });
 
   it("F3: 多次 deleteEngram 同一 id 幂等,不抛错", () => {

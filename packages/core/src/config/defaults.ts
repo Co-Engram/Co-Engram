@@ -139,15 +139,16 @@ export const DEFAULT_REINFORCEMENT_SECTION: Readonly<
 };
 
 /**
- * 三因子检索权重默认值(从源码 DEFAULT_WEIGHTS 派生)
+ * 四因子检索权重默认值(从源码 DEFAULT_WEIGHTS 派生)
  *
- * 字段名映射:relevance ← alpha, recency ← beta, importance ← gamma。
- * 源码改默认值时,config 层自动跟随。
+ * 字段名映射:relevance ← alpha, recency ← beta, importance ← gamma,
+ * strength ← delta。源码改默认值时,config 层自动跟随。
  */
 export const DEFAULT_SEARCH_SECTION: Readonly<Required<ScoringSectionConfig>> = {
   relevance: DEFAULT_WEIGHTS.alpha,
   recency: DEFAULT_WEIGHTS.beta,
   importance: DEFAULT_WEIGHTS.gamma,
+  strength: DEFAULT_WEIGHTS.delta,
 };
 
 /**

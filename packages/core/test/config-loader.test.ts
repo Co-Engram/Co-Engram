@@ -27,11 +27,12 @@ describe("config.json overrides defaults (Task 1.5)", () => {
     expect(cfg.search?.importance).toBe(0.2);
   });
 
-  it("search weights default to spec 3.7 (α=0.5, β=0.3, γ=0.2)", () => {
+  it("search weights default to spec 3.7 (α=0.5, β=0.2, γ=0.2, δ=0.1)", () => {
     const cfg = loadConfig();
     expect(cfg.search?.relevance).toBe(0.5);
-    expect(cfg.search?.recency).toBe(0.3);
+    expect(cfg.search?.recency).toBe(0.2);
     expect(cfg.search?.importance).toBe(0.2);
+    expect(cfg.search?.strength).toBe(0.1);
   });
 
   it("observation windows can be overridden per kind", () => {
@@ -59,7 +60,7 @@ describe("config.json overrides defaults (Task 1.5)", () => {
     expect(cfg.reinforcement?.hebbianRatio).toBe(0.7);
     expect(cfg.reinforcement?.archiveThreshold).toBe(3); // D1 default
     expect(cfg.search?.relevance).toBe(0.4);
-    expect(cfg.search?.recency).toBe(0.3); // default
+    expect(cfg.search?.recency).toBe(0.2); // default
   });
 
   it("normalizeConfig round-trip: full override → all fields preserved", () => {
@@ -69,7 +70,7 @@ describe("config.json overrides defaults (Task 1.5)", () => {
         archiveThreshold: 4,
         forgetThreshold: 7,
       },
-      search: { relevance: 0.7, recency: 0.2, importance: 0.1 },
+      search: { relevance: 0.7, recency: 0.2, importance: 0.1, strength: 0.0 },
       observation: {
         observation: 3 * 60 * 60 * 1000,
         fact: 12 * 60 * 60 * 1000,

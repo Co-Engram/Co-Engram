@@ -222,16 +222,21 @@ describe("SearchOrchestrator", () => {
     expect(result.nextCursor).toBeNull();
   });
 
-  it("setWeights 配置三因子权重", () => {
+  it("setWeights 配置四因子权重", () => {
     const orchestrator = new SearchOrchestrator();
-    orchestrator.setWeights({ alpha: 0.7, beta: 0.2, gamma: 0.1 });
-    expect(orchestrator.getWeights().alpha).toBe(0.7);
+    orchestrator.setWeights({ alpha: 0.6, beta: 0.2, gamma: 0.1, delta: 0.1 });
+    expect(orchestrator.getWeights().alpha).toBe(0.6);
   });
 
   it("setWeights 拒绝非 1 和", () => {
     const orchestrator = new SearchOrchestrator();
     expect(() =>
-      orchestrator.setWeights({ alpha: 0.5, beta: 0.3, gamma: 0.4 }),
+      orchestrator.setWeights({
+        alpha: 0.5,
+        beta: 0.3,
+        gamma: 0.4,
+        delta: 0.1,
+      }),
     ).toThrow(/sum to 1/);
   });
 

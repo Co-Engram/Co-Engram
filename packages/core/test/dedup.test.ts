@@ -109,8 +109,10 @@ describe("findExactHashMatch (F2: stale entry 跳过)", () => {
     expect(entry).toBeDefined();
     unlinkSync(join(tmpDir, entry!.path));
 
-    // listEngrams 仍能看到 entry(读 index)
-    expect(repo.listEngrams().find((e) => e.id === engram.id)).toBeDefined();
+    // listEngramIndex 仍能看到 entry(读 index,不过 truth filter)
+    expect(repo.listEngramIndex().find((e) => e.id === engram.id)).toBeDefined();
+    // listEngrams 走 truth filter(扫盘),ghost entry 被过滤
+    expect(repo.listEngrams().find((e) => e.id === engram.id)).toBeUndefined();
     // 但 exists() 检查文件 → false
     expect(repo.exists(engram.id)).toBe(false);
 

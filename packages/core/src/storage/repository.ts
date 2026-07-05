@@ -815,6 +815,10 @@ export class EngramRepository {
       at: new Date().toISOString(),
     });
 
+    // 失效 truthPaths cache:dedupe 路径可能在文件写入前填充了空 set,
+    // 不失效会让 5s 内的 listEngrams/queryEngramsForList 漏掉这条新 engram。
+    this.invalidateTruthPathsCache();
+
     return this.readEngram(stableId);
   }
 
@@ -1001,6 +1005,11 @@ export class EngramRepository {
     // Task 1.5:同步投影到 SQLite 索引层(若注入)
     this.syncEngramToIndex(newFrontmatter, newContent);
 
+    // 失效 truthPaths cache:rename 场景下旧路径已 rmSync,新路径已 writeEngramFile,
+    // 旧 cache(可能含旧 path 或缺新 path)不再准确。update 场景(path 不变)也
+    // 失效,因为 doctor / external edit 可能改了文件,mtime 变化不反映在 set 上。
+    this.invalidateTruthPathsCache();
+
     return this.readEngram(stableId);
   }
 
@@ -1072,6 +1081,10 @@ export class EngramRepository {
         // 派生数据失败不阻塞
       }
     }
+
+    // 失效 truthPaths cache:文件刚删除,5s 内的 cache 含幽灵 path,
+    // 不失效会让 listEngrams 在 cache 窗口内仍返回该 entry(再走 readEngram 抛错)。
+    this.invalidateTruthPathsCache();
   }
 
   /**
@@ -1156,6 +1169,23 @@ export class EngramRepository {
     }
     this.truthPathsCache = { paths, ts: now };
     return paths;
+  }
+
+  /**
+   * 失效 truthPaths cache。在 engram 文件写入/删除/重命名后调用,
+   * 避免下次 listEngrams/listEngramIndex 拿到过期(空或含幽灵)的 truth set。
+   *
+   * 关键场景(fa20704 引入 5s TTL 后暴露的 race):
+   *   1. dedupe 路径(checkDuplicateSync → findExactHashMatch → listEngrams)
+   *      在 createEngram 内部、文件写入**之前**触发 getTruthPaths
+   *   2. 此时磁盘还没新 .md,getTruthPaths 把空 set cache 5 秒
+   *   3. createEngram 写入文件,但 listEngrams 5 秒内仍命中空 cache → 0 条
+   *
+   * 同样适用于 deleteEngram / updateEngram(rename) / restoreFromTrash:
+   * 写盘后立即失效,下次 listEngrams 重新扫盘。
+   */
+  private invalidateTruthPathsCache(): void {
+    this.truthPathsCache = null;
   }
 
   /**

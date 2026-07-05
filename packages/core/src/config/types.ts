@@ -110,19 +110,21 @@ export interface ReinforcementSectionConfig {
 /**
  * 三因子检索权重在 config.json 中的配置
  *
- * 与 `packages/core/src/retrieval/scoring.ts` 的 `ThreeFactorWeights` 对齐,
- * 字段名改用语义化命名(relevance/recency/importance)以便用户理解。
+ * 与 `packages/core/src/retrieval/scoring.ts` 的 `FourFactorWeights` 对齐,
+ * 字段名改用语义化命名(relevance/recency/importance/strength)以便用户理解。
  *
  * 用户在 config.json 中只需写需要调整的字段,其余自动用 spec 3.7 默认值
- * (α=0.5, β=0.3, γ=0.2)。
+ * (α=0.5, β=0.2, γ=0.2, δ=0.1)。
  */
 export interface ScoringSectionConfig {
   /** relevance 权重(语义/关键词匹配,默认 0.5) */
   readonly relevance?: number;
-  /** recency 权重(艾宾浩斯衰退,默认 0.3) */
+  /** recency 权重(艾宾浩斯衰退,默认 0.2) */
   readonly recency?: number;
   /** importance 权重(价值,默认 0.2) */
   readonly importance?: number;
+  /** strength 权重(用户反馈累积 reinforcementScore,默认 0.1) */
+  readonly strength?: number;
 }
 
 /**
