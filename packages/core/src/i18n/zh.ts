@@ -116,24 +116,15 @@ export const zh = {
 概念:{{concept:engram|userExplanation}}`,
   "tool.engram_create.agent": `为重要的团队知识创建新记忆(engram)。
 
-何时调用:
-- 用户明确表达偏好("以后用 arrow function")
-- 用户做出带理由的设计决策("我们用 PostgreSQL,因为 X")
-- 用户分享 bug 教训("这个失败因为 Y,以后记得检查 Z")
-- 用户纠正过时记忆("其实我们已经改用 X 了")
+何时调用:用户表达持久偏好、做出带理由的设计决策、分享 bug 教训、纠正过时记忆。
 
-何时不调用:
-- 琐碎/一次性信息
-- CLAUDE.md/README 已有的信息
-- 用户只是在询问(用 engram_search)
+何时不调用:琐碎/一次性信息、CLAUDE.md 已有、用户只是在询问(用 engram_search)。
 
-⚠️ visibility='private' 用于个人凭据/路径/设备特定信息(ADB 序列号、token、本机偏好),落 private/ 子目录被 .gitignore 隔离,不入团队仓库。
+⚠️ visibility='private' 用于个人凭据/路径/设备特定信息(ADB 序列号、token、本机偏好),落 private/ 子目录被 .gitignore 隔离。
 
-⚠️ 不要写到 ~/.claude/projects/.../memory/ —— AutoMemorySyncEngine 会把该路径镜像成 **待审批 proposal**(仍需 accept,visibility 归属已丢失)。请直接用本工具。
+⚠️ 不要写到 ~/.claude/projects/.../memory/ —— AutoMemorySyncEngine 会镜像为待审批 proposal(visibility 归属丢失),请直接用本工具。
 
-**可见性**:若 content 含凭据 / 个人 / 内部 / 敏感信号(详见系统提示的「可见性风险识别」段),先询问是否 visibility: "private"。
-
-返回:创建的 engram ID + 版本号。自动检测重复。`,
+返回:engram ID + 版本号,自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
 
 何时调用:

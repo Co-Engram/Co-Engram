@@ -214,13 +214,13 @@ describe("MCP end-to-end", () => {
       // 通过 engram_list 验证确实存在
       const listRes = await client.callTool({
         name: "engram_list",
-        arguments: { filter: { domainTags: ["testing"] } },
+        arguments: { filter: { domainTags: ["testing"] }, limit: 100 },
       });
       const listData = JSON.parse(
         (listRes.content[0] as { text: string }).text,
-      ) as { results: { id: string }[]; total: number };
-      expect(listData.total).toBe(1);
-      expect(listData.results[0]!.id).toBe(createdId);
+      ) as { items: { id: string }[]; nextCursor: string | null };
+      expect(listData.items.length).toBe(1);
+      expect(listData.items[0]!.id).toBe(createdId);
     } finally {
       await cleanup();
     }

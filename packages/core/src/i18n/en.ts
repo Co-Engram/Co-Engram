@@ -114,19 +114,13 @@ WHEN NOT TO CALL:
 RETURNS: Full content + metadata (createdAt, importance, truthScore, reinforcementCount) + related engram IDs (synapses).
 
 CONCEPT: {{concept:engram|userExplanation}}`,
-  "tool.engram_create.agent": `Create a new memory (engram) for important knowledge
+  "tool.engram_create.agent": `Create a new memory (engram) for important knowledge.
 
-WHEN TO CALL:
-- Durable preference ("from now on, use arrow functions")
-- Design decision with rationale ("we'll use PostgreSQL because X")
-- Bug lesson ("this failed because Y, remember to check Z")
-- Corrects an outdated memory ("actually, we switched to X")
+WHEN TO CALL: durable preference, design decision with rationale, bug lesson, or correcting an outdated memory.
 
-WHEN NOT TO CALL: trivial info / already in CLAUDE.md or README / just asking (use engram_search).
+WHEN NOT TO CALL: trivial info / already in CLAUDE.md / just asking (use engram_search).
 
 ⚠️ visibility='private' for credentials/paths/device-specific info (gitignored under private/). Do NOT write to ~/.claude/projects/.../memory/ — AutoMemorySyncEngine mirrors as pending proposals (visibility lost).
-
-**Visibility**: if content has credential/personal/internal/sensitive signals, ask whether visibility:"private".
 
 RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
