@@ -1754,6 +1754,39 @@ div.vis-tooltip {
 }
 .tree-leaf:hover { background: rgba(94, 234, 212, 0.1); color: var(--accent); }
 
+/* path-tree 新版样式(2026-07) */
+.tree-leaf-dir {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 4px;
+}
+.tree-leaf-dir:hover { background: rgba(94, 234, 212, 0.06); }
+.tree-dir-name { color: var(--fg-bright); }
+.tree-direct {
+  display: inline-block;
+  padding: 0 0.4rem;
+  font-size: 0.65rem;
+  color: var(--accent);
+  background: rgba(94, 234, 212, 0.12);
+  border-radius: 8px;
+  margin-left: 0.3rem;
+}
+.btn.mini {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.7rem;
+  background: rgba(94, 234, 212, 0.08);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 0.4rem;
+  font-family: inherit;
+}
+.btn.mini:hover { background: rgba(94, 234, 212, 0.18); border-color: var(--accent); }
+
 /* === 贡献者排名表格 === */
 .data-table {
   width: 100%;

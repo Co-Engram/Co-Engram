@@ -31,8 +31,6 @@ export const zh = {
     "从归档或遗忘状态恢复一条记忆,重新进入默认搜索。",
   "tool.engram_forget":
     "主动遗忘一条记忆。文件保留(Git 可追溯),立即移出所有默认搜索。需要填写理由。后续会自动清理:30 天后进回收站,365 天后物理删除;物理删除前可随时恢复。",
-  "tool.engram_recompute_importance":
-    "重算一条记忆的多维重要性(个人/团队/项目/网络/时间)。网络和时间维度由系统派生,其余可手动设置。",
 
   // ===== 学习回路工具(4 个) =====
   "tool.contradiction_resolve":
@@ -392,18 +390,6 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 想保持可搜索(用 engram_archive 代替)
 
 返回:{ forgotten: true } + reason 已记录。默认清理流程:30 天后进 .trash/,再 365 天后物理删除。`,
-  "tool.engram_recompute_importance.agent": `重算记忆的多维重要性分数。
-
-何时调用:
-- 检索/使用模式发生显著变化后(批量 reinforce 或 failure)
-- 用户要求"重排"/"重算"/"刷新重要性"
-- 调试异常搜索排名
-
-何时不调用:
-- 仅为刷新时间戳(用 engram_update)
-- 作为常规操作(重要性在 reinforce/failure 时自动更新)
-
-返回:重算的重要性向量(personal/team/project/network/temporal)+ 新 composite 分数,写回 engram.importance。`,
   "tool.upgrade_verification.agent": `升级记忆的验证状态(unverified → plausible → probable → verified)。
 
 何时调用:
@@ -590,12 +576,6 @@ Hebbian 强化:邻居 engram(经 synapse)得 50% delta,contradicts synapse kind 
 副作用:写 .meta.json(status + forgottenAt);重建 digest;append audit。
 错误条件:未找到抛错;空 reason 抛错。
 恢复:物理清除前可随时 engram_restore;清除后只能 git 历史。`,
-  "tool.engram_recompute_importance.technical": `重算多维重要性。输入:{ id, overrides?: { personal?, team?, project? } }
-维度:personal / team / project(可设);network(incomingSynapseCount 派生);temporal(艾宾浩斯衰退)。
-composite = 加权和(spec §8)。写回 engram.importance。
-副作用:写 .meta.json(importance + importanceVector);append audit。
-错误条件:未找到抛错。
-不变量:network + temporal 始终系统派生;overrides 只影响其余三维。`,
   "tool.contradiction_resolve.technical": `裁决 contradicts synapse。输入:{ fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
 更新:synapse.resolutionState = 'resolved';append evidence[];verdict=archive 时,败方 engram status → archived。
 副作用:写 synapse 文件 + .meta.json(若 archive);append audit。
@@ -965,7 +945,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "field.label.freshness": "新鲜度:",
   "field.label.importance": "重要性:",
   "field.label.valueAssessment": "价值评估",
-  "field.label.multiDimImportance": "多维重要性",
   "field.label.encodingContext": "记忆产生情境",
   "field.label.encodingContextValue": "记忆产生情境:",
   "field.label.perspective": "视角:",
@@ -982,7 +961,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "section.content": "内容",
   "section.stats": "统计",
   "section.valueAssessment": "价值评估",
-  "section.multiDimImportance": "多维重要性",
   "section.encodingContext": "记忆产生情境",
 
   // 动作按钮(action.<name>)
@@ -1023,6 +1001,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "engrams.empty": "没有匹配的记忆",
   "engrams.retrievalsCount": "检索 ${n}",
   "engrams.untagged": "未分类",
+  "engrams.viewInCards": "查看",
+  "engrams.tree.cumulativeCount": "累积数量(本目录及所有子目录)",
+  "engrams.tree.rootDirect": "根目录散落",
 
   // ===== 扩展枚举(替代 viewer 旧 CO_ENGRAM_LABELS) =====
   "enum.status.dormant": "休眠",

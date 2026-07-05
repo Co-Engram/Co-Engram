@@ -127,11 +127,28 @@ async function renderGraphInner(container) {
     width: '100%',
     nodes: { borderWidth: 2, shadow: { enabled: true, size: 6, x: 0, y: 1 } },
     edges: { smooth: { type: 'continuous' } },
+    // 大规模图(1000+ 节点)物理引擎优化(2026-07):
+    //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
+    //      1000 节点级别单步模拟快 5-10×
+    //   2. stabilization 收敛后 physics.enabled=false — 消除空载 CPU,
+    //      节点位置冻结,但交互(拖拽 / 缩放 / 点击)不受影响
     physics: {
       enabled: true,
-      solver: 'forceAtlas2Based',
-      forceAtlas2Based: { gravitationalConstant: -65, centralGravity: 0.01, springLength: 110, springConstant: 0.08, damping: 0.4, avoidOverlap: 0.5 },
-      stabilization: { iterations: 80, fit: true }
+      solver: 'barnesHut',
+      barnesHut: {
+        gravitationalConstant: -8000,
+        centralGravity: 0.3,
+        springLength: 95,
+        springConstant: 0.04,
+        damping: 0.09,
+        avoidOverlap: 0.1
+      },
+      stabilization: {
+        enabled: true,
+        iterations: 150,
+        updateInterval: 25,
+        fit: true
+      }
     },
     interaction: { hover: true, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false }
   };
@@ -141,6 +158,16 @@ async function renderGraphInner(container) {
   CO_ENGRAM._graphState.initialized = true;
   CO_ENGRAM._graphState.nodes = nodesDataset;
   CO_ENGRAM._graphState.edges = edgesDataset;
+
+  // 物理稳态后冻结布局:消除空载 CPU(1000+ 节点持续模拟让 tab 切换卡顿)。
+  // 用户仍可拖拽单个节点(松开后不回弹,因 physics 已停),zoom / pan 不受影响。
+  // 需重新启用物理时由工具栏 togglePhysics 按钮触发。
+  network.once('stabilizationIterationsDone', function() {
+    try {
+      network.setOptions({ physics: { enabled: false } });
+      state.physicsEnabled = false;
+    } catch (e) { /* 防御:某些 vis 版本 setOptions 在 frozen 状态抛错 */ }
+  });
 
   // === 交互 ===
   network.on('click', (params) => {

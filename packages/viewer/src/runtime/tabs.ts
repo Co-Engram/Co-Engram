@@ -188,13 +188,32 @@ window.CO_ENGRAM_ENGRAMS = {
   applyFilter() {
     const pager = CO_ENGRAM._engramsPager;
     const cache = pager ? pager.getItems() : (CO_ENGRAM._engramsCache || []);
-    const q = ((document.getElementById('engrams-q') || {}).value || '').toLowerCase();
+    const qRaw = ((document.getElementById('engrams-q') || {}).value || '');
+    const q = qRaw.toLowerCase();
     const kind = (document.getElementById('engrams-kind') || {}).value || '';
     const visibility = (document.getElementById('engrams-visibility') || {}).value || '';
     const sort = ((document.getElementById('engrams-sort') || {}).value || 'createdAt-desc').split('-');
     const [sortKey, sortDir] = sort;
     const T = CO_ENGRAM_T;
     const mode = CO_ENGRAM._engramsViewMode || 'card';
+
+    // path: 前缀语法 — 由 tree 视图的"查看"按钮设置,按 id 路径前缀过滤
+    // 例:"path:python/async " → 只显示 id 以 "python/async/" 开头的 engram
+    // 空 path (path:) → 显示根目录直属的散落 engram(无目录前缀)
+    let pathPrefix = null;
+    let textQ = q;
+    if (q.startsWith('path:')) {
+      const rest = qRaw.slice(5);
+      // 取第一个空格分隔前缀;后续内容当作普通文本查询
+      const sp = rest.indexOf(' ');
+      if (sp >= 0) {
+        pathPrefix = rest.slice(0, sp);
+        textQ = rest.slice(sp + 1).toLowerCase().trim();
+      } else {
+        pathPrefix = rest;
+        textQ = '';
+      }
+    }
 
     let filtered = cache.filter(e => {
       if (kind && e.kind !== kind) return false;
@@ -203,10 +222,19 @@ window.CO_ENGRAM_ENGRAMS = {
       // - 'private' → 仅显示 visibility === 'private'
       if (visibility === 'private' && e.visibility !== 'private') return false;
       if (visibility === 'team' && e.visibility === 'private') return false;
-      if (q) {
+      // path 前缀过滤:engram id 即相对路径(去 .md 后缀);空 pathPrefix 仅匹配无 "/" 的根级
+      if (pathPrefix !== null) {
+        const id = (e.id || '').replace(/\.md$/, '');
+        if (pathPrefix === '') {
+          if (id.includes('/')) return false;
+        } else {
+          if (!id.startsWith(pathPrefix + '/')) return false;
+        }
+      }
+      if (textQ) {
         const title = (e.title || '').toLowerCase();
         const tags = (e.domainTags || []).join(' ').toLowerCase();
-        if (!title.includes(q) && !tags.includes(q)) return false;
+        if (!title.includes(textQ) && !tags.includes(textQ)) return false;
       }
       return true;
     });
@@ -285,54 +313,122 @@ window.CO_ENGRAM_ENGRAMS = {
     this.applyFilter();
   },
 
-  // 目录视图:按 domainTags[0](无则归入"未分类")→ kind 两层结构
-  _renderTree(items, body) {
+  // 目录视图:基于 /api/path-tree 物理目录树(2026-07 改版)
+  // 大规模(1000+ engram)下,旧版 domainTags[0] 分组存在两个问题:
+  //   1. 全 <details open> 一次性渲染所有 engram 卡片行 → DOM 巨大,tab 切换卡
+  //   2. 语义分组丢失物理结构,用户无法按目录浏览
+  // 新版渲染递归目录树(默认折叠,只展开 root),目录行显示 engramCount(累积);
+  // 点"查看"按钮 → 切回 card 视图 + 路径前缀过滤,真正展示 engram 卡片。
+  async _renderTree(items, body) {
     const T = CO_ENGRAM_T;
-    const groups = new Map(); // groupKey → { display, items: [] }
-    for (const e of items) {
-      const topTag = (e.domainTags || [])[0] || '__untagged__';
-      const display = topTag === '__untagged__' ? T.t('engrams.untagged') : topTag;
-      if (!groups.has(topTag)) groups.set(topTag, { display, items: [] });
-      groups.get(topTag).items.push(e);
+    body.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div>';
+
+    // path-tree 是目录树(不含 engram 叶子),目录数据相对稳定,可缓存整个 tab 生命周期
+    if (!CO_ENGRAM._pathTree) {
+      try {
+        const resp = await CO_ENGRAM.apiGet('/api/path-tree?maxDepth=8');
+        if (!resp || !resp.enabled || !resp.root) {
+          CO_ENGRAM._pathTree = null;
+        } else {
+          CO_ENGRAM._pathTree = resp.root;
+        }
+      } catch (e) {
+        body.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>';
+        return;
+      }
     }
-    // 排序:未分类最后,其他按字母
-    const sortedGroups = Array.from(groups.entries()).sort((a, b) => {
-      if (a[0] === '__untagged__') return 1;
-      if (b[0] === '__untagged__') return -1;
-      return a[1].display.localeCompare(b[1].display);
-    });
+    const root = CO_ENGRAM._pathTree;
+    if (!root || (!root.engramCount && !(root.children || []).length)) {
+      body.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
+      return;
+    }
+
+    // 递归渲染目录节点;depth 控制默认展开层级(只展开 depth=0,即 root 直系)
+    function renderNode(node, depth) {
+      const children = node.children || [];
+      // 目录自身直接拥有的 engram 数 = 累积 engramCount - 直系子目录累积数
+      // (path-tree 的 engramCount 是累积到子目录的,需要减去得到本目录直属)
+      let childSum = 0;
+      for (const c of children) childSum += (c.engramCount || 0);
+      const direct = Math.max(0, (node.engramCount || 0) - childSum);
+
+      // 路径显示:用 basename,空路径显示 root 标识
+      const segs = (node.path || '').split('/').filter(Boolean);
+      const basename = segs.length ? segs[segs.length - 1] : (node.path === '/' ? '/' : '/');
+      const pathForFilter = node.path && node.path !== '/' ? node.path : '';
+      const isOpen = depth === 0; // 只默认展开 root 一层
+
+      // 子目录递归(深度+1)
+      const childHtml = children.length
+        ? '<div class="tree-group-body">' + children.map(c => renderNode(c, depth + 1)).join('') + '</div>'
+        : '';
+
+      // 叶子目录无 children:只显示"查看"按钮;否则显示 details
+      const viewBtn = (node.engramCount || 0) > 0
+        ? '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS._filterByPath(\\'' + CO_ENGRAM.escapeHtml(pathForFilter) + '\\')">'
+          + CO_ENGRAM.escapeHtml(T.t('engrams.viewInCards')) + ' (' + (node.engramCount || 0) + ')</button>'
+        : '';
+
+      if (!children.length) {
+        // 叶子目录:单行 summary,无展开箭头,但保留查看按钮
+        return '<div class="tree-leaf-dir">'
+          + '<span class="tree-folder-icon">📁</span> '
+          + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
+          + '<span class="tree-count">' + (node.engramCount || 0) + '</span> '
+          + viewBtn
+          + '</div>';
+      }
+
+      return '<details class="tree-group"' + (isOpen ? ' open' : '') + '>'
+        + '<summary>'
+        + '<span class="tree-folder-icon">📁</span> '
+        + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
+        + '<span class="tree-count"' + CO_ENGRAM.tip('engrams.tree.cumulativeCount') + '>' + (node.engramCount || 0) + '</span>'
+        + (direct > 0 ? ' <span class="tree-direct">+' + direct + ' here</span>' : '')
+        + ' ' + viewBtn
+        + '</summary>'
+        + childHtml
+        + '</details>';
+    }
 
     let html = '<div class="tree-view">';
-    sortedGroups.forEach(([key, group], gi) => {
-      const gid = 'tree-group-' + gi;
-      const kindSubGroups = new Map();
-      for (const e of group.items) {
-        if (!kindSubGroups.has(e.kind)) kindSubGroups.set(e.kind, []);
-        kindSubGroups.get(e.kind).push(e);
+    // root 节点(path="/" 或 "")特殊处理:不显示 basename,直接展开其 children
+    const rootChildren = root.children || [];
+    if (rootChildren.length === 0 && (root.engramCount || 0) === 0) {
+      html += '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
+    } else {
+      // 把 root 的直属 engram("路径为空"的散落 engram)显示为顶部一个虚拟目录
+      const rootDirect = (root.engramCount || 0) - rootChildren.reduce((s, c) => s + (c.engramCount || 0), 0);
+      if (rootDirect > 0) {
+        html += '<details class="tree-group" open>'
+          + '<summary><span class="tree-folder-icon">🏠</span> '
+          + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootDirect')) + '</span> '
+          + '<span class="tree-count">' + rootDirect + '</span> '
+          + '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS._filterByPath(\\'\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.viewInCards')) + '</button>'
+          + '</summary></details>';
       }
-      const kindKeys = Array.from(kindSubGroups.keys()).sort();
-      const subRows = kindKeys.map(k => {
-        const subItems = kindSubGroups.get(k);
-        const subId = gid + '-k-' + k;
-        const itemRows = subItems.map(e =>
-          '<div class="tree-leaf" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')"' + CO_ENGRAM.tip('kind.' + e.kind) + '>'
-          + '<span class="chip kind-' + e.kind + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span> '
-          + CO_ENGRAM.escapeHtml(e.title)
-          + '</div>'
-        ).join('');
-        return '<details class="tree-subgroup" open>'
-          + '<summary><span class="chip kind-' + k + '"' + CO_ENGRAM.tip('kind.' + k) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', k)) + '</span> <span class="tree-count">' + subItems.length + '</span></summary>'
-          + '<div class="tree-leaf-group">' + itemRows + '</div>'
-          + '</details>';
-      }).join('');
-
-      html += '<details class="tree-group" open>'
-        + '<summary><span class="tree-folder-icon">📁</span> ' + CO_ENGRAM.escapeHtml(group.display) + ' <span class="tree-count">' + group.items.length + '</span></summary>'
-        + '<div class="tree-group-body">' + subRows + '</div>'
-        + '</details>';
-    });
+      // 子目录递归
+      for (const child of rootChildren) {
+        html += renderNode(child, 0);
+      }
+    }
     html += '</div>';
     body.innerHTML = html;
+  },
+
+  // path-tree 子目录"查看"按钮 → 切回 card 视图 + 路径前缀过滤
+  _filterByPath(prefix) {
+    const input = document.getElementById('engrams-q');
+    if (input) {
+      // 路径前缀语法:用 "path:" 前缀让 applyFilter 识别(下方 applyFilter 已支持)
+      input.value = prefix ? 'path:' + prefix + ' ' : '';
+    }
+    CO_ENGRAM._engramsViewMode = 'card';
+    const toggle = document.querySelector('.view-toggle');
+    if (toggle) toggle.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+    const cardBtn = document.querySelector('.view-toggle button:nth-child(1)');
+    if (cardBtn) cardBtn.classList.add('active');
+    CO_ENGRAM_ENGRAMS.applyFilter();
   },
 
   async open(id) {
@@ -380,18 +476,6 @@ window.CO_ENGRAM_ENGRAMS = {
       : '';
     const valueSection = (sourceLine || verifLine || decayLine || evidenceLine || lastEffLine || scoreLine)
       ? '<h3>' + T.sectionLabel('valueAssessment') + '</h3>' + sourceLine + verifLine + decayLine + evidenceLine + lastEffLine + scoreLine
-      : '';
-
-    // 多维重要性段(可选)
-    const iv = d.importanceVector;
-    const ivSection = iv
-      ? '<h3' + CO_ENGRAM.tip('importanceVector') + '>' + T.sectionLabel('multiDimImportance') + '</h3>'
-        + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('importanceDim.personal') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.personal')) + '</span>' + (iv.personal || 0).toFixed(2)
-        + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.team') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.team')) + '</span>' + (iv.team || 0).toFixed(2)
-        + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.project') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.project')) + '</span>' + (iv.project || 0).toFixed(2)
-        + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.network') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.network')) + '</span>' + (iv.network || 0).toFixed(2)
-        + ' <span class="field-label"' + CO_ENGRAM.tip('importanceDim.temporal') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.temporal')) + '</span>' + (iv.temporal || 0).toFixed(2)
-        + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.dim.composite')) + '</span>' + T.formatScoreBand(iv.composite) + '</div>'
       : '';
 
     // 记忆产生情境段(可选)— section 标题已说明,内嵌 field-label 冗余,直接渲染内容
@@ -449,7 +533,6 @@ window.CO_ENGRAM_ENGRAMS = {
             + '</div></details>';
         })()
       + valueSection
-      + ivSection
       + encSection;
     CO_ENGRAM.openDrawer(body);
   },

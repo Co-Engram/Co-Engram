@@ -1027,6 +1027,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.empty": "No matching memories",
   "engrams.retrievalsCount": "Retrievals ${n}",
   "engrams.untagged": "Untagged",
+  "engrams.viewInCards": "View in cards",
+  "engrams.tree.cumulativeCount": "Cumulative count (this folder + all descendants)",
+  "engrams.tree.rootDirect": "Root-level (no folder)",
 
   // ===== Extended enums (replacing viewer's CO_ENGRAM_LABELS) =====
   "enum.status.dormant": "Dormant",
