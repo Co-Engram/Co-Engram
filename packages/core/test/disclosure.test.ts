@@ -277,7 +277,6 @@ function makeDigestLine(
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 90,
     contentSize: engram.contentSize,
     contentHash: "",
     outgoingSynapseCount: 0,

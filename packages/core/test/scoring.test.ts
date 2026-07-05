@@ -9,6 +9,7 @@ import {
   DEFAULT_WEIGHTS,
   type ThreeFactorWeights,
 } from "../src/retrieval/scoring.js";
+import { deriveHalfLifeDays } from "../src/importance/dynamics.js";
 import type { DigestLine } from "../src/index/types.js";
 
 const DAY = 1000 * 60 * 60 * 24;
@@ -35,7 +36,6 @@ function makeLine(overrides: Partial<DigestLine> = {}): DigestLine {
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 90,
     contentSize: 10,
     contentHash: "",
     outgoingSynapseCount: 0,
@@ -72,31 +72,35 @@ describe("validateWeights", () => {
 // ============================================================
 
 describe("recencyDecay", () => {
-  it("decayHalfLifeDays=null → 1（永不衰退）", () => {
-    expect(recencyDecay(1000, null)).toBe(1);
-    expect(recencyDecay(1000, undefined)).toBe(1);
+  it("ageDays<=0 → 1(未来/刚发生)", () => {
+    expect(recencyDecay(0, 0.5)).toBe(1);
+    expect(recencyDecay(-10, 0.5)).toBe(1);
   });
 
-  it("decayHalfLifeDays<=0 → 1", () => {
-    expect(recencyDecay(100, 0)).toBe(1);
-    expect(recencyDecay(100, -10)).toBe(1);
-  });
-
-  it("ageDays<=0 → 1（未来/刚发生）", () => {
-    expect(recencyDecay(0, 90)).toBe(1);
-    expect(recencyDecay(-10, 90)).toBe(1);
-  });
-
-  it("age=halfLife → 0.5（半衰期定义）", () => {
-    expect(recencyDecay(90, 90)).toBeCloseTo(0.5, 5);
+  it("age=halfLife → 0.5(半衰期定义)", () => {
+    const importance = 0.5;
+    const halfLife = deriveHalfLifeDays(importance);
+    expect(recencyDecay(halfLife, importance)).toBeCloseTo(0.5, 5);
   });
 
   it("age=2×halfLife → 0.25", () => {
-    expect(recencyDecay(180, 90)).toBeCloseTo(0.25, 5);
+    const importance = 0.5;
+    const halfLife = deriveHalfLifeDays(importance);
+    expect(recencyDecay(halfLife * 2, importance)).toBeCloseTo(0.25, 5);
   });
 
   it("age=3×halfLife → 0.125", () => {
-    expect(recencyDecay(270, 90)).toBeCloseTo(0.125, 5);
+    const importance = 0.5;
+    const halfLife = deriveHalfLifeDays(importance);
+    expect(recencyDecay(halfLife * 3, importance)).toBeCloseTo(0.125, 5);
+  });
+
+  it("高 importance → halflife 更长 → 同样 ageDays 下 recency 更高", () => {
+    const ageDays = 30;
+    // 高重要性衰退慢,recency 更接近 1
+    expect(recencyDecay(ageDays, 0.9)).toBeGreaterThan(
+      recencyDecay(ageDays, 0.1),
+    );
   });
 });
 
@@ -123,7 +127,7 @@ describe("effectiveImportance", () => {
     expect(effectiveImportance(0, 1)).toBe(0);
   });
 
-  it("reinforcementScore<0 → 不削弱（视为 0）", () => {
+  it("reinforcementScore<0 → 不削弱(视为 0)", () => {
     expect(effectiveImportance(0.5, -0.3)).toBe(0.5);
   });
 });
@@ -143,33 +147,36 @@ describe("computeThreeFactorScore", () => {
     const line = makeLine({
       importance: 0,
       reinforcementScore: 0,
-      decayHalfLifeDays: 1,
       lastEffectiveAt: null,
       createdAt: "1900-01-01T00:00:00Z", // 久远 → ageDays 巨大 → recency≈0
     });
-    // relevance=0, recency≈0, importance=0 → score≈0
     expect(computeThreeFactorScore(0, line)).toBeCloseTo(0, 3);
   });
 
   it("relevance=1 + 最近有效 + 高 importance → 接近 1", () => {
     const now = new Date("2026-06-20T00:00:00Z");
+    const importance = 0.9;
+    const halfLife = deriveHalfLifeDays(importance);
     const line = makeLine({
-      importance: 1,
+      importance,
       reinforcementScore: 0,
-      decayHalfLifeDays: 90,
       lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(), // 1 天前
     });
-    // relevance=1, recency=0.5^(1/90)≈0.9923, importance=1
-    // score = 0.5×1 + 0.3×0.9923 + 0.2×1 = 0.5 + 0.2977 + 0.2 = 0.9977
-    expect(computeThreeFactorScore(1, line, { now })).toBeCloseTo(0.9977, 3);
+    // relevance=1, recency=0.5^(1/halfLife), importance=0.9
+    const expectedRecency = Math.pow(0.5, 1 / halfLife);
+    const expected =
+      0.5 * 1 + 0.3 * expectedRecency + 0.2 * importance;
+    expect(computeThreeFactorScore(1, line, { now })).toBeCloseTo(
+      expected,
+      3,
+    );
   });
 
   it("recency≈0(lastEffectiveAt 很久以前)时仍有 relevance+importance 贡献", () => {
     const line = makeLine({
       importance: 0.5,
       reinforcementScore: 0,
-      lastEffectiveAt: "1900-01-01T00:00:00Z", // 久远 → ageDays 巨大 → recency≈0
-      decayHalfLifeDays: 90,
+      lastEffectiveAt: "1900-01-01T00:00:00Z",
     });
     // relevance=0.8, recency≈0, importance=0.5
     // score = 0.5×0.8 + 0.3×0 + 0.2×0.5 = 0.4 + 0 + 0.1 = 0.5
@@ -183,14 +190,16 @@ describe("computeThreeFactorScore", () => {
     });
     const weights: ThreeFactorWeights = { alpha: 1, beta: 0, gamma: 0 };
     // 纯 relevance
-    expect(computeThreeFactorScore(0.7, line, { weights })).toBeCloseTo(0.7, 3);
+    expect(computeThreeFactorScore(0.7, line, { weights })).toBeCloseTo(
+      0.7,
+      3,
+    );
   });
 
-  it("同输入同输出（确定性）", () => {
+  it("同输入同输出(确定性)", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const line = makeLine({
       importance: 0.6,
-      decayHalfLifeDays: 30,
       lastEffectiveAt: new Date(now.getTime() - 10 * DAY).toISOString(),
     });
     const s1 = computeThreeFactorScore(0.7, line, { now });
@@ -269,11 +278,6 @@ describe("reciprocalRankFusion", () => {
       ["a", "b", "c"],
       ["b", "a", "d"],
     ]);
-    // a 出现在 [1, 2] → 1/(60+1) + 1/(60+2) = 0.01639 + 0.01613 = 0.03252
-    // b 出现在 [2, 1] → 1/(60+2) + 1/(60+1) = 0.03252
-    // a 和 b 分数应相等（同位）
-    // c 出现在 [3] → 1/(60+3) = 0.01587
-    // d 出现在 [3] → 1/(60+3) = 0.01587
     const a = rrf.find((x) => x.id === "a")!.score;
     const b = rrf.find((x) => x.id === "b")!.score;
     const c = rrf.find((x) => x.id === "c")!.score;
@@ -283,9 +287,8 @@ describe("reciprocalRankFusion", () => {
     expect(c).toBeCloseTo(d, 5);
   });
 
-  it("同分稳定排序（按 id 字典序）", () => {
+  it("同分稳定排序(按 id 字典序)", () => {
     const rrf = reciprocalRankFusion([["z", "a", "m"]]);
-    // 所有 rank 1/(60+k)，各不相同
     expect(rrf[0].id).toBe("z");
     expect(rrf[1].id).toBe("a");
     expect(rrf[2].id).toBe("m");
@@ -309,32 +312,29 @@ describe("reciprocalRankFusion", () => {
 });
 
 // ============================================================
-// 端到端：三因子 vs 纯 relevance
+// 端到端:三因子 vs 纯 relevance
 // ============================================================
 
-describe("三因子 vs 纯 relevance（验收）", () => {
+describe("三因子 vs 纯 relevance(验收)", () => {
   it("近期高 importance 的 engram 优先于纯 relevance 高但陈旧的", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    // A: relevance=0.5，但近期有效，importance=0.9
+    // A: relevance=0.5,但近期有效,importance=0.9
     const lineA = makeLine({
       id: "a",
       importance: 0.9,
       reinforcementScore: 0,
-      decayHalfLifeDays: 90,
       lastEffectiveAt: new Date(now.getTime() - DAY).toISOString(), // 1 天前
     });
-    // B: relevance=0.9，但很久没用了，importance=0.3
+    // B: relevance=0.9,但很久没用了,importance=0.3
     const lineB = makeLine({
       id: "b",
       importance: 0.3,
       reinforcementScore: 0,
-      decayHalfLifeDays: 90,
-      lastEffectiveAt: new Date(now.getTime() - 365 * DAY).toISOString(), // 1 年前
+      lastEffectiveAt: new Date(now.getTime() - 365 * DAY).toISOString(),
     });
 
     const scoreA = computeThreeFactorScore(0.5, lineA, { now });
     const scoreB = computeThreeFactorScore(0.9, lineB, { now });
-    // 验收：三因子下 A 反超 B（即便 B relevance 更高）
     expect(scoreA).toBeGreaterThan(scoreB);
   });
 });

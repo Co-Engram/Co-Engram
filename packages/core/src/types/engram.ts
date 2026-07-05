@@ -48,7 +48,7 @@ export type EngramStatus =
 /**
  * Engram 新鲜度（系统计算，不可手动设置）
  *
- * 基于 lastEffectiveAt + decayHalfLifeDays 计算
+ * 基于 lastEffectiveAt + 派生 halflife(由 importance 实时算) 计算
  */
 export type EngramFreshness = "fresh" | "aging" | "stale" | "forgotten";
 
@@ -178,7 +178,6 @@ export interface Engram {
   readonly lastRetrievedAt?: string;
   readonly lastEffectiveAt?: string;
   readonly reinforcementScore: number;
-  readonly decayHalfLifeDays: number | null;
   /**
    * 最近一次检索时计算出的相关性分数 [0,1]（P4 自动维护用）。
    *
@@ -220,7 +219,6 @@ export interface EngramCreateInput {
   readonly sourceType?: EngramSourceType;
   readonly importance?: number;
   readonly confidence?: number;
-  readonly decayHalfLifeDays?: number | null;
   readonly visibility?: EngramVisibility;
   readonly importanceVector?: ImportanceVector;
   readonly perspective?: string;
@@ -240,7 +238,6 @@ export interface EngramUpdateInput {
   readonly updatedBy: string;
   readonly importance?: number;
   readonly confidence?: number;
-  readonly decayHalfLifeDays?: number | null;
   readonly visibility?: EngramVisibility;
   readonly importanceVector?: ImportanceVector;
   readonly perspective?: string;

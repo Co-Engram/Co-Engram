@@ -87,7 +87,6 @@ export interface ProposalPayload {
   readonly sourceType?: EngramCreateInput["sourceType"];
   readonly importance?: number;
   readonly visibility?: EngramCreateInput["visibility"];
-  readonly decayHalfLifeDays?: number | null;
   readonly encodingContext?: string;
   /** external-markdown 专用:文件在 dataRoot 内的相对路径 */
   readonly sourcePath?: string;
@@ -404,9 +403,6 @@ export class ProposalEngine {
         : payload?.visibility !== undefined
           ? { visibility: payload.visibility }
           : {}),
-      ...(payload?.decayHalfLifeDays !== undefined
-        ? { decayHalfLifeDays: payload.decayHalfLifeDays }
-        : {}),
       ...(payload?.encodingContext !== undefined
         ? { encodingContext: payload.encodingContext }
         : {}),
@@ -476,7 +472,6 @@ export class ProposalEngine {
     readonly sourceType?: EngramCreateInput["sourceType"];
     readonly importance?: number;
     readonly visibility?: EngramCreateInput["visibility"];
-    readonly decayHalfLifeDays?: number | null;
     readonly encodingContext?: string;
     readonly at?: string;
   }): "proposed" | "updated" | "no-change" {
@@ -494,9 +489,6 @@ export class ProposalEngine {
       ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
       ...(input.importance !== undefined ? { importance: input.importance } : {}),
       ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
-      ...(input.decayHalfLifeDays !== undefined
-        ? { decayHalfLifeDays: input.decayHalfLifeDays }
-        : {}),
       ...(input.encodingContext !== undefined
         ? { encodingContext: input.encodingContext }
         : {}),
@@ -596,7 +588,6 @@ export class ProposalEngine {
     readonly sourceType?: EngramCreateInput["sourceType"];
     readonly importance?: number;
     readonly visibility?: EngramCreateInput["visibility"];
-    readonly decayHalfLifeDays?: number | null;
     readonly encodingContext?: string;
     readonly at?: string;
   }): "proposed" | "updated" | "no-change" {
@@ -614,9 +605,6 @@ export class ProposalEngine {
       ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
       ...(input.importance !== undefined ? { importance: input.importance } : {}),
       ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
-      ...(input.decayHalfLifeDays !== undefined
-        ? { decayHalfLifeDays: input.decayHalfLifeDays }
-        : {}),
       ...(input.encodingContext !== undefined
         ? { encodingContext: input.encodingContext }
         : {}),
@@ -710,7 +698,6 @@ export class ProposalEngine {
         sourceType?: unknown;
         importance?: unknown;
         visibility?: unknown;
-        decayHalfLifeDays?: unknown;
         encodingContext?: unknown;
         contextTags?: unknown;
         content?: unknown;
@@ -731,9 +718,6 @@ export class ProposalEngine {
         ...(typeof fm.sourceType === "string" ? { sourceType: fm.sourceType as never } : {}),
         ...(typeof fm.importance === "number" ? { importance: fm.importance } : {}),
         ...(typeof fm.visibility === "string" ? { visibility: fm.visibility as never } : {}),
-        ...(typeof fm.decayHalfLifeDays === "number"
-          ? { decayHalfLifeDays: fm.decayHalfLifeDays }
-          : {}),
         ...(typeof fm.encodingContext === "string"
           ? { encodingContext: fm.encodingContext }
           : {}),
@@ -1312,7 +1296,6 @@ function payloadEqual(a: ProposalPayload, b: ProposalPayload): boolean {
   if ((a.sourceType ?? "") !== (b.sourceType ?? "")) return false;
   if ((a.importance ?? -1) !== (b.importance ?? -1)) return false;
   if ((a.visibility ?? "") !== (b.visibility ?? "")) return false;
-  if ((a.decayHalfLifeDays ?? -1) !== (b.decayHalfLifeDays ?? -1)) return false;
   if ((a.encodingContext ?? "") !== (b.encodingContext ?? "")) return false;
   return true;
 }

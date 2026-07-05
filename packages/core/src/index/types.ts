@@ -59,8 +59,6 @@ export interface DigestLine {
   readonly failedUses: number;
   /** reinforcementScore */
   readonly reinforcementScore: number;
-  /** decayHalfLifeDays */
-  readonly decayHalfLifeDays: number | null;
   /** contentSize */
   readonly contentSize: number;
   /** contentHash */

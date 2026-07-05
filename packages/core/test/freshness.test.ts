@@ -3,8 +3,8 @@ import {
   computeFreshness,
   computeFreshnessBatch,
   effectiveAge,
-  DEFAULT_HALF_LIFE_DAYS,
 } from "../src/lifecycle/freshness.js";
+import { deriveHalfLifeDays } from "../src/importance/dynamics.js";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 const FIXED_CREATED_AT = "2020-01-01T00:00:00Z";
@@ -15,7 +15,6 @@ describe("effectiveAge", () => {
   it("lastEffectiveAt 优先于 createdAt", () => {
     const lastEffective = new Date(now.getTime() - 10 * DAY_MS).toISOString();
     const createdAt = new Date(now.getTime() - 100 * DAY_MS).toISOString();
-    // 应该用 lastEffectiveAt(10 天前),不是 createdAt(100 天前)
     expect(effectiveAge(lastEffective, createdAt, now)).toBeCloseTo(10, 5);
   });
 
@@ -27,7 +26,6 @@ describe("effectiveAge", () => {
 
   it("损坏 lastEffectiveAt 字符串 → fallback 到 createdAt", () => {
     const createdAt = new Date(now.getTime() - 30 * DAY_MS).toISOString();
-    // lastEffectiveAt 是损坏字符串 → fallback 用 createdAt(30 天前)
     expect(effectiveAge("not-a-date", createdAt, now)).toBeCloseTo(30, 5);
   });
 
@@ -43,88 +41,126 @@ describe("effectiveAge", () => {
 });
 
 describe("computeFreshness", () => {
-  it("decayHalfLifeDays=null → 永远 fresh", () => {
-    const old = new Date("2020-01-01").toISOString();
-    expect(computeFreshness(old, FIXED_CREATED_AT, null)).toBe("fresh");
+  it("未生效 engram 用 createdAt 兜底,新记忆从编码完成起开始衰退", () => {
+    // importance=0.5 → deriveHalfLifeDays(0.5) ≈ 14 天
+    const halfLife = deriveHalfLifeDays(0.5);
+    const now = new Date("2026-06-20T00:00:00Z");
+    const recent = new Date(now.getTime() - 5 * DAY_MS).toISOString();
+    const withinAging = new Date(
+      now.getTime() - (halfLife + 1) * DAY_MS,
+    ).toISOString();
+    const withinStale = new Date(
+      now.getTime() - (halfLife * 2 + 1) * DAY_MS,
+    ).toISOString();
+    const forgotten = new Date(
+      now.getTime() - (halfLife * 4 + 1) * DAY_MS,
+    ).toISOString();
+
+    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
+    expect(computeFreshness(withinAging, FIXED_CREATED_AT, 0.5, now)).toBe(
+      "aging",
+    );
+    expect(computeFreshness(withinStale, FIXED_CREATED_AT, 0.5, now)).toBe(
+      "stale",
+    );
+    expect(computeFreshness(forgotten, FIXED_CREATED_AT, 0.5, now)).toBe(
+      "forgotten",
+    );
   });
 
-  it("未生效 engram 用 createdAt 兜底,新记忆从编码完成起开始衰退", () => {
+  it("importance 越高 → halflife 越长 → 衰退越慢(高 importance 在更老年龄仍 fresh)", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const created10DaysAgo = new Date(now.getTime() - 10 * DAY_MS).toISOString();
-    const created100DaysAgo = new Date(now.getTime() - 100 * DAY_MS).toISOString();
-    const created200DaysAgo = new Date(now.getTime() - 200 * DAY_MS).toISOString();
-    const created400DaysAgo = new Date(now.getTime() - 400 * DAY_MS).toISOString();
+    // 30 天前生效
+    const lastEff = new Date(now.getTime() - 30 * DAY_MS).toISOString();
 
-    expect(computeFreshness(null, created10DaysAgo, 90, now)).toBe("fresh");
-    expect(computeFreshness(undefined, created10DaysAgo, 90, now)).toBe("fresh");
-    expect(computeFreshness(null, created100DaysAgo, 90, now)).toBe("aging");
-    expect(computeFreshness(null, created200DaysAgo, 90, now)).toBe("stale");
-    expect(computeFreshness(null, created400DaysAgo, 90, now)).toBe("forgotten");
+    // 低 importance:halflife 短,30 天可能已 forgotten
+    const low = computeFreshness(lastEff, FIXED_CREATED_AT, 0.05, now);
+    // 高 importance:halflife 长,30 天仍 fresh
+    const high = computeFreshness(lastEff, FIXED_CREATED_AT, 0.9, now);
+
+    // 验收:high 比 low 更 fresh(low 字典序在前 = forgotten 先于 fresh)
+    const order = ["fresh", "aging", "stale", "forgotten"];
+    expect(order.indexOf(high)).toBeLessThan(order.indexOf(low));
   });
 
   it("halfLife 内 → fresh", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const recent = new Date(now.getTime() - 10 * DAY_MS).toISOString(); // 10 天前
-    expect(computeFreshness(recent, FIXED_CREATED_AT, 90, now)).toBe("fresh");
+    const halfLife = deriveHalfLifeDays(0.5);
+    const recent = new Date(
+      now.getTime() - (halfLife - 1) * DAY_MS,
+    ).toISOString();
+    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
   });
 
   it("1×~2×halfLife → aging", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const age100Days = new Date(now.getTime() - 100 * DAY_MS).toISOString();
-    expect(computeFreshness(age100Days, FIXED_CREATED_AT, 90, now)).toBe("aging");
+    const halfLife = deriveHalfLifeDays(0.5);
+    const age = new Date(
+      now.getTime() - (halfLife * 1.5) * DAY_MS,
+    ).toISOString();
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("aging");
   });
 
   it("2×~4×halfLife → stale", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const age200Days = new Date(now.getTime() - 200 * DAY_MS).toISOString();
-    expect(computeFreshness(age200Days, FIXED_CREATED_AT, 90, now)).toBe("stale");
+    const halfLife = deriveHalfLifeDays(0.5);
+    const age = new Date(
+      now.getTime() - (halfLife * 3) * DAY_MS,
+    ).toISOString();
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("stale");
   });
 
   it("4×+halfLife → forgotten", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const age400Days = new Date(now.getTime() - 400 * DAY_MS).toISOString();
-    expect(computeFreshness(age400Days, FIXED_CREATED_AT, 90, now)).toBe("forgotten");
+    const halfLife = deriveHalfLifeDays(0.5);
+    const age = new Date(
+      now.getTime() - (halfLife * 5) * DAY_MS,
+    ).toISOString();
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("forgotten");
   });
 
   it("未来时间(时钟偏差)→ fresh", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const future = new Date(now.getTime() + 1000 * DAY_MS).toISOString();
-    expect(computeFreshness(future, FIXED_CREATED_AT, 90, now)).toBe("fresh");
+    expect(computeFreshness(future, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
   });
 
   it("非法 lastEffectiveAt → fallback 到 createdAt 衰退", () => {
     const now = new Date("2026-06-20T00:00:00Z");
-    const created200DaysAgo = new Date(now.getTime() - 200 * DAY_MS).toISOString();
-    // lastEffectiveAt 损坏 → fallback 到 createdAt(200 天前)→ freshness="stale"
-    expect(computeFreshness("not-a-date", created200DaysAgo, 90, now)).toBe("stale");
-  });
-
-  it("DEFAULT_HALF_LIFE_DAYS = 90", () => {
-    expect(DEFAULT_HALF_LIFE_DAYS).toBe(90);
+    const halfLife = deriveHalfLifeDays(0.5);
+    const createdStale = new Date(
+      now.getTime() - (halfLife * 3) * DAY_MS,
+    ).toISOString();
+    expect(computeFreshness("not-a-date", createdStale, 0.5, now)).toBe("stale");
   });
 });
 
 describe("computeFreshnessBatch", () => {
   it("批量计算(含未生效 engram)", () => {
     const now = new Date("2026-06-20T00:00:00Z");
+    const halfLife = deriveHalfLifeDays(0.5);
     const items = [
-      // 未生效 + 10 天前创建 → fresh
+      // 未生效 + 5 天前创建 → fresh
       {
         lastEffectiveAt: null,
-        createdAt: new Date(now.getTime() - 10 * DAY_MS).toISOString(),
-        decayHalfLifeDays: 90,
+        createdAt: new Date(now.getTime() - 5 * DAY_MS).toISOString(),
+        importance: 0.5,
       },
-      // 已生效 + 200 天前 → stale
+      // 已生效 + 3×halfLife → stale
       {
-        lastEffectiveAt: new Date(now.getTime() - 200 * DAY_MS).toISOString(),
+        lastEffectiveAt: new Date(
+          now.getTime() - (halfLife * 3) * DAY_MS,
+        ).toISOString(),
         createdAt: FIXED_CREATED_AT,
-        decayHalfLifeDays: 90,
+        importance: 0.5,
       },
-      // 已生效 + 400 天前 → forgotten
+      // 已生效 + 5×halfLife → forgotten
       {
-        lastEffectiveAt: new Date(now.getTime() - 400 * DAY_MS).toISOString(),
+        lastEffectiveAt: new Date(
+          now.getTime() - (halfLife * 5) * DAY_MS,
+        ).toISOString(),
         createdAt: FIXED_CREATED_AT,
-        decayHalfLifeDays: 90,
+        importance: 0.5,
       },
     ];
     const result = computeFreshnessBatch(items, now);

@@ -360,11 +360,13 @@ window.CO_ENGRAM_ENGRAMS = {
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('verification.' + verif) + '>' + T.fieldLabel('verificationStatus') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('verificationStatus', verif)) + '</div>'
       : '';
 
-    // 衰退进度段(替代固定半衰期显示)
-    const hasHalfLife = d.decayHalfLifeDays !== undefined && d.decayHalfLifeDays !== null;
-    const decay = hasHalfLife ? D.computeDecayState(d.lastEffectiveAt, d.createdAt, d.decayHalfLifeDays) : null;
-    const decayLine = hasHalfLife
-      ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('decayHalfLifeDays') + '>' + T.fieldLabel('decayProgress') + '</span><div class="decay-block">' + D.renderDecayBar(decay, d.decayHalfLifeDays) + '</div></div>'
+    // 衰退进度段:半衰期从 importance 实时派生(机制 D)
+    const hasImportance = d.importance !== undefined && d.importance !== null;
+    const decay = hasImportance
+      ? D.computeDecayState(d.lastEffectiveAt, d.createdAt, d.importance)
+      : null;
+    const decayLine = hasImportance
+      ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('decayProgress') + '>' + T.fieldLabel('decayProgress') + '</span><div class="decay-block">' + D.renderDecayBar(decay) + '</div></div>'
       : '';
 
     const evidenceLine = d.evidenceCount !== undefined

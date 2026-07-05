@@ -541,8 +541,8 @@ function findInstalledMergeDriverBundle(): string | null {
  * 重建搜索索引
  *
  * 用 collectDigestLines 取真实 DigestLine[],让三因子打分能用真实 importance /
- * decayHalfLifeDays / retrievalCount 等字段(之前的 stub 实现把这些字段全部
- * 默认成 0.5/90/0,导致 importance 因子对排名完全无贡献)。
+ * retrievalCount 等字段(之前的 stub 实现把这些字段全部
+ * 默认成 0.5/0,导致 importance 因子对排名完全无贡献)。
  *
  * SearchEngine 接口实现:
  * - memory(SearchOrchestrator):真正重建 ftsIndex

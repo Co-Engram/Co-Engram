@@ -99,7 +99,7 @@ describe("collectDigestLines", () => {
     expect(collectDigestLines(repo)).toEqual([]);
   });
 
-  it("返回每个 engram 的真实 DigestLine(含 importance / decayHalfLifeDays / retrievalCount)", () => {
+  it("返回每个 engram 的真实 DigestLine(含 importance / retrievalCount)", () => {
     // 用真实 importance 创建,验证不是 stub 的 0.5
     const a = repo.createEngram({
       ...makeEngram({
@@ -108,7 +108,6 @@ describe("collectDigestLines", () => {
         domainTags: ["x"],
       }),
       importance: 0.9,
-      decayHalfLifeDays: 365,
     });
     const b = repo.createEngram({
       ...makeEngram({
@@ -117,7 +116,6 @@ describe("collectDigestLines", () => {
         domainTags: ["y"],
       }),
       importance: 0.1,
-      decayHalfLifeDays: 30,
     });
 
     const lines = collectDigestLines(repo);
@@ -130,8 +128,6 @@ describe("collectDigestLines", () => {
     // 关键回归:不能是 stub 的 0.5
     expect(lineA!.importance).toBe(0.9);
     expect(lineB!.importance).toBe(0.1);
-    expect(lineA!.decayHalfLifeDays).toBe(365);
-    expect(lineB!.decayHalfLifeDays).toBe(30);
     // status / freshness / createdBy 应来自真实 engram,不是硬编码 'active' / 'fresh' / 'system'
     expect(lineA!.createdBy).toBe("tester");
   });

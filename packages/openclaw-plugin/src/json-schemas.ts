@@ -134,11 +134,6 @@ export const engramCreateSchema: JsonSchemaObject = {
     confidence: numberField("置信度 [0,1]"),
     sourceType: { type: "string", enum: SOURCE_TYPE_ENUM },
     visibility: { type: "string", enum: VISIBILITY_ENUM },
-    decayHalfLifeDays: {
-      type: ["integer", "null"],
-      description: "半衰期天数（null 表示永不衰退）",
-      minimum: 1,
-    },
     createdBy: stringField("创建者标识（留空自动用 git user.name；不要填 'claude-code' / 'openclaw' / 'assistant' / 'system' 等工具名）"),
     dedupe: {
       type: "boolean",
@@ -203,10 +198,6 @@ export const engramUpdateSchema: JsonSchemaObject = {
     encodingContext: optionalStringField("编码情境"),
     importance: numberField("重要性 [0,1]"),
     confidence: numberField("置信度 [0,1]"),
-    decayHalfLifeDays: {
-      type: ["integer", "null"],
-      minimum: 1,
-    },
     visibility: { type: "string", enum: VISIBILITY_ENUM },
     updatedBy: stringField("更新者标识"),
   },

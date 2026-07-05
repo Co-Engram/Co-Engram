@@ -26,7 +26,6 @@ function makeLine(overrides: Partial<DigestLine>): DigestLine {
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 90,
     contentSize: 10,
     contentHash: "sha256:abc",
     outgoingSynapseCount: 0,

@@ -282,7 +282,6 @@ function buildDigestLines(): DigestLine[] {
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 30,
     contentSize: f.summary.length,
     contentHash: `hash-${i}`,
     outgoingSynapseCount: 0,

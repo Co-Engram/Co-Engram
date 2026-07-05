@@ -702,7 +702,6 @@ describe("GET /api/search", () => {
       effectiveRetrievals: 0,
       failedUses: 0,
       reinforcementScore: 0,
-      decayHalfLifeDays: 90,
       contentSize: 100,
       contentHash: "sha256:stub",
       outgoingSynapseCount: 0,

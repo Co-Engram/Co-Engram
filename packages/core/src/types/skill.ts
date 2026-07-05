@@ -149,7 +149,6 @@ export interface SkillCreateInput {
   readonly activeInScenes?: readonly SceneId[];
   readonly inhibitedInScenes?: readonly SceneId[];
   readonly composes?: readonly SkillId[];
-  readonly decayHalfLifeDays?: number | null;
   readonly relatedEngrams?: readonly EngramId[];
   readonly visibility?: "public" | "team" | "private";
   readonly createdBy: string;

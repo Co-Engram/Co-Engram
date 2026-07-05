@@ -236,7 +236,7 @@ function resolveNecessityEvaluator(
 /**
  * 重建搜索索引(全量)
  *
- * 用 collectDigestLines 取真实 DigestLine[](含 importance / decayHalfLifeDays /
+ * 用 collectDigestLines 取真实 DigestLine[](含 importance /
  * retrievalCount / reinforcementScore 等),让 SearchOrchestrator 的三因子打分
  * (α·relevance + β·recency + γ·importance)能用真实数据,而不是全部默认 0.5。
  *

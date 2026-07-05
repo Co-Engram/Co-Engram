@@ -104,7 +104,6 @@ export const EngramCreateInputSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   sourceType: EngramSourceTypeSchema.optional(),
   visibility: EngramVisibilitySchema.optional(),
-  decayHalfLifeDays: z.number().int().positive().nullable().optional(),
   createdBy: z.string().min(1).optional(),
   dedupe: z.boolean().default(true),
 });
@@ -159,7 +158,6 @@ export const EngramUpdateInputSchema = z.object({
   encodingContext: z.string().optional(),
   importance: z.number().min(0).max(1).optional(),
   confidence: z.number().min(0).max(1).optional(),
-  decayHalfLifeDays: z.number().int().positive().nullable().optional(),
   visibility: EngramVisibilitySchema.optional(),
   updatedBy: z.string().min(1),
 });
@@ -491,7 +489,6 @@ export interface EngramListProposalsToolResult {
     proposedVisibility?: string;
     proposedEncodingContext?: string;
     proposedSourceType?: string;
-    proposedDecayHalfLifeDays?: number | null;
     proposedCreatedBy?: string;
     suggestedTitle?: string;
     necessityReason?: string;

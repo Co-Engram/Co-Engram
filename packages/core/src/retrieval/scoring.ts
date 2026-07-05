@@ -6,8 +6,8 @@
  *
  * 其中：
  *   - relevance ∈ [0,1]：来自 FTS 归一化分（或向量余弦，P2 引入）
- *   - recency ∈ [0,1]：`0.5^(ageDays / decayHalfLifeDays)`（Ebbinghaus 衰退）
- *     · decayHalfLifeDays=null → recency=1（永不衰退）
+ *   - recency ∈ [0,1]：`0.5^(ageDays / deriveHalfLifeDays(importance))`（Ebbinghaus 衰退）
+ *     · 半衰期从 importance 派生(机制 D):重要记忆衰退慢
  *     · ageDays ≤ 0（未来/刚刚）→ recency=1
  *   - importance ∈ [0,1]：`engram.importance × (1 + reinforcementScore)`
  *     · reinforcementScore 由 P1 2.1 三信号追踪累积
@@ -22,6 +22,7 @@
 
 import type { DigestLine } from "../index/types.js";
 import { effectiveAge } from "../lifecycle/freshness.js";
+import { deriveHalfLifeDays } from "../importance/dynamics.js";
 
 /** 三因子权重配置 */
 export interface ThreeFactorWeights {
@@ -60,19 +61,17 @@ export function validateWeights(w: ThreeFactorWeights): void {
 /**
  * 艾宾浩斯衰退函数
  *
- * `recency = 0.5^(ageDays / decayHalfLifeDays)`
+ * `recency = 0.5^(ageDays / deriveHalfLifeDays(importance))`
  *
- * - decayHalfLifeDays=null/undefined → 1（永不衰退）
- * - decayHalfLifeDays<=0 → 1（非法半衰期视为不衰退）
+ * 半衰期从 importance 实时派生(机制 D):重要记忆衰退慢。
+ *
  * - ageDays<=0 → 1（未来或刚刚）
  */
-export function recencyDecay(
-  ageDays: number,
-  decayHalfLifeDays: number | null | undefined,
-): number {
-  if (!decayHalfLifeDays || decayHalfLifeDays <= 0) return 1;
+export function recencyDecay(ageDays: number, importance: number): number {
   if (ageDays <= 0) return 1;
-  return Math.pow(0.5, ageDays / decayHalfLifeDays);
+  const halfLife = deriveHalfLifeDays(importance);
+  if (halfLife <= 0) return 1;
+  return Math.pow(0.5, ageDays / halfLife);
 }
 
 /**
@@ -125,7 +124,7 @@ export function computeThreeFactorScore(
   const lastEffective = options.lastEffectiveAt ?? line.lastEffectiveAt;
   const ageDays = effectiveAge(lastEffective, line.createdAt, now);
 
-  const recency = recencyDecay(ageDays, line.decayHalfLifeDays);
+  const recency = recencyDecay(ageDays, line.importance);
   const importance = effectiveImportance(
     line.importance,
     line.reinforcementScore,

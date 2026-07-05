@@ -536,13 +536,13 @@ Input: { id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synap
 Side effects: none. Does NOT update lastRetrievedAt (use engram_reinforce).
 Error conditions: not found throws; invalid tier throws.
 truthScore field exposed here (field-name reference allowed).`,
-  "tool.engram_create.technical": `Create new engram. Input: { title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+  "tool.engram_create.technical": `Create new engram. Input: { title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, dedupe?, encodingContext? }
 kind enum: observation | fact | pattern | procedure | hypothesis.
 Dedupe mode (default true): DUPLICATE reinforces existing (calls recordRetrievalSuccess); UPDATE merges content; NEW creates.
 Side effects: writes engrams/<slug>.md + .meta.json + .synapses.json; appends audit event; marks repo dirty.
 Error conditions: missing required fields throws; invalid kind throws.
 Invariant: slug uniqueness enforced; collision appends suffix.`,
-  "tool.engram_update.technical": `Update engram fields. Input: { id, title?, content?, summary?, importance?, domainTags?, contextTags?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+  "tool.engram_update.technical": `Update engram fields. Input: { id, title?, content?, summary?, importance?, domainTags?, contextTags?, visibility?, updatedBy, kinds? }
 Optimistic lock: version field checked (Finding 231 — pending impl).
 Side effects: rewrites .md + .meta.json; appends audit; updates digest/graph index incrementally; marks dirty.
 Error conditions: not found throws; version mismatch throws (when implemented).
@@ -1011,7 +1011,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "decay.forgotten": "Forgotten",
   "decay.neverDecays": "Never decays",
   "decay.neverDecaysTip":
-    "This engram has decayHalfLifeDays=null; the system does not track its decay.",
+    "Half-life is derived from importance; very low-importance engrams decay within hours.",
   "decay.levelLabel": "Current: ${level}",
 
   // List view (engrams.<area>.<name>)
@@ -1510,7 +1510,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.ruleHebbian":
     "<strong>Hebbian neighbor spread</strong>: when a memory is reinforced, direct neighbors (via synapse) gain <code>ltpGain × hebbianRatio</code> (default <code>hebbianRatio = 0.5</code>); contradicts edges excluded.",
   "viewer.help.ruleWeights":
-    "<strong>Three-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance (defaults α=0.5 / β=0.3 / γ=0.2). recency follows Ebbinghaus half-life <code>0.5^(ageDays / decayHalfLifeDays)</code>.",
+    "<strong>Three-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance (defaults α=0.5 / β=0.3 / γ=0.2). recency follows Ebbinghaus half-life <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code>, derived from importance (mechanism D).",
   "viewer.help.ruleWindows":
     "<strong>Observation window</strong>: opened when an engram is retrieved; reinforce within window → effective (LTP); report failure → failed use (LTD); expiry closes the hit as inconclusive. Default length by kind: observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d. Multi-kind uses max.",
   "viewer.help.stateMachineTitle": "Verification state machine (5 levels)",
@@ -1551,7 +1551,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.evo4":
     "<strong>Spread</strong>: reinforcement propagates through synapses to neighbors by Hebbian proportion (except contradicts).",
   "viewer.help.evo5":
-    "<strong>Decay</strong>: every engram has <code>decayHalfLifeDays</code>; importance decays exponentially by lastEffectiveAt + half-life.",
+    "<strong>Decay</strong>: half-life is derived from <code>engram.importance</code> in real time (<code>deriveHalfLifeDays</code>); importance decays exponentially by lastEffectiveAt + half-life.",
   "viewer.help.evo6":
     "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'.",
   "viewer.help.tipsTitle": "Tips",
@@ -1754,7 +1754,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "tip.reinforcementScore":
     "Reinforcement score: cumulative positive reinforcement signal.",
   "tip.decayHalfLifeDays":
-    "Decay half-life (days): importance halves every N days. null means never decays.",
+    "Decay half-life (days), derived from importance via deriveHalfLifeDays (halflife = 50 × (importance + 0.1)^2.5). Important memories decay slowly.",
   "tip.lastEffectiveAt":
     "Last effective at: timestamp of the most recent successful adoption/reinforcement.",
   "tip.evidenceCount":

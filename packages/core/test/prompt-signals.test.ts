@@ -46,7 +46,6 @@ function makeEngram(
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 90,
     outgoingSynapseCount: 0,
     incomingSynapseCount: 0,
     activeContradictionCount: 0,

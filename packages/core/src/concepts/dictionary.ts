@@ -166,12 +166,12 @@ export const CONCEPT_DICTIONARY = {
     zh: "艾宾浩斯衰退",
     en: "Ebbinghaus decay",
     userExplanation: {
-      zh: "记忆随时间淡化。检索打分里 recency 因子按艾宾浩斯遗忘曲线衰退:每过一个半衰期,recency 减半。半衰期由 decayHalfLifeDays 配置(若为 null 表示永不衰退,如永久性事实)。",
-      en: 'Memories fade over time. The "recency" retrieval factor follows the Ebbinghaus forgetting curve: each half-life halves the recency. The half-life is set by decayHalfLifeDays (null = never decays, e.g. permanent facts).',
+      zh: "记忆随时间淡化。检索打分里 recency 因子按艾宾浩斯遗忘曲线衰退:每过一个半衰期,recency 减半。半衰期从 importance 派生(重要记忆衰退慢),公式 halflife = BASE × (importance + 0.1) ^ 2.5。",
+      en: 'Memories fade over time. The "recency" retrieval factor follows the Ebbinghaus forgetting curve: each half-life halves the recency. The half-life is derived from importance (important memories decay slower): halflife = BASE × (importance + 0.1) ^ 2.5.',
     },
     internalRule: {
-      zh: "recency = 0.5^(ageDays / decayHalfLifeDays)。ageDays ≤ 0 或 decayHalfLifeDays ≤ 0 时 recency = 1(不衰退)。",
-      en: "recency = 0.5^(ageDays / decayHalfLifeDays). When ageDays ≤ 0 or decayHalfLifeDays ≤ 0, recency = 1 (no decay).",
+      zh: "recency = 0.5^(ageDays / deriveHalfLifeDays(importance))。ageDays ≤ 0 时 recency = 1(不衰退)。",
+      en: "recency = 0.5^(ageDays / deriveHalfLifeDays(importance)). When ageDays ≤ 0, recency = 1 (no decay).",
     },
     refs: ["importance"],
   },

@@ -99,7 +99,6 @@ export interface EngramFrontmatter {
   readonly effectiveRetrievals?: number;
   readonly failedUses?: number;
   readonly reinforcementScore?: number;
-  readonly decayHalfLifeDays?: number | null;
   readonly lastRetrievedAt?: string;
   readonly lastEffectiveAt?: string;
   readonly lastRetrievalScore?: number;

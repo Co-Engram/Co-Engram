@@ -154,7 +154,6 @@ export const engramListProposalsTool: Tool<
           proposedVisibility?: string;
           proposedEncodingContext?: string;
           proposedSourceType?: string;
-          proposedDecayHalfLifeDays?: number | null;
           proposedCreatedBy?: string;
           suggestedTitle?: string;
           necessityReason?: string;
@@ -192,8 +191,6 @@ export const engramListProposalsTool: Tool<
           if (payload.encodingContext)
             base.proposedEncodingContext = payload.encodingContext;
           if (payload.sourceType) base.proposedSourceType = payload.sourceType;
-          if (payload.decayHalfLifeDays !== undefined)
-            base.proposedDecayHalfLifeDays = payload.decayHalfLifeDays;
           if (payload.createdBy) base.proposedCreatedBy = payload.createdBy;
         }
         return base;

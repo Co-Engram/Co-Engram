@@ -46,7 +46,6 @@ export function readDigestLine(
     effectiveRetrievals: engram.effectiveRetrievals,
     failedUses: engram.failedUses,
     reinforcementScore: engram.reinforcementScore,
-    decayHalfLifeDays: engram.decayHalfLifeDays,
     contentSize: engram.contentSize,
     contentHash: engram.contentHash,
     outgoingSynapseCount: engram.outgoingSynapseCount,
@@ -191,7 +190,7 @@ export class DigestBuilder {
 /**
  * 收集仓库中所有 engram 的 DigestLine(纯内存,不写文件)
  *
- * 用于 search 索引重建等场景:需要真实 importance / decayHalfLifeDays /
+ * 用于 search 索引重建等场景:需要真实 importance /
  * retrievalCount 等字段参与三因子打分,但又不需要持久化 digest.jsonl 缓存。
  *
  * 与 `DigestBuilder.rebuild()` 区别:

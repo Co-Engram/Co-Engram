@@ -45,7 +45,6 @@ function makeEngram(input: {
     domainTags: input.domainTags ?? ["t"],
     createdBy: "tester",
     importance: input.importance ?? 0.5,
-    decayHalfLifeDays: 90,
   });
 }
 

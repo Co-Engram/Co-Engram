@@ -538,13 +538,13 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 副作用:无。不更新 lastRetrievedAt(用 engram_reinforce)。
 错误条件:未找到抛错;无效 tier 抛错。
 truthScore 字段在此暴露(允许字段名引用)。`,
-  "tool.engram_create.technical": `创建新 engram。输入:{ title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, decayHalfLifeDays?, dedupe?, encodingContext? }
+  "tool.engram_create.technical": `创建新 engram。输入:{ title, content, kind, domainTags, createdBy, summary?, contextTags?, importance?, confidence?, sourceType?, visibility?, dedupe?, encodingContext? }
 kind 枚举:observation | fact | pattern | procedure | hypothesis。
 Dedupe 模式(默认 true):DUPLICATE 强化已有(调 recordRetrievalSuccess);UPDATE 合并 content;NEW 创建。
 副作用:写 engrams/<slug>.md + .meta.json + .synapses.json;append audit;mark repo dirty。
 错误条件:缺必填字段抛错;无效 kind 抛错。
 不变量:slug 唯一性强制;冲突加后缀。`,
-  "tool.engram_update.technical": `更新 engram 字段。输入:{ id, title?, content?, summary?, importance?, domainTags?, contextTags?, decayHalfLifeDays?, visibility?, updatedBy, kinds? }
+  "tool.engram_update.technical": `更新 engram 字段。输入:{ id, title?, content?, summary?, importance?, domainTags?, contextTags?, visibility?, updatedBy, kinds? }
 乐观锁:version 字段校验(Finding 231 — 待实现)。
 副作用:重写 .md + .meta.json;append audit;增量更新 digest/graph 索引;mark dirty。
 错误条件:未找到抛错;version 不匹配抛错(实现后)。
@@ -1007,7 +1007,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "decay.forgotten": "已遗忘",
   "decay.neverDecays": "永不衰退",
   "decay.neverDecaysTip":
-    "该记忆 decayHalfLifeDays=null,系统不跟踪其衰退进度。",
+    "该记忆衰退进度暂时无法计算(importance 缺失或时间戳损坏)。",
   "decay.levelLabel": "当前:${level}",
 
   // 列表视图(engrams.<area>.<name>)
@@ -1463,7 +1463,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.ruleHebbian":
     "<strong>Hebbian 邻居扩散</strong>:强化一条记忆时,直接相连(通过 synapse)的邻居得到 <code>ltpGain × hebbianRatio</code>(默认 <code>hebbianRatio = 0.5</code>)的增益,contradicts 关系除外。",
   "viewer.help.ruleWeights":
-    "<strong>三因子检索权重</strong>:score = α·relevance + β·recency + γ·importance(默认 α=0.5 / β=0.3 / γ=0.2)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / decayHalfLifeDays)</code> 衰退。",
+    "<strong>三因子检索权重</strong>:score = α·relevance + β·recency + γ·importance(默认 α=0.5 / β=0.3 / γ=0.2)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code> 衰退,半衰期从 importance 派生(机制 D)。",
   "viewer.help.ruleWindows":
     "<strong>观察窗口(observation window)</strong>:engram 被检索命中后开启一段观察期;窗口期内回来 reinforce 计为有效(LTP),反馈 failure 计为失败(LTD),过期关闭则本次命中无效。按 kind 默认长度:observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d。多 kind 取最长。",
   "viewer.help.stateMachineTitle": "验证状态机(5 档)",
@@ -1504,7 +1504,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.evo4":
     "<strong>扩散</strong>:强化通过突触按 Hebbian 比例扩散到邻居(contradicts 除外)。",
   "viewer.help.evo5":
-    "<strong>衰减</strong>:每个 engram 有 <code>decayHalfLifeDays</code>,importance 按 lastEffectiveAt + 半衰期指数衰减。",
+    "<strong>衰减</strong>:衰退半衰期从 engram 的 <code>importance</code> 实时派生(<code>deriveHalfLifeDays</code>),importance 按 lastEffectiveAt + 半衰期指数衰减。",
   "viewer.help.evo6":
     "<strong>维护</strong>:后台周期跑 light/deep/rem 三阶段,完成\"巩固强化 → 衰减遗忘 → REM 抽象模式 → 触发元认知评分\"。",
   "viewer.help.tipsTitle": "提示",
@@ -1682,7 +1682,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "失败使用 (failedUses):命中后被报告「无效/过时」的次数。失败过多会触发遗忘。",
   "tip.reinforcementScore": "强化分数 (reinforcementScore):累计的正向强化信号。",
   "tip.decayHalfLifeDays":
-    "衰退半衰期 (decayHalfLifeDays):importance 每经过 N 天衰减一半。null 表示永不衰退。",
+    "衰退半衰期 (天),从 importance 派生(halflife = 50 × (importance + 0.1)^2.5),重要记忆衰退更慢。",
   "tip.lastEffectiveAt":
     "最近一次有效 (lastEffectiveAt):该记忆最后一次被实际采纳/强化成功的时间戳。",
   "tip.evidenceCount":

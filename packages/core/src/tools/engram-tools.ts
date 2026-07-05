@@ -175,7 +175,6 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
             confidence: parsed.confidence,
             sourceType: parsed.sourceType,
             visibility: parsed.visibility,
-            decayHalfLifeDays: parsed.decayHalfLifeDays,
             createdBy,
           },
         );
@@ -230,7 +229,6 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
         confidence: parsed.confidence,
         sourceType: parsed.sourceType,
         visibility: parsed.visibility,
-        decayHalfLifeDays: parsed.decayHalfLifeDays,
         createdBy,
       });
       invalidateSearchIndex(ctx);
@@ -318,7 +316,6 @@ function readEngramViewAuto(
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0,
-    decayHalfLifeDays: 90,
     contentSize: digest.contentSize,
     contentHash: "",
     outgoingSynapseCount: 0,
@@ -456,7 +453,6 @@ const TRACKED_ENGRAM_FIELDS = [
   "encodingContext",
   "importance",
   "confidence",
-  "decayHalfLifeDays",
   "visibility",
 ] as const;
 
@@ -531,7 +527,6 @@ export const engramUpdateTool: Tool<
       encodingContext: parsed.encodingContext,
       importance: parsed.importance,
       confidence: parsed.confidence,
-      decayHalfLifeDays: parsed.decayHalfLifeDays,
       visibility: parsed.visibility,
       updatedBy: parsed.updatedBy,
     });
@@ -767,7 +762,6 @@ function engramToDigestLine(engram: Engram): DigestLine {
     effectiveRetrievals: engram.effectiveRetrievals,
     failedUses: engram.failedUses,
     reinforcementScore: engram.reinforcementScore,
-    decayHalfLifeDays: engram.decayHalfLifeDays,
     contentSize: engram.contentSize,
     contentHash: engram.contentHash,
     outgoingSynapseCount: engram.outgoingSynapseCount,
@@ -783,7 +777,7 @@ function engramToDigestLine(engram: Engram): DigestLine {
  * 导致用户新建 engram 后立即 engram_search 搜不到（索引是启动时的快照）。
  *
  * 当前实现:用 collectDigestLines(repo) 拉取真实 DigestLine[](含真实 importance /
- * decayHalfLifeDays / retrievalCount / reinforcementScore 等),让三因子打分能正常工作。
+ * retrievalCount / reinforcementScore 等),让三因子打分能正常工作。
  *
  * 代价是每次写入都做一次 O(N) rebuild；N 通常 < 10k,可接受。
  * 后续 P1 改为增量更新（只插入/更新被改动的 engram）。
@@ -981,7 +975,7 @@ export const engramArchiveTool: Tool<
       freshness: computeFreshness(
         updated.lastEffectiveAt,
         updated.createdAt,
-        updated.decayHalfLifeDays,
+        updated.importance,
       ),
     };
   },
@@ -1034,7 +1028,7 @@ export const engramRestoreTool: Tool<
       freshness: computeFreshness(
         updated.lastEffectiveAt,
         updated.createdAt,
-        updated.decayHalfLifeDays,
+        updated.importance,
       ),
       ...(restoredFromTrash ? { restoredFromTrash: true } : {}),
     };

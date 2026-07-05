@@ -115,6 +115,7 @@ import {
   encodeQueryCursor,
   decodeQueryCursor,
 } from "./index-db.js";
+import { deriveHalfLifeDays } from "../importance/dynamics.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -163,7 +164,6 @@ const DEFAULT_CONFIDENCE_BY_SOURCE: Record<EngramSourceType, number> = {
   secondhand: 0.65,
   inferred: 0.5,
 };
-const DEFAULT_DECAY_HALF_LIFE_DAYS = 90;
 
 function now(): string {
   return new Date().toISOString();
@@ -783,10 +783,6 @@ export class EngramRepository {
       failedUses: 0,
       reinforcementScore: 0,
       lastRetrievalScore: 0.5,
-      decayHalfLifeDays:
-        input.decayHalfLifeDays === undefined
-          ? DEFAULT_DECAY_HALF_LIFE_DAYS
-          : input.decayHalfLifeDays,
       status: "active",
       visibility: input.visibility ?? "public",
       verificationStatus: "unverified",
@@ -914,10 +910,6 @@ export class EngramRepository {
       input.confidence ??
       oldFrontmatter.confidence ??
       DEFAULT_CONFIDENCE_BY_SOURCE.firsthand;
-    const newDecayHalfLife =
-      input.decayHalfLifeDays === undefined
-        ? (oldFrontmatter.decayHalfLifeDays ?? DEFAULT_DECAY_HALF_LIFE_DAYS)
-        : input.decayHalfLifeDays;
     const newVisibility =
       input.visibility ?? oldFrontmatter.visibility ?? "public";
     const newImportanceVector =
@@ -945,7 +937,6 @@ export class EngramRepository {
       version: (oldFrontmatter.version ?? 1) + 1,
       importance: newImportance,
       confidence: newConfidence,
-      decayHalfLifeDays: newDecayHalfLife,
       visibility: newVisibility,
       encodingContext: newEncodingContext,
       perspective: newPerspective,
@@ -1716,7 +1707,7 @@ export class EngramRepository {
   /**
    * 更新 status / freshness(不触发 version++)。
    *
-   * 默认按 lastEffectiveAt + decayHalfLifeDays 派生 freshness,
+   * 默认按 lastEffectiveAt + importance 派生 freshness,
    * 但允许通过 forcedFreshness 显式覆盖（用于 lifecycle 工具强制切换）。
    * 一旦再触发 effective 检索（lastEffectiveAt 更新）,forcedFreshness 会被清除。
    */
@@ -2092,10 +2083,7 @@ export class EngramRepository {
 
     const createdAt = fm.createdAt ?? now();
     const lastEffectiveAtForFreshness = fm.lastEffectiveAt ?? createdAt;
-    const decayHalfLifeDays =
-      fm.decayHalfLifeDays === undefined
-        ? DEFAULT_DECAY_HALF_LIFE_DAYS
-        : fm.decayHalfLifeDays;
+    const importanceForFreshness = fm.importance ?? DEFAULT_IMPORTANCE;
     const status = fm.status ?? "active";
     const freshness: EngramFreshness =
       status === "forgotten"
@@ -2103,7 +2091,7 @@ export class EngramRepository {
         : (fm.forcedFreshness ??
           this.computeFreshness(
             lastEffectiveAtForFreshness,
-            decayHalfLifeDays,
+            importanceForFreshness,
           ));
 
     // domainTags:frontmatter 锁定则用之,否则从 path 推断
@@ -2141,7 +2129,6 @@ export class EngramRepository {
       lastRetrievedAt: fm.lastRetrievedAt,
       lastEffectiveAt: fm.lastEffectiveAt,
       reinforcementScore: fm.reinforcementScore ?? 0,
-      decayHalfLifeDays,
       lastRetrievalScore: fm.lastRetrievalScore ?? 0.5,
       outgoingSynapseCount: synapses.outgoing.length,
       incomingSynapseCount: synapses.incoming.length,
@@ -2157,14 +2144,15 @@ export class EngramRepository {
 
   private computeFreshness(
     lastEffectiveAt: string,
-    decayHalfLifeDays: number | null,
+    importance: number,
   ): EngramFreshness {
-    if (decayHalfLifeDays === null) return "fresh";
+    const halfLife = deriveHalfLifeDays(importance);
+    if (halfLife <= 0) return "fresh";
     const ageDays =
       (Date.now() - new Date(lastEffectiveAt).getTime()) / 86400000;
-    if (ageDays < decayHalfLifeDays) return "fresh";
-    if (ageDays < decayHalfLifeDays * 2) return "aging";
-    if (ageDays < decayHalfLifeDays * 4) return "stale";
+    if (ageDays < halfLife) return "fresh";
+    if (ageDays < halfLife * 2) return "aging";
+    if (ageDays < halfLife * 4) return "stale";
     return "forgotten";
   }
 

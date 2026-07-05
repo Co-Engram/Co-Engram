@@ -35,7 +35,6 @@ function makeDigest(
     effectiveRetrievals: input.effectiveRetrievals ?? 0,
     failedUses: input.failedUses ?? 0,
     reinforcementScore: input.reinforcementScore ?? 0,
-    decayHalfLifeDays: input.decayHalfLifeDays ?? 90,
     contentSize: input.contentSize ?? 100,
     contentHash: input.contentHash ?? "sha256:fake",
     outgoingSynapseCount: input.outgoingSynapseCount ?? 0,

@@ -1,24 +1,23 @@
 /**
  * Freshness 自动计算（P1：记忆生命周期）
  *
- * 神经科学依据：艾宾浩斯遗忘曲线 + 多级存储模型
+ * 神经科学依据：艾宾浩斯遗忘曲线 + 多级存储模型 + 突触稳态(机制 D)
  *
  * 计算规则（基于 spec §3.1）：
- *   - freshness 由 lastEffectiveAt + decayHalfLifeDays 派生（不存储）
+ *   - freshness 由 lastEffectiveAt + importance 派生（不存储）
+ *   - 半衰期 = deriveHalfLifeDays(importance):重要记忆衰减慢
  *   - halfLife 内 → fresh
  *   - 1×~2×halfLife → aging
  *   - 2×~4×halfLife → stale
  *   - 4×+halfLife → forgotten（候选遗忘）
  *
- * decayHalfLifeDays = null 表示永不衰退，恒为 fresh
+ * importance 越高 → halflife 越长 → freshness 衰退越慢
  *
  * @module @co-engram/core/lifecycle
  */
 
 import type { EngramFreshness } from "../types/engram.js";
-
-/** 默认半衰期天数（与 EngramRepository 默认值一致） */
-export const DEFAULT_HALF_LIFE_DAYS = 90;
+import { deriveHalfLifeDays } from "../importance/dynamics.js";
 
 /**
  * 计算 engram 的有效年龄(天)
@@ -52,26 +51,23 @@ export function effectiveAge(
 }
 
 /**
- * 根据 lastEffectiveAt + createdAt + decayHalfLifeDays 计算当前 freshness
+ * 根据 lastEffectiveAt + createdAt + importance 计算当前 freshness
+ *
+ * 半衰期从 importance 实时派生(机制 D):重要记忆衰减慢。
  *
  * @param lastEffectiveAt - 最后一次有效检索时间(ISO),null/undefined 表示从未生效
  * @param createdAt - engram 创建时间(ISO),未生效时的衰退起点
- * @param decayHalfLifeDays - 半衰期天数,null 表示永不衰退
+ * @param importance - engram 重要性 [0,1],用于派生半衰期
  * @param now - 当前时间(可注入用于测试),默认 new Date()
  */
 export function computeFreshness(
   lastEffectiveAt: string | null | undefined,
   createdAt: string,
-  decayHalfLifeDays: number | null | undefined,
+  importance: number,
   now: Date = new Date(),
 ): EngramFreshness {
-  // 永不衰退
-  if (decayHalfLifeDays === null || decayHalfLifeDays === undefined) {
-    return "fresh";
-  }
-
   const ageDays = effectiveAge(lastEffectiveAt, createdAt, now);
-  const halfLife = decayHalfLifeDays;
+  const halfLife = deriveHalfLifeDays(importance);
 
   if (ageDays <= halfLife) return "fresh";
   if (ageDays <= halfLife * 2) return "aging";
@@ -86,7 +82,7 @@ export function computeFreshnessBatch(
   items: ReadonlyArray<{
     readonly lastEffectiveAt: string | null | undefined;
     readonly createdAt: string;
-    readonly decayHalfLifeDays: number | null | undefined;
+    readonly importance: number;
   }>,
   now: Date = new Date(),
 ): EngramFreshness[] {
@@ -94,7 +90,7 @@ export function computeFreshnessBatch(
     computeFreshness(
       item.lastEffectiveAt,
       item.createdAt,
-      item.decayHalfLifeDays,
+      item.importance,
       now,
     ),
   );

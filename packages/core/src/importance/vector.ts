@@ -6,7 +6,7 @@
  *   - team: 团队相关性（手动设置）
  *   - project: 项目相关性（手动设置）
  *   - network: 网络中心性（由 incomingSynapseCount 派生）
- *   - temporal: 时效性（由 lastEffectiveAt + decayHalfLifeDays 派生，艾宾浩斯衰退）
+ *   - temporal: 时效性（由 lastEffectiveAt + 派生 halflife(importance) 派生，艾宾浩斯衰退）
  *   - composite: 加权聚合，写入 engram.importance（检索公式消费此值）
  *
  * 默认权重（spec §9 决策 9 派生）：
@@ -94,19 +94,19 @@ export function deriveNetworkImportance(
 /**
  * 派生 temporal 维度(艾宾浩斯衰退)
  *
- * `temporal = recencyDecay(ageDays, decayHalfLifeDays)`
+ * `temporal = recencyDecay(ageDays, importance)`
  *
- * - decayHalfLifeDays=null → 1(永不衰退)
+ * - 半衰期从 importance 实时派生(机制 D):重要记忆衰退慢
  * - 衰退起点 = `lastEffectiveAt ?? createdAt`:未生效 engram 从创建时间起衰退
  */
 export function deriveTemporalImportance(
   lastEffectiveAt: string | null | undefined,
   createdAt: string,
-  decayHalfLifeDays: number | null,
+  importance: number,
   now: Date,
 ): number {
   const ageDays = effectiveAge(lastEffectiveAt, createdAt, now);
-  return recencyDecay(ageDays, decayHalfLifeDays);
+  return recencyDecay(ageDays, importance);
 }
 
 /**
@@ -204,7 +204,7 @@ export function recomputeImportance(
   const temporal = deriveTemporalImportance(
     engram.lastEffectiveAt,
     engram.createdAt,
-    engram.decayHalfLifeDays,
+    engram.importance,
     now,
   );
 

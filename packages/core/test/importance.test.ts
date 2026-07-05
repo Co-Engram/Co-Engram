@@ -33,7 +33,6 @@ function makeEngram(input: {
   content?: string;
   importance?: number;
   importanceVector?: ImportanceVector;
-  decayHalfLifeDays?: number | null;
 }) {
   return repo.createEngram({
     title: input.title ?? "A",
@@ -43,7 +42,6 @@ function makeEngram(input: {
     createdBy: "y",
     importance: input.importance ?? 0.5,
     importanceVector: input.importanceVector,
-    decayHalfLifeDays: input.decayHalfLifeDays,
   });
 }
 
@@ -168,34 +166,38 @@ describe("deriveTemporalImportance", () => {
     const created10DaysAgo = new Date(
       now.getTime() - 10 * 24 * 60 * 60 * 1000,
     ).toISOString();
-    // 未生效 + 10 天前创建 → recency = 0.5^(10/90) ≈ 0.926
-    expect(deriveTemporalImportance(null, created10DaysAgo, 90, now)).toBeGreaterThan(0.9);
-    expect(deriveTemporalImportance(undefined, created10DaysAgo, 90, now)).toBeGreaterThan(0.9);
-  });
-
-  it("decayHalfLifeDays=null → 1(永不衰退)", () => {
-    expect(deriveTemporalImportance("2020-01-01T00:00:00Z", FIXED_CREATED_AT, null, now)).toBe(1);
+    // importance=0.5 → halfLife≈14 天,recency = 0.5^(10/14) ≈ 0.61
+    expect(deriveTemporalImportance(null, created10DaysAgo, 0.5, now)).toBeGreaterThan(0.4);
+    expect(deriveTemporalImportance(undefined, created10DaysAgo, 0.5, now)).toBeGreaterThan(0.4);
   });
 
   it("刚 lastEffectiveAt → 接近 1", () => {
     const recent = "2026-06-19T00:00:00Z"; // 1 天前
-    expect(deriveTemporalImportance(recent, FIXED_CREATED_AT, 90, now)).toBeGreaterThan(0.99);
+    expect(deriveTemporalImportance(recent, FIXED_CREATED_AT, 0.5, now)).toBeGreaterThan(0.95);
   });
 
   it("很久以前 lastEffectiveAt → 接近 0", () => {
     const old = "2020-01-01T00:00:00Z"; // 数年前
-    expect(deriveTemporalImportance(old, FIXED_CREATED_AT, 30, now)).toBeLessThan(0.01);
+    expect(deriveTemporalImportance(old, FIXED_CREATED_AT, 0.05, now)).toBeLessThan(0.01);
   });
 
-  it("半衰期精确:刚好 decayHalfLifeDays → 0.5", () => {
-    // 90 天前 lastEffectiveAt, decay=90 → recency = 0.5^(90/90) = 0.5
-    const ninetyDaysAgo = new Date(
-      now.getTime() - 90 * 24 * 60 * 60 * 1000,
+  it("半衰期精确:age=halfLife → 0.5", () => {
+    // importance=0.5 → halfLife ≈ 14 天;14 天前 lastEffectiveAt → recency ≈ 0.5
+    const halfLife = 50 * Math.pow(0.5 + 0.1, 2.5);
+    const halfLifeDaysAgo = new Date(
+      now.getTime() - halfLife * 24 * 60 * 60 * 1000,
     ).toISOString();
-    expect(deriveTemporalImportance(ninetyDaysAgo, FIXED_CREATED_AT, 90, now)).toBeCloseTo(
+    expect(deriveTemporalImportance(halfLifeDaysAgo, FIXED_CREATED_AT, 0.5, now)).toBeCloseTo(
       0.5,
       3,
     );
+  });
+
+  it("importance 越高 → halflife 越长 → 同样 age 下 temporal 更大", () => {
+    const old = "2025-01-01T00:00:00Z";
+    const lowImp = deriveTemporalImportance(old, FIXED_CREATED_AT, 0.05, now);
+    const highImp = deriveTemporalImportance(old, FIXED_CREATED_AT, 0.9, now);
+    expect(highImp).toBeGreaterThan(lowImp);
   });
 });
 
@@ -313,13 +315,14 @@ describe("recomputeImportance", () => {
   });
 
   it("有 lastEffectiveAt → temporal > 0", () => {
-    const e = makeEngram({});
+    // importance=0.9 → halfLife≈49 天;1 天前 → recency = 0.5^(1/49) ≈ 0.986
+    const e = makeEngram({ importance: 0.9 });
     repo.bumpRetrievalStats(e.id, {
       effectiveDelta: 1,
       lastEffectiveAt: "2026-06-19T00:00:00Z",
     });
     const result = recomputeImportance(repo, e.id, { now: NOW });
-    expect(result.next.temporal).toBeGreaterThan(0.99);
+    expect(result.next.temporal).toBeGreaterThan(0.95);
   });
 
   it("overrides 覆盖 personal/team/project", () => {

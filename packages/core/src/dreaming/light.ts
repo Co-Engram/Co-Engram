@@ -96,7 +96,6 @@ export function runLightDreaming(
       confidence: engram.confidence,
       sourceType: engram.sourceType,
       visibility: engram.visibility,
-      decayHalfLifeDays: engram.decayHalfLifeDays,
       createdBy: engram.createdBy,
     };
 

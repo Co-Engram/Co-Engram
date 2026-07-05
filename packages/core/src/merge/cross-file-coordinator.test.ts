@@ -50,7 +50,6 @@ function makeEngram(id: string, overrides: Partial<Engram> = {}): Engram {
     effectiveRetrievals: 0,
     failedUses: 0,
     reinforcementScore: 0.5,
-    decayHalfLifeDays: null,
     outgoingSynapseCount: 0,
     incomingSynapseCount: 0,
     activeContradictionCount: 0,
