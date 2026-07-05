@@ -139,9 +139,12 @@ export function reinforceRelated(
     }
     // P0-9 修复:邻居联动也更新统计字段,让 effectiveRetrievals/retrievalCount/
     // reinforcementScore 可观察。语义上邻居被"间接有效检索"。
+    // D1:neighborDelta 已经是源 engram 经 dynamics 算出的 importanceDelta × hebbianRatio,
+    // 直接当作 importance 增量累加(asImportanceDelta: true),避免再次经 dynamics 缩放。
     reinforceEngram(repo, neighborId, neighborDelta, nowIso, {
       withStats: true,
       effectiveness: neighborDelta,
+      asImportanceDelta: true,
     });
     reinforced.push(neighborId);
 

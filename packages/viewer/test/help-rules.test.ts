@@ -11,12 +11,13 @@ describe("help tab rule visibility (元3 神经科学墙 fix)", () => {
     expect(html).toContain("已反驳");
   });
 
-  it("exposes reinforcement parameters with default values", () => {
+  it("exposes reinforcement parameters with default values (D1 dynamics)", () => {
     const html = renderSpaHtml({ language: "zh" });
-    expect(html).toContain("ltpGain");
-    expect(html).toContain("0.02");
-    expect(html).toContain("ltdPenalty");
-    expect(html).toContain("0.03");
+    expect(html).toContain("dynamics.updateOnReinforce");
+    expect(html).toContain("0.1");
+    expect(html).toContain("dynamics.updateOnReportFailure");
+    expect(html).toContain("archiveThreshold");
+    expect(html).toContain("forgetThreshold");
     expect(html).toContain("hebbianRatio");
     expect(html).toContain("0.5");
   });
@@ -36,8 +37,7 @@ describe("help tab rule visibility (元3 神经科学墙 fix)", () => {
 
   it("English version mirrors the same content", () => {
     const html = renderSpaHtml({ language: "en" });
-    expect(html).toContain("ltpGain");
-    expect(html).toContain("0.02");
+    expect(html).toContain("dynamics.updateOnReinforce");
     expect(html).toContain("unverified");
     expect(html).toContain("plausible");
   });

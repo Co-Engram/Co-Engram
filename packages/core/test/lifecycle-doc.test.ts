@@ -42,24 +42,27 @@ describe("docs/lifecycle §2.4 Create branches: 3 branches", () => {
   });
 });
 
-describe("docs/lifecycle §2.6 / §5.2 LTD thresholds", () => {
+describe("docs/lifecycle §2.6 / §5.2 LTD thresholds (D1)", () => {
   it("failedUses ≥ 3 → shouldArchive, ≥ 5 → shouldForget", () => {
     expect(DEFAULT_ARCHIVE_THRESHOLD).toBe(3);
     expect(DEFAULT_FORGET_THRESHOLD).toBe(5);
   });
 
-  it("单次 LTD 惩罚 = 0.03;escalation 因子 = 1.5", () => {
-    expect(DEFAULT_CONFIG.ltdPenalty).toBe(0.03);
-    expect(DEFAULT_CONFIG.failureEscalation).toBe(1.5);
+  it("单次 LTD / LTP 增量由 dynamics.ts 治理(默认 ±0.1)", () => {
+    // D1 之后 config 层不再持有 ltdPenalty / ltpGain;单次增量在
+    // importance/dynamics.ts 里定义(FAILURE_LOSS / LTP_GAIN,均默认 0.1)。
+    // 这里只断言 config 上的可调字段。
+    expect(DEFAULT_CONFIG.archiveThreshold).toBe(3);
+    expect(DEFAULT_CONFIG.forgetThreshold).toBe(5);
   });
 
-  it("单次 LTP 增益 = 0.02;Hebbian 比例 = 0.5", () => {
-    expect(DEFAULT_CONFIG.ltpGain).toBe(0.02);
+  it("Hebbian 比例 = 0.5", () => {
     expect(DEFAULT_CONFIG.hebbianRatio).toBe(0.5);
   });
 
-  it("failure 阶梯触发阈值 = 3(进入 escalated 状态)", () => {
-    expect(DEFAULT_CONFIG.failureThreshold).toBe(3);
+  it("archive / forget 阈值 = 3 / 5", () => {
+    expect(DEFAULT_CONFIG.archiveThreshold).toBe(3);
+    expect(DEFAULT_CONFIG.forgetThreshold).toBe(5);
   });
 });
 

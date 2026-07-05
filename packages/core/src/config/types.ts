@@ -99,16 +99,12 @@ export interface ServerSectionConfig {
  * 用户在 config.json 中只需写需要调整的字段,其余自动用 spec 6.2 默认值。
  */
 export interface ReinforcementSectionConfig {
-  /** 每次 effective=1 检索的 importance 增益(默认 0.02) */
-  readonly ltpGain?: number;
-  /** 每次失败使用的 importance 削弱(默认 0.03) */
-  readonly ltdPenalty?: number;
   /** Hebbian 邻居强化系数 ∈ [0,1](默认 0.5) */
   readonly hebbianRatio?: number;
-  /** 失败累积阈值(默认 3) */
-  readonly failureThreshold?: number;
-  /** 阈值之上的额外惩罚倍率(默认 1.5) */
-  readonly failureEscalation?: number;
+  /** 触发 archive 建议的 failedUses 阈值(默认 3) */
+  readonly archiveThreshold?: number;
+  /** 触发 forget 建议的 failedUses 阈值(默认 5) */
+  readonly forgetThreshold?: number;
 }
 
 /**

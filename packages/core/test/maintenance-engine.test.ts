@@ -11,6 +11,7 @@ import {
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
+  DEFAULT_DAILY_INTERVAL_MS,
   DEFAULT_SIGNAL_PRUNE_AGE_MS,
 } from "../src/maintenance/index.js";
 import type { MaintenanceReport } from "../src/maintenance/index.js";
@@ -63,16 +64,17 @@ describe("MaintenanceEngine - 默认配置", () => {
     expect(DEFAULT_LIGHT_INTERVAL_MS).toBe(5 * 60 * 1000);
     expect(DEFAULT_DEEP_INTERVAL_MS).toBe(60 * 60 * 1000);
     expect(DEFAULT_REM_INTERVAL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(DEFAULT_DAILY_INTERVAL_MS).toBe(24 * 60 * 60 * 1000);
     expect(DEFAULT_SIGNAL_PRUNE_AGE_MS).toBe(7 * 24 * 60 * 60 * 1000);
   });
 
-  it("零配置启动默认全开 light/deep/rem", () => {
+  it("零配置启动默认全开 light/deep/rem/daily", () => {
     const engine = new MaintenanceEngine({
       repository: repo,
       signalSink: sink,
     });
     const config = engine.getConfig();
-    expect(config.enabledStages).toEqual(["light", "deep", "rem"]);
+    expect(config.enabledStages).toEqual(["light", "deep", "rem", "daily"]);
     expect(config.learningRate).toBe(0.1);
     expect(config.windowSize).toBe(10);
   });
@@ -480,20 +482,128 @@ describe("MaintenanceEngine - start/stop", () => {
 describe("MaintenanceEngine - 审计日志回归", () => {
   // 阶段触发本身是高频噪音(light 5min/次,1 年 ~10万条),已从 audit 中移除。
   // 下游任务(sweep_to_trash / reinforce / forget / refute)自己写状态变更 audit。
+  // daily 阶段同理 —— 全量 engram × 每天会产生海量噪音,通过 MaintenanceReport.decayed 暴露。
   // 这个回归测试保护契约,防止未来回退到噪音状态。
-  it("runLight/runDeep/runRem 不写任何 audit event", async () => {
+  it("runLight/runDeep/runRem/runDaily 不写任何 audit event", async () => {
     const auditLog = new AuditLog(tmpDir);
     const scheduler = createDreamingScheduler(repo, {});
     const engine = new MaintenanceEngine(
       { repository: repo, signalSink: sink, dreamingScheduler: scheduler },
-      { enabledStages: ["light", "deep", "rem"] },
+      { enabledStages: ["light", "deep", "rem", "daily"] },
     );
     await engine.runLight();
     await engine.runDeep();
     await engine.runRem();
+    await engine.runDaily();
 
     // 整个 audit.jsonl 应该为空 —— maintenance 阶段触发不写,下游任务在本测试也未触发
     const all = auditLog.query({ limit: 1000 });
     expect(all.length).toBe(0);
+  });
+});
+
+// ============================================================
+// runDaily(applyDailyDecay —— 全量乘性衰减)
+// ============================================================
+
+describe("MaintenanceEngine - runDaily", () => {
+  function makeEngram(importance: number) {
+    const engram = repo.createEngram({
+      title: `T-${importance}-${Math.random().toString(36).slice(2, 8)}`,
+      content: "daily decay test",
+      kind: "fact",
+      domainTags: ["daily"],
+      createdBy: "tester",
+      importance,
+    });
+    return engram.id;
+  }
+
+  it("runDaily 衰减所有 active engram × 0.95", async () => {
+    const idA = makeEngram(0.5);
+    const idB = makeEngram(1.0);
+    const idC = makeEngram(0.3);
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+    });
+    const report = await engine.runDaily();
+
+    expect(repo.readEngram(idA).importance).toBeCloseTo(0.475, 5);
+    expect(repo.readEngram(idB).importance).toBeCloseTo(0.95, 5);
+    expect(repo.readEngram(idC).importance).toBeCloseTo(0.285, 5);
+    expect(report.decayed).toBe(3);
+    expect(report.stage).toBe("daily");
+  });
+
+  it("runDaily 跳过 archived / forgotten engram(lifecycle status)", async () => {
+    const idActive = makeEngram(0.5);
+    const idArchived = makeEngram(0.7);
+    const idForgotten = makeEngram(0.8);
+    repo.updateLifecycle(idArchived, "archived", undefined);
+    repo.updateLifecycle(idForgotten, "forgotten", undefined);
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+    });
+    const report = await engine.runDaily();
+
+    expect(repo.readEngram(idActive).importance).toBeCloseTo(0.475, 5);
+    expect(repo.readEngram(idArchived).importance).toBe(0.7);
+    expect(repo.readEngram(idForgotten).importance).toBe(0.8);
+    expect(report.decayed).toBe(1);
+  });
+
+  it("runDaily 不写 audit log(高频噪音,通过 report.decayed 暴露)", async () => {
+    const auditLog = new AuditLog(tmpDir);
+    makeEngram(0.5);
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+    });
+    await engine.runDaily();
+
+    const all = auditLog.query({ limit: 1000 });
+    expect(all.length).toBe(0);
+  });
+
+  it("runDaily 在 importance=0 边界无变化,decayed 不计入", async () => {
+    const id = makeEngram(0);
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+    });
+    const report = await engine.runDaily();
+
+    expect(repo.readEngram(id).importance).toBe(0);
+    expect(report.decayed).toBe(0);
+  });
+
+  it("runDaily 写入 updatedBy='maintenance.daily' 标记", async () => {
+    const id = makeEngram(0.5);
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+    });
+    await engine.runDaily();
+
+    expect(repo.readEngram(id).updatedBy).toBe("maintenance.daily");
+  });
+
+  it("start() 启动 daily 定时器,stop() 清理", () => {
+    const engine = new MaintenanceEngine(
+      { repository: repo, signalSink: sink },
+      { dailyIntervalMs: 100, enabledStages: ["daily"] },
+    );
+    expect(engine.isRunning()).toBe(false);
+    engine.start();
+    expect(engine.isRunning()).toBe(true);
+    engine.stop();
+    expect(engine.isRunning()).toBe(false);
   });
 });

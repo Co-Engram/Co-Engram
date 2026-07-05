@@ -188,8 +188,8 @@ export function normalizeConfig(
  * 行为等价:两者都返回"所有子系统字段齐全"的完整 config。
  *
  * @example
- *   loadConfig({ reinforcement: { ltpGain: 0.05 } })
- *   // → { version: 1, ..., reinforcement: { ltpGain: 0.05, ltdPenalty: 0.03, ... }, ... }
+ *   loadConfig({ reinforcement: { hebbianRatio: 0.7 } })
+ *   // → { version: 1, ..., reinforcement: { hebbianRatio: 0.7, archiveThreshold: 3, forgetThreshold: 5 }, ... }
  */
 export function loadConfig(
   partial: Readonly<Partial<TeamMemoryConfig>> = {},

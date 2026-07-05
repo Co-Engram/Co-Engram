@@ -851,10 +851,14 @@ export const engramReinforceTool: Tool<
     ctx.effectivenessTracker?.closeAsEffective(parsed.id);
     ctx.auditLog?.append({
       actor: "user",
-      action: "reinforce",
+      action: "importance_update",
       engramId: parsed.id,
       host: ctx.host,
-      metadata: { effectiveness: parsed.effectiveness, note: parsed.note },
+      metadata: {
+        reason: "reinforce",
+        effectiveness: parsed.effectiveness,
+        note: parsed.note,
+      },
     });
     // 数值字段经 formatScoreField 封装:raw 2 位小数(杀浮点噪声如
     // 0.018000000000000002)+ band(high/medium/low,host adapter 本地化)。
@@ -898,7 +902,7 @@ export const engramReportFailureTool: Tool<
 > = {
   name: "engram_report_failure",
   description:
-    "上报一次失败使用（LTD 削弱）。更新 failedUses / retrievalCount / importance（单次 -0.03，超阈值后 ×1.5 升级）。failedUses≥3 建议 archive，≥5 建议 forget。",
+    "上报一次失败使用（LTD 削弱）。更新 failedUses / retrievalCount / importance（单次 -0.1，固定惩罚）。failedUses≥3 建议 archive，≥5 建议 forget。",
   inputSchema: EngramReportFailureInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramReportFailureToolInput>(
@@ -917,9 +921,14 @@ export const engramReportFailureTool: Tool<
     ctx.effectivenessTracker?.closeAsFailure(parsed.id);
     ctx.auditLog?.append({
       actor: "user",
-      action: "report_failure",
+      action: "importance_update",
       engramId: parsed.id,
-      metadata: { reason: parsed.reason, context: parsed.context },
+      host: ctx.host,
+      metadata: {
+        reason: "report_failure",
+        note: parsed.reason,
+        context: parsed.context,
+      },
     });
     // 同 engram_reinforce:formatScoreField 杀浮点噪声 + 加 band。
     const importance = formatScoreField(result.importance);

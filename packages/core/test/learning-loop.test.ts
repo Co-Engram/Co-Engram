@@ -79,8 +79,8 @@ describe("closeLearningLoop > success", () => {
       outcome: "success",
       reportedBy: "agent",
     });
-    // effectiveness=1 → importanceDelta = 1 × ltpGain (默认 0.02)
-    expect(result.importanceDelta).toBeCloseTo(0.02, 5);
+    // D1: effectiveness=1 → importanceDelta = dynamics.updateOnReinforce(0.5,1) - 0.5 = 0.1
+    expect(result.importanceDelta).toBeCloseTo(0.1, 5);
   });
 
   it("Hebbian 邻居被强化", () => {
@@ -127,7 +127,7 @@ describe("closeLearningLoop > partial", () => {
       outcome: "partial",
       reportedBy: "agent",
     });
-    expect(result.importanceDelta).toBeCloseTo(0.01, 5); // 0.5 × 0.02
+    expect(result.importanceDelta).toBeCloseTo(0.05, 5); // D1: 0.5 × dynamics.LTP_GAIN(0.1)
   });
 
   it("自定义 effectiveness", () => {
@@ -138,7 +138,7 @@ describe("closeLearningLoop > partial", () => {
       effectiveness: 0.3,
       reportedBy: "agent",
     });
-    expect(result.importanceDelta).toBeCloseTo(0.006, 5);
+    expect(result.importanceDelta).toBeCloseTo(0.03, 5); // D1: 0.3 × dynamics.LTP_GAIN(0.1)
   });
 
   it("partial 也触发 Hebbian", () => {
@@ -338,7 +338,7 @@ describe("spec 验收：闭合学习回路", () => {
     expect(after.reinforcementScore).toBe(0.8);
     expect(after.effectiveRetrievals).toBe(1);
     expect(after.lastEffectiveAt).toBeDefined();
-    expect(result.importanceDelta).toBeCloseTo(0.016, 5); // 0.8 × 0.02
+    expect(result.importanceDelta).toBeCloseTo(0.08, 5); // D1: 0.8 × dynamics.LTP_GAIN(0.1)
   });
 
   it("failure 后：failedUses/retrievalCount 全部更新", () => {

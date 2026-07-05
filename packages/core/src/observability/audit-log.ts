@@ -43,6 +43,8 @@ export type AuditAction =
   | "update_lifecycle"
   | "reinforce"
   | "report_failure"
+  // D1:统一 importance 变更事件(reinforce / report_failure 工具改写此 action)
+  | "importance_update"
   | "forget"
   | "restore"
   | "sweep_to_trash"

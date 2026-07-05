@@ -6,7 +6,7 @@
  * help-contract 抓到的 synapse/proposal 漂移)。
  *
  * 默认值必须与源码一致:
- *   - ReinforcementConfig.DEFAULT_CONFIG(ltpGain=0.02 等)
+ *   - ReinforcementConfig.DEFAULT_CONFIG(hebbianRatio=0.5 等,D1 之后单次增量由 dynamics.ts 决定)
  *   - DEFAULT_EFFECTIVENESS_WINDOWS(observation=6h 等)
  *   - DEFAULT_VERIFICATION_CONFIG(minEvidenceForPlausible=1 等)
  *   - DEFAULT_WEIGHTS(alpha=0.5 等)
@@ -61,12 +61,12 @@ export const CONCEPT_DICTIONARY = {
     zh: "长时程增强(LTP)",
     en: "Long-Term Potentiation (LTP)",
     userExplanation: {
-      zh: "记忆被有效使用时,重要性上升的机制。每次『有效检索』(用户真的用到这条记忆解决了任务)给这条记忆的重要性 +0.02(默认)。这是大脑里『一起激活的神经元连接增强』(Hebbian)的简化模型。",
-      en: 'The mechanism by which a memory\'s importance rises on effective use. Each "effective retrieval" (the user actually applied the memory to solve a task) adds +0.02 (default) to its importance. This is a simplified model of Hebbian learning ("neurons that fire together wire together").',
+      zh: "记忆被有效使用时,重要性上升的机制。每次『有效检索』(用户真的用到这条记忆解决了任务)给这条记忆的重要性 +0.1(默认,D1 dynamics)。这是大脑里『一起激活的神经元连接增强』(Hebbian)的简化模型。",
+      en: 'The mechanism by which a memory\'s importance rises on effective use. Each "effective retrieval" (the user actually applied the memory to solve a task) adds +0.1 (default, D1 dynamics) to its importance. This is a simplified model of Hebbian learning ("neurons that fire together wire together").',
     },
     internalRule: {
-      zh: "每次 effective=1 检索,importance += ltpGain(默认 0.02)。10 次有效检索约能把 0.5 提升到 0.7。",
-      en: "Per effective=1 retrieval, importance += ltpGain (default 0.02). ~10 effective retrievals raise 0.5 to ~0.7.",
+      zh: "每次 effective=1 检索,importance = dynamics.updateOnReinforce(current, effectiveness)(默认 +0.1)。约 5 次有效检索能把 0.5 提升到 1.0。",
+      en: "Per effective=1 retrieval, importance = dynamics.updateOnReinforce(current, effectiveness) (default +0.1). ~5 effective retrievals raise 0.5 to 1.0.",
     },
     refs: ["importance", "observation_window", "hebbian"],
   },
@@ -76,12 +76,12 @@ export const CONCEPT_DICTIONARY = {
     zh: "长时程削弱(LTD)",
     en: "Long-Term Depression (LTD)",
     userExplanation: {
-      zh: "记忆被错误使用时,重要性下降的机制。每次『失败使用』(用户反馈说这条记忆错了/过时)给重要性 -0.03(默认)。失败惩罚略大于成功增益,符合『失败比成功更显著』的神经科学规律。",
-      en: 'The mechanism by which a memory\'s importance falls on failed use. Each "failed use" (user reports the memory was wrong or stale) subtracts 0.03 (default) from importance. The penalty slightly exceeds the LTP gain, matching the neuroscience finding that failures weigh more than successes.',
+      zh: "记忆被错误使用时,重要性下降的机制。每次『失败使用』(用户反馈说这条记忆错了/过时)给重要性 -0.1(默认,D1 dynamics)。失败惩罚与成功增益对等,D1 之后删除了 escalation 倍率。",
+      en: 'The mechanism by which a memory\'s importance falls on failed use. Each "failed use" (user reports the memory was wrong or stale) subtracts 0.1 (default, D1 dynamics) from importance. D1 removed the previous cumulative-failure escalation multiplier.',
     },
     internalRule: {
-      zh: "每次 failedUse,importance -= ltdPenalty(默认 0.03);累积失败超过 failureThreshold(默认 3)次后,按 failureEscalation(默认 1.5)倍率额外惩罚。",
-      en: "Per failedUse, importance -= ltdPenalty (default 0.03); once cumulative failures exceed failureThreshold (default 3), an extra failureEscalation (default 1.5) multiplier applies.",
+      zh: "每次 failedUse,importance = dynamics.updateOnReportFailure(current)(默认 -0.1,固定)。failedUses ≥ archiveThreshold(默认 3)建议 archive,≥ forgetThreshold(默认 5)建议 forget。",
+      en: "Per failedUse, importance = dynamics.updateOnReportFailure(current) (default -0.1, fixed). failedUses ≥ archiveThreshold (default 3) suggests archive; ≥ forgetThreshold (default 5) suggests forget.",
     },
     refs: ["ltp", "importance", "observation_window"],
   },
@@ -95,8 +95,8 @@ export const CONCEPT_DICTIONARY = {
       en: '"Neurons that fire together wire together." In co-engram: when a memory is reinforced, its direct neighbors (via synapses) also gain a fraction of the boost (default half, i.e. 0.5x) — so related knowledge gets remembered together.',
     },
     internalRule: {
-      zh: "邻居强化系数 = hebbianRatio(默认 0.5)。直接邻居得到 ltpGain × hebbianRatio 的 importance 增益。",
-      en: "Neighbor reinforcement ratio = hebbianRatio (default 0.5). Direct neighbors gain ltpGain × hebbianRatio importance.",
+      zh: "邻居强化系数 = hebbianRatio(默认 0.5)。直接邻居得到与源 engram 同等 importance 增益 × hebbianRatio 的 importance 增益。",
+      en: "Neighbor reinforcement ratio = hebbianRatio (default 0.5). Direct neighbors gain the source's importanceDelta × hebbianRatio.",
     },
     refs: ["ltp", "synapse", "importance"],
   },

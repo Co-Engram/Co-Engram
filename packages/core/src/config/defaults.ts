@@ -48,6 +48,7 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   lightIntervalMs: 5 * 60 * 1000,
   deepIntervalMs: 60 * 60 * 1000,
   remIntervalMs: 7 * 24 * 60 * 60 * 1000,
+  dailyIntervalMs: 24 * 60 * 60 * 1000,
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,
@@ -126,17 +127,15 @@ export const DEFAULT_TRASH_CONFIG: Readonly<Required<TrashMaintenanceConfig>> =
 /**
  * Reinforcement 默认值(从源码 DEFAULT_CONFIG 单一来源派生)
  *
- * 避免在 config 层重复硬编码 0.02/0.03/0.5/3/1.5。源码改默认值时,
- * config 层自动跟随。
+ * D1 之后单次强化/惩罚数值由 `importance/dynamics.ts` 治理,
+ * config 层只暴露 Hebbian 比例与降级阈值,避免重复硬编码。
  */
 export const DEFAULT_REINFORCEMENT_SECTION: Readonly<
   Required<ReinforcementSectionConfig>
 > = {
-  ltpGain: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.ltpGain,
-  ltdPenalty: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.ltdPenalty,
   hebbianRatio: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.hebbianRatio,
-  failureThreshold: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.failureThreshold,
-  failureEscalation: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.failureEscalation,
+  archiveThreshold: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.archiveThreshold,
+  forgetThreshold: DEFAULT_REINFORCEMENT_ENGINE_CONFIG.forgetThreshold,
 };
 
 /**

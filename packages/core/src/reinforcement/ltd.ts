@@ -9,21 +9,24 @@
  *   - LLM 引用后被指正
  *   - engram 内容与实际情况冲突
  *
- * 实现：
+ * 实现(importance 增量由 `importance/dynamics.ts` 单一来源计算):
  *   - failedUses += 1
  *   - retrievalCount += 1
- *   - importance -= ltdPenalty × escalationFactor
- *     · escalationFactor：失败累积 ≥ failureThreshold 后按 failureEscalation 倍增
+ *   - importance = dynamics.updateOnReportFailure(current)(clamp [0,1])
  *
  * 触发降级条件（外层调用方判断）：
- *   - failedUses >= 阈值（如 3）→ 自动 archive
- *   - failedUses >= 高阈值（如 5）→ 自动 forget
+ *   - failedUses >= archiveThreshold(默认 3)→ 自动 archive
+ *   - failedUses >= forgetThreshold(默认 5)→ 自动 forget
+ *
+ * D1 之后:删除 escalation 倍率机制 —— 单次惩罚固定为 dynamics.FAILURE_LOSS
+ * (默认 0.1),不再随失败次数放大。
  *
  * @module @co-engram/core/reinforcement
  */
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { Engram } from "../types/engram.js";
+import { updateOnReportFailure } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
 
 export interface LtdResult {
@@ -37,30 +40,25 @@ export interface LtdResult {
   readonly shouldForget: boolean;
 }
 
-/** 默认降级阈值（失败次数达到即触发） */
-export const DEFAULT_ARCHIVE_THRESHOLD = 3;
-export const DEFAULT_FORGET_THRESHOLD = 5;
-
 /**
  * 记录一次失败使用（LTD 削弱）
  *
- * importance 削弱规则：
- *   - failedUses < failureThreshold：penalty = ltdPenalty
- *   - failedUses >= failureThreshold：penalty = ltdPenalty × failureEscalation
+ * importance 削弱规则(D1):固定调用 `dynamics.updateOnReportFailure`,
+ * 单次 penalty = FAILURE_LOSS(默认 0.1),不再有 escalation 倍率。
  *
  * @param repo - 仓库
  * @param id - 目标 engram id
- * @param config - 配置（可选）
- * @param archiveThreshold - 触发 archive 的 failedUses 阈值（默认 3）
- * @param forgetThreshold - 触发 forget 的 failedUses 阈值（默认 5）
+ * @param config - 配置(可选,提供 archiveThreshold / forgetThreshold)
+ * @param archiveThreshold - 触发 archive 的 failedUses 阈值(覆盖 config)
+ * @param forgetThreshold - 触发 forget 的 failedUses 阈值(覆盖 config)
  * @param nowIso - 当前时间
  */
 export function recordRetrievalFailure(
   repo: EngramRepository,
   id: string,
   config: ReinforcementConfig = DEFAULT_CONFIG,
-  archiveThreshold: number = DEFAULT_ARCHIVE_THRESHOLD,
-  forgetThreshold: number = DEFAULT_FORGET_THRESHOLD,
+  archiveThreshold: number = config.archiveThreshold,
+  forgetThreshold: number = config.forgetThreshold,
   nowIso: string = new Date().toISOString(),
 ): LtdResult {
   if (!repo.exists(id)) {
@@ -73,23 +71,20 @@ export function recordRetrievalFailure(
   }
 
   const before = repo.readEngram(id);
-  const newFailedUses = before.failedUses + 1;
-  const isEscalated = newFailedUses >= config.failureThreshold;
-  const penalty = isEscalated
-    ? config.ltdPenalty * config.failureEscalation
-    : config.ltdPenalty;
+  const next = updateOnReportFailure(before.importance);
+  const delta = next - before.importance; // 负数
 
   repo.bumpRetrievalStats(id, {
     retrievedDelta: 1,
     failedDelta: 1,
-    importanceDelta: -penalty,
+    importanceDelta: delta,
     lastRetrievedAt: nowIso,
   });
 
   const updated = repo.readEngram(id);
   return {
     id,
-    importanceDelta: -penalty,
+    importanceDelta: delta,
     importance: updated.importance,
     failedUses: updated.failedUses,
     retrievalCount: updated.retrievalCount,
@@ -100,22 +95,21 @@ export function recordRetrievalFailure(
 
 /**
  * 计算失败 N 次后的预期 importance（不写盘）
+ * D1 之后:循环调 `dynamics.updateOnReportFailure`,与实际写入路径一致。
  */
 export function projectImportanceAfterFailures(
   engram: Engram,
   times: number,
-  config: ReinforcementConfig = DEFAULT_CONFIG,
+  _config: ReinforcementConfig = DEFAULT_CONFIG,
 ): number {
   let importance = engram.importance;
-  let failedUses = engram.failedUses;
   for (let i = 0; i < times; i++) {
-    failedUses += 1;
-    const isEscalated = failedUses >= config.failureThreshold;
-    const penalty = isEscalated
-      ? config.ltdPenalty * config.failureEscalation
-      : config.ltdPenalty;
-    importance -= penalty;
+    importance = updateOnReportFailure(importance);
     if (importance <= 0) return 0;
   }
   return Math.max(0, importance);
 }
+
+/** 默认降级阈值(等价于 DEFAULT_CONFIG.archiveThreshold,保留 export 以兼容现有 import) */
+export const DEFAULT_ARCHIVE_THRESHOLD = DEFAULT_CONFIG.archiveThreshold;
+export const DEFAULT_FORGET_THRESHOLD = DEFAULT_CONFIG.forgetThreshold;

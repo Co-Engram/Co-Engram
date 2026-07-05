@@ -1,11 +1,17 @@
 /**
  * Maintenance Engine（P4 B.2 + C.2 + D.1）
  *
- * 自动维护服务的核心调度器。三阶段：
+ * 自动维护服务的核心调度器。四阶段：
  *
- *   - light（秒/分钟级）:drain signals → extractSignals → applyRpeUpdate
- *   - deep （小时级）   :复用现有 runDeepDreaming
- *   - rem  （天级）     :runRemDreaming + metacognition（P4 C.2 实现）
+ *   - light （秒/分钟级）:drain signals → extractSignals → applyRpeUpdate
+ *   - deep  （小时级）   :复用现有 runDeepDreaming
+ *   - rem   （天级）     :runRemDreaming + metacognition（P4 C.2 实现）
+ *   - daily （24 小时）  :applyDailyDecay —— 全量 engram 乘性衰减 ×0.95
+ *
+ * daily 与 light 正交:
+ *   - light 的 RPE 是事件驱动的加性更新(基于 retrieve/reinforce 信号)
+ *   - daily 是时间驱动的乘性衰减(无关事件,每天打 95 折)
+ *   两机制走不同 stage,避免在同一循环里"加性 + 乘性"互相抵消。
  *
  * 调度策略：
  *   start() 内部 setInterval + unref(),不依赖宿主 /loop 或 cron。
@@ -24,6 +30,7 @@ import type {
   MaintenanceStage,
 } from "./types.js";
 import {
+  DEFAULT_DAILY_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
@@ -38,6 +45,7 @@ import {
 import { applyRpeUpdate } from "../signals/rpe.js";
 import type { ToolCallEvent } from "../signals/types.js";
 import { applyMetacognition } from "../verification/metacognition.js";
+import { applyDailyDecay } from "../importance/dynamics.js";
 import {
   computePromptSignals,
   writePromptSignals,
@@ -61,6 +69,7 @@ export class MaintenanceEngine {
   private lightTimer: ReturnType<typeof setInterval> | null = null;
   private deepTimer: ReturnType<typeof setInterval> | null = null;
   private remTimer: ReturnType<typeof setInterval> | null = null;
+  private dailyTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   constructor(deps: MaintenanceDeps, config: MaintenanceConfig = {}) {
@@ -69,12 +78,14 @@ export class MaintenanceEngine {
       lightIntervalMs: config.lightIntervalMs ?? DEFAULT_LIGHT_INTERVAL_MS,
       deepIntervalMs: config.deepIntervalMs ?? DEFAULT_DEEP_INTERVAL_MS,
       remIntervalMs: config.remIntervalMs ?? DEFAULT_REM_INTERVAL_MS,
+      dailyIntervalMs: config.dailyIntervalMs ?? DEFAULT_DAILY_INTERVAL_MS,
       signalPruneAgeMs: config.signalPruneAgeMs ?? DEFAULT_SIGNAL_PRUNE_AGE_MS,
       learningRate: config.learningRate ?? DEFAULT_RPE_LEARNING_RATE,
       rules: config.rules ?? DEFAULT_RULES,
       windowSize: config.windowSize ?? 10,
       enabledStages:
-        config.enabledStages ?? (["light", "deep", "rem"] as const),
+        config.enabledStages ??
+        (["light", "deep", "rem", "daily"] as const),
       trash: config.trash ?? { enabled: false },
     };
   }
@@ -250,6 +261,55 @@ export class MaintenanceEngine {
   }
 
   /**
+   * Daily 阶段:applyDailyDecay —— 全量 engram 乘性衰减
+   *
+   * 低频(默认 24 小时),时间驱动的结构化衰减。
+   * 与 light 的 RPE 加性更新正交:RPE 是事件驱动的微调,daily 是
+   * "无论是否被使用,所有 engram 每天打 95 折",对应"未被使用的时间
+   * 也在削弱记忆权重"的认知科学语义。
+   *
+   * 范围:active 状态 + verificationStatus ∈ {unverified, plausible,
+   * probable, verified} 的 engram。
+   *   - status = draft/archived/forgotten 的 engram 已是冻结/废弃态,不再衰减
+   *   - verificationStatus = refuted 的 engram 已被否决,不再衰减
+   *
+   * 不写 audit log:全量 × 每天会产生海量 audit 噪音(1000 engrams ×
+   * 365 天 = 36w 条/年),违反 audit log "人类可读的状态变更追踪"设计。
+   * 通过 MaintenanceReport.decayed 暴露衰减计数供宿主观察。
+   */
+  async runDaily(): Promise<MaintenanceReport> {
+    return this.runStage("daily", async () => {
+      const candidates = this.deps.repository.listByVerificationStatus([
+        "unverified",
+        "plausible",
+        "probable",
+        "verified",
+      ]);
+
+      let decayed = 0;
+      for (const engram of candidates) {
+        // listByVerificationStatus 只按 verificationStatus 过滤,需额外
+        // 排除 lifecycle status 已是 archived/forgotten/draft 的 engram。
+        if (engram.status !== "active") continue;
+        try {
+          const newImportance = applyDailyDecay(engram.importance);
+          if (newImportance !== engram.importance) {
+            this.deps.repository.updateEngram(engram.id, {
+              importance: newImportance,
+              updatedBy: "maintenance.daily",
+            });
+            decayed += 1;
+          }
+        } catch {
+          // 单个 engram 失败不阻塞整体
+        }
+      }
+
+      return { decayed };
+    });
+  }
+
+  /**
    * 启动所有已启用阶段的定时调度
    *
    * 定时器都调 .unref(),进程退出时自动清理。
@@ -279,6 +339,12 @@ export class MaintenanceEngine {
       }, this.resolvedConfig.remIntervalMs);
       this.remTimer.unref?.();
     }
+    if (stages.has("daily")) {
+      this.dailyTimer = setInterval(() => {
+        this.runDaily().catch(() => {});
+      }, this.resolvedConfig.dailyIntervalMs);
+      this.dailyTimer.unref?.();
+    }
   }
 
   /** 停止所有定时调度 */
@@ -296,6 +362,10 @@ export class MaintenanceEngine {
     if (this.remTimer) {
       clearInterval(this.remTimer);
       this.remTimer = null;
+    }
+    if (this.dailyTimer) {
+      clearInterval(this.dailyTimer);
+      this.dailyTimer = null;
     }
   }
 
@@ -342,6 +412,7 @@ export class MaintenanceEngine {
       rpeUpdates: body.rpeUpdates,
       windowsClosed: body.windowsClosed,
       promptSignalsUpdated: body.promptSignalsUpdated,
+      decayed: body.decayed,
       downstreamReport: body.downstreamReport,
     };
   }

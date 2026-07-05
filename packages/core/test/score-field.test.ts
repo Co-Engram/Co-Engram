@@ -75,8 +75,8 @@ describe("engramReinforceTool result bands", () => {
 
     // importance starts at 0.5 → band "medium"
     expect(result.importanceBand).toBe("medium");
-    // delta = effectiveness × ltpGain = 0.8 × 0.02 = 0.016 → rounds to 0.02 → band "low"
-    expect(result.importanceDelta).toBeCloseTo(0.02, 2);
+    // D1: delta = effectiveness × LTP_GAIN(默认 0.1)= 0.8 × 0.1 = 0.08 → band "low"
+    expect(result.importanceDelta).toBeCloseTo(0.08, 2);
     expect(result.importanceDeltaBand).toBe("low");
 
     // No float noise in serialized output

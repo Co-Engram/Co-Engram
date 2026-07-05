@@ -10,14 +10,12 @@ describe("config.json overrides defaults (Task 1.5)", () => {
     expect(cfg.observation).toBeDefined();
   });
 
-  it("reinforcement.ltpGain can be overridden", () => {
-    const cfg = loadConfig({ reinforcement: { ltpGain: 0.05 } });
-    expect(cfg.reinforcement?.ltpGain).toBe(0.05);
-    // Other reinforcement fields fall back to defaults
-    expect(cfg.reinforcement?.ltdPenalty).toBe(0.03);
-    expect(cfg.reinforcement?.hebbianRatio).toBe(0.5);
-    expect(cfg.reinforcement?.failureThreshold).toBe(3);
-    expect(cfg.reinforcement?.failureEscalation).toBe(1.5);
+  it("reinforcement.hebbianRatio can be overridden", () => {
+    const cfg = loadConfig({ reinforcement: { hebbianRatio: 0.7 } });
+    expect(cfg.reinforcement?.hebbianRatio).toBe(0.7);
+    // Other reinforcement fields fall back to D1 defaults
+    expect(cfg.reinforcement?.archiveThreshold).toBe(3);
+    expect(cfg.reinforcement?.forgetThreshold).toBe(5);
   });
 
   it("search weights can be overridden", () => {
@@ -59,7 +57,7 @@ describe("config.json overrides defaults (Task 1.5)", () => {
       search: { relevance: 0.4 },
     });
     expect(cfg.reinforcement?.hebbianRatio).toBe(0.7);
-    expect(cfg.reinforcement?.ltpGain).toBe(0.02); // default
+    expect(cfg.reinforcement?.archiveThreshold).toBe(3); // D1 default
     expect(cfg.search?.relevance).toBe(0.4);
     expect(cfg.search?.recency).toBe(0.3); // default
   });
@@ -67,11 +65,9 @@ describe("config.json overrides defaults (Task 1.5)", () => {
   it("normalizeConfig round-trip: full override → all fields preserved", () => {
     const original = {
       reinforcement: {
-        ltpGain: 0.01,
-        ltdPenalty: 0.05,
         hebbianRatio: 0.6,
-        failureThreshold: 5,
-        failureEscalation: 2.0,
+        archiveThreshold: 4,
+        forgetThreshold: 7,
       },
       search: { relevance: 0.7, recency: 0.2, importance: 0.1 },
       observation: {

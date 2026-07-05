@@ -1,15 +1,18 @@
 /**
  * Maintenance 模块类型定义（P4 B.2 + C.2 + D.1）
  *
- * MaintenanceEngine 三阶段配置：
- *   - light: drain signals → extractSignals → applyRpeUpdate（高频,秒/分钟级）
- *   - deep : 复用现有 runDeepDreaming（中频,小时级）
- *   - rem  : runRemDreaming + metacognition（低频,天级）
+ * MaintenanceEngine 四阶段配置：
+ *   - light : drain signals → extractSignals → applyRpeUpdate（高频,秒/分钟级）
+ *   - deep  : 复用现有 runDeepDreaming（中频,小时级）
+ *   - rem   : runRemDreaming + metacognition（低频,天级）
+ *   - daily : applyDailyDecay（每 24h 一次,全量 engram 乘性衰减 ×0.95）
  *
  * 设计原则：
  *   1. 默认配置合理（可零配置启动）
  *   2. 调度器内化在 engine.start()（setInterval + unref）,不依赖宿主 /loop
- *   3. 三阶段独立触发,可单独调用
+ *   3. 各阶段独立触发,可单独调用
+ *   4. daily 与 light 的 RPE 加性更新正交 —— RPE 是事件驱动的微调,
+ *      daily 是时间驱动的结构化衰减;两机制并存而不互相抵消(分别走不同 stage)。
  *
  * @module @co-engram/core/maintenance
  */
@@ -23,7 +26,7 @@ import type { LlmClient } from "../observability/necessity-evaluator.js";
 import { DEFAULT_RPE_LEARNING_RATE } from "../signals/rpe.js";
 
 /** 维护阶段名 */
-export type MaintenanceStage = "light" | "deep" | "rem";
+export type MaintenanceStage = "light" | "deep" | "rem" | "daily";
 
 /** 维护引擎依赖（注入式,便于测试） */
 export interface MaintenanceDeps {
@@ -65,6 +68,7 @@ export interface MaintenanceDeps {
 export const DEFAULT_LIGHT_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 export const DEFAULT_DEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 export const DEFAULT_REM_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const DEFAULT_DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const DEFAULT_SIGNAL_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** 复用 signals/rpe.ts 的学习率（重导出避免分裂） */
@@ -78,6 +82,14 @@ export interface MaintenanceConfig {
   readonly deepIntervalMs?: number;
   /** rem 阶段调度间隔（默认 7 天） */
   readonly remIntervalMs?: number;
+  /**
+   * daily 阶段调度间隔（默认 24 小时）。
+   *
+   * daily 走全量 engram 的乘性衰减(importance × 0.95),与 light 阶段的
+   * RPE 加性更新正交。频率过快会让 importance 一天被打到 0,过慢则失去
+   * "每日衰减"的语义。24h 是与人类"每天"节律对齐的自然周期。
+   */
+  readonly dailyIntervalMs?: number;
   /** signals.jsonl 保留时长（默认 7 天） */
   readonly signalPruneAgeMs?: number;
   /** RPE 学习率（默认 0.1） */
@@ -116,6 +128,11 @@ export interface MaintenanceReport {
   readonly windowsClosed?: number;
   /** light 阶段是否刷新了 prompt-signals.json */
   readonly promptSignalsUpdated?: boolean;
+  /**
+   * daily 阶段实际衰减的 engram 数(importance 真的发生变化的条数;
+   * 已在 0 / 1 边界无变化的 engram 不计入)。
+   */
+  readonly decayed?: number;
   /** deep/rem 阶段的下游报告 */
   readonly downstreamReport?: unknown;
   /** 错误（不抛,记录后继续） */
