@@ -2,9 +2,9 @@
 
 维护引擎让 Co-Engram 具备**自我纠错**能力。引擎无需依赖 agent 手动为记忆打分或加标签,而是观察记忆的使用情况并自动调整其强度。
 
-灵感来源于大脑的睡眠周期 —— `light`(持续进行)、`deep`(巩固)、`rem`(抽象 + 验证)。
+灵感来源于大脑的睡眠周期 —— `light`(持续进行)、`deep`(巩固)、`daily`(时间驱动衰减)、`rem`(抽象 + 验证)。
 
-## 三个阶段
+## 四个阶段
 
 ```mermaid
 flowchart TB
@@ -16,7 +16,12 @@ flowchart TB
 
   subgraph Deep["deep stage (every 1 hour)"]
     D1["find similar engrams"] --> D2["create consolidates synapse"]
-    D2 --> D3["apply Ebbinghaus decay"]
+    D2 --> D3["archive stale engrams"]
+    D3 --> D4["trash sweep (opt-in)"]
+  end
+
+  subgraph Daily["daily stage (every 24 h)"]
+    A1["scan all active engrams"] --> A2["apply multiplicative decay<br/>importance × 0.95"]
   end
 
   subgraph REM["rem stage (every 7 days)"]
@@ -54,7 +59,7 @@ flowchart TB
 
 ## 深度阶段(Deep Stage)
 
-**目的:** 巩固相似记忆、按时间衰减,并将长期被遗忘的 engram 清理到回收站。
+**目的:** 巩固相似记忆、归档陈旧 engram,并将长期被遗忘的 engram 清理到回收站。
 
 **触发:** 每隔 `deepIntervalMs`(默认 1 小时)。
 
@@ -62,16 +67,30 @@ flowchart TB
 
 1. 对每一对相似度高于阈值(可配置)的 engram:
    - 若不存在 `consolidates` synapse,则创建一个
-2. 应用 Ebbinghaus 遗忘曲线:
-   ```
-   retention = e^(-t / halfLife)
-   importance *= retention
-   ```
-   - `halfLife = decayHalfLifeDays`,按 engram 配置(默认 30 天)
-3. 归档达到归档阈值的 engram(可配置)
-4. **回收站清理**(可选启用):将 `status=forgotten` 且文件 mtime 超过 `afterDays`(默认 30)的 engram 移动到 `.trash/YYYY-MM/`。可选清除超过 `purgeAfterDays`(默认 365)的分区。
+2. 归档 freshness 已达到 `stale` 的 engram(freshness 由 `lastEffectiveAt` + 从 `importance` 派生的半衰期计算,详见 [Daily Stage](#每日阶段daily-stage))
+3. **回收站清理**(可选启用):将 `status=forgotten` 且文件 mtime 超过 `afterDays`(默认 30)的 engram 移动到 `.trash/YYYY-MM/`。可选清除超过 `purgeAfterDays`(默认 365)的分区。
 
-**不会做的事:** 提升版本号、修改内容、反驳 engram。
+**不会做的事:** 对 `importance` 做时间衰减(已迁移到 [Daily Stage](#每日阶段daily-stage))、提升版本号、修改内容、反驳 engram。
+
+## 每日阶段(Daily Stage)
+
+**目的:** 对 `importance` 应用时间驱动的乘性衰减,与 light 阶段事件驱动的 RPE 更新解耦。
+
+**触发:** 每隔 `dailyIntervalMs`(默认 24 小时)。
+
+**流程:**
+
+1. 扫描所有 `status=active` 的 engram
+2. 应用乘性衰减:
+   ```
+   importance *= 0.95
+   ```
+   - 已在 `0` 或 `1` 边界的 `importance` 不动(边界钳位)
+   - 每个实际发生变化的 engram 写入一条 `decay` 审计事件
+
+**为什么用乘性(× 0.95)而不是加性(− 0.1)?** 加性衰减会在固定时间内归零,无论初始值高低 —— 高重要性 engram 与低重要性 engram 同时过期。乘性衰减保留相对顺序 —— 高重要性 engram 在衰减过程中始终高于低重要性 engram,而半衰期派生正是用 `importance` 作为输入计算 freshness 边界。
+
+**不会做的事:** 提升版本号、修改内容、修改 `verificationStatus`。Light 阶段的 RPE 更新是加性、事件驱动;daily 是乘性、时间驱动。两者正交,互不抵消。
 
 ### 回收站清理细节
 
@@ -129,9 +148,10 @@ flowchart TB
 | 变量                                      | 默认值            | 作用                                                |
 | ----------------------------------------- | ----------------- | --------------------------------------------------- |
 | `CO_ENGRAM_MAINTENANCE`                   | `0`               | 总开关。设为 `1` 启用。                             |
-| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,rem`  | 逗号分隔的阶段子集                                  |
+| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,daily,rem` | 逗号分隔的阶段子集                                  |
 | `CO_ENGRAM_MAINTENANCE_LIGHT_INTERVAL_MS` | `300000`(5 分钟)  | 浅层阶段触发频率                                    |
 | `CO_ENGRAM_MAINTENANCE_DEEP_INTERVAL_MS`  | `3600000`(1 小时) | 深度阶段触发频率                                    |
+| `CO_ENGRAM_MAINTENANCE_DAILY_INTERVAL_MS` | `86400000`(24 小时) | 每日阶段触发频率(乘性衰减)                        |
 | `CO_ENGRAM_MAINTENANCE_REM_INTERVAL_MS`   | `604800000`(7 天) | REM 阶段触发频率                                    |
 | `CO_ENGRAM_MAINTENANCE_LEARNING_RATE`     | `0.1`             | RPE 学习率                                          |
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`               | 在深度阶段启用回收站清理。设为 `1` 启用。           |

@@ -2,9 +2,9 @@
 
 The maintenance engine is what makes Co-Engram **self-correcting**. Instead of relying on agents to manually tag or score memories, the engine observes how memories are used and adjusts their strength automatically.
 
-Inspired by the brain's sleep cycles — `light` (ongoing), `deep` (consolidation), `rem` (abstraction + verification).
+Inspired by the brain's sleep cycles — `light` (ongoing), `deep` (consolidation), `daily` (time-driven decay), `rem` (abstraction + verification).
 
-## The Three Stages
+## The Four Stages
 
 ```mermaid
 flowchart TB
@@ -16,7 +16,12 @@ flowchart TB
 
   subgraph Deep["deep stage (every 1 hour)"]
     D1["find similar engrams"] --> D2["create consolidates synapse"]
-    D2 --> D3["apply Ebbinghaus decay"]
+    D2 --> D3["archive stale engrams"]
+    D3 --> D4["trash sweep (opt-in)"]
+  end
+
+  subgraph Daily["daily stage (every 24 h)"]
+    A1["scan all active engrams"] --> A2["apply multiplicative decay<br/>importance × 0.95"]
   end
 
   subgraph REM["rem stage (every 7 days)"]
@@ -54,7 +59,7 @@ flowchart TB
 
 ## Deep Stage
 
-**Purpose:** Consolidate similar memories, apply time-based decay, and sweep long-forgotten engrams to the trash.
+**Purpose:** Consolidate similar memories, archive stale ones, and sweep long-forgotten engrams to the trash.
 
 **Trigger:** Every `deepIntervalMs` (default 1 hour).
 
@@ -62,16 +67,30 @@ flowchart TB
 
 1. For each engram pair with similarity > threshold (configurable):
    - Create a `consolidates` synapse if not present
-2. Apply Ebbinghaus forgetting curve:
-   ```
-   retention = e^(-t / halfLife)
-   importance *= retention
-   ```
-   - `halfLife = decayHalfLifeDays` per engram (default 30 days)
-3. Archive engrams that have reached the archive threshold (configurable)
-4. **Trash sweep** (opt-in): move engrams with `status=forgotten` older than `afterDays` (default 30) into `.trash/YYYY-MM/`. Optionally purge partitions older than `purgeAfterDays` (default 365).
+2. Archive engrams whose freshness has reached `stale` (computed from `lastEffectiveAt` + halflife derived from `importance`, see [Daily Stage](#daily-stage))
+3. **Trash sweep** (opt-in): move engrams with `status=forgotten` older than `afterDays` (default 30) into `.trash/YYYY-MM/`. Optionally purge partitions older than `purgeAfterDays` (default 365).
 
-**Does not:** bump version, modify content, refute engrams.
+**Does not:** apply time-based decay to `importance` (that moved to [Daily Stage](#daily-stage)), bump version, modify content, refute engrams.
+
+## Daily Stage
+
+**Purpose:** Apply time-driven multiplicative decay to `importance`, separate from the event-driven RPE updates in light stage.
+
+**Trigger:** Every `dailyIntervalMs` (default 24 hours).
+
+**Flow:**
+
+1. Scan all `status=active` engrams
+2. Apply multiplicative decay:
+   ```
+   importance *= 0.95
+   ```
+   - `importance` already at `0` or `1` is left untouched (boundary clamp)
+   - A `decay` audit event is appended per engram that actually changed
+
+**Why multiplicative (× 0.95) instead of additive (− 0.1)?** A constant additive step reaches `0` in fixed time regardless of starting value, so a high-importance engram and a low-importance engram expire at the same rate. Multiplicative decay preserves relative ordering — high-importance engrams stay above low-importance ones as both decline, which is the input the [halflife derivation](#) uses to compute freshness boundaries.
+
+**Does not:** bump version, modify content, modify `verificationStatus`. The light stage's RPE updates are additive and event-driven; daily is multiplicative and time-driven. The two are orthogonal and do not cancel each other.
 
 ### Trash Sweep Details
 
@@ -129,9 +148,10 @@ All intervals are in milliseconds. Set via env vars (MCP) or `maintenanceConfig`
 | Var                                       | Default              | Effect                                                                     |
 | ----------------------------------------- | -------------------- | -------------------------------------------------------------------------- |
 | `CO_ENGRAM_MAINTENANCE`                   | `0`                  | Master switch. Set to `1` to enable.                                       |
-| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,rem`     | Comma-separated subset                                                     |
+| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,daily,rem` | Comma-separated subset                                                     |
 | `CO_ENGRAM_MAINTENANCE_LIGHT_INTERVAL_MS` | `300000` (5 min)     | Light stage cadence                                                        |
 | `CO_ENGRAM_MAINTENANCE_DEEP_INTERVAL_MS`  | `3600000` (1 hour)   | Deep stage cadence                                                         |
+| `CO_ENGRAM_MAINTENANCE_DAILY_INTERVAL_MS` | `86400000` (24 h)    | Daily stage cadence (multiplicative decay)                                 |
 | `CO_ENGRAM_MAINTENANCE_REM_INTERVAL_MS`   | `604800000` (7 days) | REM stage cadence                                                          |
 | `CO_ENGRAM_MAINTENANCE_LEARNING_RATE`     | `0.1`                | RPE learning rate                                                          |
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`                  | Enable trash sweep in deep stage. Set to `1` to enable.                    |
