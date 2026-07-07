@@ -69,6 +69,13 @@ export const DEFAULT_PROPOSALS_CONFIG: Readonly<
 /** Audit 默认值 */
 export const DEFAULT_AUDIT_CONFIG: Readonly<Required<AuditSectionConfig>> = {
   enabled: true,
+  rotation: {
+    enabled: true,
+    retentionDays: 90,
+    highValueRetentionDays: 365,
+    maxSizeMb: 50,
+    intervalMs: 24 * 60 * 60 * 1000,
+  },
 };
 
 /** Effectiveness 默认值 */

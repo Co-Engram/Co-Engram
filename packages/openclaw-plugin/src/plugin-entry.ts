@@ -55,6 +55,7 @@ import {
   type PromptSignalSnapshot,
   type NecessityEvaluator,
   type PathOverviewItem,
+  DEFAULT_AUDIT_CONFIG,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -353,6 +354,11 @@ export function registerCoEngramTools(
   config: CoEngramPluginConfig = {},
 ): ToolContext & {
   readonly stopMaintenance?: () => void;
+  /**
+   * 关闭 audit 日志轮转后台任务(可选,进程退出时 OS 自动回收;
+   * 与 stopMaintenance 解耦 — 日志管理与 maintenance 是不同概念的东西)
+   */
+  readonly stopAuditRotation?: () => void;
   /** 关闭跨进程 index watcher(主要用于插件卸载 / 测试隔离) */
   readonly stopIndexWatcher?: () => void;
   readonly language?: Language;
@@ -439,6 +445,25 @@ export function registerCoEngramTools(
       config.maintenanceConfig ?? {},
     );
     stopMaintenance = runtime.stop;
+  }
+
+  // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
+  // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
+  // auditEnabled=false 时无 auditLog,自然跳过 rotation。
+  let stopAuditRotation: (() => void) | undefined;
+  if (ctx.auditLog) {
+    const rotationConfig = {
+      ...DEFAULT_AUDIT_CONFIG.rotation,
+      ...(config.auditRotationConfig ?? {}),
+    };
+    if (rotationConfig.enabled !== false) {
+      stopAuditRotation = ctx.auditLog.startAutoRotation({
+        retentionDays: rotationConfig.retentionDays!,
+        highValueRetentionDays: rotationConfig.highValueRetentionDays!,
+        maxSizeMb: rotationConfig.maxSizeMb!,
+        intervalMs: rotationConfig.intervalMs!,
+      });
+    }
   }
 
   // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
@@ -570,6 +595,7 @@ export function registerCoEngramTools(
   return {
     ...ctx,
     stopMaintenance,
+    ...(stopAuditRotation ? { stopAuditRotation } : {}),
     stopIndexWatcher: () => ctx.repository.stopWatching(),
     language,
   };

@@ -320,7 +320,7 @@ Snapshot of the synapse graph for fast traversal. Rebuilt on every `synapse_crea
 
 ### `audit.jsonl`
 
-Append-only audit log of state changes and effectiveness signals. Used by the viewer, maintenance engine, and meta-learning. Never edited by hand.
+Audit log of state changes and effectiveness signals. Used by the viewer, maintenance engine, and meta-learning. Entries are appended; the file self-rotates by action-value tier (default 90d low-value / 365d high-value) + 50MB file-size hard cap, so it does not grow unbounded. See [Observability → Log Rotation](./observability.md#log-rotation-automatic-cleanup) for the full retention policy and config keys.
 
 Each line is one `AuditEntry`:
 
@@ -332,7 +332,7 @@ Each line is one `AuditEntry`:
 
 Tracked actions: `create`, `update`, `update_lifecycle`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`.
 
-Approximate growth: 200 bytes/event, 10-20 MB/year for typical use.
+Approximate size: 200 bytes/event. With default rotation the file stays bounded at ~50MB worst-case (size cap), typically much smaller.
 
 ### `signals.jsonl` (inside `.co-engram/`)
 

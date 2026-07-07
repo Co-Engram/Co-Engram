@@ -26,10 +26,12 @@ import {
   type Language,
   type MaintenanceConfig,
   type ProposalEngineConfig,
+  type AuditRotationConfig,
   type NecessityEvaluator,
   type LlmClient,
   type Tool,
   type ToolContext,
+  DEFAULT_AUDIT_CONFIG,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -84,6 +86,16 @@ export interface CoEngramMcpServerConfig {
   readonly maintenanceConfig?: MaintenanceConfig;
   /** 是否启用 audit log（默认 true——写入开销极低,保留以备后用） */
   readonly auditEnabled?: boolean;
+  /**
+   * Audit 日志轮转配置(独立后台任务,与 maintenance 完全解耦)。
+   *
+   * 不传时使用 DEFAULT_AUDIT_CONFIG.rotation(默认 enabled=true,
+   * retentionDays=90, highValueRetentionDays=365, maxSizeMb=50,
+   * intervalMs=24h)。
+   *
+   * auditEnabled=false 时本字段被忽略(无 auditLog 自然无 rotation)。
+   */
+  readonly auditRotationConfig?: AuditRotationConfig;
   /** 是否启用 effectiveness 追踪（默认 true） */
   readonly effectivenessEnabled?: boolean;
   /** 是否启用 proposal engine（默认 false,需显式开启） */
@@ -162,6 +174,11 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   /** effectiveness tracker 引用（如果启用），用于 viewer + maintenance */
   readonly effectivenessTracker?: EffectivenessTracker;
   readonly stopMaintenance?: () => void;
+  /**
+   * 关闭 audit 日志轮转后台任务(可选,进程退出时 OS 自动回收;
+   * 与 stopMaintenance 解耦 — 日志管理与 maintenance 是不同概念的东西)
+   */
+  readonly stopAuditRotation?: () => void;
   /**
    * 关闭跨进程 index watcher(可选,进程退出时 OS 自动回收;
    * 主要用于测试隔离 / 显式资源管理)
@@ -285,6 +302,25 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     stopMaintenance = runtime.stop;
   }
 
+  // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
+  // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
+  // auditEnabled=false 时无 auditLog,自然跳过 rotation。
+  let stopAuditRotation: (() => void) | undefined;
+  if (auditLog) {
+    const rotationConfig = {
+      ...DEFAULT_AUDIT_CONFIG.rotation,
+      ...(config.auditRotationConfig ?? {}),
+    };
+    if (rotationConfig.enabled !== false) {
+      stopAuditRotation = auditLog.startAutoRotation({
+        retentionDays: rotationConfig.retentionDays!,
+        highValueRetentionDays: rotationConfig.highValueRetentionDays!,
+        maxSizeMb: rotationConfig.maxSizeMb!,
+        intervalMs: rotationConfig.intervalMs!,
+      });
+    }
+  }
+
   // 启动跨进程 index watcher — 多 host adapter(MCP / OpenClaw plugin)共享
   // 同一 dataRoot 时,确保各进程的 indexCache 在外部写入后立即失效。
   // mtime 兜底已内置在 getIndex 中,watcher 提供更实时的失效触发。
@@ -344,6 +380,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(auditLog ? { auditLog } : {}),
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(stopMaintenance ? { stopMaintenance } : {}),
+    ...(stopAuditRotation ? { stopAuditRotation } : {}),
     stopIndexWatcher: () => ctx.repository.stopWatching(),
   };
 }

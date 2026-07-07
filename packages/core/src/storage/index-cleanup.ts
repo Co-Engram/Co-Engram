@@ -22,7 +22,8 @@
  *   - topic-clusters.jsonl — 引用 cluster.id(短 hash),与 engram 无关
  *   - proposals.jsonl      — entityId = cluster.id 或外部 .md path,非 engram id
  *   - prompt-signals.json  — 字段是 tag 字符串
- *   - audit.jsonl          — append-only 历史日志,不应清理
+ *   - audit.jsonl          — 历史日志,按 audit.rotation 策略独立清理
+ *                            (AuditLog.startAutoRotation,与 doctor 解耦)
  *
  * @module @co-engram/core/storage
  */

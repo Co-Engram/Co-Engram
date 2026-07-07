@@ -13,6 +13,7 @@
 import type {
   MaintenanceConfig,
   ProposalEngineConfig,
+  AuditRotationConfig,
   Language,
   PromptSignalSnapshot,
   NecessityEvaluator,
@@ -208,6 +209,16 @@ export interface CoEngramPluginConfig {
   readonly maintenanceConfig?: MaintenanceConfig;
   /** 是否启用 audit log（默认 true） */
   readonly auditEnabled?: boolean;
+  /**
+   * Audit 日志轮转配置(独立后台任务,与 maintenance 完全解耦)。
+   *
+   * 不传时使用 DEFAULT_AUDIT_CONFIG.rotation(默认 enabled=true,
+   * retentionDays=90, highValueRetentionDays=365, maxSizeMb=50,
+   * intervalMs=24h)。
+   *
+   * auditEnabled=false 时本字段被忽略(无 auditLog 自然无 rotation)。
+   */
+  readonly auditRotationConfig?: AuditRotationConfig;
   /** 是否启用 effectiveness 追踪（默认 true） */
   readonly effectivenessEnabled?: boolean;
   /** 是否启用 proposal engine（默认 true） */

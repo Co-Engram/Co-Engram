@@ -320,7 +320,7 @@ synapse 图的快照,用于快速遍历。在每次 `synapse_create` / `synapse_
 
 ### `audit.jsonl`
 
-只追加的状态变更与有效性信号审计日志。供 viewer、维护引擎与元学习使用。绝不手动编辑。
+状态变更与有效性信号审计日志。供 viewer、维护引擎与元学习使用。条目按 append-only 方式写入;文件按 action 价值分层(默认低价值 90d / 高价值 365d)加 50MB 文件大小硬上限**自动轮转清理**,不会无界增长。完整保留策略与配置项见 [可观测性 → 日志轮转](./observability.zh-CN.md#日志轮转自动清理)。
 
 每行是一个 `AuditEntry`:
 
@@ -332,7 +332,7 @@ synapse 图的快照,用于快速遍历。在每次 `synapse_create` / `synapse_
 
 跟踪的 action:`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`。
 
-大致增长:200 字节/事件,典型使用下每年 10-20 MB。
+大致大小:200 字节/事件。默认开启轮转后,文件大小受 ~50MB 硬上限约束(实际通常远低于此)。
 
 ### `signals.jsonl`(位于 `.co-engram/` 内)
 

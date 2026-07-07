@@ -56,6 +56,64 @@ const report = audit.effectiveness("01J...A");
 
 LLM agents that need "what happened to this engram?" without opening the viewer or reading JSONL directly can call the **`engram_audit_query`** tool (in `standard` and `full` profiles). It exposes the same `AuditLog.query()` filters — `engramId`, `action`, `since`, `until`, `limit` — and returns chronological events. See [Tool Reference](./tool-reference.md) for the full signature.
 
+### Log Rotation (automatic cleanup)
+
+`audit.jsonl` self-rotates by default via an **independent background `setInterval`** (default 24h check), fully decoupled from the [maintenance engine](./maintenance-engine.md) light/deep/rem/daily stages — log management and memory-data maintenance are different concerns.
+
+Retention runs along two axes:
+
+**1. Action-value tiered retention (time axis)**
+
+| Tier            | Default retention | Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **High-value**  | 365 days          | `create`, `update`, `update_lifecycle`, `importance_update`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `accept`, `dismiss`, `contradicted`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`, `learning_loop_success`, `learning_loop_partial`, `learning_loop_failure` |
+| **Low-value** (default) | 90 days   | `propose`, `reinforce`, `report_failure`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `noise_filtered`, `necessity_rejected`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+Rationale: high-value = state mutations + user decisions + cross-process coordination + learning-loop closures. These are the core purpose of an audit log (tracing "why was this engram deleted/merged/accepted/dismissed?"). Low-value = high-frequency but low forensic interest (every tool call, every search hit) — individually useless for retrospectives.
+
+**2. File-size hard cap (space axis)**
+
+Even when no time threshold has tripped, exceeding `maxSizeMb` (default 50MB) forces tail-truncation — walk from the file's tail accumulating bytes until the budget is exhausted, **keeping the newest tail entries** (in production, `audit.append()` always writes new entries at the end, so the newest is at the bottom). This is a hard guard for `readFileSync`, preventing unbounded growth from OOM-killing the Node process.
+
+**Safety guarantees**:
+
+- **Corrupt-line preservation**: lines that fail JSON parse or have unparseable `ts` are **not silently dropped** — kept verbatim for `engram_audit_query` / human review.
+- **Fail-soft**: any IO/JSON exception returns `droppedCount: 0` and does not throw or block business logic.
+- **No audit-on-audit**: the rotation action itself does not write an audit entry (would be self-reinforcing noise).
+- **Atomic write**: `tmp-${pid}-${ts}` temp file + `rename` — no half-flushed corruption.
+
+### Configuration
+
+In `$DATA_ROOT/.co-engram/config.json`:
+
+```json
+{
+  "audit": {
+    "enabled": true,
+    "rotation": {
+      "enabled": true,
+      "retentionDays": 90,
+      "highValueRetentionDays": 365,
+      "maxSizeMb": 50,
+      "intervalMs": 86400000
+    }
+  }
+}
+```
+
+Field meanings:
+
+| Field                     | Default    | Description                                                                                          |
+| ------------------------- | ---------- | ---------------------------------------------------------------------------------------------------- |
+| `audit.enabled`           | `true`     | Master switch. `false` disables both audit writes and rotation                                       |
+| `audit.rotation.enabled`  | `true`     | Rotation master switch. `false` fully disables auto-cleanup (audit.jsonl grows unbounded; testing / ops only) |
+| `retentionDays`           | `90`       | Low-value action retention (days)                                                                    |
+| `highValueRetentionDays`  | `365`      | High-value action retention (days)                                                                   |
+| `maxSizeMb`               | `50`       | File-size hard cap (MB)                                                                              |
+| `intervalMs`              | `86400000` | Rotation check interval (ms, default 24h). `≤ 0` disables                                            |
+
+Host adapter config: both `@co-engram/claude-code`'s `CoEngramMcpServerConfig.auditRotationConfig` and `@co-engram/openclaw`'s `CoEngramPluginConfig.auditRotationConfig` accept the same shape; when omitted, values resolve from persisted config or fall back to defaults.
+
 ## Effectiveness Tracker
 
 When `engram_search` hits an engram, the wrapped tool calls `effectivenessTracker.openWindow(...)`. The window length depends on the engram's kind:

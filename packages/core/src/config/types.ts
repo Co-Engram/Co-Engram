@@ -48,11 +48,60 @@ export interface ProposalsSectionConfig {
 }
 
 /**
+ * Audit 日志轮转配置
+ *
+ * 独立后台任务(独立 setInterval),与 maintenance 引擎完全解耦 ——
+ * 日志管理与 engram 数据维护是不同概念的东西。
+ *
+ * 清理策略:
+ *   - 按 action 价值分层:HIGH_VALUE_ACTIONS 走 highValueRetentionDays,
+ *     其余走 retentionDays
+ *   - 文件大小硬上限:即使时间窗未到,文件超过 maxSizeMb 也强制截断
+ *     (保留尾部最新),防止 readFileSync 大文件爆内存
+ *   - 损坏行保留:JSON parse 失败的行不擅自删除,交给人工处理
+ */
+export interface AuditRotationConfig {
+  /** 总开关(默认 true,遵循 low-friction-defaults) */
+  readonly enabled?: boolean;
+  /**
+   * 一般事件的保留期(天,默认 90)。
+   * 适用:propose / reinforce / report_failure / importance_update /
+   * retrieve_* / noise_filtered / necessity_rejected。
+   */
+  readonly retentionDays?: number;
+  /**
+   * 高价值事件的保留期(天,默认 365)。
+   * 适用:create / update / update_lifecycle / forget / restore /
+   * sweep_to_trash / restore_from_trash / purge / accept / dismiss /
+   * contradicted / merge_* / learning_loop_*。
+   */
+  readonly highValueRetentionDays?: number;
+  /**
+   * 文件大小硬上限(MB,默认 50)。即使按时间窗未到,文件超过此值也强制
+   * 截断(保留尾部最新),防止 readFileSync 大文件爆内存。
+   */
+  readonly maxSizeMb?: number;
+  /**
+   * 轮转检查间隔(毫秒,默认 24 小时)。独立后台 setInterval,不依赖
+   * maintenance 引擎阶段。
+   */
+  readonly intervalMs?: number;
+}
+
+/**
  * Audit 子系统在 config.json 中的配置
+ *
+ * `enabled` 控制是否写 audit;rotation 字段控制过期清理(独立后台任务,
+ * 与 maintenance 完全解耦 — 日志管理与 engram 数据维护是不同概念的东西)。
  */
 export interface AuditSectionConfig {
   /** 启用审计日志(默认 true) */
   readonly enabled?: boolean;
+  /**
+   * 日志轮转配置。设为 false 完全关闭自动清理(audit.jsonl 无限增长,
+   * 仅适合测试或主动运维的场景)。
+   */
+  readonly rotation?: AuditRotationConfig;
 }
 
 /**

@@ -33,6 +33,7 @@ export type {
   MaintenanceSectionConfig,
   ProposalsSectionConfig,
   AuditSectionConfig,
+  AuditRotationConfig,
   EffectivenessSectionConfig,
   ViewerSectionConfig,
   ServerSectionConfig,
@@ -41,6 +42,19 @@ export type {
   ScoringSectionConfig,
   ObservationWindowSectionConfig,
 } from "./types.js";
+export {
+  DEFAULT_AUDIT_CONFIG,
+  DEFAULT_MAINTENANCE_CONFIG,
+  DEFAULT_PROPOSALS_CONFIG,
+  DEFAULT_EFFECTIVENESS_CONFIG,
+  DEFAULT_VIEWER_CONFIG,
+  DEFAULT_SERVER_CONFIG,
+  DEFAULT_AUTO_MEMORY_SYNC_CONFIG,
+  DEFAULT_TRASH_CONFIG,
+  DEFAULT_REINFORCEMENT_SECTION,
+  DEFAULT_SEARCH_SECTION,
+  DEFAULT_OBSERVATION_SECTION,
+} from "./defaults.js";
 export type {
   MaintenanceConfig,
   MaintenanceStage,
@@ -65,7 +79,10 @@ export function createDefaultConfig(): TeamMemoryConfig {
       trash: { ...DEFAULT_TRASH_CONFIG },
     },
     proposals: { ...DEFAULT_PROPOSALS_CONFIG },
-    audit: { ...DEFAULT_AUDIT_CONFIG },
+    audit: {
+      ...DEFAULT_AUDIT_CONFIG,
+      rotation: { ...DEFAULT_AUDIT_CONFIG.rotation },
+    },
     effectiveness: { ...DEFAULT_EFFECTIVENESS_CONFIG },
     viewer: { ...DEFAULT_VIEWER_CONFIG },
     server: { ...DEFAULT_SERVER_CONFIG },
@@ -92,7 +109,14 @@ function fillDefaults(raw: Readonly<TeamMemoryConfig>): TeamMemoryConfig {
   return {
     ...raw,
     maintenance,
-    audit: { ...DEFAULT_AUDIT_CONFIG, ...(raw.audit ?? {}) },
+    audit: {
+      ...DEFAULT_AUDIT_CONFIG,
+      ...(raw.audit ?? {}),
+      rotation: {
+        ...DEFAULT_AUDIT_CONFIG.rotation,
+        ...(raw.audit?.rotation ?? {}),
+      },
+    },
     proposals: { ...DEFAULT_PROPOSALS_CONFIG, ...(raw.proposals ?? {}) },
     effectiveness: {
       ...DEFAULT_EFFECTIVENESS_CONFIG,

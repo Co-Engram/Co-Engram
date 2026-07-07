@@ -31,6 +31,8 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
@@ -184,6 +186,131 @@ export class AuditLog {
     return out.reverse();
   }
 
+  /**
+   * 轮转清理(按时间窗 + action 价值分层 + 文件大小硬上限)
+   *
+   * 与 maintenance 引擎完全解耦:作为独立后台任务运行(见 startAutoRotation),
+   * 维护引擎只动 engram 数据,日志管理自成体系。
+   *
+   * 触发场景:
+   *   - 后台 setInterval(默认 24h)
+   *   - 手动调用(运维 / 测试)
+   *
+   * 失败 fail-soft:任何 IO/JSON 异常都不抛错,返回 `droppedCount: 0`。
+   * 不写 audit:清理动作本身写 audit 会自指产生新数据,反向激励。
+   *
+   * @returns droppedCount 删除行数 / originalSize 原字节数 / newSize 新字节数
+   */
+  rotate(opts: {
+    readonly retentionDays: number;
+    readonly highValueRetentionDays: number;
+    readonly maxSizeMb: number;
+  }): { droppedCount: number; originalSize: number; newSize: number } {
+    if (!existsSync(this.filePath)) {
+      return { droppedCount: 0, originalSize: 0, newSize: 0 };
+    }
+    const originalSize = this.statSize();
+    try {
+      const raw = readFileSync(this.filePath, "utf8");
+      const lines = raw.split("\n");
+      const now = Date.now();
+      const retentionMs = opts.retentionDays * 24 * 60 * 60 * 1000;
+      const highValueMs = opts.highValueRetentionDays * 24 * 60 * 60 * 1000;
+      const kept: string[] = [];
+      let droppedCount = 0;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue; // 末尾空行
+        let entry: AuditEntry;
+        try {
+          entry = JSON.parse(trimmed) as AuditEntry;
+        } catch {
+          // 损坏行保留(交给人工/audit-query 处理,不擅自删除)
+          kept.push(trimmed);
+          continue;
+        }
+        const tsMs = Date.parse(entry.ts ?? "");
+        if (Number.isNaN(tsMs)) {
+          kept.push(trimmed);
+          continue;
+        }
+        const ageMs = now - tsMs;
+        const isHighValue = HIGH_VALUE_ACTIONS.has(entry.action);
+        const threshold = isHighValue ? highValueMs : retentionMs;
+        if (ageMs > threshold) {
+          droppedCount++;
+          continue;
+        }
+        kept.push(trimmed);
+      }
+
+      // 文件大小硬上限:即使按时间窗未到,也强制截断尾部(保留最新 maxSizeMb)
+      // 按行边界切,避免半行残留;从尾部向前累加字节直到达到上限。
+      const maxBytes = Math.max(0, opts.maxSizeMb * 1024 * 1024);
+      let newSize = kept.reduce((sum, l) => sum + l.length + 1, 0);
+      const trimmedBySize: string[] = [];
+      if (newSize > maxBytes) {
+        let bytes = 0;
+        for (let i = kept.length - 1; i >= 0; i--) {
+          if (bytes + kept[i]!.length + 1 > maxBytes) break;
+          bytes += kept[i]!.length + 1;
+          trimmedBySize.unshift(kept[i]!);
+        }
+        droppedCount += kept.length - trimmedBySize.length;
+        kept.length = 0;
+        kept.push(...trimmedBySize);
+        newSize = kept.reduce((sum, l) => sum + l.length + 1, 0);
+      }
+
+      if (droppedCount === 0) {
+        return { droppedCount: 0, originalSize, newSize: originalSize };
+      }
+
+      // 原子写:临时文件 + rename
+      const tmpPath = `${this.filePath}.rotate-${process.pid}-${Date.now()}`;
+      writeFileSync(tmpPath, kept.map((l) => l).join("\n") + "\n", "utf8");
+      renameSync(tmpPath, this.filePath);
+      return { droppedCount, originalSize, newSize };
+    } catch {
+      return { droppedCount: 0, originalSize, newSize: originalSize };
+    }
+  }
+
+  /**
+   * 启动独立后台轮转(默认 24h)
+   *
+   * 与 maintenance 引擎完全解耦:不进 light/deep/rem/daily 任何阶段,
+   * 自己持有 setInterval。返回 stop 函数,host adapter 在卸载/退出时调。
+   *
+   * 配置项来自 persisted config 或默认值;intervalMs ≤ 0 时不启动。
+   */
+  startAutoRotation(opts: {
+    readonly retentionDays: number;
+    readonly highValueRetentionDays: number;
+    readonly maxSizeMb: number;
+    readonly intervalMs: number;
+  }): () => void {
+    if (opts.intervalMs <= 0) return () => {};
+    const tick = (): void => {
+      try {
+        const r = this.rotate(opts);
+        if (r.droppedCount > 0) {
+          process.stderr.write(
+            `[co-engram] audit rotation: dropped ${r.droppedCount} entries ` +
+              `(${r.originalSize} → ${r.newSize} bytes)\n`,
+          );
+        }
+      } catch {
+        // fail-soft
+      }
+    };
+    const handle = setInterval(tick, opts.intervalMs);
+    // unref:不阻塞 Node 退出(host adapter 显式 stop 时清理)
+    if (typeof handle.unref === "function") handle.unref();
+    return () => clearInterval(handle);
+  }
+
   /** 清空所有记录(测试用) */
   clear(): void {
     if (existsSync(this.filePath)) {
@@ -195,4 +322,51 @@ export class AuditLog {
   get path(): string {
     return this.filePath;
   }
+
+  /** stat 文件大小(字节),失败返回 0 */
+  private statSize(): number {
+    try {
+      return statSync(this.filePath).size;
+    } catch {
+      return 0;
+    }
+  }
 }
+
+/**
+ * 高价值 audit action 集合(默认保留 365 天)
+ *
+ * 选择标准:状态变更 + 用户决策 + 跨进程协同 — 这些是审计的核心目的
+ * (追溯"为什么这条 engram 被删/合并/接受/驳回")。高频但低追溯价值的
+ * propose / reinforce / report_failure / retrieve_* / noise_filtered /
+ * necessity_rejected 走默认 90 天保留。
+ */
+const HIGH_VALUE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
+  // 状态变更
+  "create",
+  "update",
+  "update_lifecycle",
+  // 重要性变更虽由 reinforce/report_failure 触发,但作为独立 action 仍高价值
+  "importance_update",
+  "forget",
+  "restore",
+  "sweep_to_trash",
+  "restore_from_trash",
+  "purge",
+  // 用户决策(proposal 审批)
+  "accept",
+  "dismiss",
+  // 冲突标记
+  "contradicted",
+  // git merge driver 协同
+  "merge_resolved",
+  "merge_backup_failed",
+  "merge_conflict_escalated",
+  "merge_llm_arbitrated",
+  "merge_llm_arbitrated_escalated",
+  "merge_llm_arbitrated_failed",
+  // 学习回路闭环
+  "learning_loop_success",
+  "learning_loop_partial",
+  "learning_loop_failure",
+]);

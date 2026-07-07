@@ -276,6 +276,7 @@ async function main(): Promise<void> {
     server,
     ctx,
     stopMaintenance,
+    stopAuditRotation,
     proposalEngine,
     registeredToolCount,
     dataRootAutoCreated,
@@ -288,6 +289,7 @@ async function main(): Promise<void> {
     startMaintenance: maintenanceEnabled,
     maintenanceConfig,
     auditEnabled,
+    auditRotationConfig: persistedConfig.audit?.rotation,
     effectivenessEnabled,
     proposalEnabled,
     proposalConfig,
@@ -535,6 +537,11 @@ async function main(): Promise<void> {
       stopMaintenance?.();
     } catch {
       // ignore — maintenance 清理失败不阻塞退出
+    }
+    try {
+      stopAuditRotation?.();
+    } catch {
+      // ignore — audit rotation 关闭失败不阻塞退出
     }
     try {
       stopAutoMemoryWatcher?.();

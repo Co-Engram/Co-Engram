@@ -56,6 +56,64 @@ const report = audit.effectiveness("01J...A");
 
 LLM agent 想"查询某个 engram 发生了什么",又不想打开 viewer 或直接读 JSONL,可以调用 **`engram_audit_query`** 工具(`standard` 和 `full` profile 均暴露)。它把 `AuditLog.query()` 的过滤项 —— `engramId`、`action`、`since`、`until`、`limit` —— 透出给 LLM,返回按时间升序的事件。完整签名见 [工具参考](./tool-reference.zh-CN.md)。
 
+### 日志轮转(自动清理)
+
+`audit.jsonl` 默认开启自动清理,**独立后台 `setInterval`**(默认 24h 检查一次),与 [维护引擎](./maintenance-engine.zh-CN.md) 的 light/deep/rem/daily 阶段完全解耦 —— 日志管理与记忆数据维护是不同概念的东西。
+
+清理策略沿两条轴:
+
+**1. 按 action 价值分层保留(时间维度)**
+
+| 层级              | 默认保留 | 包含的 action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **高价值**        | 365 天   | `create`、`update`、`update_lifecycle`、`importance_update`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`accept`、`dismiss`、`contradicted`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`、`learning_loop_success`、`learning_loop_partial`、`learning_loop_failure` |
+| **低价值(默认)** | 90 天    | `propose`、`reinforce`、`report_failure`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`noise_filtered`、`necessity_rejected`                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+
+分层理由:高价值 = 状态变更 + 用户决策 + 跨进程协同 + 学习回路闭环,这些是审计的核心目的(追溯"为什么这条 engram 被删/合并/接受/驳回")。低价值 = 高频但低追溯价值(每次工具调用、每次检索命中都产生,但单独看一行对复盘几乎无用)。
+
+**2. 文件大小硬上限(空间维度)**
+
+即使时间窗未到,文件超过 `maxSizeMb`(默认 50MB)也会强制截断 —— 从文件尾部向前累加字节直到达到上限,**保留尾部最新**(实际生产 audit.jsonl 的写入顺序:append 总是把新条目写到末尾,所以最新的在底部)。这是 `readFileSync` 的硬保护,避免文件无界增长把 Node 进程 OOM。
+
+**安全保证**:
+
+- **损坏行保留**:JSON parse 失败或 `ts` 字段无法解析的行**不擅自删除**,原样保留,交给 `engram_audit_query` / 人工处理。
+- **fail-soft**:任何 IO/JSON 异常返回 `droppedCount: 0`,不抛错,不阻塞业务。
+- **不写 audit**:清理动作本身不写 audit(自指会产生新数据,反向激励)。
+- **原子写**:`tmp-${pid}-${ts}` 临时文件 + `rename`,杜绝半截写损坏。
+
+### 配置
+
+在 `$DATA_ROOT/.co-engram/config.json` 写:
+
+```json
+{
+  "audit": {
+    "enabled": true,
+    "rotation": {
+      "enabled": true,
+      "retentionDays": 90,
+      "highValueRetentionDays": 365,
+      "maxSizeMb": 50,
+      "intervalMs": 86400000
+    }
+  }
+}
+```
+
+字段含义:
+
+| 字段                      | 默认      | 说明                                                                                                       |
+| ------------------------- | --------- | ---------------------------------------------------------------------------------------------------------- |
+| `audit.enabled`           | `true`    | 总开关。`false` 时既不写 audit 也不启动 rotation                                                           |
+| `audit.rotation.enabled`  | `true`    | rotation 总开关。`false` 完全关闭自动清理(audit.jsonl 无限增长,仅适合测试 / 主动运维)                  |
+| `retentionDays`           | `90`      | 低价值 action 保留期(天)                                                                                 |
+| `highValueRetentionDays`  | `365`     | 高价值 action 保留期(天)                                                                                 |
+| `maxSizeMb`               | `50`      | 文件大小硬上限(MB)                                                                                       |
+| `intervalMs`              | `86400000`| rotation 检查间隔(毫秒,默认 24 小时)。`≤ 0` 时不启动                                                    |
+
+宿主配置层(host adapter):`@co-engram/claude-code` 的 `CoEngramMcpServerConfig.auditRotationConfig` 和 `@co-engram/openclaw` 的 `CoEngramPluginConfig.auditRotationConfig` 都接受同一形状,缺省时从 persisted config 解析或用默认值。
+
 ## 有效性追踪器
 
 当 `engram_search` 命中一个 engram 时,被包装的工具会调用 `effectivenessTracker.openWindow(...)`。窗口长度取决于该 engram 的 kind:
