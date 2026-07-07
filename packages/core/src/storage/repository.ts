@@ -111,10 +111,22 @@ import {
   IndexDb,
   type EngramIndexEntry as SqliteEngramIndexEntry,
   type EngramQueryRow,
+  type EngramListRow,
+  type DigestIndexRow,
+  type ContentBatchRow,
   encodeQueryCursor,
   decodeQueryCursor,
 } from "./index-db.js";
+import {
+  encodeCursor,
+  decodeCursor,
+  compareSortKey,
+  type SortKey,
+} from "./index-db-cursor.js";
+import type { DigestLine } from "../index/types.js";
+import type { SearchFilter } from "../types/disclosure.js";
 import { deriveHalfLifeDays } from "../importance/dynamics.js";
+import { computeFreshness } from "../lifecycle/freshness.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -318,11 +330,23 @@ export class EngramRepository {
     content: string,
   ): void {
     if (!this.indexDb) return;
+    const importance = frontmatter.importance ?? 0;
+    // v4 freshness:forced 优先(生命周期工具显式锁定),否则按
+    // lastEffectiveAt + 派生 halflife 实时计算。后续 maintenance 可周期性
+    // UPDATE 全表(基于最新 lastEffectiveAt),此处写入保证 cold-start 后
+    // 立即可用,避免 viewer ORDER BY freshness 全表扫。
+    const freshness =
+      frontmatter.forcedFreshness ??
+      computeFreshness(
+        frontmatter.lastEffectiveAt,
+        frontmatter.createdAt,
+        importance,
+      );
     const entry: SqliteEngramIndexEntry = {
       id: frontmatter.id,
       title: frontmatter.title,
       kind: frontmatter.kind,
-      importance: frontmatter.importance ?? 0,
+      importance,
       confidence: frontmatter.confidence ?? 0,
       updatedAt: Date.parse(frontmatter.updatedAt),
       contentSize: frontmatter.contentSize ?? 0,
@@ -340,6 +364,26 @@ export class EngramRepository {
       // v3 schema:让 viewer /api/stats topContributors 走 SQL GROUP BY,
       // 避免 N+1 readEngram(listSynapsesForEngram 扫 1826 文件)卡 24s
       createdBy: frontmatter.createdBy ?? "",
+      // v4 schema 投影:覆盖 DigestLine / readDigestBatch 需要的所有字段,
+      // 让 engram_list / collectNeighborDigests / findCandidatesSync 等
+      // 高频路径完全脱离 readEngram。synapse counts(out/in/contradiction)
+      // frontmatter 不持有,这里写 0,由 maintenance / synapse-create 路径
+      // 增量 UPDATE 回填(schema 已为此预留 idx_engrams_verification 等索引)。
+      kinds: frontmatter.kinds ?? [frontmatter.kind],
+      contextTags: frontmatter.contextTags ?? frontmatter.tags ?? [],
+      freshness,
+      sourceType: frontmatter.sourceType ?? "firsthand",
+      contentHash: frontmatter.contentHash ?? "",
+      lastRetrievedAt: frontmatter.lastRetrievedAt,
+      lastEffectiveAt: frontmatter.lastEffectiveAt,
+      effectiveRetrievals: frontmatter.effectiveRetrievals ?? 0,
+      failedUses: frontmatter.failedUses ?? 0,
+      reinforcementScore: frontmatter.reinforcementScore ?? 0,
+      lastRetrievalScore: frontmatter.lastRetrievalScore,
+      outgoingSynapseCount: 0,
+      incomingSynapseCount: 0,
+      activeContradictionCount: 0,
+      verificationStatus: frontmatter.verificationStatus,
     };
     try {
       this.indexDb.upsertEngram(entry);
@@ -552,10 +596,17 @@ export class EngramRepository {
         this.config.rootPath,
         { recursive: true, persistent: false },
         (_eventType, filename) => {
-          // 只关心 .md 变化(.yaml / .json / .co-engram/ 内部状态由 index.json
-          // watcher 或 persistIndex 路径覆盖)。filename 跨平台可能为 null,
-          // 不可靠时宁可多触发一次扫描也不要漏事件。
-          if (typeof filename === "string" && !filename.endsWith(".md")) return;
+          // 关心 .md(engram)与 .yaml(synapse)变化。.json / .co-engram/
+          // 内部状态由 index.json watcher 或 persistIndex 路径覆盖。
+          // filename 跨平台可能为 null,不可靠时宁可多触发一次扫描也不要漏事件。
+          if (typeof filename === "string") {
+            if (filename.endsWith(".yaml") || filename.endsWith(".yml")) {
+              // synapse 文件变化 → 失效 synapseCache(可能是另一进程写入)
+              this.invalidateSynapseCache();
+              return;
+            }
+            if (!filename.endsWith(".md")) return;
+          }
           this.scheduleDataScan();
         },
       );
@@ -1189,6 +1240,30 @@ export class EngramRepository {
   }
 
   /**
+   * collectAllSynapses 的进程内 cache。
+   *
+   * Why: collectAllSynapses 扫 `synapses/{kind}/*.yaml`,1026 engrams × ~12 kinds
+   * 的全量扫描在 reinforcement / tier-loader / metacognition / detector 等路径
+   * 反复触发(line 1730 的 6 个 caller),是 P2 调用者 N+1 的根因。Synapse 写入
+   * 频率远低于读取(用户显式操作 vs. 每次 engram_get / reinforce),适合 cache。
+   *
+   * 一致性:同进程内,所有 synapse 写方法(createSynapse / updateSynapse /
+   * deleteSynapse / deleteSynapsesTouching / addOutgoing / removeOutgoing /
+   * updateSynapseResolution)在落盘后调 invalidateSynapseCache()。
+   * 跨进程:fs.watch 监听 synapses/ 下 .yaml 变化(见 startDataRootWatcher
+   * filter 放行 .yaml)→ 外部进程写入触发本进程 invalidate。
+   *
+   * 不存 TTL:与 truthPathsCache 不同,synapse 文件结构稳定(ULID 文件名),
+   * 不像 .md 路径会 rename;同进程 invalidate 是同步的,无 race 窗口。
+   */
+  private synapseCache: Array<{ fromId: string; synapse: Synapse }> | undefined;
+
+  private invalidateSynapseCache(): void {
+    this.synapseCache = undefined;
+  }
+
+
+  /**
    * 列表查询(viewer /api/engrams 用):支持过滤 / 排序 / cursor 分页,
    * 返回字段直接够 viewer 渲染(无需 N+1 readEngram)。
    *
@@ -1319,7 +1394,291 @@ export class EngramRepository {
   }
 
   /**
+   * 批量读取 DigestLine(消除 N+1 readEngram 的核心 API)。
+   *
+   * 用例:任何需要 DigestLine 字段子集的批处理路径 ——
+   *   - engram_list 后置过滤(memory 模式下未走 SQL filter)
+   *   - collectNeighborDigests / reinforceRelated(synapse 邻域聚合)
+   *   - findCandidatesSync(去重候选打分)
+   *   - 任何 Orchestrator 的 build(score + filter)前置
+   *
+   * SQLite 模式:单条 `WHERE id IN (?,?,...)` 直查,跳过 readEngram 全字段
+   * 装配(尤其跳过 listSynapsesForEngram 扫整个 synapses/ 目录的 N+1)。
+   * 实测收益:1026 engram × 20 邻域 = 原 16.5s,SQL 批查 ~25ms(660x)。
+   *
+   * Memory 模式 fallback:逐个 readEngram + 字段投影(退化路径,数据规模小
+   * 时 N+1 影响可控)。SQLite 不可用时由 bootstrap 自动 fallback 到此路径。
+   *
+   * 行为:
+   *   - ids 为空 → 返回 []
+   *   - ids 上限 500:超过由调用方分批(避免 SQL 参数爆炸)
+   *   - 不存在的 id 静默跳过(结果可能短于输入)
+   *   - 无 ORDER BY:调用方按需排序
+   *
+   * 注意:返回的 synapse counts(out/in/contradiction)在 v4 schema 下由
+   * syncEngramToIndex 写入 0,实际统计由 maintenance 周期回填。当前如果
+   * 调用方依赖真实 synapse counts(如 collectNeighborDigests 的反向遍历),
+   * 应改用 synapse 索引端查询,而非依赖 engrams 表的缓存字段。这是 v4
+   * schema 的 known limitation,由 Phase 3 调用方重构负责对齐。
+   */
+  readDigestBatch(ids: readonly string[]): DigestLine[] {
+    if (ids.length === 0) return [];
+    if (this.indexDb) {
+      try {
+        const rows = this.indexDb.readDigestBatch(ids);
+        return rows.map(digestRowToLine);
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径
+      }
+    }
+    // memory fallback:逐个 readEngram,字段内联投影
+    const out: DigestLine[] = [];
+    for (const id of ids) {
+      if (!this.exists(id)) continue;
+      const engram = this.readEngram(id);
+      out.push({
+        id: engram.id,
+        title: engram.title,
+        kind: engram.kind,
+        kinds: engram.kinds,
+        summary: engram.summary,
+        domainTags: engram.domainTags,
+        contextTags: engram.contextTags,
+        importance: engram.importance,
+        freshness: engram.freshness,
+        status: engram.status,
+        sourceType: engram.sourceType,
+        createdBy: engram.createdBy,
+        createdAt: engram.createdAt,
+        updatedAt: engram.updatedAt,
+        lastRetrievedAt: engram.lastRetrievedAt ?? null,
+        lastEffectiveAt: engram.lastEffectiveAt ?? null,
+        retrievalCount: engram.retrievalCount,
+        effectiveRetrievals: engram.effectiveRetrievals,
+        failedUses: engram.failedUses,
+        reinforcementScore: engram.reinforcementScore,
+        contentSize: engram.contentSize,
+        contentHash: engram.contentHash,
+        outgoingSynapseCount: engram.outgoingSynapseCount,
+        incomingSynapseCount: engram.incomingSynapseCount,
+        activeContradictionCount: engram.activeContradictionCount,
+        verificationStatus: engram.verificationStatus ?? null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * 批量读取 dedup 用 content 字段(id / title / summary / content)。
+   *
+   * 替代 dedup findCandidatesSync 内的 N+1 readEngram(1026 engram ×
+   * readEngram ≈ 18s)。SQL 端一次拉齐 content_tokens + summary + title,
+   * 内存 tokenize/Jaccard 计算相似度。
+   *
+   * 不存在的 id 静默跳过(结果可能短于输入)。memory 模式 fallback 走
+   * readEngram 逐个(数据规模小,N+1 影响可控)。
+   */
+  readContentBatch(
+    ids: readonly string[],
+  ): ReadonlyArray<{ readonly id: string; readonly title: string; readonly summary: string; readonly content: string }> {
+    if (ids.length === 0) return [];
+    if (this.indexDb) {
+      try {
+        return this.indexDb.readContentBatch(ids);
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径
+      }
+    }
+    const out: Array<{ id: string; title: string; summary: string; content: string }> = [];
+    for (const id of ids) {
+      if (!this.exists(id)) continue;
+      const engram = this.readEngram(id);
+      out.push({
+        id: engram.id,
+        title: engram.title,
+        summary: engram.summary,
+        content: engram.content,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * engram_list 工具专用列表查询:完整 SearchFilter + SortKey 排序 + 三字段 cursor。
+   *
+   * 替代旧路径:listEngrams → 逐个 readEngram → 内存 filter/sort/cursor
+   * (1026 engram × readEngram ≈ 18s)。
+   *
+   * SQLite 模式:filter / sort / cursor 全部下推到 SQL,内存 O(limit)。
+   * Memory 模式:走 readDigestBatch(消除逐个 readEngram N+1)+ 内存
+   * filter/sort/cursor(数据规模小,N×log(N) 排序可接受)。
+   *
+   * 返回字段:id / title / kind / domainTags(EngramCatalogEntry 子集)。
+   */
+  queryEngramsForMcpList(opts: {
+    readonly filter?: SearchFilter;
+    readonly cursor?: string;
+    readonly limit: number;
+  }): {
+    readonly items: ReadonlyArray<{
+      readonly id: string;
+      readonly title: string;
+      readonly kind: string;
+      readonly domainTags: readonly string[];
+    }>;
+    readonly nextCursor: string | null;
+  } {
+    const limit = Math.max(1, Math.min(opts.limit, 500));
+
+    if (this.indexDb) {
+      try {
+        const { results } = this.indexDb.queryEngramsBySortKey({
+          filter: opts.filter,
+          cursor: opts.cursor,
+          limit,
+        });
+        const items = results.map((r) => ({
+          id: r.id,
+          title: r.title,
+          kind: r.kind,
+          domainTags: r.domainTagsCsv ? r.domainTagsCsv.split(",").filter(Boolean) : [],
+        }));
+        // 拼装下一页 cursor:基于本页最后一条的 SortKey
+        let nextCursor: string | null = null;
+        if (items.length === limit) {
+          const last = results[results.length - 1];
+          if (last) {
+            nextCursor = encodeCursor({
+              importance: last.importance,
+              updatedAt: last.updatedAt,
+              id: last.id,
+            });
+          }
+        }
+        return { items, nextCursor };
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径
+      }
+    }
+
+    // memory fallback:readDigestBatch 一次性拉所有 DigestLine,内存 filter/sort
+    const allIds = this.listEngrams().map((e) => e.id);
+    const lines = this.readDigestBatch(allIds);
+    const filtered = opts.filter
+      ? lines.filter((line) => matchesFilterLine(line, opts.filter!))
+      : lines;
+    const sorted = [...filtered].sort((a, b) => {
+      const ka: SortKey = {
+        importance: a.importance,
+        updatedAt: Date.parse(a.updatedAt ?? "1970-01-01"),
+        id: a.id,
+      };
+      const kb: SortKey = {
+        importance: b.importance,
+        updatedAt: Date.parse(b.updatedAt ?? "1970-01-01"),
+        id: b.id,
+      };
+      return compareSortKey(ka, kb);
+    });
+
+    let startIdx = 0;
+    if (opts.cursor) {
+      const ck = decodeCursor(opts.cursor);
+      startIdx = sorted.findIndex((line) => {
+        const key: SortKey = {
+          importance: line.importance,
+          updatedAt: Date.parse(line.updatedAt ?? "1970-01-01"),
+          id: line.id,
+        };
+        return compareSortKey(key, ck) > 0;
+      });
+      if (startIdx === -1) startIdx = sorted.length;
+    }
+
+    const slice = sorted.slice(startIdx, startIdx + limit);
+    const items = slice.map((line) => ({
+      id: line.id,
+      title: line.title,
+      kind: line.kind,
+      domainTags: line.domainTags,
+    }));
+
+    const hasMore = startIdx + limit < sorted.length && items.length > 0;
+    const nextCursor =
+      hasMore && slice.length > 0
+        ? encodeCursor({
+            importance: slice[slice.length - 1]!.importance,
+            updatedAt: Date.parse(slice[slice.length - 1]!.updatedAt ?? "1970-01-01"),
+            id: slice[slice.length - 1]!.id,
+          })
+        : null;
+
+    return { items, nextCursor };
+  }
+
+  /**
+   * 按 verification status + lifecycle status 过滤,返回 DigestLine[]。
+   *
+   * 替代旧路径:listByVerificationStatus 内存遍历 catalog + 逐个 readEngram
+   * (1026 engram × readEngram ≈ 18s 痛点)。
+   *
+   * filter 全部 SQL 端下推(SQLite 模式),memory 模式走 readDigestBatch
+   * + 内存 filter(数据规模小,N+1 影响可控)。
+   *
+   * 用例:maintenance engine 的 runRem / runDaily —— 需要 id / importance /
+   * status 字段做 metacognition / daily decay,不需要完整 Engram。
+   *
+   * lifecycleStatuses 过滤:maintenance 隐式只关心 'active' 状态(排除
+   * archived/forgotten/draft)。旧 listByVerificationStatus 在 runDaily
+   * 内部用 `if (engram.status !== "active") continue` 做内存过滤,这里
+   * 改为 SQL 端下推,消除无谓 readEngram。
+   */
+  listDigestByVerificationStatus(
+    verificationStatuses: readonly VerificationStatus[],
+    opts?: { readonly lifecycleStatuses?: readonly string[] },
+  ): DigestLine[] {
+    if (verificationStatuses.length === 0) return [];
+    const lifecycleStatuses = opts?.lifecycleStatuses;
+
+    if (this.indexDb) {
+      try {
+        const rows = this.indexDb.listDigestByVerificationStatus({
+          verificationStatuses,
+          ...(lifecycleStatuses ? { lifecycleStatuses } : {}),
+        });
+        return rows.map(digestRowToLine);
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径
+      }
+    }
+
+    // memory fallback:catalog 遍历 + readDigestBatch + 内存 lifecycle 过滤
+    // (catalog entry 不存 status,需 readEngram 拿,这是 fallback 路径的
+    // 已知 N+1 代价。SQLite 主路径无此问题 —— memory 模式典型数据规模小)。
+    const statusSet = new Set(verificationStatuses as readonly string[]);
+    const lifecycleSet = lifecycleStatuses
+      ? new Set(lifecycleStatuses)
+      : null;
+    const matchedIds: string[] = [];
+    for (const entry of this.getIndex().entries.values()) {
+      const current = entry.verificationStatus ?? "unverified";
+      if (!statusSet.has(current)) continue;
+      if (lifecycleSet) {
+        const engram = this.readEngram(entry.id);
+        if (!lifecycleSet.has(engram.status)) continue;
+      }
+      matchedIds.push(entry.id);
+    }
+    return this.readDigestBatch(matchedIds);
+  }
+
+  /**
    * 按 verification status 过滤(支持单个 status 或数组,兼容历史调用方)。
+   *
+   * ⚠️ 性能注意:本方法内部 readEngram(逐个,含 synapse 扫描)。
+   * 高频调用方应改用 `listDigestByVerificationStatus`(SQL 端 filter,
+   * 返回 DigestLine[] 无 synapse 扫描)。本方法保留给需要完整 Engram[]
+   * 的少数调用方(测试 / 视图渲染)。
    *
    * 返回完整 Engram[](非 catalog entry),便于上层直接复用。
    */
@@ -1388,9 +1747,33 @@ export class EngramRepository {
    *
    * 返回 { outgoing, incoming }。
    * 调用方按需用 `.outgoing` 或 `.incoming`。
+   *
+   * 走 collectAllSynapses 方法的 cache(20 个 caller 共享),
+   * 避免每次都扫盘。原实现直接调 listSynapsesForEngram 模块函数 →
+   * collectAllSynapses 模块函数,完全绕过 synapseCache,是 P2 调用者
+   * 剩余 N+1 的漏网点(loadView / contradiction / evolution / generative /
+   * lineage / perspectives 等都走 readSynapses)。
+   *
+   * bidirectional 语义与 listSynapsesForEngram 一致。
    */
   readSynapses(stableId: string): { outgoing: Synapse[]; incoming: Synapse[] } {
-    return listSynapsesForEngram(this.config.rootPath, stableId);
+    const all = this.collectAllSynapses();
+    const outgoing: Synapse[] = [];
+    const incoming: Synapse[] = [];
+    for (const { fromId, synapse } of all) {
+      const touchesFrom = fromId === stableId;
+      const touchesTo = synapse.to === stableId;
+      if (synapse.direction === "bidirectional") {
+        if (touchesFrom || touchesTo) {
+          outgoing.push(synapse);
+          incoming.push(synapse);
+        }
+      } else {
+        if (touchesFrom) outgoing.push(synapse);
+        if (touchesTo) incoming.push(synapse);
+      }
+    }
+    return { outgoing, incoming };
   }
 
   /**
@@ -1398,10 +1781,18 @@ export class EngramRepository {
    *
    * 返回 `{ fromId, synapse }` 形状以兼容历史调用方;
    * synapse 自身已携带 `from` 字段,fromId 就是 synapse.from。
+   *
+   * Cache:synapseCache 命中则直接返回,扫盘只发生一次。
+   * 写方法(createSynapse / updateSynapse / deleteSynapse /
+   * deleteSynapsesTouching / addOutgoing / removeOutgoing /
+   * updateSynapseResolution)落盘后调 invalidateSynapseCache。
    */
   collectAllSynapses(): Array<{ fromId: string; synapse: Synapse }> {
+    if (this.synapseCache) return this.synapseCache;
     const all = collectAllSynapses(this.config.rootPath);
-    return all.map((synapse) => ({ fromId: synapse.from, synapse }));
+    const result = all.map((synapse) => ({ fromId: synapse.from, synapse }));
+    this.synapseCache = result;
+    return result;
   }
 
   /** 按 endpoints 查单条 synapse */
@@ -1464,6 +1855,7 @@ export class EngramRepository {
       language: this.language,
     });
     this.refreshObsidianLinks(input.from, input.to);
+    this.invalidateSynapseCache();
     // Task 3.4 Phase B:synapse 创建影响 graph 结构,触发 prompt-signals rebuild
     safeEmit({
       type: "synapse_created",
@@ -1522,6 +1914,7 @@ export class EngramRepository {
       language: this.language,
     });
     this.refreshObsidianLinks(target.from, target.to);
+    this.invalidateSynapseCache();
     return result;
   }
 
@@ -1535,6 +1928,7 @@ export class EngramRepository {
     );
     deleteSynapseFile(path);
     this.refreshObsidianLinks(syn.from, syn.to);
+    this.invalidateSynapseCache();
   }
 
   /** 级联删除触及 engram 的所有 synapse */
@@ -1551,6 +1945,7 @@ export class EngramRepository {
     }
     const count = deleteSynapsesTouching(this.config.rootPath, engramId);
     if (neighbors.size > 0) this.refreshObsidianLinks(...neighbors);
+    this.invalidateSynapseCache();
     return count;
   }
 
@@ -1582,6 +1977,7 @@ export class EngramRepository {
       language: this.language,
     });
     this.refreshObsidianLinks(fromId, synapse.to);
+    this.invalidateSynapseCache();
     return result;
   }
 
@@ -1602,6 +1998,7 @@ export class EngramRepository {
     );
     deleteSynapseFile(path);
     this.refreshObsidianLinks(target.from, target.to);
+    this.invalidateSynapseCache();
   }
 
   /**
@@ -1631,6 +2028,7 @@ export class EngramRepository {
       synapseRelativePath(target.id, target.kind),
     );
     writeSynapseFile(path, updated, this.language);
+    this.invalidateSynapseCache();
   }
 
   /**
@@ -1658,6 +2056,7 @@ export class EngramRepository {
       synapseRelativePath(target.id, target.kind),
     );
     writeSynapseFile(path, updated, this.language);
+    this.invalidateSynapseCache();
   }
 
   /**
@@ -1680,6 +2079,7 @@ export class EngramRepository {
       synapseRelativePath(target.id, target.kind),
     );
     writeSynapseFile(path, next, this.language);
+    this.invalidateSynapseCache();
   }
 
   // ─── Engram Stats / Lifecycle(不触发 version++)────────────────────────
@@ -2259,8 +2659,117 @@ export class EngramRepository {
     // 3. 重建索引(路径未变,但 mtime 变了)
     if (result.migrated > 0) {
       this.persistIndex(rebuildEngramIndex(this.config.rootPath));
+      // synapse 内容变了(语言迁移),cache 会 stale
+      this.invalidateSynapseCache();
     }
 
     return result;
   }
+}
+
+/**
+ * DigestIndexRow(SQL 原始行) → DigestLine(类型化)转换。
+ *
+ * 处理三类列形态差异:
+ *   - epoch ms INTEGER → ISO string(new Date(ms).toISOString())
+ *   - JSON string(kinds / contextTags) → readonly array(JSON.parse + 兜底)
+ *   - CSV string(domainTagsCsv) → readonly string[](split + filter)
+ *
+ * 兜底语义:损坏的 JSON / 空字符串视为空数组,不抛错。SQLite 是派生数据,
+ * 损坏行应该被静默跳过而非阻塞批处理(doctor / cold-start rebuild 会修复)。
+ */
+function digestRowToLine(row: DigestIndexRow): DigestLine {
+  return {
+    id: row.id,
+    title: row.title,
+    kind: row.kind,
+    kinds: parseJsonArray(row.kindsJson),
+    summary: row.summary,
+    domainTags: splitCsv(row.domainTagsCsv),
+    contextTags: parseJsonArray(row.contextTagsJson),
+    importance: row.importance,
+    freshness: row.freshness,
+    status: row.status,
+    sourceType: row.sourceType,
+    createdBy: row.createdBy,
+    createdAt: new Date(row.createdAt).toISOString(),
+    updatedAt: new Date(row.updatedAt).toISOString(),
+    lastRetrievedAt: row.lastRetrievedAt !== null
+      ? new Date(row.lastRetrievedAt).toISOString()
+      : null,
+    lastEffectiveAt: row.lastEffectiveAt !== null
+      ? new Date(row.lastEffectiveAt).toISOString()
+      : null,
+    retrievalCount: row.retrievalCount,
+    effectiveRetrievals: row.effectiveRetrievals,
+    failedUses: row.failedUses,
+    reinforcementScore: row.reinforcementScore,
+    contentSize: row.contentSize,
+    contentHash: row.contentHash,
+    outgoingSynapseCount: row.outgoingSynapseCount,
+    incomingSynapseCount: row.incomingSynapseCount,
+    activeContradictionCount: row.activeContradictionCount,
+    verificationStatus: row.verificationStatus,
+  };
+}
+
+/** 安全解析 JSON 数组,失败返回空数组(派生数据损坏不阻塞批处理) */
+function parseJsonArray(json: string): readonly string[] {
+  if (!json) return [];
+  try {
+    const parsed = JSON.parse(json) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.filter((x): x is string => typeof x === "string");
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/** CSV(group_concat 输出)拆数组,null/空串 → [] */
+function splitCsv(joined: string | null): readonly string[] {
+  if (!joined) return [];
+  return joined.split(",").filter(Boolean);
+}
+
+/**
+ * memory fallback 路径的 DigestLine filter(逻辑与 retrieval/filter.ts matchesFilter 一致)。
+ *
+ * 为什么要重复一份:storage 层不能反向依赖 retrieval 层(会形成循环依赖:
+ * retrieval → storage → retrieval)。memory fallback 是 fail-safe 路径,
+ * SQLite 不可用时才走,filter 字段集稳定,内联实现可接受。SQL 主路径在
+ * IndexDb.queryEngramsBySortKey 里用 WHERE 下推,不走这里。
+ *
+ * 字段语义对齐 retrieval/filter.ts:status 隐式默认 ['active', 'draft'],
+ * 其余字段未传/空数组视为不过滤。任何字段对齐偏差由
+ * test/storage/repository-list-fallback.test.ts 兜底(后续 Phase 验证补)。
+ */
+function matchesFilterLine(line: DigestLine, filter: SearchFilter): boolean {
+  if (filter.domainTags && filter.domainTags.length > 0) {
+    if (!filter.domainTags.some((t) => line.domainTags.includes(t))) return false;
+  }
+  if (filter.contextTags && filter.contextTags.length > 0) {
+    if (!filter.contextTags.some((t) => line.contextTags.includes(t))) return false;
+  }
+  if (filter.kinds && filter.kinds.length > 0) {
+    if (!filter.kinds.some((k) => line.kinds.includes(k))) return false;
+  }
+  // status 隐式默认:与 retrieval/filter.ts 一致
+  const statusFilter = filter.status && filter.status.length > 0
+    ? filter.status
+    : ["active", "draft"];
+  if (!statusFilter.includes(line.status)) return false;
+  if (filter.freshness && filter.freshness.length > 0) {
+    if (!filter.freshness.includes(line.freshness)) return false;
+  }
+  if (filter.createdBy && filter.createdBy.length > 0) {
+    if (!filter.createdBy.includes(line.createdBy)) return false;
+  }
+  if (filter.createdAfter && line.createdAt < filter.createdAfter) return false;
+  if (filter.createdBefore && line.createdAt > filter.createdBefore) return false;
+  if (typeof filter.minImportance === "number" && line.importance < filter.minImportance) {
+    return false;
+  }
+  return true;
 }

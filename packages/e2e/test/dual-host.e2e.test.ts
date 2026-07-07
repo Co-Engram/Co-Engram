@@ -192,6 +192,7 @@ describe("双宿主共享同一份 team-memory 数据", () => {
       ).rebuildIndex?.();
       const list = (await callOpenClaw(openclawHost, "engram_list", {
         filter: { domainTags: ["from-mcp"] },
+        limit: 50,
       })) as string;
       // adapter 把 engram_list 结果渲染为 markdown text;验证文本包含期望字段
       expect(list).toContain(created.id);

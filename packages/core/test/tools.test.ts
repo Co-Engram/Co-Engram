@@ -948,7 +948,7 @@ describe("engram_search", () => {
     expect(result.total).toBe(1);
   });
 
-  it("P4: 命中后自动 bump retrievalCount + lastRetrievalScore", () => {
+  it("P4: 命中后自动 bump retrievalCount + lastRetrievalScore", async () => {
     engramCreateTool.execute(
       {
         title: "Android ADB",
@@ -963,13 +963,16 @@ describe("engram_search", () => {
     const result = engramSearchTool.execute({ query: "adb" }, ctx);
     expect(result.total).toBeGreaterThan(0);
     const hitId = result.results[0]!.id;
+    // Phase 1:engram_search 把 bumpRetrievalStats 异步化到 setImmediate,
+    // 让 LLM 立即拿到结果。测试需等一轮 microtask 让写盘完成。
+    await new Promise((r) => setImmediate(r));
     const engram = ctx.repository.readEngram(hitId);
     expect(engram.retrievalCount).toBe(1);
     expect(engram.lastRetrievalScore).toBe(result.results[0]!.score);
     expect(engram.lastRetrievedAt).toBeTruthy();
   });
 
-  it("P4: 多次 search 累加 retrievalCount", () => {
+  it("P4: 多次 search 累加 retrievalCount", async () => {
     engramCreateTool.execute(
       {
         title: "Android ADB",
@@ -984,6 +987,11 @@ describe("engram_search", () => {
     engramSearchTool.execute({ query: "adb" }, ctx);
     engramSearchTool.execute({ query: "adb" }, ctx);
     engramSearchTool.execute({ query: "adb" }, ctx);
+    // Phase 1:三次 search 各触发一次 setImmediate 异步 bumpRetrievalStats,
+    // 等三轮 microtask 让全部写盘完成。
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setImmediate(r));
     const list = ctx.repository.listEngrams();
     expect(list).toHaveLength(1);
     const engram = ctx.repository.readEngram(list[0]!.id);

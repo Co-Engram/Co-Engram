@@ -30,6 +30,7 @@ import { computeContentSize } from "./hash.js";
 import { readEngramFile, type EngramFile } from "./engram-store.js";
 import { EngramRepository } from "./repository.js";
 import { IndexDb, type EngramIndexEntry } from "./index-db.js";
+import { computeFreshness } from "../lifecycle/freshness.js";
 
 export interface BootstrapOptions {
   readonly dataRoot: string;
@@ -160,15 +161,20 @@ export function bootstrapRepositoryAndSearch(
  * 字段映射与 `repository.syncEngramToIndex` 保持一致;差异在于 source 是
  * frontmatter + content(原始),而非已装配的 Engram 对象(含 synapse 统计
  * 等派生数据)。SQLite index.db 不存 synapse 字段,所以投影等价。
+ *
+ * v4:synapse counts(outgoing/incoming/activeContradiction)在 cold-start
+ * 时为 0;maintenance 周期性 UPDATE 全表回填。这样 cold-start 路径不需要
+ * 扫 synapses/ 目录(N+1 痛点),保留"冷启动 10s 完成"的体验。
  */
 function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
   const f = file.frontmatter;
   const content = file.content ?? "";
+  const importance = f.importance ?? 0.5;
   return {
     id: f.id,
     title: f.title,
     kind: f.kind,
-    importance: f.importance ?? 0.5,
+    importance,
     confidence: f.confidence ?? 0.5,
     updatedAt: Date.parse(f.updatedAt),
     contentSize: typeof f.contentSize === "number" ? f.contentSize : computeContentSize(content),
@@ -182,5 +188,21 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     createdAt: Date.parse(f.createdAt),
     // v3 schema:让 viewer /api/stats topContributors 走 SQL GROUP BY
     createdBy: f.createdBy ?? "",
+    // v4 schema 投影:与 syncEngramToIndex 对齐
+    kinds: [...(f.kinds ?? [f.kind])],
+    contextTags: [...(f.contextTags ?? f.tags ?? [])],
+    freshness: f.forcedFreshness ?? computeFreshness(f.lastEffectiveAt, f.createdAt, importance),
+    sourceType: f.sourceType ?? "firsthand",
+    contentHash: f.contentHash ?? "",
+    lastRetrievedAt: f.lastRetrievedAt,
+    lastEffectiveAt: f.lastEffectiveAt,
+    effectiveRetrievals: f.effectiveRetrievals ?? 0,
+    failedUses: f.failedUses ?? 0,
+    reinforcementScore: f.reinforcementScore ?? 0,
+    lastRetrievalScore: f.lastRetrievalScore,
+    outgoingSynapseCount: 0,
+    incomingSynapseCount: 0,
+    activeContradictionCount: 0,
+    verificationStatus: f.verificationStatus,
   };
 }

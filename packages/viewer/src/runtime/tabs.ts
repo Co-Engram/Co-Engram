@@ -894,6 +894,8 @@ window.CO_ENGRAM_PROPOSALS = {
 
   async _setStatus(status) {
     this._currentStatus = status;
+    // 切 status 等于切 server-side filter,旧 viewStart 索引的页面不再相关 → 回第一页
+    CO_ENGRAM._proposalsViewStart = 0;
     if (CO_ENGRAM._proposalsPager) {
       try { await CO_ENGRAM._proposalsPager.load(); }
       catch (e) { /* 加载失败保留当前 items,_render 会展示 */ }
@@ -901,12 +903,56 @@ window.CO_ENGRAM_PROPOSALS = {
     this._render();
   },
 
+  // 兼容旧 onclick 引用 — 等价于 nextPage
   async loadMore() {
-    const pager = CO_ENGRAM._proposalsPager;
-    if (!pager || !pager.hasMore()) return;
-    try { await pager.loadMore(); }
-    catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+    await this.nextPage();
+  },
+
+  prevPage() {
+    const VIEW_SIZE = 30;
+    const current = CO_ENGRAM._proposalsViewStart || 0;
+    if (current <= 0) return;
+    CO_ENGRAM._proposalsViewStart = Math.max(0, current - VIEW_SIZE);
     this._render();
+    const root = document.getElementById('proposals-content');
+    if (root && root.scrollIntoView) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  async nextPage() {
+    const VIEW_SIZE = 30;
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager) return;
+    const current = CO_ENGRAM._proposalsViewStart || 0;
+    const loaded = pager.getItems().length;
+    // 当前已加载不够覆盖下一页起点,且 server 还有更多 → loadMore 再前进
+    if (current + VIEW_SIZE >= loaded && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) { alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e }))); return; }
+    }
+    CO_ENGRAM._proposalsViewStart = current + VIEW_SIZE;
+    this._render();
+    const root = document.getElementById('proposals-content');
+    if (root && root.scrollIntoView) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  // 跳到任意页(0-based index);已加载不足时按需 await loadMore 扩容
+  async gotoPage(zeroBasedPage) {
+    const VIEW_SIZE = 30;
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager) return;
+    if (zeroBasedPage < 0) zeroBasedPage = 0;
+    const target = zeroBasedPage * VIEW_SIZE;
+    while (target >= pager.getItems().length && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) {
+        alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e })));
+        return;
+      }
+    }
+    CO_ENGRAM._proposalsViewStart = target;
+    this._render();
+    const root = document.getElementById('proposals-content');
+    if (root && root.scrollIntoView) root.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   _render() {
@@ -927,13 +973,25 @@ window.CO_ENGRAM_PROPOSALS = {
       + CO_ENGRAM.escapeHtml(statusLabel(s)) + '</button>'
     ).join('');
 
+    // 客户端虚拟分页(2026-07):与 engrams tab 同款翻页模式。
+    // 旧版"加载更多"按钮在 2044+ 条候选下点击一次要拉一批,UI 无页码概念;
+    // 改为每页 30 条 + « 1 2 3 … » 翻页控件,pager 在边界按需 loadMore 扩容。
+    const VIEW_SIZE = 30;
+    const hasMore = pager.hasMore();
+    const maxStart = Math.max(0, items.length - VIEW_SIZE);
+    let viewStart = CO_ENGRAM._proposalsViewStart || 0;
+    if (viewStart > maxStart) viewStart = maxStart;
+    if (viewStart < 0) viewStart = 0;
+    CO_ENGRAM._proposalsViewStart = viewStart;
+    const visible = items.slice(viewStart, viewStart + VIEW_SIZE);
+
     let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
-      + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + '</span></div>';
+      + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '') + '</span></div>';
     if (!items.length) {
       html += '<div class="empty"><div class="icon">✓</div>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>';
     } else {
       html += '<div class="grid cols-3">';
-      for (const p of items) {
+      for (const p of visible) {
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const preview = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
@@ -959,10 +1017,42 @@ window.CO_ENGRAM_PROPOSALS = {
         html += '</div>';
       }
       html += '</div>';
-      if (pager.hasMore()) {
-        html += '<div class="load-more-row" style="text-align:center;padding:1rem 0;grid-column:1/-1">'
-          + '<button class="btn" onclick="CO_ENGRAM_PROPOSALS.loadMore()">加载更多(已加载 ' + items.length + ' / 共 ' + total + ')</button></div>';
+
+      // 翻页控件:« 上页  1 2 3 … 22  下页 »  + 页码信息(复用 engrams.pager.* 翻译键)
+      const totalPages = Math.max(1, Math.ceil(total / VIEW_SIZE));
+      const currentPage = Math.floor(viewStart / VIEW_SIZE) + 1;
+      const canPrev = viewStart > 0;
+      const canNext = (viewStart + VIEW_SIZE) < items.length || hasMore;
+      const pageList = [];
+      if (totalPages <= 9) {
+        for (let i = 1; i <= totalPages; i++) pageList.push(i);
+      } else {
+        pageList.push(1);
+        if (currentPage > 4) pageList.push('ellipsis');
+        const start = Math.max(2, currentPage - 2);
+        const end = Math.min(totalPages - 1, currentPage + 2);
+        for (let i = start; i <= end; i++) pageList.push(i);
+        if (currentPage < totalPages - 3) pageList.push('ellipsis');
+        pageList.push(totalPages);
       }
+      let pageButtonsHtml = '';
+      for (const p of pageList) {
+        if (p === 'ellipsis') {
+          pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+        } else if (p === currentPage) {
+          pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
+        } else {
+          pageButtonsHtml += '<button class="btn secondary" onclick="CO_ENGRAM_PROPOSALS.gotoPage(' + (p - 1) + ')" style="min-width:2.2rem">' + p + '</button>';
+        }
+      }
+      const prevDisabled = canPrev ? '' : ' disabled';
+      const nextDisabled = canNext ? '' : ' disabled';
+      html += '<div class="pager-nav" style="text-align:center;padding:1rem 0;display:flex;gap:.4rem;justify-content:center;align-items:center;flex-wrap:wrap">'
+        + '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_PROPOSALS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.prev')) + '</button>'
+        + pageButtonsHtml
+        + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_PROPOSALS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.next')) + '</button>'
+        + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>'
+        + '</div>';
     }
     root.innerHTML = html;
   },

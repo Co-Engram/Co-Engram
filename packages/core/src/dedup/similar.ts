@@ -75,6 +75,14 @@ export class TokenJaccardSimilarityEngine implements SimilarityEngine {
 
   /**
    * 同步版本：用于 engram_create 自动 dedupe（无 IO 等待）
+   *
+   * 性能(2026-07 schema v4 修复):原走 listEngrams + 逐个 readEngram
+   * (1026 engram × readEngram ≈ 18s,readEngram 内部扫 synapses/ 目录)。
+   * 现走 readContentBatch(单次 SQL JOIN engram_fts 拉齐 title + summary +
+   * content_tokens)+ 内存 tokenize/Jaccard,N+1 消除。
+   *
+   * 语义不变:仍基于 title + summary + content 的 bigram + word Jaccard。
+   * contentHash 字段从 readDigestBatch 拿(DigestLine 有 contentHash)。
    */
   findCandidatesSync(
     text: string,
@@ -83,20 +91,28 @@ export class TokenJaccardSimilarityEngine implements SimilarityEngine {
     const queryTokens = tokenizeForDedup(text);
     if (queryTokens.size === 0) return [];
 
+    const allIds = this.repo.listEngrams().map((e) => e.id);
+    if (allIds.length === 0) return [];
+    // 批量拉 content(SQL 端 JOIN engram_fts 一次完成)
+    const contents = this.repo.readContentBatch(allIds);
+    // contentHash 从 DigestLine 拿(content_batch 不返回该字段,避免重复)
+    const lines = this.repo.readDigestBatch(allIds);
+    const hashById = new Map<string, string>();
+    for (const line of lines) hashById.set(line.id, line.contentHash);
+
     const candidates: DedupCandidate[] = [];
-    for (const entry of this.repo.listEngrams()) {
-      const engram = this.repo.readEngram(entry.id);
+    for (const row of contents) {
       const engramTokens = tokenizeForDedup(
-        `${engram.title} ${engram.summary} ${engram.content}`,
+        `${row.title} ${row.summary} ${row.content}`,
       );
       const similarity = jaccardSimilarity(queryTokens, engramTokens);
       if (similarity < options.minSimilarity) continue;
       candidates.push({
-        id: engram.id,
-        title: engram.title,
-        summary: engram.summary,
-        content: engram.content,
-        contentHash: engram.contentHash,
+        id: row.id,
+        title: row.title,
+        summary: row.summary,
+        content: row.content,
+        contentHash: hashById.get(row.id) ?? "",
         similarity,
       });
     }

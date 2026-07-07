@@ -127,13 +127,23 @@ export function reinforceRelated(
   }
 
   const reinforced: string[] = [];
-  for (const neighborId of neighborIds) {
-    if (!repo.exists(neighborId)) {
+  // 批量读取邻居 status(替代 N+1 readEngram,消除 synapse/ 目录扫描)。
+  // readDigestBatch 对不存在的 id 静默跳过 → 等价于旧的 exists 检查。
+  // 只需 status 字段做 archived/forgotten 过滤,完整 DigestLine 是超集够用。
+  const neighborIdList = [...neighborIds];
+  const neighborLines = repo.readDigestBatch(neighborIdList);
+  const neighborStatusById = new Map<string, string>();
+  for (const line of neighborLines) {
+    neighborStatusById.set(line.id, line.status);
+  }
+  for (const neighborId of neighborIdList) {
+    const status = neighborStatusById.get(neighborId);
+    if (!status) {
+      // readDigestBatch 没返回 → 邻居不存在(等价旧 exists 检查)
       skipped += 1;
       continue;
     }
-    const neighbor = repo.readEngram(neighborId);
-    if (neighbor.status === "archived" || neighbor.status === "forgotten") {
+    if (status === "archived" || status === "forgotten") {
       skipped += 1;
       continue;
     }

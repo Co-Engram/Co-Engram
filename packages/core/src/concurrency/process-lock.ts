@@ -68,6 +68,30 @@ export interface ProcessLock {
   readonly isHolder: boolean;
   /** lockfile 路径 */
   readonly lockPath: string;
+  /**
+   * 注册"失去锁"回调:本进程从 holder 变为 non-holder(lockfile 丢失 / pid 变了 /
+   * heartbeat 过期被别人接管)时同步触发。
+   *
+   * 调用方应在此清理 setInterval、关闭 viewer server 等共享型资源,避免旧 holder
+   * 失去锁后仍继续烧 CPU / 占着端口。
+   *
+   * 多次注册会按顺序触发;回调异常 fail-soft(不影响后续回调与 retry 流程)。
+   * release() 时不触发(那是显式释放,不是"失去")。
+   */
+  onLost(cb: () => void): void;
+  /**
+   * 注册"获得锁"回调:本进程从 non-holder 通过 retry take over 成为 holder 时
+   * 同步触发。初始 acquire(进程启动就是 holder)不触发此回调 — 那是调用方在
+   * acquireProcessLock 返回后自行检查 isHolder 启 holder-only 资源。
+   *
+   * 用途:非 holder 进程一开始跳过 viewer / maintenance 等 holder-only 任务;当
+   * 旧 holder 死亡本进程接管时,需要靠此回调启动这些任务。否则 holder 退出后整
+   * 个 dataRoot 上没有 viewer 在跑(直到下一个全新进程启动)。
+   *
+   * 多次注册会按顺序触发;回调异常 fail-soft(不影响后续回调与 heartbeat 流程)。
+   * release() 时不触发。
+   */
+  onGained(cb: () => void): void;
   /** 释放:stop heartbeat / retry,holder 时额外 unlink lockfile */
   release(): void;
 }
@@ -122,6 +146,32 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
   const state: { isHolder: boolean } = { isHolder: false };
   let heartbeatHandle: ReturnType<typeof setInterval> | null = null;
   let retryHandle: ReturnType<typeof setInterval> | null = null;
+  // onLost 回调列表:本进程失去 holder 身份时触发,让调用方清理 setInterval / viewer server。
+  // fail-soft:单个回调抛错不影响后续回调;release() 不触发(那是显式释放)。
+  const lostCallbacks: Array<() => void> = [];
+  const fireLostCallbacks = (): void => {
+    for (const cb of lostCallbacks) {
+      try {
+        cb();
+      } catch {
+        // fail-soft:回调异常不阻塞 retry / heartbeat 流程
+      }
+    }
+  };
+  // onGained 回调列表:本进程从 non-holder 通过 retry take over 成为 holder 时触发。
+  // 用于让原本的非 holder 进程在接管时启动 viewer / maintenance 等 holder-only 任务。
+  // 初始 acquire(进程启动即 holder)不触发 — 那是调用方在 acquireProcessLock 返回后
+  // 自行检查 isHolder 启动。fail-soft:单个回调抛错不影响后续回调。
+  const gainedCallbacks: Array<() => void> = [];
+  const fireGainedCallbacks = (): void => {
+    for (const cb of gainedCallbacks) {
+      try {
+        cb();
+      } catch {
+        // fail-soft
+      }
+    }
+  };
 
   const writeLockfileFromContent = (content: LockFileContent): void => {
     // 覆盖写入(< 200 字节,POSIX 单 write atomic)
@@ -237,6 +287,10 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
         stopRetry();
         state.isHolder = true;
         startHeartbeat();
+        // 通知调用方:本进程刚从 non-holder 接管为 holder,需要启动此前跳过的
+        // holder-only 资源(viewer / maintenance / audit rotation / fs.watch)。
+        // 初始 acquire 路径不触发此回调,那是调用方在返回后直接检查 isHolder。
+        fireGainedCallbacks();
       }
     }, Math.max(50, Math.floor(staleMs / 2)));
     if (typeof retryHandle.unref === "function") retryHandle.unref();
@@ -256,6 +310,7 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
       } catch {
         stopHeartbeat();
         state.isHolder = false;
+        fireLostCallbacks();
         startRetry();
         return;
       }
@@ -265,6 +320,7 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
       } catch {
         stopHeartbeat();
         state.isHolder = false;
+        fireLostCallbacks();
         startRetry();
         return;
       }
@@ -272,6 +328,7 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
         // lockfile 已被别人接管(holder failover 完成或本进程被偷锁)
         stopHeartbeat();
         state.isHolder = false;
+        fireLostCallbacks();
         startRetry();
         return;
       }
@@ -300,6 +357,12 @@ export function acquireProcessLock(opts: ProcessLockOptions): ProcessLock {
       return state.isHolder;
     },
     lockPath,
+    onLost(cb: () => void): void {
+      lostCallbacks.push(cb);
+    },
+    onGained(cb: () => void): void {
+      gainedCallbacks.push(cb);
+    },
     release(): void {
       stopHeartbeat();
       stopRetry();

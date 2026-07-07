@@ -282,6 +282,7 @@ async function main(): Promise<void> {
     dataRootAutoCreated,
     stopIndexWatcher,
     releaseProcessLock,
+    processLock,
   } = createCoEngramMcpServer({
     dataRoot,
     serverName: persistedConfig.server?.name ?? "co-engram",
@@ -394,9 +395,22 @@ async function main(): Promise<void> {
   // VIEWER_TOKEN 仍由 env 提供(敏感信息不进 config.json)。
   // 端口:不再读 persistedConfig.viewer.port(已废弃,避免两宿主共享 persisted config 时冲突)。
   // 由 viewer 内部按 hostType 决定默认(Claude Code=18799),或 env CO_ENGRAM_VIEWER_PORT 覆盖。
+  //
+  // holder gating(2026-07 修复):只有 holder 启 viewer。理由:
+  //   - viewer 绑定 known port(18799/18899),non-holder 启 viewer 会 EADDRINUSE
+  //     重试到其他端口,但客户端不知道新端口 → 等于没用
+  //   - Claude Code observe hook 写在 settings.json 里,URL 固定 18799,
+  //     non-holder 进程的 hook 也发到 18799(holder 的 viewer 收)
+  //   - 失去锁时关 viewer,让新 holder 启自己的 viewer(配合 ProcessLock.onLost)
   const viewerEnabled = persistedConfig.viewer?.enabled ?? proposalEnabled;
+  // viewer 启动封装为闭包,便于两处复用:
+  //   1. 进程启动时若是 holder → 立即启动
+  //   2. 进程启动时是 non-holder → onGained 接管时启动(viewerRuntime 仍 undefined)
+  // 幂等:viewerRuntime 已存在则跳过(避免重复启动占端口)。
   let viewerRuntime: ViewerRuntime | undefined;
-  if (viewerEnabled) {
+  const startHolderViewer = async (): Promise<void> => {
+    if (viewerRuntime) return; // 已启动
+    if (!viewerEnabled) return;
     try {
       viewerRuntime = await startViewerServer(ctx, {
         language,
@@ -418,10 +432,49 @@ async function main(): Promise<void> {
         );
       }
     }
-  } else if (proposalEnabled) {
-    process.stderr.write(
-      `[co-engram] NOTE: viewer is disabled but proposal engine is enabled — Claude Code observe hook will NOT be able to reach the engine (OpenClaw in-process path still works).\n`,
-    );
+  };
+  if (viewerEnabled && processLock.isHolder) {
+    await startHolderViewer();
+    if (viewerRuntime) {
+      // 失去锁时关闭 viewer server,让新 holder 能绑定同端口。
+      // fire-and-forget stop():onLost 回调签名是 sync,async stop 不阻塞。
+      processLock.onLost(() => {
+        viewerRuntime?.stop().catch(() => {
+          // ignore — 关闭失败不阻塞失去锁流程
+        });
+        viewerRuntime = undefined;
+      });
+    }
+  } else if (processLock.isHolder) {
+    // holder 但 viewer 未启用
+    if (proposalEnabled) {
+      process.stderr.write(
+        `[co-engram] NOTE: viewer is disabled but proposal engine is enabled — Claude Code observe hook will NOT be able to reach the engine (OpenClaw in-process path still works).\n`,
+      );
+    }
+  } else {
+    // non-holder 模式:viewer 由 holder 进程启动,本进程的 hook 仍能到达。
+    // 但若后续 holder 退出、本进程接管,需要靠 onGained 启 viewer;
+    // 同时注册 onLost 自关闭(与初始 holder 路径对称),覆盖接管后又失去锁的情形。
+    if (proposalEnabled) {
+      process.stderr.write(
+        `[co-engram] NOTE: non-holder process — viewer is started by the holder process; tools + observe hook still work via the holder's viewer. Will start viewer if this process takes over the lock.\n`,
+      );
+    }
+    processLock.onGained(() => {
+      // fire-and-forget:onGained 签名 sync,async 启动不阻塞 retry 流程
+      startHolderViewer().catch(() => {
+        // ignore — 错误已在 startHolderViewer 内 stderr 提示
+      });
+      if (viewerRuntime) {
+        processLock.onLost(() => {
+          viewerRuntime?.stop().catch(() => {
+            // ignore
+          });
+          viewerRuntime = undefined;
+        });
+      }
+    });
   }
 
   // M3d: proposal engine 启用时,自动 patch Claude Code settings.json 挂 hook

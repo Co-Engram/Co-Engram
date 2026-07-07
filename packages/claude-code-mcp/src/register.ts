@@ -195,6 +195,14 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
    * interval,但显式释放能让下个 session 更快接管(不必等 staleMs)。
    */
   readonly releaseProcessLock?: () => void;
+  /**
+   * ProcessLock 实例(供 host adapter 注册 onLost 回调,失去锁时关闭 viewer server 等)。
+   *
+   * 失去锁场景:本进程是 holder,但 heartbeat 卡死 / lockfile 被覆盖 / pid 变了。
+   * 此时本进程应停止 holder-only 资源(viewer port、setInterval),让新 holder 接管。
+   * 不注册的话,旧 holder 会持续占着 viewer port + 烧 CPU(2026-07 实测的真实故障)。
+   */
+  readonly processLock: ProcessLock;
 } {
   let dataRootAutoCreated = false;
   if (!existsSync(config.dataRoot)) {
@@ -207,10 +215,14 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   // fs.watch / external markdown hook 等共享型后台任务。non-holder 跳过这些
   // 任务但仍可正常服务工具调用 + viewer。
   //
-  // 设计权衡(简化版):non-holder 整个生命周期不跑后台任务,即使后续 holder
-  // 退出本进程接管也不补启动 —— 极端场景下 maintenance / watcher 暂停到下个
-  // 新 session 启动。light/deep 默认间隔大 + mtime fallback 兜底 search
-  // 正确性,影响有限;换取实现简洁(无 onAcquire 回调)。
+  // 状态转移(2026-07 完善):
+  //   - 初始 holder:进程启动即拿到锁,在 isHolder 分支直接启动 holder-only 任务。
+  //   - 初始 non-holder:跳过启动,但注册 onGained —— 当旧 holder 死亡本进程接管时,
+  //     ProcessLock.startRetry 检测到 stale lockfile → take over → 触发 onGained
+  //     回调,补启动 maintenance / rotation / watcher 等。
+  //   - holder 失去锁:onLost 清理 setInterval + watcher,让新 holder 接管。
+  //   这覆盖了所有转移路径,避免旧设计"non-holder 整个生命周期不补启动"导致接管后
+  //   maintenance 停摆的缺陷。
   const processLock = acquireProcessLock({
     dataRoot: config.dataRoot,
     host: "claude-code-mcp",
@@ -318,8 +330,24 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   // 工具调用 + viewer 在两种模式下都正常工作(mtime fallback 兜底 search)。
   let stopMaintenance: (() => void) | undefined;
   let stopAuditRotation: (() => void) | undefined;
-  if (processLock.isHolder) {
-    if (config.startMaintenance === true && ctx.signalSink) {
+  // 注册 onLost:失去锁时停止 holder-only 任务(maintenance / rotation / watcher),
+  // 避免旧 holder 心跳过期被接管后仍持续烧 CPU + 占着资源。
+  // 注册是无条件的:non-holder 时 stop 函数都是 undefined,回调是 no-op。
+  processLock.onLost(() => {
+    try {
+      ctx.repository.stopWatching();
+    } catch {
+      // ignore — 未启动 watcher 时 stopWatching 抛错容忍
+    }
+    stopMaintenance?.();
+    stopAuditRotation?.();
+  });
+  // holder-only 启动封装为闭包,便于两处复用:
+  //   1. 进程启动时若是 holder → 立即调用
+  //   2. 进程启动时是 non-holder → onGained 接管时调用
+  // 幂等:对应 stop 函数已定义则跳过(避免重复 setInterval 叠加)。
+  const startHolderTasks = (): void => {
+    if (stopMaintenance === undefined && config.startMaintenance === true && ctx.signalSink) {
       const runtime = startMaintenanceRuntime(
         {
           repository: ctx.repository,
@@ -332,11 +360,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
       );
       stopMaintenance = runtime.stop;
     }
-
-    // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
-    // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
-    // auditEnabled=false 时无 auditLog,自然跳过 rotation。
-    if (auditLog) {
+    if (stopAuditRotation === undefined && auditLog) {
       const rotationConfig = {
         ...DEFAULT_AUDIT_CONFIG.rotation,
         ...(config.auditRotationConfig ?? {}),
@@ -350,17 +374,6 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         });
       }
     }
-
-    // 启动跨进程 index watcher — 多 host adapter(MCP / OpenClaw plugin)共享
-    // 同一 dataRoot 时,确保各进程的 indexCache 在外部写入后立即失效。
-    // mtime 兜底已内置在 getIndex 中,watcher 提供更实时的失效触发。
-    // listener:watcher 触发时同步重建 SearchOrchestrator 的 ftsIndex,
-    // 否则跨进程写入后,本进程 search 还是查旧索引(P0 缺陷)。
-    //
-    // 信任边界(安全关键):externalMarkdownHook 必须在 startWatching 之前设置,
-    // 否则首次扫描会漏掉已存在的未授权 .md。hook 把 watcher 发现的外部 .md 转成
-    // pending proposal(等用户审批),而非直接落库 —— 防止"拷贝恶意 .md → 进团队
-    // 记忆库"的攻击面。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
     if (proposalEngine) {
       ctx.repository.setExternalMarkdownHook(
         proposalEngine.createExternalMarkdownHook(),
@@ -370,6 +383,13 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ctx.repository.addInvalidateListener(() => {
       rebuildSearchIndex(searchOrchestrator, repository);
     });
+  };
+  if (processLock.isHolder) {
+    startHolderTasks();
+  } else {
+    // non-holder:不立即启动 holder-only 任务;若后续本进程接管(take over),
+    // 通过 onGained 补启动。与 mcp-server.ts 的 onGained viewer 启动对称。
+    processLock.onGained(startHolderTasks);
   }
 
   // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
@@ -424,6 +444,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
       stopAuditRotation?.();
       processLock.release();
     },
+    processLock,
   };
 }
 

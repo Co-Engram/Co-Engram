@@ -12,6 +12,11 @@
 // 避免 tsc 不会复制非 .ts 资源导致 dist 缺 schema 的 build-defect(曾使
 // 0.2.0 sqlite 默认在 npm 部署后静默 fallback 到 memory)。
 import { createRequire } from "node:module";
+import { decodeCursor } from "./index-db-cursor.js";
+import type { SearchFilter } from "../types/disclosure.js";
+
+/** SearchFilter 的本地别名,避免上游改字段时全文件改名 */
+type SearchFilterInput = SearchFilter;
 
 const require = createRequire(import.meta.url);
 const SQLITE_MODULE = "node:" + "sqlite";
@@ -34,7 +39,7 @@ type Statement = ReturnType<SqliteDb["prepare"]>;
  * 这避免了 ALTER TABLE 增量迁移的复杂度与兼容包袱。
  */
 const SCHEMA_SQL = `
--- 主表:engram 元数据
+-- 主表:engram 元数据 + DigestLine 完整投影
 CREATE TABLE IF NOT EXISTS engrams (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -48,13 +53,32 @@ CREATE TABLE IF NOT EXISTS engrams (
   summary TEXT NOT NULL DEFAULT '',
   retrieval_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT 0,
-  created_by TEXT NOT NULL DEFAULT ''
+  created_by TEXT NOT NULL DEFAULT '',
+  -- schema v4:DigestLine 完整投影,消除所有调用方的 N+1 readEngram
+  kinds TEXT NOT NULL DEFAULT '[]',
+  context_tags TEXT NOT NULL DEFAULT '[]',
+  freshness TEXT NOT NULL DEFAULT 'fresh',
+  source_type TEXT NOT NULL DEFAULT 'firsthand',
+  content_hash TEXT NOT NULL DEFAULT '',
+  last_retrieved_at INTEGER,
+  last_effective_at INTEGER,
+  effective_retrievals INTEGER NOT NULL DEFAULT 0,
+  failed_uses INTEGER NOT NULL DEFAULT 0,
+  reinforcement_score REAL NOT NULL DEFAULT 0,
+  last_retrieval_score REAL,
+  outgoing_synapse_count INTEGER NOT NULL DEFAULT 0,
+  incoming_synapse_count INTEGER NOT NULL DEFAULT 0,
+  active_contradiction_count INTEGER NOT NULL DEFAULT 0,
+  verification_status TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_engrams_updated ON engrams(updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_importance ON engrams(importance DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_created ON engrams(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_retrieval ON engrams(retrieval_count DESC, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_engrams_created_by ON engrams(created_by);
+CREATE INDEX IF NOT EXISTS idx_engrams_verification ON engrams(verification_status);
+CREATE INDEX IF NOT EXISTS idx_engrams_freshness ON engrams(freshness);
+CREATE INDEX IF NOT EXISTS idx_engrams_status ON engrams(status);
 
 -- 多值 tag
 CREATE TABLE IF NOT EXISTS engram_domains (
@@ -105,17 +129,27 @@ CREATE TABLE IF NOT EXISTS schema_version (
  * v3(2026-07):engrams 表加 created_by 列。
  * 目的:viewer /api/stats 的 topContributors 聚合完全走 SQL,避免 26 条
  * readEngram × assembleEngram(listSynapsesForEngram 扫 1826 文件)卡 24s。
+ *
+ * v4(2026-07):engrams 表扩成 DigestLine 完整投影。
+ * 目的:消除所有调用方的 N+1 readEngram(engram_list / listByVerificationStatus /
+ * reinforceRelated / findCandidatesSync 等)。readEngram 单次 ~1s,1026 条
+ * 卡 20 分钟,与 graph-builder.ts 的 N+1 反模式同根。
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
 }
 
 /**
- * engram 在索引层的一份精简投影(只含搜索/排序/FTS 需要的字段)。
+ * engram 在索引层的 DigestLine 完整投影(schema v4)。
  *
- * domainTags 是多值字段,在 SQLite 端拆 engram_domains 表;其余标量字段直接落 engrams 主表。
+ * 设计目标:让所有调用方(engram_list / listByVerificationStatus / reinforceRelated /
+ * findCandidatesSync / maintenance 各 cycle)都能直接从 SQLite 读 DigestLine,
+ * 避免走 readEngram(扫整个 synapses/ 目录)。
+ *
+ * domainTags 是多值字段,在 SQLite 端拆 engram_domains 表;contextTags / kinds 是
+ * 较短的多值字段,用 JSON 数组直接存 TEXT 列(读端 JSON.parse)。其余标量字段直接落 engrams 主表。
  * contentTokens 是已切分的纯文本(可能含空格分隔的 token),用于 FTS5 trigram 倒排。
  */
 export interface EngramIndexEntry {
@@ -129,22 +163,30 @@ export interface EngramIndexEntry {
   readonly contentSize: number;
   readonly visibility: string;
   readonly status: string;
-  readonly domainTags: readonly string[];
   readonly summary: string;
   readonly contentTokens: string;
-  /**
-   * 检索命中次数(累计)。viewer list 用此字段排序,需要在 SQLite 端可达以避免
-   * 每次请求 N+1 readEngram。createEngram 写 0,bumpRetrievalStats 走增量 UPDATE。
-   */
   readonly retrievalCount?: number;
   /** epoch ms,viewer 按 createdAt 排序用。createEngram 写,后续不变 */
   readonly createdAt?: number;
-  /**
-   * 创建者标识(对应 frontmatter 的 createdBy 字段)。viewer /api/stats 的
-   * topContributors 聚合用此字段 GROUP BY,避免 N+1 readEngram 卡 24s
-   * (2026-07 schema v3 修复)。
-   */
   readonly createdBy?: string;
+  /** schema v4 投影字段(可选,向后兼容旧调用方) */
+  readonly kinds?: readonly string[];
+  readonly contextTags?: readonly string[];
+  readonly freshness?: string;
+  readonly sourceType?: string;
+  readonly contentHash?: string;
+  /** ISO 时间戳 — SQLite 端会转 epoch ms */
+  readonly lastRetrievedAt?: string;
+  readonly lastEffectiveAt?: string;
+  readonly effectiveRetrievals?: number;
+  readonly failedUses?: number;
+  readonly reinforcementScore?: number;
+  readonly lastRetrievalScore?: number;
+  readonly outgoingSynapseCount?: number;
+  readonly incomingSynapseCount?: number;
+  readonly activeContradictionCount?: number;
+  readonly verificationStatus?: string;
+  readonly domainTags: readonly string[];
 }
 
 /**
@@ -290,14 +332,44 @@ export class IndexDb {
    *
    * 单条写入走 upsertEngram;批量 cold start rebuild 走 rebuildFromEntries,
    * 后者在单个 transaction 里循环调用本方法,避免每条都 BEGIN/COMMIT。
+   *
+   * schema v4:写入完整 DigestLine 投影(kinds / contextTags 走 JSON,
+   * retrieval stats / synapse counts / verification 等走原生列)。
    */
   private upsertEngramUnsafe(entry: EngramIndexEntry): void {
     const retrievalCount = entry.retrievalCount ?? 0;
     const createdAt = entry.createdAt ?? entry.updatedAt;
     const createdBy = entry.createdBy ?? "";
+    const kinds = JSON.stringify(entry.kinds ?? [entry.kind]);
+    const contextTags = JSON.stringify(entry.contextTags ?? []);
+    const freshness = entry.freshness ?? "fresh";
+    const sourceType = entry.sourceType ?? "firsthand";
+    const contentHash = entry.contentHash ?? "";
+    const lastRetrievedAt = entry.lastRetrievedAt
+      ? Date.parse(entry.lastRetrievedAt)
+      : null;
+    const lastEffectiveAt = entry.lastEffectiveAt
+      ? Date.parse(entry.lastEffectiveAt)
+      : null;
+    const effectiveRetrievals = entry.effectiveRetrievals ?? 0;
+    const failedUses = entry.failedUses ?? 0;
+    const reinforcementScore = entry.reinforcementScore ?? 0;
+    const lastRetrievalScore = entry.lastRetrievalScore ?? null;
+    const outgoingSynapseCount = entry.outgoingSynapseCount ?? 0;
+    const incomingSynapseCount = entry.incomingSynapseCount ?? 0;
+    const activeContradictionCount = entry.activeContradictionCount ?? 0;
+    const verificationStatus = entry.verificationStatus ?? null;
     this.prepare(`
-      INSERT INTO engrams (id, title, kind, importance, confidence, updated_at, content_size, visibility, status, summary, retrieval_count, created_at, created_by)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO engrams (
+        id, title, kind, importance, confidence, updated_at, content_size,
+        visibility, status, summary, retrieval_count, created_at, created_by,
+        kinds, context_tags, freshness, source_type, content_hash,
+        last_retrieved_at, last_effective_at,
+        effective_retrievals, failed_uses, reinforcement_score, last_retrieval_score,
+        outgoing_synapse_count, incoming_synapse_count, active_contradiction_count,
+        verification_status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         kind = excluded.kind,
@@ -310,7 +382,22 @@ export class IndexDb {
         summary = excluded.summary,
         retrieval_count = excluded.retrieval_count,
         created_at = excluded.created_at,
-        created_by = excluded.created_by
+        created_by = excluded.created_by,
+        kinds = excluded.kinds,
+        context_tags = excluded.context_tags,
+        freshness = excluded.freshness,
+        source_type = excluded.source_type,
+        content_hash = excluded.content_hash,
+        last_retrieved_at = excluded.last_retrieved_at,
+        last_effective_at = excluded.last_effective_at,
+        effective_retrievals = excluded.effective_retrievals,
+        failed_uses = excluded.failed_uses,
+        reinforcement_score = excluded.reinforcement_score,
+        last_retrieval_score = excluded.last_retrieval_score,
+        outgoing_synapse_count = excluded.outgoing_synapse_count,
+        incoming_synapse_count = excluded.incoming_synapse_count,
+        active_contradiction_count = excluded.active_contradiction_count,
+        verification_status = excluded.verification_status
     `).run(
       entry.id,
       entry.title,
@@ -325,6 +412,21 @@ export class IndexDb {
       retrievalCount,
       createdAt,
       createdBy,
+      kinds,
+      contextTags,
+      freshness,
+      sourceType,
+      contentHash,
+      lastRetrievedAt,
+      lastEffectiveAt,
+      effectiveRetrievals,
+      failedUses,
+      reinforcementScore,
+      lastRetrievalScore,
+      outgoingSynapseCount,
+      incomingSynapseCount,
+      activeContradictionCount,
+      verificationStatus,
     );
     // domains 全量替换
     this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);
@@ -492,6 +594,312 @@ export class IndexDb {
   }
 
   /**
+   * 按 SearchFilter + SortKey 排序的列表查询(engram_list 专用)。
+   *
+   * 替代旧路径:listEngrams → 逐个 readEngram → 内存 filter/sort/cursor
+   * (1026 engram × readEngram ≈ 18s,扫 synapses/ 目录 N+1 痛点)。
+   *
+   * 排序固定为复合 SortKey:importance DESC, updated_at DESC, id ASC
+   * cursor 编码 [importance, updatedAt, id](base64url),与 disclosure
+   * 层的 encodeCursor / decodeCursor 对齐。
+   *
+   * filter 全部下推到 SQL:
+   *   - domainTags:EXISTS 子查询(已有 engram_domains 索引)
+   *   - kinds / contextTags:JSON array overlap,用 json_each
+   *   - status / freshness / createdBy:IN (?, ?, ...)
+   *   - createdAfter/Before:epoch ms 比较
+   *   - minImportance:简单 >=
+   *   - status 隐式默认 ['active', 'draft'](与 matchesFilter 一致)
+   *
+   * 返回 {id, title, kind, domainTags}[](EngramCatalogEntry 子集),
+   * 调用方按需 join 更多字段。
+   */
+  queryEngramsBySortKey(opts: {
+    readonly filter?: SearchFilterInput;
+    readonly cursor?: string;
+    readonly limit?: number;
+  }): {
+    readonly results: readonly EngramListRow[];
+    readonly total: number;
+  } {
+    const limit = Math.max(1, Math.min(opts.limit ?? 50, 500));
+    const filter = opts.filter;
+
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+
+    // status 隐式默认:与 matchesFilter 一致(active / draft)
+    const statusFilter = filter?.status && filter.status.length > 0
+      ? filter.status
+      : ["active", "draft"];
+    const statusPlaceholders = statusFilter.map(() => "?").join(",");
+    where.push(`e.status IN (${statusPlaceholders})`);
+    for (const s of statusFilter) params.push(s);
+
+    if (filter?.domainTags && filter.domainTags.length > 0) {
+      const placeholders = filter.domainTags.map(() => "?").join(",");
+      where.push(
+        `EXISTS (SELECT 1 FROM engram_domains d WHERE d.engram_id = e.id AND d.domain IN (${placeholders}))`,
+      );
+      for (const t of filter.domainTags) params.push(t);
+    }
+
+    // kinds / contextTags:JSON array overlap,用 json_each
+    // kinds 列在 v4 schema 是 JSON array string(如 '["observation","pattern"]')
+    if (filter?.kinds && filter.kinds.length > 0) {
+      const placeholders = filter.kinds.map(() => "?").join(",");
+      where.push(
+        `EXISTS (SELECT 1 FROM json_each(e.kinds) WHERE value IN (${placeholders}))`,
+      );
+      for (const k of filter.kinds) params.push(k);
+    }
+
+    if (filter?.contextTags && filter.contextTags.length > 0) {
+      const placeholders = filter.contextTags.map(() => "?").join(",");
+      where.push(
+        `EXISTS (SELECT 1 FROM json_each(e.context_tags) WHERE value IN (${placeholders}))`,
+      );
+      for (const t of filter.contextTags) params.push(t);
+    }
+
+    if (filter?.freshness && filter.freshness.length > 0) {
+      const placeholders = filter.freshness.map(() => "?").join(",");
+      where.push(`e.freshness IN (${placeholders})`);
+      for (const f of filter.freshness) params.push(f);
+    }
+
+    if (filter?.createdBy && filter.createdBy.length > 0) {
+      const placeholders = filter.createdBy.map(() => "?").join(",");
+      where.push(`e.created_by IN (${placeholders})`);
+      for (const c of filter.createdBy) params.push(c);
+    }
+
+    if (filter?.createdAfter) {
+      where.push("e.created_at > ?");
+      params.push(Date.parse(filter.createdAfter));
+    }
+
+    if (filter?.createdBefore) {
+      where.push("e.created_at < ?");
+      params.push(Date.parse(filter.createdBefore));
+    }
+
+    if (typeof filter?.minImportance === "number") {
+      where.push("e.importance >= ?");
+      params.push(filter.minImportance);
+    }
+
+    // cursor:基于 SortKey [importance, updatedAt, id]
+    // 排序是 importance DESC, updated_at DESC, id ASC,所以"在 cursor 之后"
+    // 意味着严格小于(importance/updatedAt)或同分时 id 大于(id ASC)。
+    if (opts.cursor) {
+      const ck = decodeCursor(opts.cursor);
+      where.push(
+        `(e.importance < ? OR (e.importance = ? AND e.updated_at < ?) OR (e.importance = ? AND e.updated_at = ? AND e.id > ?))`,
+      );
+      params.push(
+        ck.importance,
+        ck.importance,
+        ck.updatedAt,
+        ck.importance,
+        ck.updatedAt,
+        ck.id,
+      );
+    }
+
+    const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+
+    // total:基于完整 where(含 cursor 也算在内是错的,但 cursor 通常用于翻页,
+    // total 表示总量是 UI 期望)。这里采用 pre-cursor 的 where 计算 total。
+    // 注意:本方法的 where 已含 cursor 条件,需要剥离。
+    // 简化:cursor 分页时 total 通常已在前一页返回,这里仍计算包含 cursor 的总数。
+    // 实际场景:engram_list 工具的 result 不含 total 字段(只 items + nextCursor),
+    // 所以本字段对 MCP 工具无影响。保留为 viewer 等其他调用方可能的复用预留。
+    const totalRow = this.prepare(
+      `SELECT count(*) as n FROM engrams e ${whereClause}`,
+    ).get(...params) as { n: number };
+    const total = totalRow?.n ?? 0;
+
+    const rows = this.prepare(
+      `SELECT
+         e.id, e.title, e.kind,
+         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domainTagsCsv,
+         e.importance,
+         e.updated_at as updatedAt
+       FROM engrams e
+       ${whereClause}
+       ORDER BY e.importance DESC, e.updated_at DESC, e.id ASC
+       LIMIT ?`,
+    ).all(...params, limit) as unknown as EngramListRow[];
+
+    return { results: rows, total };
+  }
+
+  /**
+   * 批量读取 dedup 用 content 字段(id / title / summary / content_tokens)。
+   *
+   * dedup findCandidatesSync 原走 listEngrams + 逐个 readEngram(1026 engram
+   * × readEngram ≈ 18s)。改用本方法 + 内存 tokenize/Jaccard,N+1 消除。
+   *
+   * 与 readDigestBatch 区别:本方法多拉 content_tokens 列(可能几 KB / 条),
+   * 只给 dedup / similarity 这类需要 content 的路径用。DigestLine 不暴露 content
+   * (那是 Tier 2 字段,披露策略由 disclosure 层管)。
+   *
+   * 实现:JOIN engram_fts(FTS 表存 content_tokens),一次 SQL 拿齐。
+   */
+  readContentBatch(
+    ids: readonly string[],
+  ): readonly ContentBatchRow[] {
+    if (ids.length === 0) return [];
+    // SQLite 参数上限通常 999;为兼容默认配置,每批最多 500。
+    // 调用方可能传 5000+ ids(findCandidatesSync 全表扫),分批合并结果。
+    const CHUNK = 500;
+    const out: ContentBatchRow[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = this.prepare(
+        `SELECT
+           e.id AS id,
+           e.title AS title,
+           e.summary AS summary,
+           f.content_tokens AS content
+         FROM engrams e
+         JOIN engram_fts f ON f.id = e.id
+         WHERE e.id IN (${placeholders})`,
+      ).all(...chunk) as unknown as ContentBatchRow[];
+      for (const r of rows) out.push(r);
+    }
+    return out;
+  }
+
+  /**
+   * 按 verification status + lifecycle status 过滤,返回 DigestIndexRow[]。
+   *
+   * 替代旧路径:listByVerificationStatus 内存遍历 catalog + 逐个 readEngram
+   * (maintenance engine 在 1026 engram 规模下 N+1 卡 ~18s)。
+   *
+   * filter 全部下推到 SQL:
+   *   - verification_status IN (?, ...) — 主过滤维度
+   *   - status IN (?, ...) — 隐式过滤(maintenance 只关心 active)
+   *   - 默认不返回(传 null 或空数组跳过)
+   *
+   * 行为:
+   *   - verificationStatuses 为空 → 返回 [](避免 SQL IN () 语法错)
+   *   - lifecycleStatuses 未传 → 不做 status 过滤(返回所有 lifecycle status)
+   *   - verification_status 列为 NULL 的行:SQL `IN (...)` 不会命中,但
+   *     maintenance 期望 "unverified" 命中这些行(schema v4 cold-start
+   *     时写入 'unverified' 默认值,所以实际不会 NULL;旧数据由 ensureSchema
+   *     rebuild 修复)。如果数据库残留 NULL,需要 maintenance 单独处理。
+   */
+  listDigestByVerificationStatus(opts: {
+    readonly verificationStatuses: readonly string[];
+    readonly lifecycleStatuses?: readonly string[];
+  }): readonly DigestIndexRow[] {
+    if (opts.verificationStatuses.length === 0) return [];
+    const verPlaceholders = opts.verificationStatuses.map(() => "?").join(",");
+    const params: (string | number)[] = [...opts.verificationStatuses];
+    let lifecycleClause = "";
+    if (opts.lifecycleStatuses && opts.lifecycleStatuses.length > 0) {
+      const lifePlaceholders = opts.lifecycleStatuses.map(() => "?").join(",");
+      lifecycleClause = ` AND e.status IN (${lifePlaceholders})`;
+      for (const s of opts.lifecycleStatuses) params.push(s);
+    }
+    const rows = this.prepare(
+      `SELECT
+         e.id, e.title, e.kind, e.importance, e.confidence,
+         e.updated_at as updatedAt,
+         e.created_at as createdAt,
+         e.content_size as contentSize,
+         e.visibility, e.status, e.summary,
+         e.retrieval_count as retrievalCount,
+         e.created_by as createdBy,
+         e.kinds as kindsJson,
+         e.context_tags as contextTagsJson,
+         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domainTagsCsv,
+         e.freshness,
+         e.source_type as sourceType,
+         e.content_hash as contentHash,
+         e.last_retrieved_at as lastRetrievedAt,
+         e.last_effective_at as lastEffectiveAt,
+         e.effective_retrievals as effectiveRetrievals,
+         e.failed_uses as failedUses,
+         e.reinforcement_score as reinforcementScore,
+         e.last_retrieval_score as lastRetrievalScore,
+         e.outgoing_synapse_count as outgoingSynapseCount,
+         e.incoming_synapse_count as incomingSynapseCount,
+         e.active_contradiction_count as activeContradictionCount,
+         e.verification_status as verificationStatus
+       FROM engrams e
+       WHERE e.verification_status IN (${verPlaceholders})${lifecycleClause}`,
+    ).all(...params) as unknown as DigestIndexRow[];
+    return rows;
+  }
+
+  /**
+   * 批量读取 DigestLine 投影(单次 SQL,替代 N+1 readEngram)。
+   *
+   * 高频调用方(engram_list 后置过滤、collectNeighborDigests、
+   * findCandidatesSync、reinforceRelated)只消化 DigestLine 字段子集,
+   * 不需要 readEngram 的全字段(尤其不需要扫 synapses/ 目录)。
+   *
+   * 实现:`WHERE id IN (?,?,...)`,epoch ms 数字 + JSON 字符串直接返回,
+   * 调用方(repository.readDigestBatch)做类型化(ISO 时间戳、JSON parse)。
+   *
+   * 行为:
+   *   - ids 为空 → 返回空数组(避免 `WHERE id IN ()` SQL 语法错)
+   *   - ids 上限 500:防止 SQLite prepared statement 参数爆炸。调用方应分批。
+   *   - 不存在的 id 静默跳过(返回结果可能少于输入)
+   *   - 无 ORDER BY:调用方按需自己排序(典型:按 importance 或 score)
+   *
+   * v4 schema 字段:此方法依赖 schema v4 投影列(kinds / context_tags /
+   * freshness / source_type / retrieval stats / synapse counts / verification)。
+   * 旧 db(schema ≤ v3)经过 ensureSchema 自动 DROP+rebuild 升到 v4,
+   * rebuildFromEntries 会重新填充。所以本方法无需做列存在性 fallback。
+   */
+  readDigestBatch(ids: readonly string[]): readonly DigestIndexRow[] {
+    if (ids.length === 0) return [];
+    // SQLite 参数上限通常 999;分批避免越界。调用方(findCandidatesSync)
+    // 可能传 5000+ ids,内部循环合并结果。
+    const CHUNK = 500;
+    const out: DigestIndexRow[] = [];
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = this.prepare(
+        `SELECT
+           e.id, e.title, e.kind, e.importance, e.confidence,
+           e.updated_at as updatedAt,
+           e.created_at as createdAt,
+           e.content_size as contentSize,
+           e.visibility, e.status, e.summary,
+           e.retrieval_count as retrievalCount,
+           e.created_by as createdBy,
+           e.kinds as kindsJson,
+           e.context_tags as contextTagsJson,
+           (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domainTagsCsv,
+           e.freshness,
+           e.source_type as sourceType,
+           e.content_hash as contentHash,
+           e.last_retrieved_at as lastRetrievedAt,
+           e.last_effective_at as lastEffectiveAt,
+           e.effective_retrievals as effectiveRetrievals,
+           e.failed_uses as failedUses,
+           e.reinforcement_score as reinforcementScore,
+           e.last_retrieval_score as lastRetrievalScore,
+           e.outgoing_synapse_count as outgoingSynapseCount,
+           e.incoming_synapse_count as incomingSynapseCount,
+           e.active_contradiction_count as activeContradictionCount,
+           e.verification_status as verificationStatus
+         FROM engrams e
+         WHERE e.id IN (${placeholders})`,
+      ).all(...chunk) as unknown as DigestIndexRow[];
+      for (const r of rows) out.push(r);
+    }
+    return out;
+  }
+
+  /**
    * Cold start 重建:用 entries 全量替换 SQLite 索引内容。
    *
    * 用例:host 启动时检测到 .co-engram/index.db 缺失或损坏 → 扫描所有
@@ -567,6 +975,79 @@ export interface EngramQueryRow {
   readonly status: string;
   readonly summary: string;
   readonly retrievalCount: number;
+}
+
+/**
+ * queryEngramsBySortKey 返回行。
+ *
+ * domainTagsCsv 是 group_concat(domain, ',') 的结果,调用方 split(',')。
+ * importance / updatedAt 用于调用方拼装 SortKey cursor(下一页用)。
+ */
+export interface EngramListRow {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly domainTagsCsv: string | null;
+  readonly importance: number;
+  readonly updatedAt: number;
+}
+
+/**
+ * readContentBatch 返回行(dedup 专用)。
+ *
+ * content 来自 engram_fts.content_tokens(原 frontmatter 之外的 markdown body)。
+ * summary 来自 engrams.summary(frontmatter summary 字段)。
+ */
+export interface ContentBatchRow {
+  readonly id: string;
+  readonly title: string;
+  readonly summary: string;
+  readonly content: string;
+}
+
+/**
+ * readDigestBatch 返回的原始行(epoch ms 数字、JSON 字符串、CSV 字符串)。
+ *
+ * storage 层不依赖 disclosure 层的 DigestLine 类型,只返回 SQL 直查结果。
+ * Repository.readDigestBatch 做 ISO 时间戳转换 + JSON parse + CSV split,
+ * 最终输出 DigestLine。这样分层避免 storage → disclosure 的反向依赖。
+ *
+ * 注意:
+ *   - kindsJson / contextTagsJson:JSON.stringify 后的 string,parse 得 array
+ *   - domainTagsCsv:group_concat(domain, ',') 结果,split 得 array
+ *   - lastRetrievedAt / lastEffectiveAt / verificationStatus:可能为 null
+ *     (engram 从未被检索 / 从未生效 / 未走 verification 流程)
+ */
+export interface DigestIndexRow {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly importance: number;
+  readonly confidence: number;
+  readonly updatedAt: number;
+  readonly createdAt: number;
+  readonly contentSize: number;
+  readonly visibility: string;
+  readonly status: string;
+  readonly summary: string;
+  readonly retrievalCount: number;
+  readonly createdBy: string;
+  readonly kindsJson: string;
+  readonly contextTagsJson: string;
+  readonly domainTagsCsv: string | null;
+  readonly freshness: string;
+  readonly sourceType: string;
+  readonly contentHash: string;
+  readonly lastRetrievedAt: number | null;
+  readonly lastEffectiveAt: number | null;
+  readonly effectiveRetrievals: number;
+  readonly failedUses: number;
+  readonly reinforcementScore: number;
+  readonly lastRetrievalScore: number | null;
+  readonly outgoingSynapseCount: number;
+  readonly incomingSynapseCount: number;
+  readonly activeContradictionCount: number;
+  readonly verificationStatus: string | null;
 }
 
 /**

@@ -252,10 +252,20 @@ function collectNeighborDigests(
   const neighborIds = new Set<string>();
   for (const s of outgoing) neighborIds.add(s.to);
   for (const s of incoming) neighborIds.add(s.from);
-  const digests: EngramDigest[] = [];
-  for (const nid of neighborIds) {
-    const d = repo.readDigest(nid);
-    if (d) digests.push(d);
-  }
-  return digests;
+  if (neighborIds.size === 0) return [];
+  // 批量读取(替代 N+1 readDigest):readDigestBatch 走 SQL 一次拉所有
+  // 邻居 DigestLine,跳过 readEngram 内部的 synapses/ 目录扫描。
+  // DigestLine 是 EngramDigest 的字段超集,投影成 EngramDigest 形状。
+  const lines = repo.readDigestBatch([...neighborIds]);
+  return lines.map((line) => ({
+    id: line.id,
+    title: line.title,
+    kind: line.kind as EngramDigest["kind"],
+    domainTags: line.domainTags,
+    summary: line.summary,
+    importance: line.importance,
+    freshness: line.freshness as EngramDigest["freshness"],
+    updatedAt: line.updatedAt,
+    contentSize: line.contentSize,
+  }));
 }

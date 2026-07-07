@@ -495,6 +495,70 @@ export function registerCoEngramTools(
     }
   }
 
+  // 注册 onLost:失去锁时停止 holder-only 任务(maintenance / rotation / watcher)。
+  // 注册是无条件的:non-holder 时 stop 函数都是 undefined,回调是 no-op。
+  // OpenClaw viewer 由 entry.ts 单独管理,不在此处关闭(避免杀整个 gateway)。
+  processLock.onLost(() => {
+    try {
+      ctx.repository.stopWatching();
+    } catch {
+      // ignore — 未启动 watcher 时 stopWatching 抛错容忍
+    }
+    stopMaintenance?.();
+    stopAuditRotation?.();
+  });
+
+  // 注册 onGained:non-holder 通过 retry take over 成为 holder 时,补启动此前跳过的
+  // holder-only 任务(maintenance / audit rotation / external markdown watcher)。
+  // 与 mcp-server.ts 的 onGained viewer 启动对称 — 否则旧 holder 退出后,本进程
+  // 接管锁但 maintenance 等任务停摆到下个新 session 启动(light/deep 间隔大,可接受
+  // 短时间停摆,但能补就补,2026-07 完善对 ProcessLock.onGained 的支持)。
+  processLock.onGained(() => {
+    if (stopMaintenance === undefined && config.startMaintenance !== false && ctx.signalSink) {
+      const runtime = startMaintenanceRuntime(
+        {
+          repository: ctx.repository,
+          signalSink: ctx.signalSink,
+          ...(ctx.effectivenessTracker
+            ? { effectivenessTracker: ctx.effectivenessTracker }
+            : {}),
+          dataRoot: config.dataRoot ?? DEFAULT_CONFIG.dataRoot,
+          ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        },
+        config.maintenanceConfig ?? {},
+      );
+      stopMaintenance = runtime.stop;
+    }
+    if (stopAuditRotation === undefined && ctx.auditLog) {
+      const rotationConfig = {
+        ...DEFAULT_AUDIT_CONFIG.rotation,
+        ...(config.auditRotationConfig ?? {}),
+      };
+      if (rotationConfig.enabled !== false) {
+        stopAuditRotation = ctx.auditLog.startAutoRotation({
+          retentionDays: rotationConfig.retentionDays!,
+          highValueRetentionDays: rotationConfig.highValueRetentionDays!,
+          maxSizeMb: rotationConfig.maxSizeMb!,
+          intervalMs: rotationConfig.intervalMs!,
+        });
+      }
+    }
+    if (ctx.proposalEngine) {
+      ctx.repository.setExternalMarkdownHook(
+        ctx.proposalEngine.createExternalMarkdownHook(),
+      );
+    }
+    ctx.repository.startWatching();
+    ctx.repository.addInvalidateListener(() => {
+      if (ctx.searchOrchestrator) {
+        rebuildSearchIndex(
+          ctx.searchOrchestrator,
+          ctx.repository,
+        );
+      }
+    });
+  });
+
   // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
   //
   // 启动时检测 dataRoot 所在 git repo,自动装好 merge driver bundle /

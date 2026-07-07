@@ -230,19 +230,23 @@ export class MaintenanceEngine {
 
       // 2. 对所有 active 且未 refuted 的 engram 跑 metacognition
       //    遍历 unverified / plausible / probable / verified
-      const candidates = this.deps.repository.listByVerificationStatus([
-        "unverified",
-        "plausible",
-        "probable",
-        "verified",
-      ]);
+      //
+      // SQL 端 filter(verification_status + status='active')下推,
+      // 替代旧 listByVerificationStatus 的 N+1 readEngram(1026 engram ×
+      // readEngram ≈ 18s)。applyMetacognition 内部会 readEngram,所以
+      // 这里只需要 id 列表 —— listDigestByVerificationStatus 返回的
+      // DigestLine 字段集超集,够用。
+      const candidates = this.deps.repository.listDigestByVerificationStatus(
+        ["unverified", "plausible", "probable", "verified"],
+        { lifecycleStatuses: ["active"] },
+      );
 
       let metacognitionApplied = 0;
-      for (const engram of candidates) {
+      for (const candidate of candidates) {
         try {
           const result = await applyMetacognition(
             this.deps.repository,
-            engram.id,
+            candidate.id,
           );
           if (result.applied) metacognitionApplied += 1;
         } catch {
@@ -279,22 +283,20 @@ export class MaintenanceEngine {
    */
   async runDaily(): Promise<MaintenanceReport> {
     return this.runStage("daily", async () => {
-      const candidates = this.deps.repository.listByVerificationStatus([
-        "unverified",
-        "plausible",
-        "probable",
-        "verified",
-      ]);
+      // SQL 端 filter 下推(verification_status + status='active'),
+      // 替代旧 listByVerificationStatus 的 N+1 readEngram + 内存 status 过滤。
+      // 返回 DigestLine[] 包含 id / importance,够 applyDailyDecay 用。
+      const candidates = this.deps.repository.listDigestByVerificationStatus(
+        ["unverified", "plausible", "probable", "verified"],
+        { lifecycleStatuses: ["active"] },
+      );
 
       let decayed = 0;
-      for (const engram of candidates) {
-        // listByVerificationStatus 只按 verificationStatus 过滤,需额外
-        // 排除 lifecycle status 已是 archived/forgotten/draft 的 engram。
-        if (engram.status !== "active") continue;
+      for (const candidate of candidates) {
         try {
-          const newImportance = applyDailyDecay(engram.importance);
-          if (newImportance !== engram.importance) {
-            this.deps.repository.updateEngram(engram.id, {
+          const newImportance = applyDailyDecay(candidate.importance);
+          if (newImportance !== candidate.importance) {
+            this.deps.repository.updateEngram(candidate.id, {
               importance: newImportance,
               updatedBy: "maintenance.daily",
             });

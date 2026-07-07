@@ -28,9 +28,12 @@
 
 import {
   appendFileSync,
+  closeSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
   renameSync,
   statSync,
   writeFileSync,
@@ -147,14 +150,29 @@ export class AuditLog {
     }
   }
 
-  /** 查询历史记录 */
+  /**
+   * 查询历史记录(流式读 + ring buffer)
+   *
+   * 性能修复(2026-07):旧实现 readFileSync 全文 + split 全部行,内存峰值 = 整个
+   * audit.jsonl 大小(50MB 量级),让 viewer event loop 完全卡死。新实现用
+   * readSync 流式读 + 环形缓冲,内存峰值 = limit 条 entries(~200KB @ limit=1000)。
+   *
+   * 算法:顺序扫描文件,符合 filter 的 entry push 到 ringBuf;长度超过 limit 时
+   * 丢弃最旧。扫完后 ringBuf 是时间正序(append 顺序 = 文件顺序 = 写入时间正序)。
+   *
+   * **返回顺序契约**(2026-07 修复):返回时间正序(旧→新)。
+   * - `engram_audit_query` 工具 doc 明确 "items 按时间正序",直接返回给用户。
+   * - viewer `/api/audit` 用 `paginateWithCursor({ descending: true })` 自带排序,
+   *   不依赖 query 的返回顺序。
+   * 旧实现错误地 `ringBuf.reverse()` 返回逆序,导致工具契约违反。
+   *
+   * 边界:跨 chunk 的不完整行用 pendingLine 拼接;末尾无 \n 的最后一行单独处理。
+   * ringBuf.shift() 是 O(limit),但 audit.jsonl 行数有限(几千~几十万),整体可接受。
+   */
   query(filter: AuditQueryFilter = {}): readonly AuditEntry[] {
     if (!existsSync(this.filePath)) {
       return [];
     }
-
-    const raw = readFileSync(this.filePath, "utf8");
-    const lines = raw.split("\n").filter((line) => line.trim().length > 0);
 
     const actionSet = Array.isArray(filter.action)
       ? new Set(filter.action)
@@ -164,26 +182,86 @@ export class AuditLog {
 
     const limit = filter.limit ?? DEFAULT_QUERY_LIMIT;
 
-    // 从尾部往前读,优先返回最新记录(常见用例)
-    const out: AuditEntry[] = [];
-    for (let i = lines.length - 1; i >= 0 && out.length < limit; i--) {
-      let entry: AuditEntry;
-      try {
-        entry = JSON.parse(lines[i]!) as AuditEntry;
-      } catch {
-        continue;
-      }
+    const matchesFilter = (entry: AuditEntry): boolean => {
+      if (filter.since && entry.ts < filter.since) return false;
+      if (filter.until && entry.ts >= filter.until) return false;
+      if (actionSet && !actionSet.has(entry.action)) return false;
+      if (filter.engramId && entry.engramId !== filter.engramId) return false;
+      return true;
+    };
 
-      if (filter.since && entry.ts < filter.since) continue;
-      if (filter.until && entry.ts >= filter.until) continue;
-      if (actionSet && !actionSet.has(entry.action)) continue;
-      if (filter.engramId && entry.engramId !== filter.engramId) continue;
-
-      out.push(entry);
+    let fd: number | undefined;
+    try {
+      fd = openSync(this.filePath, "r");
+    } catch {
+      return [];
     }
 
-    // 反转回时间正序(便于人类阅读)
-    return out.reverse();
+    const ringBuf: AuditEntry[] = [];
+    const CHUNK_SIZE = 64 * 1024;
+    const chunk = Buffer.alloc(CHUNK_SIZE);
+    let pos = 0;
+    let pendingLine = "";
+
+    try {
+      while (true) {
+        const bytesRead = readSync(fd, chunk, 0, CHUNK_SIZE, pos);
+        if (bytesRead === 0) break;
+        pos += bytesRead;
+
+        const text = chunk.slice(0, bytesRead).toString("utf8");
+        const endsWithNewline = text.charCodeAt(text.length - 1) === 10;
+        const lines = text.split("\n");
+
+        if (pendingLine.length > 0 && lines.length > 0) {
+          lines[0] = pendingLine + lines[0];
+          pendingLine = "";
+        }
+
+        if (!endsWithNewline) {
+          pendingLine = lines.pop()!;
+        } else {
+          lines.pop();
+        }
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.length === 0) continue;
+          let entry: AuditEntry;
+          try {
+            entry = JSON.parse(trimmed) as AuditEntry;
+          } catch {
+            continue;
+          }
+          if (!matchesFilter(entry)) continue;
+          ringBuf.push(entry);
+          if (ringBuf.length > limit) ringBuf.shift();
+        }
+      }
+
+      if (pendingLine.length > 0) {
+        const trimmed = pendingLine.trim();
+        if (trimmed.length > 0) {
+          try {
+            const entry = JSON.parse(trimmed) as AuditEntry;
+            if (matchesFilter(entry)) {
+              ringBuf.push(entry);
+              if (ringBuf.length > limit) ringBuf.shift();
+            }
+          } catch {
+            // 末尾损坏行忽略
+          }
+        }
+      }
+    } finally {
+      try {
+        closeSync(fd);
+      } catch {
+        // ignore close error
+      }
+    }
+
+    return ringBuf;
   }
 
   /**

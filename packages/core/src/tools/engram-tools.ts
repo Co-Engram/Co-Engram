@@ -20,7 +20,6 @@ import type { DigestLine } from "../index/types.js";
 import type { EngramRepository } from "../storage/repository.js";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
-import { matchesFilter } from "../retrieval/filter.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
 import { adaptiveDisclosure } from "../disclosure/adaptive.js";
 import { createBudget } from "../disclosure/budget.js";
@@ -34,12 +33,6 @@ import { reinforceRelated } from "../reinforcement/related.js";
 import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_CONFIG } from "../reinforcement/config.js";
 import { checkDuplicateSync } from "../dedup/dedupe.js";
 import { mergeEngram } from "../dedup/merge.js";
-import {
-  compareSortKey,
-  decodeCursor,
-  encodeCursor,
-  type SortKey,
-} from "../storage/index-db-cursor.js";
 import { manualResolveContradiction } from "../contradiction/index.js";
 import { closeLearningLoop } from "../learning/loop.js";
 import { upgradeVerification } from "../verification/index.js";
@@ -424,12 +417,21 @@ function collectNeighborDigests(
   const neighborIds = new Set<string>();
   for (const s of outgoing) neighborIds.add(s.to);
   for (const s of incoming) neighborIds.add(s.from);
-  const digests: EngramDigest[] = [];
-  for (const nid of neighborIds) {
-    const d = repo.readDigest(nid);
-    if (d) digests.push(d);
-  }
-  return digests;
+  if (neighborIds.size === 0) return [];
+  // 批量读取(替代 N+1 readDigest):readDigestBatch 走 SQL 一次拉所有
+  // 邻居 DigestLine,跳过 readEngram 内部的 synapses/ 目录扫描。
+  const lines = repo.readDigestBatch([...neighborIds]);
+  return lines.map((line) => ({
+    id: line.id,
+    title: line.title,
+    kind: line.kind as EngramDigest["kind"],
+    domainTags: line.domainTags,
+    summary: line.summary,
+    importance: line.importance,
+    freshness: line.freshness as EngramDigest["freshness"],
+    updatedAt: line.updatedAt,
+    contentSize: line.contentSize,
+  }));
 }
 
 // ============================================================
@@ -617,30 +619,48 @@ export const engramSearchTool: Tool<
       parsed.filter,
       parsed.limit,
     );
-    // P4 自动维护：命中后立即 bump retrieval stats（不触发 version++）
-    // 用于 RPE 公式的 expected 基准
-    const timestamp = new Date().toISOString();
-    for (const r of results) {
-      try {
-        ctx.repository.bumpRetrievalStats(r.id, {
-          retrievedDelta: 1,
-          lastRetrievalScore: r.score,
-          lastRetrievedAt: timestamp,
-        });
-      } catch {
-        // bump 失败不阻塞 search 结果（可能 engram 已被并发删除）
-      }
-      // M1: 为每个 hit 开观察窗口（如果配置了 effectivenessTracker）
-      const engram = safeReadEngram(ctx, r.id);
-      if (engram) {
-        ctx.effectivenessTracker?.openWindow({
-          engramId: r.id,
-          query: parsed.query,
-          score: r.score,
-          kinds: engram.kinds ?? [engram.kind],
-          sessionId: ctx.sessionId,
-        });
-      }
+
+    // P4 自动维护:命中后异步 bump retrieval stats + 开观察窗口。
+    //
+    // 性能要点(2026-07 schema v4 修复):
+    //   bumpRetrievalStats / openWindow 是写盘副作用,但 RPE 学习回路不要求同步完成。
+    //   放到 setImmediate 让 LLM 立即拿到检索结果;1000+ engram 规模下避免
+    //   20 hits × ~1s readEngram 拖 18s 的卡死反模式。fire-and-forget 失败
+    //   由 maintenance engine light cycle(5min)兜底聚合,信号丢失有上限。
+    //
+    // 不再 safeReadEngram:SQL 引擎返回的 r.entry.kind 已是 catalog 投影,
+    // 直接用,避免每 hit 一次 listSynapsesForEngram 扫整个 synapses/ 目录。
+    const firedHits = results.map((r) => ({
+      id: r.id,
+      score: r.score,
+      kind: r.entry.kind,
+    }));
+    if (firedHits.length > 0) {
+      const sessionId = ctx.sessionId;
+      const query = parsed.query;
+      const timestamp = new Date().toISOString();
+      const repo = ctx.repository;
+      const tracker = ctx.effectivenessTracker;
+      setImmediate(() => {
+        for (const h of firedHits) {
+          try {
+            repo.bumpRetrievalStats(h.id, {
+              retrievedDelta: 1,
+              lastRetrievalScore: h.score,
+              lastRetrievedAt: timestamp,
+            });
+          } catch {
+            // bump 失败不阻塞:可能 engram 已被并发删除
+          }
+          tracker?.openWindow({
+            engramId: h.id,
+            query,
+            score: h.score,
+            kinds: [h.kind],
+            sessionId,
+          });
+        }
+      });
     }
     return {
       // title/kind/domainTags 让 LLM 不必再 engram_get 才知道每条结果是啥。
@@ -674,100 +694,25 @@ export const engramListTool: Tool<
       EngramListInputSchema,
       input,
     );
-    const entries = ctx.repository.listEngrams();
-    const lines: DigestLine[] = [];
-    for (const entry of entries) {
-      const engram = ctx.repository.readEngram(entry.id);
-      lines.push(engramToDigestLine(engram));
-    }
-    const filtered = lines.filter((line) => matchesFilter(line, parsed.filter));
-
-    // 稳定排序:importance DESC, updatedAt DESC, id ASC
-    // 与 SortKey 的 compareSortKey 顺序严格一致(cursor 解码后能精确定位)
-    const sorted = [...filtered].sort((a, b) => {
-      const ka: SortKey = {
-        importance: a.importance,
-        updatedAt: Date.parse(a.updatedAt ?? "1970-01-01"),
-        id: a.id,
-      };
-      const kb: SortKey = {
-        importance: b.importance,
-        updatedAt: Date.parse(b.updatedAt ?? "1970-01-01"),
-        id: b.id,
-      };
-      return compareSortKey(ka, kb);
+    // SQL 端 filter+sort+cursor(SQLite 模式)或 readDigestBatch+内存 fallback
+    // (memory 模式)。两种路径都跳过逐个 readEngram(原 N+1 痛点:1026 engram
+    // × readEngram = 18s,readEngram 内部 listSynapsesForEngram 扫整个 synapses/)。
+    const { items, nextCursor } = ctx.repository.queryEngramsForMcpList({
+      filter: parsed.filter,
+      cursor: parsed.cursor ?? undefined,
+      limit: parsed.limit,
     });
-
-    // cursor 过滤:跳过 sort key <= cursor 的项(compareSortKey 返回 -1 或 0)
-    let startIdx = 0;
-    if (parsed.cursor) {
-      const ck = decodeCursor(parsed.cursor);
-      startIdx = sorted.findIndex((line) => {
-        const key: SortKey = {
-          importance: line.importance,
-          updatedAt: Date.parse(line.updatedAt ?? "1970-01-01"),
-          id: line.id,
-        };
-        return compareSortKey(key, ck) > 0;
-      });
-      if (startIdx === -1) startIdx = sorted.length;
-    }
-
-    const slice = sorted.slice(startIdx, startIdx + parsed.limit);
-    const items = slice.map((line) => ({
-      id: line.id,
-      title: line.title,
-      kind: line.kind as EngramCatalogEntry["kind"],
-      domainTags: line.domainTags,
-    }));
-
-    const hasMore = startIdx + parsed.limit < sorted.length && items.length > 0;
-    const nextCursor =
-      hasMore && slice.length > 0
-        ? encodeCursor({
-            importance: slice[slice.length - 1]!.importance,
-            updatedAt: Date.parse(
-              slice[slice.length - 1]!.updatedAt ?? "1970-01-01",
-            ),
-            id: slice[slice.length - 1]!.id,
-          })
-        : null;
-
-    return { items, nextCursor };
+    return {
+      items: items.map((it) => ({
+        id: it.id,
+        title: it.title,
+        kind: it.kind as EngramCatalogEntry["kind"],
+        domainTags: it.domainTags,
+      })),
+      nextCursor,
+    };
   },
 };
-
-/** Engram → DigestLine（用于过滤） */
-function engramToDigestLine(engram: Engram): DigestLine {
-  return {
-    id: engram.id,
-    title: engram.title,
-    kind: engram.kind,
-    kinds: engram.kinds,
-    summary: engram.summary,
-    domainTags: engram.domainTags,
-    contextTags: engram.contextTags,
-    importance: engram.importance,
-    freshness: engram.freshness,
-    status: engram.status,
-    sourceType: engram.sourceType,
-    createdBy: engram.createdBy,
-    createdAt: engram.createdAt,
-    updatedAt: engram.updatedAt,
-    lastRetrievedAt: engram.lastRetrievedAt ?? null,
-    lastEffectiveAt: engram.lastEffectiveAt ?? null,
-    retrievalCount: engram.retrievalCount,
-    effectiveRetrievals: engram.effectiveRetrievals,
-    failedUses: engram.failedUses,
-    reinforcementScore: engram.reinforcementScore,
-    contentSize: engram.contentSize,
-    contentHash: engram.contentHash,
-    outgoingSynapseCount: engram.outgoingSynapseCount,
-    incomingSynapseCount: engram.incomingSynapseCount,
-    activeContradictionCount: engram.activeContradictionCount,
-    verificationStatus: engram.verificationStatus ?? null,
-  };
-}
 
 /**
  * 写入操作后失效搜索索引,并立即从 repository 重建

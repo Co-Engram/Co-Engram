@@ -1155,3 +1155,239 @@ describe("EngramRepository — 外部 .md 检测钩子(信任边界)", () => {
 // ============================================================
 // post-merge runPostMergeCheck — 可信路径仍走 runDoctor 自动接受
 // ============================================================
+
+// ============================================================
+// Phase 3 synapseCache — invalidate 触发点测试覆盖
+//
+// collectAllSynapses 在 1026 engram 规模下扫盘 ~740ms。
+// Phase 3 加了进程内 cache,要求所有 synapse 写方法在落盘后
+// 调 invalidateSynapseCache,否则下次读拿到 stale 数据。
+//
+// 这组测试**锁住契约**:每个写方法执行后,collectAllSynapses
+// 必须立即看到新状态。如果未来加新写方法忘了 invalidate,
+// 这里会失败。
+// ============================================================
+describe("EngramRepository — synapseCache invalidate 触发点", () => {
+  type Id = string;
+
+  function setupTwoEngrams(): { a: Id; b: Id } {
+    const a = repo.createEngram({
+      title: "A",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "tester",
+    }).id;
+    const b = repo.createEngram({
+      title: "B",
+      content: "x",
+      kind: "observation",
+      domainTags: [],
+      createdBy: "tester",
+    }).id;
+    return { a, b };
+  }
+
+  it("cache 命中:同进程多次调用返回一致数据", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    const first = repo.collectAllSynapses();
+    const second = repo.collectAllSynapses();
+    expect(first.length).toBe(second.length);
+    expect(first.every((s, i) => s.synapse.id === second[i]!.synapse.id)).toBe(true);
+  });
+
+  it("createSynapse 后 cache invalidate,新 synapse 立即可见", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.collectAllSynapses(); // 填 cache
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    expect(repo.collectAllSynapses().length).toBe(1);
+  });
+
+  it("updateSynapse 改 weight 后 cache 看到新值", () => {
+    const { a, b } = setupTwoEngrams();
+    const created = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      weight: 0.5,
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses(); // 填 cache
+    repo.updateSynapse(a, created.id, { weight: 0.9 });
+    const after = repo.collectAllSynapses();
+    expect(after[0]!.synapse.weight).toBe(0.9);
+  });
+
+  it("updateSynapse 改 kind 后 cache 看到新 kind(删旧 + 新建)", () => {
+    const { a, b } = setupTwoEngrams();
+    const created = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.updateSynapse(a, created.id, { kind: "similar_to" });
+    const after = repo.collectAllSynapses();
+    expect(after.length).toBe(1);
+    expect(after[0]!.synapse.kind).toBe("similar_to");
+  });
+
+  it("deleteSynapse 后 cache 看不到该 synapse", () => {
+    const { a, b } = setupTwoEngrams();
+    const syn = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.deleteSynapse(syn.id);
+    expect(repo.collectAllSynapses().length).toBe(0);
+  });
+
+  it("deleteSynapsesTouching 后 cache 看不到触及的 synapse", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.deleteSynapsesTouching(a);
+    expect(repo.collectAllSynapses().length).toBe(0);
+  });
+
+  it("addOutgoingSynapse 后 cache invalidate", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.collectAllSynapses();
+    repo.addOutgoingSynapse(a, {
+      id: "placeholder",
+      from: a,
+      to: b,
+      kind: "extends",
+      direction: "directional",
+      weight: 0.5,
+      evidence: [],
+      createdBy: "tester",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      visibility: "public",
+    });
+    expect(repo.collectAllSynapses().length).toBe(1);
+  });
+
+  it("removeOutgoingSynapse 后 cache 看不到", () => {
+    const { a, b } = setupTwoEngrams();
+    const syn = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.removeOutgoingSynapse(a, syn.id);
+    expect(repo.collectAllSynapses().length).toBe(0);
+  });
+
+  it("updateSynapseResolution 后 cache 看到新 resolutionState", () => {
+    const { a, b } = setupTwoEngrams();
+    const syn = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "contradicts",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.updateSynapseResolution(a, syn.id, "superseded");
+    const after = repo.collectAllSynapses();
+    expect(after[0]!.synapse.resolutionState).toBe("superseded");
+  });
+
+  it("replaceSynapseEvidence 后 cache 看到新 evidence", () => {
+    const { a, b } = setupTwoEngrams();
+    const syn = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.replaceSynapseEvidence(a, syn.id, [
+      { description: "new evidence", addedBy: "tester" },
+    ]);
+    const after = repo.collectAllSynapses();
+    expect(after[0]!.synapse.evidence.length).toBe(1);
+    expect(after[0]!.synapse.evidence[0]!.description).toBe("new evidence");
+  });
+
+  it("replaceSynapse 后 cache 看到新 weight", () => {
+    const { a, b } = setupTwoEngrams();
+    const syn = repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      weight: 0.3,
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses();
+    repo.replaceSynapse(a, syn.id, {
+      ...syn,
+      weight: 0.95,
+      updatedAt: new Date().toISOString(),
+    });
+    const after = repo.collectAllSynapses();
+    expect(after[0]!.synapse.weight).toBe(0.95);
+  });
+
+  it("readSynapses 走 cache 但保留 bidirectional 语义", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "similar_to",
+      direction: "bidirectional",
+      createdBy: "tester",
+    });
+    repo.collectAllSynapses(); // 填 cache
+    const aSyns = repo.readSynapses(a);
+    expect(aSyns.outgoing.length).toBe(1);
+    expect(aSyns.incoming.length).toBe(1);
+    const bSyns = repo.readSynapses(b);
+    expect(bSyns.outgoing.length).toBe(1);
+    expect(bSyns.incoming.length).toBe(1);
+  });
+
+  it("readSynapses cache 命中:写后立刻读到新数据", () => {
+    const { a, b } = setupTwoEngrams();
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "extends",
+      createdBy: "tester",
+    });
+    repo.readSynapses(a); // 填 cache
+    // 加第二条
+    repo.createSynapse({
+      from: a,
+      to: b,
+      kind: "similar_to",
+      createdBy: "tester",
+    });
+    const after = repo.readSynapses(a);
+    expect(after.outgoing.length).toBe(2);
+  });
+});
+

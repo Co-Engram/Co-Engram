@@ -651,10 +651,13 @@ async function routeApi(
   //
   // 走 paginateWithCursor(ts desc + 数组索引作 tiebreak)。
   // 默认 limit=100,max 500;cursor 来自上一页的 nextCursor。
-  // 数据源:AuditLog.query 内部已经"从尾部反向读 + reverse",所以返回的数组
-  // 是按时间正序。paginateWithCursor descending=true 会重排为"最新在前"。
-  // 上限 50000 条(约 10MB),覆盖典型使用;超出部分不返回(cursor 分页只翻
-  // 最近 50000 条)。
+  // 数据源:AuditLog.query 流式 readSync + ring buffer,内存峰值 = queryLimit 条
+  // entries(~200KB @ queryLimit=2000)。
+  //
+  // queryLimit 计算(2026-07 性能修复):旧实现 hardcode `limit: 50000` 让
+  // ring buffer 内存达 10MB + 阻塞 event loop;新实现根据 client limit 动态放大
+  // 10 倍(留 cursor 翻页余量),最少 2000(默认 limit=100 → 2000 条),最多
+  // 10000(max limit=500 → 5000 条)防失控。覆盖典型使用;超出部分 cursor 翻不到。
   if (path === "/api/audit" && req.method === "GET") {
     if (!ctx.auditLog) {
       respondJson(res, 200, {
@@ -682,6 +685,7 @@ async function routeApi(
         ? Math.min(Number(limitRaw), 500)
         : 100;
     const cursor = url.searchParams.get("cursor") ?? undefined;
+    const queryLimit = Math.min(Math.max(limit * 10, 2000), 10000);
 
     const allEntries = ctx.auditLog.query({
       ...(actionList.length === 1
@@ -692,7 +696,7 @@ async function routeApi(
       ...(engramId ? { engramId } : {}),
       ...(since ? { since } : {}),
       ...(until ? { until } : {}),
-      limit: 50000,
+      limit: queryLimit,
     });
 
     // 附加 _idx 作 tiebreak(同 ts 时稳定排序);ts 是毫秒精度,碰撞概率低
