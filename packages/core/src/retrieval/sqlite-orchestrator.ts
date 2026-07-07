@@ -65,9 +65,17 @@ export class SqliteSearchOrchestrator {
     if (!q) return { results: [], nextCursor: null };
 
     const useLike = q.length < LIKE_FALLBACK_MIN_CHARS;
-    const rows = useLike
+    let rows = useLike
       ? this.searchByLike(q, limit)
       : this.searchByFts(q, limit);
+
+    // FTS5 trigram tokenizer 对短 token / 中英混合 query 可能 0 召回
+    // (例:"co-engram loop 模式" — trigram tokenizer 切出跨空格 trigram,
+    // 文档里没有这个连续序列)。fallback 到 LIKE:四个文本维度模糊匹配,
+    // 覆盖 FTS 召回盲区。LIKE 排序仍走 importance + updatedAt DESC。
+    if (!useLike && rows.length === 0) {
+      rows = this.searchByLike(q, limit);
+    }
 
     const filtered = this.applyPostFilter(rows, opts.filter);
 
@@ -155,15 +163,25 @@ export class SqliteSearchOrchestrator {
   /**
    * 把用户 query 转成 FTS5 MATCH 表达式。
    *
-   * 实现:整体作为 FTS5 string query(`"..."` 语法),FTS5 trigram tokenizer
-   * 自行切分。`"` 内的双引号 escape 为 `""`(FTS5 标准做法)。
+   * 实现:按空格 / 中英文标点拆 token,每个 token 用 phrase 语法(`"..."`)
+   * 让 FTS5 trigram tokenizer 单独处理;多 token 用 OR 连接,部分命中即召回,
+   * 全部命中的文档 bm25 得分更优排前。
    *
-   * 不做手工 trigram 切分:trigram tokenizer 已在 SQL 层做,手工切分反而
-   * 会和 tokenizer 双重处理,导致短语匹配失效。
+   * 为什么不用整体 phrase:trigram tokenizer 把 query 切成 3-char 窗口
+   * (含跨空格),要求文档里有完全相同的连续字符序列。组合 query
+   * (例:"co-engram loop 模式")在文档里几乎不可能有连续序列,导致 0 召回。
+   *
+   * `"` 内的双引号 escape 为 `""`(FTS5 标准做法)。
    */
   private buildFtsQuery(query: string): string | null {
     if (!query) return null;
-    return `"${query.replace(/"/g, '""')}"`;
+    const tokens = query
+      .trim()
+      .split(/[\s,，。、;；!！?？()（）]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    if (tokens.length === 0) return null;
+    return tokens.map((t) => `"${t.replace(/"/g, '""')}"`).join(" OR ");
   }
 
   /**

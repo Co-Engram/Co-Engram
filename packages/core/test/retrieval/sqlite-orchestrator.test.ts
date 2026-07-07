@@ -171,4 +171,99 @@ describe("SqliteSearchOrchestrator", () => {
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.entry.title).toContain("AB");
   });
+
+  // buildFtsQuery 改造(phrase → OR)的回归覆盖:
+  // 旧实现把整个 query 包成一个 phrase,FTS5 trigram 要求文档里有完全相同的
+  // 连续字符序列,组合 query 几乎必然 0 召回。新实现按 token 拆 + OR 连接,
+  // 部分命中即召回,全部命中的文档 bm25 得分更优排前。
+
+  it("多 token 组合 query 命中(中英混合,OR 召回)", () => {
+    db.upsertEngram({
+      id: "mix",
+      title: "co-engram loop 模式",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: [],
+      summary: "",
+      contentTokens: "持续改进循环",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    // 旧实现:phrase "co-engram loop 模式" 要求文档里有这个连续序列 → 0 召回
+    // 新实现:tokens = ["co-engram", "loop", "模式"],OR 召回
+    const { results } = orchestrator.search("co-engram loop 模式");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.id).toBe("mix");
+  });
+
+  it("多 token 组合 query 部分命中也召回", () => {
+    // 文档只含 "改进循环",不含 "挑剔用户";OR query 仍应命中
+    db.upsertEngram({
+      id: "partial",
+      title: "co-engram 改进循环",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: [],
+      summary: "",
+      contentTokens: "持续改进",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("挑剔用户 改进循环");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.id).toBe("partial");
+  });
+
+  it("含特殊字符的 token 正确 escape 双引号(不抛 SQL 错)", () => {
+    db.upsertEngram({
+      id: "special",
+      title: '含 "双引号" 的标题',
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: [],
+      summary: "",
+      contentTokens: "双引号测试",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    // query 含 " → buildFtsQuery 必须转义为 ""(FTS5 标准),否则 SQL parse 失败
+    const { results } = orchestrator.search('含 "双引号"');
+    expect(results.length).toBeGreaterThan(0);
+  });
+
+  it("FTS 命中数足够时,LIKE fallback 不触发(score 非零)", () => {
+    // 此前误判:常见 token(如 co-engram)bm25 ≈ -0.000002,toFixed(3)=0.000
+    // 让人以为是 LIKE fallback。这里确保 FTS 命中时返回 bm25 真实分数。
+    db.upsertEngram({
+      id: "common-token",
+      title: "唯一罕见词出现在这里",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: [],
+      summary: "",
+      contentTokens: "罕见词内容",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("罕见词");
+    expect(results.length).toBeGreaterThan(0);
+    // 罕见词 IDF 高,bm25 分数应该明显非零
+    expect(results[0]!.score).toBeGreaterThan(0);
+  });
 });
