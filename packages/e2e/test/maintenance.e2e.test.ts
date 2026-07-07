@@ -396,7 +396,7 @@ describe("P4 maintenance - 跨宿主一致", () => {
 
     // OpenClaw 端
     const openclawHost = createMemoryHost();
-    registerCoEngramTools(openclawHost, {
+    const openclawResult = registerCoEngramTools(openclawHost, {
       dataRoot: tmpDir,
       startMaintenance: true,
       maintenanceConfig: {
@@ -405,8 +405,10 @@ describe("P4 maintenance - 跨宿主一致", () => {
       },
     });
 
-    // MCP 端
-    const { stopMaintenance } = createCoEngramMcpServer({
+    // MCP 端(同一 dataRoot)— ProcessLock 后第二个进程是 non-holder,
+    // 不启动 maintenance / rotation / watcher(避免多进程叠加烧 CPU / fs.watch 链)。
+    // 这是 2026-07 viewer 性能修复的关键 invariant:共享 dataRoot 时只允许一个 holder。
+    const mcpResult = createCoEngramMcpServer({
       dataRoot: tmpDir,
       startMaintenance: true,
       maintenanceConfig: {
@@ -415,10 +417,16 @@ describe("P4 maintenance - 跨宿主一致", () => {
       },
     });
 
-    expect(typeof stopMaintenance).toBe("function");
-    stopMaintenance?.();
+    // 恰好一个 holder(第一个启动的 OpenClaw),另一个 non-holder
+    const openclawStop = openclawResult.stopMaintenance;
+    const mcpStop = mcpResult.stopMaintenance;
+    expect(typeof openclawStop === "function" || typeof mcpStop === "function").toBe(true);
+    openclawStop?.();
+    mcpStop?.();
+    openclawResult.releaseProcessLock?.();
+    mcpResult.releaseProcessLock?.();
 
-    // 验证共享数据（两个维护服务都指向同一目录）
+    // 验证共享数据（两个 host adapter 都指向同一目录)
     void repo;
     expect(existsSync(tmpDir)).toBe(true);
   });

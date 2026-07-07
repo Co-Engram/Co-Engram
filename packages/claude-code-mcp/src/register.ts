@@ -32,6 +32,8 @@ import {
   type Tool,
   type ToolContext,
   DEFAULT_AUDIT_CONFIG,
+  acquireProcessLock,
+  type ProcessLock,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -184,12 +186,35 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
    * 主要用于测试隔离 / 显式资源管理)
    */
   readonly stopIndexWatcher?: () => void;
+  /**
+   * 释放进程锁 + 停止 holder 后台任务(maintenance / audit rotation /
+   * index watcher)。
+   *
+   * 仅 holder 释放时才会真正停止后台任务 + 删除 lockfile;non-holder 调用
+   * 是 no-op(只清本进程的 retry setInterval)。进程退出时 OS 自动回收
+   * interval,但显式释放能让下个 session 更快接管(不必等 staleMs)。
+   */
+  readonly releaseProcessLock?: () => void;
 } {
   let dataRootAutoCreated = false;
   if (!existsSync(config.dataRoot)) {
     mkdirSync(config.dataRoot, { recursive: true });
     dataRootAutoCreated = true;
   }
+
+  // 进程锁:同一 dataRoot 上多个 mcp-server 进程(Claude Code 每开一个 session
+  // fork 一个)只允许第一个(holder)启动 maintenance / audit rotation /
+  // fs.watch / external markdown hook 等共享型后台任务。non-holder 跳过这些
+  // 任务但仍可正常服务工具调用 + viewer。
+  //
+  // 设计权衡(简化版):non-holder 整个生命周期不跑后台任务,即使后续 holder
+  // 退出本进程接管也不补启动 —— 极端场景下 maintenance / watcher 暂停到下个
+  // 新 session 启动。light/deep 默认间隔大 + mtime fallback 兜底 search
+  // 正确性,影响有限;换取实现简洁(无 onAcquire 回调)。
+  const processLock = acquireProcessLock({
+    dataRoot: config.dataRoot,
+    host: "claude-code-mcp",
+  });
 
   const { repository, searchEngine: searchOrchestrator } =
     bootstrapRepositoryAndSearch({
@@ -287,59 +312,65 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   registerMcpPrompts(server, ctx, language);
   registerMcpResources(server, ctx, language);
 
+  // 后台任务 gating:仅 holder 启动 maintenance / audit rotation /
+  // external markdown hook / fs.watch / invalidate listener。
+  // non-holder 跳过这些任务,避免多进程叠加烧 CPU / fs.watch 链式响应。
+  // 工具调用 + viewer 在两种模式下都正常工作(mtime fallback 兜底 search)。
   let stopMaintenance: (() => void) | undefined;
-  if (config.startMaintenance === true && ctx.signalSink) {
-    const runtime = startMaintenanceRuntime(
-      {
-        repository: ctx.repository,
-        signalSink: ctx.signalSink,
-        dataRoot: config.dataRoot,
-        ...(effectivenessTracker ? { effectivenessTracker } : {}),
-        ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
-      },
-      config.maintenanceConfig ?? {},
-    );
-    stopMaintenance = runtime.stop;
-  }
-
-  // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
-  // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
-  // auditEnabled=false 时无 auditLog,自然跳过 rotation。
   let stopAuditRotation: (() => void) | undefined;
-  if (auditLog) {
-    const rotationConfig = {
-      ...DEFAULT_AUDIT_CONFIG.rotation,
-      ...(config.auditRotationConfig ?? {}),
-    };
-    if (rotationConfig.enabled !== false) {
-      stopAuditRotation = auditLog.startAutoRotation({
-        retentionDays: rotationConfig.retentionDays!,
-        highValueRetentionDays: rotationConfig.highValueRetentionDays!,
-        maxSizeMb: rotationConfig.maxSizeMb!,
-        intervalMs: rotationConfig.intervalMs!,
-      });
+  if (processLock.isHolder) {
+    if (config.startMaintenance === true && ctx.signalSink) {
+      const runtime = startMaintenanceRuntime(
+        {
+          repository: ctx.repository,
+          signalSink: ctx.signalSink,
+          dataRoot: config.dataRoot,
+          ...(effectivenessTracker ? { effectivenessTracker } : {}),
+          ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        },
+        config.maintenanceConfig ?? {},
+      );
+      stopMaintenance = runtime.stop;
     }
-  }
 
-  // 启动跨进程 index watcher — 多 host adapter(MCP / OpenClaw plugin)共享
-  // 同一 dataRoot 时,确保各进程的 indexCache 在外部写入后立即失效。
-  // mtime 兜底已内置在 getIndex 中,watcher 提供更实时的失效触发。
-  // listener:watcher 触发时同步重建 SearchOrchestrator 的 ftsIndex,
-  // 否则跨进程写入后,本进程 search 还是查旧索引(P0 缺陷)。
-  //
-  // 信任边界(安全关键):externalMarkdownHook 必须在 startWatching 之前设置,
-  // 否则首次扫描会漏掉已存在的未授权 .md。hook 把 watcher 发现的外部 .md 转成
-  // pending proposal(等用户审批),而非直接落库 —— 防止"拷贝恶意 .md → 进团队
-  // 记忆库"的攻击面。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
-  if (proposalEngine) {
-    ctx.repository.setExternalMarkdownHook(
-      proposalEngine.createExternalMarkdownHook(),
-    );
+    // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
+    // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
+    // auditEnabled=false 时无 auditLog,自然跳过 rotation。
+    if (auditLog) {
+      const rotationConfig = {
+        ...DEFAULT_AUDIT_CONFIG.rotation,
+        ...(config.auditRotationConfig ?? {}),
+      };
+      if (rotationConfig.enabled !== false) {
+        stopAuditRotation = auditLog.startAutoRotation({
+          retentionDays: rotationConfig.retentionDays!,
+          highValueRetentionDays: rotationConfig.highValueRetentionDays!,
+          maxSizeMb: rotationConfig.maxSizeMb!,
+          intervalMs: rotationConfig.intervalMs!,
+        });
+      }
+    }
+
+    // 启动跨进程 index watcher — 多 host adapter(MCP / OpenClaw plugin)共享
+    // 同一 dataRoot 时,确保各进程的 indexCache 在外部写入后立即失效。
+    // mtime 兜底已内置在 getIndex 中,watcher 提供更实时的失效触发。
+    // listener:watcher 触发时同步重建 SearchOrchestrator 的 ftsIndex,
+    // 否则跨进程写入后,本进程 search 还是查旧索引(P0 缺陷)。
+    //
+    // 信任边界(安全关键):externalMarkdownHook 必须在 startWatching 之前设置,
+    // 否则首次扫描会漏掉已存在的未授权 .md。hook 把 watcher 发现的外部 .md 转成
+    // pending proposal(等用户审批),而非直接落库 —— 防止"拷贝恶意 .md → 进团队
+    // 记忆库"的攻击面。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
+    if (proposalEngine) {
+      ctx.repository.setExternalMarkdownHook(
+        proposalEngine.createExternalMarkdownHook(),
+      );
+    }
+    ctx.repository.startWatching();
+    ctx.repository.addInvalidateListener(() => {
+      rebuildSearchIndex(searchOrchestrator, repository);
+    });
   }
-  ctx.repository.startWatching();
-  ctx.repository.addInvalidateListener(() => {
-    rebuildSearchIndex(searchOrchestrator, repository);
-  });
 
   // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
   //
@@ -381,7 +412,18 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(stopMaintenance ? { stopMaintenance } : {}),
     ...(stopAuditRotation ? { stopAuditRotation } : {}),
+    // non-holder 没启动 watcher,stopWatching 是 no-op;统一暴露保持调用方 API 稳定
     stopIndexWatcher: () => ctx.repository.stopWatching(),
+    releaseProcessLock: (): void => {
+      try {
+        ctx.repository.stopWatching();
+      } catch {
+        // ignore — 未启动 watcher 时 stopWatching noop / 抛错都容忍
+      }
+      stopMaintenance?.();
+      stopAuditRotation?.();
+      processLock.release();
+    },
   };
 }
 

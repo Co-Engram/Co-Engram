@@ -281,6 +281,7 @@ async function main(): Promise<void> {
     registeredToolCount,
     dataRootAutoCreated,
     stopIndexWatcher,
+    releaseProcessLock,
   } = createCoEngramMcpServer({
     dataRoot,
     serverName: persistedConfig.server?.name ?? "co-engram",
@@ -552,6 +553,14 @@ async function main(): Promise<void> {
       stopIndexWatcher?.();
     } catch {
       // ignore — watcher 关闭失败不阻塞退出
+    }
+    try {
+      // releaseProcessLock:停 heartbeat/retry setInterval + 删除 lockfile
+      // (holder 才删)。让下个 mcp-server session 启动时立刻成为 holder,
+      // 不必等 staleMs 才接管。
+      releaseProcessLock?.();
+    } catch {
+      // ignore — lock 释放失败不阻塞退出
     }
     try {
       await server.close();

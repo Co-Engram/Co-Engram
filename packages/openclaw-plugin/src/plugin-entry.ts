@@ -56,6 +56,7 @@ import {
   type NecessityEvaluator,
   type PathOverviewItem,
   DEFAULT_AUDIT_CONFIG,
+  acquireProcessLock,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -361,6 +362,15 @@ export function registerCoEngramTools(
   readonly stopAuditRotation?: () => void;
   /** 关闭跨进程 index watcher(主要用于插件卸载 / 测试隔离) */
   readonly stopIndexWatcher?: () => void;
+  /**
+   * 释放进程锁 + 停止 holder 后台任务(maintenance / audit rotation /
+   * index watcher)。
+   *
+   * 仅 holder 释放时才会真正停止后台任务 + 删除 lockfile;non-holder 调用
+   * 是 no-op。进程退出时 OS 自动回收 interval,但显式释放能让下个 session
+   * 更快接管(不必等 staleMs)。
+   */
+  readonly releaseProcessLock?: () => void;
   readonly language?: Language;
   readonly promptSignals?: PromptSignals;
 } {
@@ -370,6 +380,22 @@ export function registerCoEngramTools(
   }
 
   const ctx = createCoEngramContext(config);
+
+  // 进程锁:同一 dataRoot 上多个 host adapter 进程(OpenClaw gateway plugin /
+  // Claude Code mcp-server)只允许第一个(holder)启动 maintenance / audit
+  // rotation / fs.watch / external markdown hook 等共享型后台任务。non-holder
+  // 跳过这些任务但仍正常服务工具调用 + hook 回调。
+  //
+  // 设计权衡(简化版):non-holder 整个生命周期不跑后台任务,即使后续 holder
+  // 退出本进程接管也不补启动 —— 极端场景下 maintenance / watcher 暂停到下个
+  // 新进程启动。light/deep 默认间隔大 + mtime fallback 兜底 search 正确性,
+  // 影响有限;换取实现简洁(无 onAcquire 回调)。
+  const effectiveDataRoot =
+    config.dataRoot ?? DEFAULT_CONFIG.dataRoot;
+  const processLock = acquireProcessLock({
+    dataRoot: effectiveDataRoot,
+    host: "openclaw-plugin",
+  });
   const language = config.language ?? DEFAULT_LANGUAGE;
   const registry = createToolRegistry();
   // P4: 包装工具以自动收集行为信号
@@ -429,8 +455,10 @@ export function registerCoEngramTools(
   }
 
   // P4 + M1: 启动 maintenance runtime(默认开启,遵循 low-friction-defaults)
+  // holder gating:non-holder 跳过 maintenance / rotation / watcher 等共享型
+  // 后台任务,避免多 host adapter 进程叠加烧 CPU / fs.watch 链式响应
   let stopMaintenance: (() => void) | undefined;
-  if (config.startMaintenance !== false && ctx.signalSink) {
+  if (config.startMaintenance !== false && ctx.signalSink && processLock.isHolder) {
     const runtime = startMaintenanceRuntime(
       {
         repository: ctx.repository,
@@ -450,8 +478,9 @@ export function registerCoEngramTools(
   // Audit 日志轮转:独立后台 setInterval,与 maintenance 引擎完全解耦。
   // 触发频率(默认 24h)与 maintenance 阶段无关 —— 日志管理自成体系。
   // auditEnabled=false 时无 auditLog,自然跳过 rotation。
+  // holder gating 同上(non-holder 不跑 rotation)。
   let stopAuditRotation: (() => void) | undefined;
-  if (ctx.auditLog) {
+  if (ctx.auditLog && processLock.isHolder) {
     const rotationConfig = {
       ...DEFAULT_AUDIT_CONFIG.rotation,
       ...(config.auditRotationConfig ?? {}),
@@ -574,20 +603,25 @@ export function registerCoEngramTools(
   // hook 把 watcher 发现的"未授权来源 .md"(用户拷贝、IDE 写入等)转成 pending
   // proposal 等用户审批,而非直接落库 —— 防止恶意/误植 .md 通过文件系统投毒
   // 进入团队记忆库。git pull 来源由 post-merge hook 走 runDoctor 可信路径处理。
-  if (ctx.proposalEngine) {
-    ctx.repository.setExternalMarkdownHook(
-      ctx.proposalEngine.createExternalMarkdownHook(),
-    );
-  }
-  ctx.repository.startWatching();
-  ctx.repository.addInvalidateListener(() => {
-    if (ctx.searchOrchestrator) {
-      rebuildSearchIndex(
-        ctx.searchOrchestrator,
-        ctx.repository,
+  //
+  // holder gating:non-holder 不启动 watcher / hook / invalidate listener。
+  // non-holder 的 search 通过 mtime fallback(getIndex 内置)兜底正确性。
+  if (processLock.isHolder) {
+    if (ctx.proposalEngine) {
+      ctx.repository.setExternalMarkdownHook(
+        ctx.proposalEngine.createExternalMarkdownHook(),
       );
     }
-  });
+    ctx.repository.startWatching();
+    ctx.repository.addInvalidateListener(() => {
+      if (ctx.searchOrchestrator) {
+        rebuildSearchIndex(
+          ctx.searchOrchestrator,
+          ctx.repository,
+        );
+      }
+    });
+  }
 
   // viewer 启动由调用方(entry.ts)通过 startCoEngramViewer 单独管理,
   // 避免重复启动。这里不再自动拉起 viewer。
@@ -597,6 +631,16 @@ export function registerCoEngramTools(
     stopMaintenance,
     ...(stopAuditRotation ? { stopAuditRotation } : {}),
     stopIndexWatcher: () => ctx.repository.stopWatching(),
+    releaseProcessLock: (): void => {
+      try {
+        ctx.repository.stopWatching();
+      } catch {
+        // ignore — 未启动 watcher 时 stopWatching noop / 抛错都容忍
+      }
+      stopMaintenance?.();
+      stopAuditRotation?.();
+      processLock.release();
+    },
     language,
   };
 }

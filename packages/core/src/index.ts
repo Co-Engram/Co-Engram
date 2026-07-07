@@ -28,6 +28,7 @@ export * from "./verification/index.js";
 export * from "./lineage/index.js";
 export * from "./signals/index.js";
 export * from "./maintenance/index.js";
+export * from "./concurrency/index.js";
 export * from "./observability/index.js";
 export * from "./prompt-signals/index.js";
 export * from "./prompt-builder/index.js";
