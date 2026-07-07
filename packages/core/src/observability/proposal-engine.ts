@@ -26,6 +26,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { createHash } from "node:crypto";
@@ -209,6 +210,22 @@ export class ProposalEngine {
   private readonly clustersFile: string;
   private readonly proposalsFile: string;
   private readonly necessityEvaluator: NecessityEvaluator;
+  /**
+   * readProposals / readClusters 的 mtime-based cache。
+   *
+   * 背景(2026-07 性能修复):旧实现每次 listPending / listAll / 调用方读
+   * proposals.jsonl(9.4MB / 5400+ 条候选)都走 readFileSync + split + JSON.parse,
+   * 单次 ~200-500ms 同步 IO。13 处调用点(viewer 端点、prompts、register、tools 等)
+   * 反复触发,叠加导致 event loop 长时间阻塞 → ProcessLock heartbeat setInterval
+   * 没机会跑 → onLost 不触发 → 卡死的旧 holder 持续占着 viewer port + 烧 CPU。
+   *
+   * 缓存策略:statSync 极快(metadata only,~0.1ms),只在 mtime 变化时重新解析。
+   * writeProposals / writeClusters 后自动 invalidate(同进程内一致)。
+   * 跨进程:外部进程(如 git pull / editor)修改 proposals.jsonl 后,本进程下次
+   * readProposals 会 statSync 检测到 mtime 变化,自动 reload。
+   */
+  private proposalsCache: { mtime: number; data: Proposal[] } | null = null;
+  private clustersCache: { mtime: number; data: TopicCluster[] } | null = null;
 
   constructor(deps: {
     readonly repository: EngramRepository;
@@ -906,11 +923,24 @@ export class ProposalEngine {
   }
 
   private readClusters(): TopicCluster[] {
+    if (!existsSync(this.clustersFile)) return [];
+    let mtime: number;
+    try {
+      mtime = statSync(this.clustersFile).mtimeMs;
+    } catch {
+      return this.clustersCache?.data ?? [];
+    }
+    if (this.clustersCache && this.clustersCache.mtime === mtime) {
+      return this.clustersCache.data;
+    }
     const raw = readJsonl(this.clustersFile) as TopicCluster[];
     // 防御性 dedupe by id:历史数据可能因 clusterId 碰撞 + push 不查重
     // 出现同 id 多行(已修复,但已有污染数据需在读时清理)。同 id 取
     // occurrences 最大者(代表累积最完整),其余字段以它为准。
-    if (raw.length <= 1) return raw;
+    if (raw.length <= 1) {
+      this.clustersCache = { mtime, data: raw };
+      return raw;
+    }
     const byId = new Map<string, TopicCluster>();
     for (const c of raw) {
       const existing = byId.get(c.id);
@@ -922,20 +952,39 @@ export class ProposalEngine {
     // 若发生 dedupe,立刻把干净数据写回(下次 observe 走 writeClusters 自然保持)
     if (deduped.length !== raw.length) {
       this.writeClusters(deduped);
+      // writeClusters 内部已 invalidate + 重新 cache,这里直接返回 deduped
+      return deduped;
     }
+    this.clustersCache = { mtime, data: deduped };
     return deduped;
   }
 
   private writeClusters(clusters: readonly TopicCluster[]): void {
     writeJsonl(this.clustersFile, clusters);
+    // invalidate cache:writeJsonl 后下次 readClusters 会重新 statSync + parse。
+    // 不在这里重建 cache —— 写后通常立即有 read,让 read 路径按需重建。
+    this.clustersCache = null;
   }
 
   private readProposals(): Proposal[] {
-    return readJsonl(this.proposalsFile) as Proposal[];
+    if (!existsSync(this.proposalsFile)) return [];
+    let mtime: number;
+    try {
+      mtime = statSync(this.proposalsFile).mtimeMs;
+    } catch {
+      return this.proposalsCache?.data ?? [];
+    }
+    if (this.proposalsCache && this.proposalsCache.mtime === mtime) {
+      return this.proposalsCache.data;
+    }
+    const data = readJsonl(this.proposalsFile) as Proposal[];
+    this.proposalsCache = { mtime, data };
+    return data;
   }
 
   private writeProposals(proposals: readonly Proposal[]): void {
     writeJsonl(this.proposalsFile, proposals);
+    this.proposalsCache = null;
   }
 }
 

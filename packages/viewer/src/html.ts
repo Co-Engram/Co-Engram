@@ -122,6 +122,14 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
 
     <!-- Graph -->
     <section class="tab-panel" data-tab="graph">
+      <div class="filter-bar graph-filter-bar">
+        <input type="search" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
+        <button class="btn mini" onclick="CO_ENGRAM_GRAPH.openPathPicker()" title="${t(language, "viewer.graph.filter.pathBtnTitle")}">${t(language, "viewer.graph.filter.pathBtn")}</button>
+        <span class="chip removable" id="graph-path-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
+        <span class="chip removable" id="graph-text-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearTextFilter()"></span>
+        <span class="spacer"></span>
+        <span class="chip" id="graph-filter-count"></span>
+      </div>
       <div class="graph-container">
         <div class="graph-toolbar">
           <div class="toolbar-actions">

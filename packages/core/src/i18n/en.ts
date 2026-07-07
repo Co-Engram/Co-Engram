@@ -1067,6 +1067,12 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.status.dismissed": "Dismissed",
   "viewer.proposals.status.all": "All",
   "viewer.proposals.empty": "No ${status} proposals",
+  "viewer.proposals.emptyHint": "The system observes candidate memories in the background; new proposals will appear here automatically.",
+  "viewer.proposals.card.occurrences": "${n} occurrences",
+  "viewer.proposals.card.samples": "${n} samples",
+  "viewer.proposals.card.inferred": "inferred",
+  "viewer.proposals.card.inferredTip": "Title and kind are inferred from conversation snippets — click the card to review samples and correct them",
+  "viewer.proposals.card.noPreview": "(no content preview)",
   "viewer.proposals.convertedTo": "Converted to",
   "viewer.proposals.dismissedReason": "Dismissed",
   "viewer.proposals.detailTitle": "Proposal detail",
@@ -1274,6 +1280,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "A merges/refines the content of B",
   "viewer.graph.synapseDesc.contextualizes":
     "A provides context for B (neither causal nor evidential)",
+
+  // ===== Graph top filter bar (2026-07) =====
+  "viewer.graph.filter.searchPlaceholder": "Search nodes by title/tag/id…",
+  "viewer.graph.filter.pathBtn": "📁 Filter by directory",
+  "viewer.graph.filter.pathBtnTitle": "Filter graph by engram directory",
+  "viewer.graph.filter.pathPickerTitle": "Pick a directory · only nodes within it and synapses between them are shown",
+  "viewer.graph.filter.pathPick": "Show only this directory",
+  "viewer.graph.filter.pathPickerEmpty": "No directory data available",
+  "viewer.graph.filter.count": "Nodes ${nodes} · Synapses ${edges}",
 
   // ===== Detail panel / drawer (viewer.detail.*) =====
   "viewer.detail.editModeHint":

@@ -1059,6 +1059,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.status.dismissed": "已驳回",
   "viewer.proposals.status.all": "全部",
   "viewer.proposals.empty": "没有 ${status} 提案",
+  "viewer.proposals.emptyHint": "系统正在后台观察候选记忆,新提案会自动出现在这里。",
+  "viewer.proposals.card.occurrences": "${n} 次出现",
+  "viewer.proposals.card.samples": "${n} 条样本",
+  "viewer.proposals.card.inferred": "推断",
+  "viewer.proposals.card.inferredTip": "标题与类型由系统从对话片段推断,点击卡片查看完整样本并修正",
+  "viewer.proposals.card.noPreview": "(无内容预览)",
   "viewer.proposals.convertedTo": "已转",
   "viewer.proposals.dismissedReason": "驳回",
   "viewer.proposals.detailTitle": "候选提案详情",
@@ -1230,6 +1236,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.synapseDesc.supersedes": "A 取代过时的 B(版本更迭)",
   "viewer.graph.synapseDesc.consolidates": "A 合并/精炼了 B 的内容",
   "viewer.graph.synapseDesc.contextualizes": "A 为 B 提供情境背景(非因果、非证据)",
+
+  // ===== Graph 顶栏过滤(2026-07 新增)=====
+  "viewer.graph.filter.searchPlaceholder": "按标题/标签/ID 搜索节点…",
+  "viewer.graph.filter.pathBtn": "📁 目录过滤",
+  "viewer.graph.filter.pathBtnTitle": "按记忆印迹所在目录过滤图谱",
+  "viewer.graph.filter.pathPickerTitle": "选择目录 · 仅显示该目录下记忆印迹及其之间的突触",
+  "viewer.graph.filter.pathPick": "仅显示此目录",
+  "viewer.graph.filter.pathPickerEmpty": "暂无目录数据",
+  "viewer.graph.filter.count": "节点 ${nodes} · 突触 ${edges}",
 
   // ===== 详情面板 / Drawer(viewer.detail.*) =====
   "viewer.detail.editModeHint": "编辑模式 · 修改后点击「保存」提交",

@@ -49,18 +49,44 @@ async function renderGraphInner(container) {
 
   // === 状态:filter ===
   // showKinds: engram 类型(节点过滤);showSynapseKinds: synapse 类型(边过滤,与编辑器一致)
+  // textFilter / pathFilter: 顶栏关键词 + 目录前缀过滤(2026-07 新增)
   const ALL_SYNAPSE_KINDS = ['extends', 'part_of', 'similar_to', 'depends_on', 'causes', 'follows', 'derives_from', 'contradicts', 'exemplifies', 'supersedes', 'consolidates', 'contextualizes'];
   const state = {
     showKinds: { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true },
     showSynapseKinds: Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true])),
-    physicsEnabled: true
+    physicsEnabled: true,
+    textFilter: '',
+    pathFilter: ''
   };
   CO_ENGRAM._graphState = { initialized: false, network: null, data: graph, state };
+
+  // === 节点匹配文本/路径过滤(顶栏) ===
+  // textFilter: 标题/domainTags/id 包含关键词则保留
+  // pathFilter: engram id(去 .md 后缀)以 pathFilter + '/' 开头,或 pathFilter === '' 时仅匹配无 '/' 的根级
+  function matchesNodeFilters(n) {
+    if (state.pathFilter !== '') {
+      const id = (n.id || '').replace(/\.md$/, '');
+      if (state.pathFilter === '') {
+        if (id.includes('/')) return false;
+      } else if (!id.startsWith(state.pathFilter + '/')) {
+        return false;
+      }
+    }
+    if (state.textFilter) {
+      const q = state.textFilter.toLowerCase();
+      const title = (n.title || '').toLowerCase();
+      const tags = (n.domainTags || []).join(' ').toLowerCase();
+      const id = (n.id || '').toLowerCase();
+      if (!title.includes(q) && !tags.includes(q) && !id.includes(q)) return false;
+    }
+    return true;
+  }
 
   // === 节点 / 边构建 ===
   function buildNodes() {
     return graph.nodes
       .filter(n => state.showKinds[n.kind] !== false)
+      .filter(n => matchesNodeFilters(n))
       .map(n => {
         const importance = (n.importance != null ? n.importance : 0.5);
         const size = 10 + importance * 18;
@@ -87,10 +113,19 @@ async function renderGraphInner(container) {
   }
 
   function buildEdges() {
+    // 顶栏过滤后保留的节点 id 集合(用于边的两端都需通过过滤)
+    const passNodeFilter = new Set(
+      graph.nodes
+        .filter(n => state.showKinds[n.kind] !== false)
+        .filter(n => matchesNodeFilters(n))
+        .map(n => n.id),
+    );
     const out = [];
     for (const e of graph.edges) {
       // 按 12 kind 过滤(与编辑器一致)
       if (state.showSynapseKinds[e.kind] === false) continue;
+      // 顶栏过滤:边两端节点必须都通过(任一端被过滤掉,边就不再有意义显示)
+      if (!passNodeFilter.has(e.from) || !passNodeFilter.has(e.to)) continue;
 
       const isContra = e.kind === 'contradicts';
       const color = CO_ENGRAM.edgeColor(e.kind);
@@ -168,6 +203,11 @@ async function renderGraphInner(container) {
       state.physicsEnabled = false;
     } catch (e) { /* 防御:某些 vis 版本 setOptions 在 frozen 状态抛错 */ }
   });
+
+  // 顶栏 chip + 计数初始显示
+  CO_ENGRAM_GRAPH._refreshTextChip();
+  CO_ENGRAM_GRAPH._refreshPathChip();
+  CO_ENGRAM_GRAPH._refreshFilterCount();
 
   // === 交互 ===
   network.on('click', (params) => {
@@ -312,8 +352,15 @@ async function renderGraphInner(container) {
   CO_ENGRAM._graphState.resetView = function() {
     state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true };
     state.showSynapseKinds = Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true]));
+    state.textFilter = '';
+    state.pathFilter = '';
     document.querySelectorAll('.graph-toolbar input[type=checkbox]').forEach(c => c.checked = true);
+    const qInput = document.getElementById('graph-q');
+    if (qInput) qInput.value = '';
+    CO_ENGRAM_GRAPH._refreshTextChip();
+    CO_ENGRAM_GRAPH._refreshPathChip();
     CO_ENGRAM._graphState.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
     network.fit({ animation: true });
   };
 }
@@ -325,15 +372,198 @@ window.CO_ENGRAM_GRAPH = {
     if (!s) return;
     s.state.showSynapseKinds[kind] = checked;
     s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
   },
   toggleKind(kind, checked) {
     const s = CO_ENGRAM._graphState;
     if (!s) return;
     s.state.showKinds[kind] = checked;
     s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
   },
   togglePhysics() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.togglePhysics(); },
   fit() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.fit(); },
-  reset() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.resetView(); }
+  reset() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.resetView(); },
+
+  // === 顶栏过滤(2026-07 新增)===
+  // 关键词过滤:oninput 实时触发,空值清空
+  applyTextFilter(text) {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    s.state.textFilter = (text || '').trim();
+    s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+    CO_ENGRAM_GRAPH._refreshTextChip();
+    // 过滤变化后重新 fit,让保留的节点居中可见
+    setTimeout(() => { if (s.network) s.network.fit({ animation: true }); }, 50);
+  },
+  clearTextFilter() {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    s.state.textFilter = '';
+    const input = document.getElementById('graph-q');
+    if (input) input.value = '';
+    s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+    CO_ENGRAM_GRAPH._refreshTextChip();
+    setTimeout(() => { if (s.network) s.network.fit({ animation: true }); }, 50);
+  },
+  // 目录路径过滤:由 path picker 弹窗选中后调用
+  setPathFilter(prefix) {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    s.state.pathFilter = (prefix || '');
+    s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+    CO_ENGRAM_GRAPH._refreshPathChip();
+    setTimeout(() => { if (s.network) s.network.fit({ animation: true }); }, 50);
+  },
+  clearPathFilter() {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    s.state.pathFilter = '';
+    s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+    CO_ENGRAM_GRAPH._refreshPathChip();
+    setTimeout(() => { if (s.network) s.network.fit({ animation: true }); }, 50);
+  },
+  // 打开目录选择 drawer:复用 engrams 的 /api/path-tree 数据
+  async openPathPicker() {
+    const T = CO_ENGRAM_T;
+    let root;
+    try {
+      const resp = await CO_ENGRAM.apiGet('/api/path-tree?maxDepth=8');
+      if (!resp || !resp.enabled || !resp.root) {
+        CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.filter.pathPickerEmpty')) + '</div>');
+        return;
+      }
+      root = resp.root;
+    } catch (e) {
+      CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>');
+      return;
+    }
+
+    function renderNode(node, depth) {
+      const children = node.children || [];
+      let childSum = 0;
+      for (const c of children) childSum += (c.engramCount || 0);
+      const direct = Math.max(0, (node.engramCount || 0) - childSum);
+      const segs = (node.path || '').split('/').filter(Boolean);
+      const basename = segs.length ? segs[segs.length - 1] : (node.path === '/' ? '/' : '/');
+      const pathForFilter = node.path && node.path !== '/' ? node.path : '';
+      const isOpen = depth === 0;
+      const childHtml = children.length
+        ? '<div class="tree-group-body">' + children.map(c => renderNode(c, depth + 1)).join('') + '</div>'
+        : '';
+      const pickBtn = (node.engramCount || 0) > 0
+        ? '<button class="btn mini" onclick="CO_ENGRAM_GRAPH._pickPath(\\'' + CO_ENGRAM.escapeHtml(pathForFilter) + '\\')">'
+          + CO_ENGRAM.escapeHtml(T.t('viewer.graph.filter.pathPick')) + ' (' + (node.engramCount || 0) + ')</button>'
+        : '';
+      if (!children.length) {
+        return '<div class="tree-leaf-dir">'
+          + '<span class="tree-folder-icon">📁</span> '
+          + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
+          + '<span class="tree-count">' + (node.engramCount || 0) + '</span> '
+          + pickBtn
+          + '</div>';
+      }
+      return '<details class="tree-group"' + (isOpen ? ' open' : '') + '>'
+        + '<summary>'
+        + '<span class="tree-folder-icon">📁</span> '
+        + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
+        + '<span class="tree-count">' + (node.engramCount || 0) + '</span>'
+        + (direct > 0 ? ' <span class="tree-direct">+' + direct + ' here</span>' : '')
+        + ' ' + pickBtn
+        + '</summary>'
+        + childHtml
+        + '</details>';
+    }
+
+    let html = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">'
+      + CO_ENGRAM.escapeHtml(T.t('viewer.graph.filter.pathPickerTitle')) + '</strong></div>';
+    html += '<div class="tree-view">';
+    const rootChildren = root.children || [];
+    const rootDirect = (root.engramCount || 0) - rootChildren.reduce((s, c) => s + (c.engramCount || 0), 0);
+    if (rootDirect > 0) {
+      html += '<details class="tree-group" open>'
+        + '<summary><span class="tree-folder-icon">🏠</span> '
+        + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootDirect')) + '</span> '
+        + '<span class="tree-count">' + rootDirect + '</span> '
+        + '<button class="btn mini" onclick="CO_ENGRAM_GRAPH._pickPath(\\'\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.filter.pathPick')) + '</button>'
+        + '</summary></details>';
+    }
+    for (const child of rootChildren) {
+      html += renderNode(child, 0);
+    }
+    html += '</div>';
+    CO_ENGRAM.openDrawer(html);
+  },
+  _pickPath(prefix) {
+    CO_ENGRAM.closeDrawer();
+    CO_ENGRAM_GRAPH.setPathFilter(prefix);
+  },
+  _refreshTextChip() {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    const chip = document.getElementById('graph-text-chip');
+    if (!chip) return;
+    if (s.state.textFilter) {
+      chip.style.display = '';
+      chip.textContent = '🔍 ' + s.state.textFilter + ' ✕';
+      chip.title = s.state.textFilter;
+    } else {
+      chip.style.display = 'none';
+      chip.textContent = '';
+    }
+  },
+  _refreshPathChip() {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    const chip = document.getElementById('graph-path-chip');
+    if (!chip) return;
+    if (s.state.pathFilter) {
+      chip.style.display = '';
+      chip.textContent = '📁 ' + s.state.pathFilter + ' ✕';
+      chip.title = s.state.pathFilter;
+    } else {
+      chip.style.display = 'none';
+      chip.textContent = '';
+    }
+  },
+  _refreshFilterCount() {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    const countEl = document.getElementById('graph-filter-count');
+    if (!countEl) return;
+    // 重新计算保留的节点 / 边数(与 buildNodes / buildEdges 一致)
+    const T = CO_ENGRAM_T;
+    const passNodes = s.data.nodes.filter(n =>
+      s.state.showKinds[n.kind] !== false
+      && (function matchesNodeFilters(n) {
+        if (s.state.pathFilter !== '') {
+          const id = (n.id || '').replace(/\.md$/, '');
+          if (s.state.pathFilter === '') {
+            if (id.includes('/')) return false;
+          } else if (!id.startsWith(s.state.pathFilter + '/')) {
+            return false;
+          }
+        }
+        if (s.state.textFilter) {
+          const q = s.state.textFilter.toLowerCase();
+          const title = (n.title || '').toLowerCase();
+          const tags = (n.domainTags || []).join(' ').toLowerCase();
+          const id = (n.id || '').toLowerCase();
+          if (!title.includes(q) && !tags.includes(q) && !id.includes(q)) return false;
+        }
+        return true;
+      })(n),
+    );
+    const passIds = new Set(passNodes.map(n => n.id));
+    const passEdges = s.data.edges.filter(e =>
+      s.state.showSynapseKinds[e.kind] !== false
+      && passIds.has(e.from) && passIds.has(e.to),
+    );
+    countEl.textContent = T.t('viewer.graph.filter.count', { nodes: passNodes.length, edges: passEdges.length });
+  }
 };
 `;

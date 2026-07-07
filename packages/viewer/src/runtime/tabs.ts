@@ -988,26 +988,44 @@ window.CO_ENGRAM_PROPOSALS = {
     let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '') + '</span></div>';
     if (!items.length) {
-      html += '<div class="empty"><div class="icon">✓</div>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>';
+      html += '<div class="empty"><div class="icon">🌱</div>'
+        + '<div style="font-size:1.05rem;margin-bottom:0.3rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>'
+        + '<div style="color:var(--fg-muted);font-size:0.88rem;max-width:480px;text-align:center">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.emptyHint')) + '</div>'
+        + '</div>';
     } else {
       html += '<div class="grid cols-3">';
       for (const p of visible) {
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
+        const kindColor = CO_ENGRAM.kindColor(meta.kind);
         const preview = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
-        const previewClip = preview.length > 120 ? preview.slice(0, 120) + '…' : preview;
-        const cardClick = ' style="cursor:pointer" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"';
+        const previewClip = preview.length > 140 ? preview.slice(0, 140) + '…' : preview;
+        const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"';
+        const sampleCount = (p.sampleQuotes || []).length;
+        // payload.domainTags(若有)+ occurrences/sample chip
+        const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
+        const moreTags = (p.payload && Array.isArray(p.payload.domainTags) && p.payload.domainTags.length > 4) ? (p.payload.domainTags.length - 4) : 0;
+        const tagsHtml = payloadTags.map(tg => '<span class="chip">' + CO_ENGRAM.escapeHtml(tg) + '</span>').join(' ')
+          + (moreTags ? '<span class="chip">+' + moreTags + '</span>' : '');
 
         html += '<div class="card"' + cardClick + '>'
           + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
-        html += '<div class="card-meta" style="margin-bottom:0.4rem">'
-          + '<span class="chip kind-' + meta.kind + '">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
-          + '<span>×' + (p.occurrences || 0) + '</span>'
-          + (p.createdAt ? '<span>' + CO_ENGRAM.relativeTime(p.createdAt) + '</span>' : '')
+        html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
+          + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
+          + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
+          + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
+          + (p.createdAt ? '<span title="' + CO_ENGRAM.escapeHtml(p.createdAt) + '">' + CO_ENGRAM.relativeTime(p.createdAt) + '</span>' : '')
           + '<span class="chip">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
           + (p.payload && p.payload.visibility ? CO_ENGRAM.renderVisibilityBadge(p.payload.visibility) : '')
           + '</div>';
-        if (previewClip) html += '<div style="font-size:0.8rem;color:var(--fg-muted);margin-bottom:0.4rem">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+        if (previewClip) {
+          html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+        } else {
+          html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;font-style:italic">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.noPreview')) + '</div>';
+        }
+        if (tagsHtml) {
+          html += '<div class="card-meta" style="margin-bottom:0.3rem">' + tagsHtml + '</div>';
+        }
         if (p.status === 'accepted' && p.acceptedEngramId) {
           html += '<div class="card-meta"><span class="chip" style="background:rgba(16,185,129,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
         }
@@ -1228,10 +1246,12 @@ window.CO_ENGRAM_AUDIT = {
 
     let engramsData;
     try {
-      // 并行:audit 走 paginator + engrams 直接拿 id 集(后者判断 engramId 是否仍存在)
+      // 并行:audit 走 paginator + engram ids 轻量端点(后者判断 engramId 是否仍存在)
+      // 2026-07 改用 /api/engrams/ids:仅返回 id 数组(~30KB),替代旧 /api/engrams?limit=500
+      // 拉 digest(~100KB) 的浪费,首屏加载提速 50-100ms
       [engramsData] = await Promise.all([
         CO_ENGRAM._auditPager.load(),
-        CO_ENGRAM.apiGet('/api/engrams?limit=500').catch(() => ({ results: [] })),
+        CO_ENGRAM.apiGet('/api/engrams/ids').catch(() => ({ ids: [] })),
       ]);
     } catch (e) { tl.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>'; return; }
 
@@ -1240,7 +1260,7 @@ window.CO_ENGRAM_AUDIT = {
       tl.innerHTML = '<div class="empty"><div class="icon">💤</div>' + T.t('viewer.audit.disabledHint') + '</div>';
       return;
     }
-    this._existingIds = new Set((engramsData.results || []).map(e => e.id));
+    this._existingIds = new Set(engramsData.ids || []);
     this._cache = CO_ENGRAM._auditPager.getItems().slice();
     this._renderStats();
     this.applyFilter();

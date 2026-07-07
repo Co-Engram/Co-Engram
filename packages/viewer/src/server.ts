@@ -405,6 +405,20 @@ async function routeApi(
     return;
   }
 
+  // /api/engrams/ids — 轻量 id 列表(audit tab 用于 engramId 存在性判断)
+  //
+  // 性能(2026-07 新增):audit tab 旧实现 /api/engrams?limit=500 拉 500 条 digest
+  // (~100KB) 仅用于判断 _existingIds。本端点只返回 id 字符串数组(~30KB @ 1026 条),
+  // 网络/序列化/DOM 都更轻。无过滤、无排序、无分页 — 全量 id,前段转 Set 即用。
+  if (path === "/api/engrams/ids" && req.method === "GET") {
+    const result = ctx.repository.queryEngramsForList({
+      limit: 100000,
+    });
+    const ids = (result.results || []).map((e) => e.id);
+    respondJson(res, 200, { ids, total: ids.length });
+    return;
+  }
+
   // /api/engrams/:id  (GET | PATCH | DELETE)
   const engramMatch = /^\/api\/engrams\/(.+)$/.exec(path);
   if (engramMatch) {
