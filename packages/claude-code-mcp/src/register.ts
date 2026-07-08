@@ -17,6 +17,7 @@ import {
   createToolRegistry,
   createDefaultSignalSink,
   wrapAllToolsWithSignalSink,
+  wrapAllToolsWithErrorBoundary,
   localizeToolDescription,
   collectDigestLines,
   DEFAULT_LANGUAGE,
@@ -316,7 +317,10 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   );
 
   const registry = createToolRegistry();
-  const allWrappedTools = wrapAllToolsWithSignalSink(registry.list());
+  // AI-1 fail-loud:先包错误边界(裸 Error → EngramToolError),再包 signal sink。
+  // signal sink 看到的永远是结构化错误,summarizeError 可提取 code/message。
+  const errorBoundedTools = wrapAllToolsWithErrorBoundary(registry.list());
+  const allWrappedTools = wrapAllToolsWithSignalSink(errorBoundedTools);
   const toolsToRegister = filterToolsByProfile(allWrappedTools, profile);
   for (const tool of toolsToRegister) {
     registerCoEngramTool(server, tool, ctx, language);

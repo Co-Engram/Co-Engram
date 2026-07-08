@@ -37,6 +37,7 @@ import {
   createToolRegistry,
   createDefaultSignalSink,
   wrapAllToolsWithSignalSink,
+  wrapAllToolsWithErrorBoundary,
   localizeToolDescription,
   translatePrompt,
   pluralSuffix,
@@ -398,8 +399,10 @@ export function registerCoEngramTools(
   });
   const language = config.language ?? DEFAULT_LANGUAGE;
   const registry = createToolRegistry();
+  // AI-1 fail-loud:先包错误边界,再包 signal sink(与 claude-code-mcp 对齐)
+  const errorBoundedTools = wrapAllToolsWithErrorBoundary(registry.list());
   // P4: 包装工具以自动收集行为信号
-  const wrappedTools = wrapAllToolsWithSignalSink(registry.list());
+  const wrappedTools = wrapAllToolsWithSignalSink(errorBoundedTools);
   const descriptors = adaptAllTools(wrappedTools, ctx, language);
 
   for (const desc of descriptors) {
@@ -788,7 +791,8 @@ export function buildProposalPrompt(
 export function createCoEngramTools(config: CoEngramPluginConfig = {}) {
   const ctx = createCoEngramContext(config);
   const registry = createToolRegistry();
-  const wrappedTools = wrapAllToolsWithSignalSink(registry.list());
+  const errorBoundedTools = wrapAllToolsWithErrorBoundary(registry.list());
+  const wrappedTools = wrapAllToolsWithSignalSink(errorBoundedTools);
   return {
     ctx,
     tools: adaptAllTools(wrappedTools, ctx),
