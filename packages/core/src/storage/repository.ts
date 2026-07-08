@@ -1170,6 +1170,70 @@ export class EngramRepository {
     }
   }
 
+  /**
+   * 把已存在的 .md 文件(orphan — 在磁盘但未在 engram-index.json / SQLite)
+   * 正式纳入 index + SQLite,返回对应的 Engram。
+   *
+   * 触发场景(2026-07 修复 batch accept bug):
+   *   - external-markdown proposal 来自 watcher 扫描「在 dataRoot 但不在 index」
+   *     的 .md 文件。用户 accept 时 createEngram 会因 path 冲突抛错。
+   *   - 旧实现整个 accept 失败,proposal 状态不变,batch accept 30 个只有
+   *     N 个真正 path-new 的成功 → totalEngrams 增量远小于 30。
+   *   - 新路径:proposal-engine.accept 捕获 conflict 错误,调本方法 adopt
+   *     现有 .md,让 accept 完成 + orphan 计入 totalEngrams。
+   *
+   * 行为:
+   *   - .md 不存在 / 解析失败 → undefined
+   *   - id 已在 index(被 doctor 或先前 accept 处理过)→ 幂等 noop,只读返回
+   *   - id 不在 index → 加 index.json + 同步 SQLite + 失效 truthPaths cache
+   *
+   * 与 createEngram 区别:不写新文件、不生成新 ULID、不动 frontmatter,
+   * 只把磁盘上已有的 engram 文件登记到派生索引。
+   */
+  ingestExistingEngramFile(relativePath: string): Engram | undefined {
+    if (!isPathWithinRoot(this.config.rootPath, relativePath)) return undefined;
+    const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
+    if (!existsSync(absolutePath)) return undefined;
+    let file: EngramFile;
+    try {
+      file = readEngramFile(absolutePath);
+    } catch {
+      return undefined;
+    }
+    const engram = this.assembleEngram(file, relativePath);
+    const id = engram.id;
+
+    // 幂等:id 已在 index → 只读返回(典型:doctor 已处理 / 别的 accept 刚 adopt 过)
+    const index = this.getIndex();
+    if (index.entries.has(id)) {
+      return engram;
+    }
+
+    // 自愈:旧 entry 指向同 path 但不同 id(rare 不变量破坏)→ 清掉
+    this.purgeStaleIndexEntriesForPath(relativePath);
+
+    const stat = statSync(absolutePath);
+    const contentHash =
+      file.frontmatter.contentHash ?? computeContentHash(file.content);
+    const entry = buildIndexEntryFromFrontmatter({
+      relativePath,
+      frontmatter: file.frontmatter,
+      mtime: stat.mtimeMs,
+      contentHash,
+    });
+    this.updateIndexEntry(entry);
+    this.syncEngramToIndex(file.frontmatter, file.content);
+
+    safeEmit({
+      type: "engram_created",
+      engramId: id,
+      at: new Date().toISOString(),
+    });
+    this.invalidateTruthPathsCache();
+
+    return engram;
+  }
+
   // ─── Engram Catalog / Digest ───────────────────────────────────────────
 
   /**

@@ -431,7 +431,27 @@ export class ProposalEngine {
         : {}),
     };
 
-    const engram = this.repository.createEngram(createInput);
+    // path conflict 兜底:auto-memory / external-markdown 来源的 proposal
+    // 经常指向「在 dataRoot 已有 .md 但未在 engram-index.json」的 orphan 文件
+    // (watcher 扫描发现 .md → 提案;用户 accept 时 deriveDefaultPath 算出
+    // 与现有 .md 相同的路径 → createEngram 抛 "Engram already exists at <path>")。
+    // 旧实现整个 accept 失败,proposal 状态不变,batch accept 30 个只有 N 个
+    // path-new 的成功 → totalEngrams 增量远小于 30(2026-07 实测:30 accept
+    // 仅 6 增量,24 个 path conflict 全 400)。
+    //
+    // 修复:捕获 conflict,把现有 .md 文件 adopt 进 index + SQLite,
+    // 标记 proposal accepted,返回 engram.id —— 让 orphan 也计入 totalEngrams。
+    let engram: { id: string };
+    try {
+      engram = this.repository.createEngram(createInput);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const m = msg.match(/^Engram already exists at (.+)$/);
+      if (!m) throw e;
+      const existing = this.repository.ingestExistingEngramFile(m[1]!);
+      if (!existing) throw e;
+      engram = existing;
+    }
 
     const updated: Proposal = {
       ...target,

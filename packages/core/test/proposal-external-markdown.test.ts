@@ -221,7 +221,7 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
     expect(target?.acceptedEngramId).toBeTruthy();
   });
 
-  it("已 accepted 的 proposal 第二次 accept → 报错(防重复创建 engram)", () => {
+  it("已 accepted 的 proposal 第二次 accept → 幂等返回同一 engramId(防重复创建 engram)", () => {
     engine.proposeExternalMarkdown({
       sourcePath: "already-accepted.md",
       title: "T",
@@ -231,12 +231,17 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
     });
     const entityId = engine.listAll()[0]!.entityId;
 
-    engramAcceptProposalTool.execute({ entityId }, buildCtx());
-    // 第二次会因路径冲突抛出(ProposalEngine.accept 调 createEngram → 同 path 已存在)
-    expect(() =>
-      engramAcceptProposalTool.execute({ entityId }, buildCtx()),
-    ).toThrow(/already exists/);
+    const first = engramAcceptProposalTool.execute({ entityId }, buildCtx());
+    // 第二次 accept:同一 path 已存在 .md(第一次创建的),不再抛 already exists,
+    // 而是幂等 adopt 现有文件,返回同一 engramId,proposal 状态保持 accepted。
+    // 2026-07 修复:batch accept 30 个时多个 proposal 指向同一 path 不再失败。
+    const second = engramAcceptProposalTool.execute({ entityId }, buildCtx());
+    expect(second.engramId).toBe(first.engramId);
+    const target = engine.listAll().find((p) => p.entityId === entityId);
+    expect(target?.status).toBe("accepted");
+    expect(target?.acceptedEngramId).toBe(first.engramId);
   });
+
 
   it("accept 时 caller 可传 visibility 覆盖默认 public", () => {
     engine.proposeExternalMarkdown({
