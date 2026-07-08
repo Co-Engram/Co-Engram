@@ -63,6 +63,7 @@ import {
   isGitRepo,
   GraphBuilder,
   defaultCachePath,
+  type EngramRepository,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 import {
@@ -117,6 +118,38 @@ export interface ViewerRuntime {
 const DEFAULT_PORT_CLAUDE_CODE = 18799;
 const DEFAULT_PORT_OPENCLAW = 18899;
 const DEFAULT_MAX_RETRIES = 5;
+
+/**
+ * Debounced graph.json 重建(batch accept 等高频写入时合并成一次重建)。
+ *
+ * 解决场景(2026-07 用户报告):
+ *   accept 30 条 proposal 后,SQLite totalEngrams 实时增加,但 /api/graph 节点数
+ *   仍读 graph.json 缓存(旧),导致 stats tab 与 graph tab 数字不一致。
+ *
+ * 设计:
+ *   - 200ms debounce,合并 batch accept 30 次成 1 次全量 rebuild
+ *   - 走 setImmediate 不阻塞 HTTP 响应
+ *   - 错误吞掉(只 log),因为 graph 重建失败不应影响 accept 成功
+ *   - 用 closure 捕获 repository rootPath(进程级单例,不会 stale)
+ */
+const _pendingGraphRebuilds = new WeakMap<EngramRepository, NodeJS.Timeout>();
+function scheduleGraphRebuild(repo: EngramRepository): void {
+  const existing = _pendingGraphRebuilds.get(repo);
+  if (existing) clearTimeout(existing);
+  const timer = setTimeout(() => {
+    _pendingGraphRebuilds.delete(repo);
+    try {
+      const cachePath = defaultCachePath(repo.rootPath);
+      const builder = new GraphBuilder(repo, cachePath);
+      builder.rebuild();
+    } catch (err) {
+      console.error("[viewer] scheduled graph rebuild failed:", err);
+    }
+  }, 200);
+  // 不阻塞进程退出
+  timer.unref?.();
+  _pendingGraphRebuilds.set(repo, timer);
+}
 
 /**
  * 启动 Viewer HTTP server
@@ -453,6 +486,8 @@ async function routeApi(
         );
         return;
       }
+      // 删除后 graph.json 同步重建(节点减少)
+      scheduleGraphRebuild(ctx.repository);
       respondJson(res, 200, { deleted: true, id });
       return;
     }
@@ -639,6 +674,9 @@ async function routeApi(
         };
         try {
           const engramId = ctx.proposalEngine.accept(entityId, acceptInput);
+          // 异步触发 graph.json 重建,让 /api/graph 立即看到新节点。
+          // batch accept 时 200ms debounce 合并成一次重建。
+          if (ctx.repository) scheduleGraphRebuild(ctx.repository);
           respondJson(res, 200, { ok: true, action, engramId });
           return;
         } catch (err) {
@@ -791,9 +829,42 @@ async function routeApi(
   }
 
   // /api/trash
+  //
+  // 走 paginateWithCursor(trashedAt desc + id 升序作 tiebreak)。
+  // 默认 limit=100,max 500。cursor 来自上一页的 nextCursor。
+  // 双源统一:swept(.trash/) + soft(forgotten/archived)。
   if (path === "/api/trash" && req.method === "GET") {
-    const trashed = listTrashedSimple(ctx);
-    respondJson(res, 200, { results: trashed, total: trashed.length });
+    const all = listTrashedSimple(ctx);
+    const limitRaw = url.searchParams.get("limit");
+    const limit =
+      limitRaw && Number.isFinite(Number(limitRaw))
+        ? Math.min(Number(limitRaw), 500)
+        : 100;
+    const cursor = url.searchParams.get("cursor") ?? undefined;
+    const source = url.searchParams.get("source") ?? undefined;
+    const partition = url.searchParams.get("partition") ?? undefined;
+
+    const filtered = all.filter((t) => {
+      if (source && t.source !== source) return false;
+      if (partition && t.partition !== partition) return false;
+      return true;
+    });
+
+    const result = paginateWithCursor({
+      items: filtered,
+      // 软删除可能 trashedAt 缺失(数据迁移痕迹),兜底为 epoch 0
+      getSortKey: (t) => t.trashedAt ?? "1970-01-01T00:00:00.000Z",
+      getTiebreak: (t) => t.id,
+      descending: true,
+      limit,
+      cursor,
+    });
+
+    respondJson(res, 200, {
+      results: result.results,
+      total: result.total,
+      nextCursor: result.nextCursor,
+    });
     return;
   }
   if (path === "/api/trash" && req.method === "DELETE") {
@@ -803,22 +874,75 @@ async function routeApi(
     }
     const partition = url.searchParams.get("partition") ?? undefined;
     const dryRun = url.searchParams.get("dryRun") === "1";
-    const result = purgeAllTrash(ctx.repository, {
-      partition: partition || undefined,
+
+    // 双源 purge:
+    //   1. .trash/ 物理(走 purgeAllTrash,partition=YYYY-MM)
+    //   2. soft forgotten/archived(走 deleteEngram,partition=forgotten|archived)
+    //
+    // 旧实现只清 .trash/,导致用户看到 386 条列表但「永久清空」count=0。
+    // 现在按 partition 区分:形如 YYYY-MM 的视为 swept;forgotten/archived 视为 soft。
+    // 不传 partition 时两类都清。
+    const purgedIds: string[] = [];
+    const partitionsRemoved: string[] = [];
+
+    // (1) 物理 .trash/
+    const sweptPartition =
+      partition && /^\d{4}-\d{2}$/.test(partition) ? partition : undefined;
+    const sweptResult = purgeAllTrash(ctx.repository, {
+      partition: sweptPartition,
       dryRun,
       auditLog: ctx.auditLog,
       actor: "user",
     });
+    purgedIds.push(...sweptResult.purged);
+    partitionsRemoved.push(...sweptResult.partitionsRemoved);
+
+    // (2) soft forgotten/archived
+    const softStatuses =
+      partition === "forgotten"
+        ? ["forgotten"]
+        : partition === "archived"
+          ? ["archived"]
+          : (!partition || /^\d{4}-\d{2}$/.test(partition)
+              ? ["forgotten", "archived"]
+              : []);
+    if (softStatuses.length > 0 && ctx.repository.indexDb) {
+      const placeholder = softStatuses.map(() => "?").join(",");
+      const rows = ctx.repository.indexDb
+        .prepare(`SELECT id FROM engrams WHERE status IN (${placeholder})`)
+        .all(...softStatuses) as { id: string }[];
+      for (const r of rows) {
+        if (dryRun) {
+          purgedIds.push(r.id);
+        } else {
+          try {
+            ctx.repository.deleteEngram(r.id);
+            purgedIds.push(r.id);
+          } catch (err) {
+            console.error(
+              `[viewer] failed to purge soft-deleted engram ${r.id}:`,
+              err,
+            );
+          }
+        }
+      }
+    }
+
+    // 实际删除发生时(purgedIds > 0 且非 dryRun),触发 graph 重建
+    if (!dryRun && purgedIds.length > 0) {
+      scheduleGraphRebuild(ctx.repository);
+    }
+
     respondJson(res, 200, {
-      purged: result.purged,
-      partitionsRemoved: result.partitionsRemoved,
-      count: result.purged.length,
+      purged: purgedIds,
+      partitionsRemoved,
+      count: purgedIds.length,
       dryRun,
     });
     return;
   }
 
-  // /api/trash/:id  (GET — 预览完整内容)
+  // /api/trash/:id  (GET — 预览完整内容;双源兼容)
   const trashItemMatch = /^\/api\/trash\/([^/]+)$/.exec(path);
   if (trashItemMatch && req.method === "GET") {
     if (!ctx.repository) {
@@ -826,16 +950,51 @@ async function routeApi(
       return;
     }
     const id = decodeURIComponent(trashItemMatch[1]!);
-    const detail = readTrashed(ctx.repository, id);
-    if (!detail) {
-      respondJson(res, 404, { error: `Not in trash: ${id}` });
+    // 优先 .trash/ 物理 sweep
+    const swept = readTrashed(ctx.repository, id);
+    if (swept) {
+      respondJson(res, 200, { ...swept, source: "swept" as const });
       return;
     }
-    respondJson(res, 200, detail);
+    // fallback:engrams/ 中 status=forgotten/archived 的软删除项
+    if (ctx.repository.exists(id)) {
+      try {
+        const engram = ctx.repository.readEngram(id);
+        if (engram.status === "forgotten" || engram.status === "archived") {
+          respondJson(res, 200, {
+            id,
+            source: "soft" as const,
+            partition: engram.status,
+            trashedAt: engram.updatedAt,
+            frontmatter: {
+              id: engram.id,
+              title: engram.title,
+              kind: engram.kind,
+              status: engram.status,
+              domainTags: engram.domainTags,
+              contextTags: engram.contextTags,
+              visibility: engram.visibility,
+              sourceType: engram.sourceType,
+              createdBy: engram.createdBy,
+              createdAt: engram.createdAt,
+              updatedAt: engram.updatedAt,
+              importance: engram.importance,
+              confidence: engram.confidence,
+              summary: engram.summary,
+            },
+            content: engram.content ?? "",
+          });
+          return;
+        }
+      } catch {
+        // fallthrough to 404
+      }
+    }
+    respondJson(res, 404, { error: `Not in trash: ${id}` });
     return;
   }
 
-  // /api/trash/:id/restore
+  // /api/trash/:id/restore (双源兼容)
   const trashRestoreMatch = /^\/api\/trash\/(.+)\/restore$/.exec(path);
   if (trashRestoreMatch && req.method === "POST") {
     const id = decodeURIComponent(trashRestoreMatch[1]!);
@@ -843,16 +1002,53 @@ async function routeApi(
       respondJson(res, 503, { error: "Repository not available" });
       return;
     }
-    const result = restoreFromTrash(
-      ctx.repository,
-      id,
-      ctx.auditLog ? { auditLog: ctx.auditLog } : {},
-    );
-    if (result.ok) {
-      respondJson(res, 200, { ok: true, id });
+    // 优先 .trash/ 物理恢复
+    const swept = readTrashed(ctx.repository, id);
+    if (swept) {
+      const result = restoreFromTrash(
+        ctx.repository,
+        id,
+        ctx.auditLog ? { auditLog: ctx.auditLog } : {},
+      );
+      if (result.ok) {
+        scheduleGraphRebuild(ctx.repository);
+        respondJson(res, 200, { ok: true, id, source: "swept" as const });
+        return;
+      }
+      respondJson(res, 404, { ok: false, error: result.reason, id });
       return;
     }
-    respondJson(res, 404, { ok: false, error: result.reason, id });
+    // fallback:soft restore — status 切回 active + freshness=stale
+    if (ctx.repository.exists(id)) {
+      try {
+        const engram = ctx.repository.readEngram(id);
+        if (engram.status === "forgotten" || engram.status === "archived") {
+          ctx.repository.updateLifecycle(id, "active", "stale");
+          ctx.auditLog?.append({
+            actor: "user",
+            action: "restore_from_trash",
+            engramId: id,
+            metadata: { source: "soft", prevStatus: engram.status },
+          });
+          // soft restore 后 status 变 active,stats 与 graph 都要刷新
+          scheduleGraphRebuild(ctx.repository);
+          respondJson(res, 200, { ok: true, id, source: "soft" as const });
+          return;
+        }
+      } catch (err) {
+        respondJson(res, 500, {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+          id,
+        });
+        return;
+      }
+    }
+    respondJson(res, 404, {
+      ok: false,
+      error: `Not in trash: ${id}`,
+      id,
+    });
     return;
   }
 
@@ -1538,56 +1734,95 @@ function buildGraph(ctx: ToolContext): GraphResponse {
 
 interface TrashListItem {
   readonly id: string;
+  /**
+   * 回收站项来源:
+   *   - "swept":物理已 sweep 到 .trash/<partition>/ 下(由 sweepToTrash 移入)
+   *   - "soft":逻辑软删除(status=forgotten/archived)但文件仍在主索引 engrams/
+   *
+   * 区分原因:用户「查看/恢复/清空」三类操作对两种来源的处理路径不同。
+   * 旧实现把它们混入同一列表但只支持 .trash/ 路径,导致 386 条全部按钮失败。
+   */
+  readonly source: "swept" | "soft";
+  /** 分区:swept 时是 .trash/<YYYY-MM>;soft 时是 "forgotten" / "archived" */
   readonly partition?: string;
+  /** 进入回收站的时间:swept 时是 .trash/ 目录 mtime;soft 时是 engram.updatedAt */
   readonly trashedAt?: string;
+  /** soft 来源必填,swept 来源可省(由前端 preview 时按需读取) */
+  readonly title?: string;
+  readonly kind?: string;
 }
 
 /**
- * 列出回收站中的 engram(物理在 .trash/<partition>/ 下)
+ * 列出回收站中的 engram(双源统一:swept + soft)
  *
- * 注:还包含逻辑上 status=forgotten/archived 但物理仍在 engrams/ 的记录,
- * 便于用户查看全貌。
+ *   - swept:物理已 sweep 到 .trash/<YYYY-MM>/ 下,字段齐全(走 listTrashed)
+ *   - soft:逻辑软删除(status=forgotten/archived)但物理仍在 engrams/,
+ *     通过一次 SQLite SELECT 拿全字段(id/title/kind/updated_at/status)
  *
- * 性能修复(2026-07):
- *   老实现对每个 listEngrams() 的 entry(曾经是 1026 ghost)调用 readEngram
- *   来检查 status,导致 /api/trash 即使空也耗时 69s。改用 SQLite WHERE
- *   status IN ('forgotten','archived') 一次查询解决(<10ms)。
+ * 旧实现的 bug(2026-07 用户报告):
+ *   soft 来源只 push `{ id }`,导致 386 条全部 partition/trashedAt 显示 "—",
+ *   preview/restore/purgeAll 按 .trash/ 路径处理 100% 失败。
+ *   现在统一字段:partition=status,trashedAt=updatedAt,并补 title/kind 供 UI 显示。
  */
 function listTrashedSimple(ctx: ToolContext): TrashListItem[] {
-  const trashed = listTrashed(ctx.repository);
-  const out: TrashListItem[] = trashed.map((t) => ({
-    id: t.id,
-    partition: t.partition,
-    trashedAt: t.trashedAt,
-  }));
+  const out: TrashListItem[] = [];
 
-  // 补充 status=forgotten/archived 但仍在主目录的记录
-  // 优先走 SQLite(<10ms);不可用时 fallback listEngrams + readEngram
+  // === 来源 1: .trash/ 物理 sweep ===
+  for (const t of listTrashed(ctx.repository)) {
+    out.push({
+      id: t.id,
+      source: "swept",
+      partition: t.partition,
+      trashedAt: t.trashedAt,
+    });
+  }
+
+  // === 来源 2: status=forgotten/archived 软删除 ===
   const seen = new Set(out.map((o) => o.id));
   if (ctx.repository.indexDb) {
     try {
       const rows = ctx.repository.indexDb.prepare(
-        `SELECT id FROM engrams WHERE status IN ('forgotten', 'archived')`,
-      ).all() as { id: string }[];
+        `SELECT id, title, kind, updated_at, status
+         FROM engrams
+         WHERE status IN ('forgotten', 'archived')
+         ORDER BY updated_at DESC`,
+      ).all() as {
+        id: string;
+        title: string;
+        kind: string;
+        updated_at: number;
+        status: string;
+      }[];
       for (const r of rows) {
-        if (!seen.has(r.id)) {
-          out.push({ id: r.id });
-        }
+        if (seen.has(r.id)) continue;
+        out.push({
+          id: r.id,
+          source: "soft",
+          partition: r.status,
+          trashedAt: new Date(r.updated_at).toISOString(),
+          title: r.title,
+          kind: r.kind,
+        });
       }
       return out;
     } catch (err) {
       console.error("[viewer] SQLite trash query failed, falling back:", err);
     }
   }
-  // Legacy fallback
-  const entries = ctx.repository.listEngrams();
-  for (const entry of entries) {
+  // Legacy fallback(SQLite 不可用时):对 forgotten/archived 子集 readEngram
+  for (const entry of ctx.repository.listEngrams()) {
+    if (seen.has(entry.id)) continue;
     try {
       const full = ctx.repository.readEngram(entry.id);
       if (full.status === "forgotten" || full.status === "archived") {
-        if (!seen.has(entry.id)) {
-          out.push({ id: entry.id });
-        }
+        out.push({
+          id: entry.id,
+          source: "soft",
+          partition: full.status,
+          trashedAt: full.updatedAt,
+          title: full.title,
+          kind: full.kind,
+        });
       }
     } catch {
       // skip

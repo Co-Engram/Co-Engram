@@ -1751,23 +1751,43 @@ CO_ENGRAM.on('trash', async function() {
 });
 
 window.CO_ENGRAM_TRASH = {
+  _cache: [],
+  _cursor: null,
+  _hasMore: false,
+  _total: 0,
+
   async render(root) {
     const T = CO_ENGRAM_T;
+    this._cache = [];
+    this._cursor = null;
+    this._hasMore = false;
+    this._total = 0;
     root.innerHTML = '<div class="loading">' + T.t('viewer.loading.trash') + '</div>';
-    let data;
-    try { data = await CO_ENGRAM.apiGet('/api/trash'); }
-    catch (e) { root.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>'; return; }
+    let first;
+    try {
+      first = await CO_ENGRAM.apiGet('/api/trash?limit=50');
+    } catch (e) {
+      root.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>';
+      return;
+    }
+    this._cache = first.results || [];
+    this._cursor = first.nextCursor;
+    this._hasMore = !!first.nextCursor;
+    this._total = first.total || this._cache.length;
+    this._renderList(root);
+  },
 
-    const items = data.results || [];
+  _renderList(root) {
+    const T = CO_ENGRAM_T;
+    const items = this._cache;
     if (!items.length) {
       root.innerHTML = '<div class="empty"><div class="icon">🗑️</div>' + T.t('viewer.trash.empty') + '</div>';
       return;
     }
     // 顶部工具栏:统计 + 分区筛选 + 一键清空
     const partitions = [...new Set(items.map((t) => t.partition).filter(Boolean))].sort();
-    const total = items.length;
     let html = '<div class="card" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem">'
-      + '<strong style="margin-right:auto">' + T.t('viewer.trash.titleCount', { n: total }) + '</strong>';
+      + '<strong style="margin-right:auto">' + T.t('viewer.trash.titleCount', { n: this._total }) + '</strong>';
     if (partitions.length > 1) {
       html += '<label style="font-weight:normal;font-size:0.9rem">' + T.t('viewer.trash.partitionLabel')
         + '<select id="trash-partition-filter" onchange="CO_ENGRAM_TRASH.applyFilter()" style="margin-left:0.4rem">'
@@ -1779,14 +1799,27 @@ window.CO_ENGRAM_TRASH = {
       + '</div>';
 
     html += '<table class="data-table" id="trash-table"><thead><tr>'
-      + '<th>' + T.t('viewer.trash.colId') + '</th><th>' + T.t('viewer.trash.colPartition') + '</th><th>' + T.t('viewer.trash.colTrashedAt') + '</th><th></th>'
+      + '<th>' + T.t('viewer.trash.colId') + '</th>'
+      + '<th>标题</th>'
+      + '<th>' + T.t('viewer.trash.colPartition') + '</th>'
+      + '<th>' + T.t('viewer.trash.colTrashedAt') + '</th><th></th>'
       + '</tr></thead><tbody>';
     for (const t of items) {
       const part = t.partition || '';
+      const sourceBadge = t.source === 'soft'
+        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">软删</span> '
+        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">已清</span> ';
+      const titleCell = t.title
+        ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
+        : '<span style="color:var(--fg-dim)">—</span>';
+      const trashedAt = t.trashedAt
+        ? new Date(t.trashedAt).toLocaleString()
+        : '—';
       html += '<tr data-partition="' + CO_ENGRAM.escapeHtml(part) + '">'
         + '<td><code>' + CO_ENGRAM.escapeHtml(t.id) + '</code></td>'
+        + '<td>' + sourceBadge + titleCell + '</td>'
         + '<td>' + CO_ENGRAM.escapeHtml(t.partition || '—') + '</td>'
-        + '<td>' + CO_ENGRAM.escapeHtml(t.trashedAt || '—') + '</td>'
+        + '<td style="font-size:0.8rem;color:var(--fg-muted)">' + CO_ENGRAM.escapeHtml(trashedAt) + '</td>'
         + '<td>'
         + '<button class="btn-link" onclick="CO_ENGRAM_TRASH.preview(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.previewBtn') + '</button> '
         + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.restore(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.restoreBtn') + '</button>'
@@ -1794,7 +1827,30 @@ window.CO_ENGRAM_TRASH = {
         + '</tr>';
     }
     html += '</tbody></table>';
+    if (this._hasMore) {
+      html += '<div style="margin-top:1rem;text-align:center">'
+        + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.loadMore()">加载更多(已加载 ' + items.length + ' / ' + this._total + ')</button>'
+        + '</div>';
+    } else if (items.length > 50) {
+      html += '<div style="margin-top:0.75rem;text-align:center;color:var(--fg-muted);font-size:0.85rem)">已全部加载(' + items.length + ' 条)</div>';
+    }
     root.innerHTML = html;
+  },
+
+  async loadMore() {
+    if (!this._cursor) return;
+    const T = CO_ENGRAM_T;
+    let next;
+    try {
+      next = await CO_ENGRAM.apiGet('/api/trash?limit=50&cursor=' + encodeURIComponent(this._cursor));
+    } catch (e) {
+      alert(T.t('viewer.common.loadFailed', { err: e.message || String(e) }));
+      return;
+    }
+    this._cache = this._cache.concat(next.results || []);
+    this._cursor = next.nextCursor;
+    this._hasMore = !!next.nextCursor;
+    this._renderList(document.getElementById('trash-content'));
   },
 
   // 分区筛选:隐藏不匹配的行
@@ -1807,7 +1863,7 @@ window.CO_ENGRAM_TRASH = {
     });
   },
 
-  // 预览单条回收站内容(只读 drawer)
+  // 预览单条回收站内容(只读 drawer,双源兼容)
   async preview(id) {
     const T = CO_ENGRAM_T;
     let d;
@@ -1818,8 +1874,14 @@ window.CO_ENGRAM_TRASH = {
     const kind = fm.kind ? T.enumLabel('kind', fm.kind) : '';
     const status = fm.status ? T.enumLabel('status', fm.status) : '';
     const source = fm.sourceType ? T.enumLabel('sourceType', fm.sourceType) : '';
+    const sourceBadge = d.source === 'soft'
+      ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">软删除</span> '
+      : (d.source === 'swept'
+        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">已扫到 .trash/</span> '
+        : '');
 
     const body = '<div class="warn-banner" style="padding:0.6rem 0.8rem;margin-bottom:0.8rem">'
+      + sourceBadge
       + '<strong>' + T.t('viewer.trash.previewTitle') + '</strong> · ' + T.t('viewer.trash.previewHint')
       + '</div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(fm.title || id) + '</h2>'
@@ -1862,7 +1924,7 @@ window.CO_ENGRAM_TRASH = {
     // 先 dryRun 看看会删多少条
     let preview;
     try {
-      const url = '/api/trash?dryRun=1' + (part ? '&partition=' + encodeURIComponent(part) : '');
+      const url = '/api/trash?limit=500&dryRun=1' + (part ? '&partition=' + encodeURIComponent(part) : '');
       preview = await CO_ENGRAM.apiGet(url);
     } catch (e) { alert(T.t('viewer.trash.prescanFailed', { err: e.message || String(e) })); return; }
 
