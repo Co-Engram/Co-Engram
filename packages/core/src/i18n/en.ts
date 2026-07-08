@@ -62,6 +62,10 @@ export const en: TranslationDict = {
     "Accept a proposal candidate → the system auto-creates the corresponding memory and marks the proposal as accepted. Future occurrences of the same topic will not generate duplicate proposals.",
   "tool.engram_dismiss_proposal":
     "Dismiss a proposal candidate. Default is permanent (never resurfaces); pass dismissDays > 0 to allow re-activation after N days. Audit log always retained.",
+  "tool.engram_accept_proposals_by_source":
+    "Batch-accept proposals by source (auto-memory or external-markdown). Only sources with built-in payload are supported — no LLM fill-in needed. Use to clear hundreds to thousands of candidates at once.",
+  "tool.engram_dismiss_proposals_by_filter":
+    "Batch-dismiss proposals filtered by source / domainTags / time window. Typical use: clear load-test conversation pollution in one shot, or dismiss by tag. reason is required (audit retention).",
   "tool.engram_synthesize":
     "Manually trigger REM: hand a set of existing memories to an LLM and synthesize a pattern memory; auto-creates a derives_from synapse per source. Requires an LLM client. Use dryRun=true to preview without writing.",
 
@@ -273,6 +277,29 @@ WHEN NOT TO CALL:
 Default is **permanent dismiss**: status=dismissed with dismissedUntil unset; the watcher/observe pipeline will never reopen this candidate. To "temporarily suppress", pass dismissDays > 0 — the candidate can be re-activated by a new event after N days. Audit log always retained.
 
 RETURNS: Proposal marked as dismissed + removed from pending list.`,
+  "tool.engram_accept_proposals_by_source.agent": `Batch-accept proposals by source (convert to real engrams).
+
+WHEN TO CALL:
+- Dozens to thousands of auto-memory / external-markdown proposals accumulated; per-item accept is impractical
+- Load-test produced many auto-memory files; after watcher converts them all to proposals, ingest in one shot
+
+WHEN NOT TO CALL:
+- Source is conversation (use single-shot engram_accept_proposal — LLM must fill title/content per item)
+- You want to filter by specific domainTags (this tool only filters by source)
+
+RETURNS: \`{ source, acceptedCount, dismissedCount (always 0), remainingCount, engramIds, failures }\`. Per-item accept failures do not abort the batch; they are recorded in the failures array. limit defaults to 200 (max 500); pending beyond the limit stays for the next call.`,
+  "tool.engram_dismiss_proposals_by_filter.agent": `Batch-dismiss proposals by source / domainTags / time window filter.
+
+WHEN TO CALL:
+- Load-test produced thousands of conversation proposals; per-item dismiss is impractical
+- All proposals under a given domainTag (e.g. 'load-test') must be cleared
+- All proposals within a time window are noise and must be cleared in one shot
+
+WHEN NOT TO CALL:
+- Only a handful of proposals (use single-shot engram_dismiss_proposal so the LLM reviews each)
+- Unsure of filter scope (run engram_list_proposals first to confirm)
+
+RETURNS: \`{ dismissedCount, acceptedCount (always 0), remainingCount, dismissedIds, failures }\`. reason is required (audit retention). Default is permanent dismiss; pass dismissDays > 0 to allow re-activation after N days. limit defaults to 1000 (max 5000).`,
   "tool.engram_synthesize.agent": `Synthesize multiple engrams into a single pattern memory (manual REM).
 
 WHEN TO CALL:
@@ -637,6 +664,16 @@ Default dismissDays=0 (permanent). Reason recorded for meta-learning.
 Side effects: marks proposal status=dismissed; dismissedUntil = now + N days when dismissDays>0, undefined when dismissDays=0 (never reopens); appends audit.
 Error conditions: proposal not found throws; already accepted throws.
 Invariant: a dismissed proposal is never reopened by proposeAutoMemory / observe, even when the source event recurs.`,
+  "tool.engram_accept_proposals_by_source.technical": `Batch-accept proposals by source. Input: { source: 'auto-memory'|'external-markdown', createdBy?, visibility?, limit?: 1..500=200 }
+Behavior: list pending proposals matching source, accept one-by-one (per-item failure does not abort batch; recorded in failures); each accept reuses the same path as engram_accept_proposal (payload fills title/content/domainTags).
+Side effects: bulk engram creation + bulk status=accepted + audit × N.
+Returns: { source, acceptedCount, dismissedCount=0, remainingCount (all sources), engramIds, failures[] }.
+Error conditions: ctx.proposalEngine missing throws configError; source='conversation' is rejected at schema level (z.enum).`,
+  "tool.engram_dismiss_proposals_by_filter.technical": `Batch-dismiss proposals by filter. Input: { source?, domainTags?, createdBefore?, createdAfter?, reason: string[1..500], dismissDays?: 0..365, limit?: 1..5000=1000 }
+Behavior: list pending proposals matching filter, dismiss one-by-one (per-item failure does not abort batch; recorded in failures); reason required (audit).
+Side effects: bulk status=dismissed + dismissedUntil + audit × N.
+Returns: { dismissedCount, acceptedCount=0, remainingCount (all sources), dismissedIds, failures[] }.
+Error conditions: ctx.proposalEngine missing throws configError; missing reason is rejected at schema level.`,
   "tool.engram_synthesize.technical": `LLM-synthesize multiple engrams into a pattern. Input: { ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
 Behavior: load sources → call ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → parse JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence from LLM) → for each source addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence marks synthesis provenance).
 domainTags resolution priority: user-explicit > LLM-inferred > union of source tags (first 5).
@@ -1041,6 +1078,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Stats panel (viewer.stats.*) =====
   "viewer.stats.totalEngrams": "Total engrams",
+  "viewer.stats.totalEngramsTip":
+    "Total = active + archived + forgotten (all rows in main index). Restoring a forgotten/archived item from trash increments active count but leaves total unchanged — the engram was already in the repository.",
+  "viewer.stats.activeEngrams": "active",
   "viewer.stats.totalSynapses": "Total synapses",
   "viewer.stats.pendingProposals": "Pending proposals",
   "viewer.stats.clickToViewAll": "Click to view all",
@@ -1209,6 +1249,17 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Second confirmation: really purge all ${n} items in ${scope}?",
   "viewer.trash.purgeDone": "Permanently deleted ${n} memories.",
   "viewer.trash.purgeFailed": "Purge failed: ${err}",
+  "viewer.trash.colTitle": "Title",
+  "viewer.trash.sourceSoft": "soft",
+  "viewer.trash.sourceSwept": "swept",
+  "viewer.trash.loadMore": "Load more (${loaded} / ${total} loaded)",
+  "viewer.trash.allLoaded": "All loaded (${n} items)",
+  "viewer.trash.partitionSoftSuffix": "(soft)",
+  "viewer.trash.partitionSweptSuffix": "(swept)",
+  "viewer.trash.partitionTipSoft":
+    "Soft delete: engram remains in main index with status=forgotten/archived; one-click restore.",
+  "viewer.trash.partitionTipSwept":
+    "Physical sweep: file moved to .trash/ directory; git history preserved, restore from .trash/.",
 
   // ===== Merges panel (viewer.merges.*) =====
   "viewer.merges.loading": "Loading merge stats",

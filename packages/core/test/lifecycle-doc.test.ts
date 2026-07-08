@@ -125,9 +125,9 @@ describe("docs/lifecycle §4.2 Proposal pipeline", () => {
 });
 
 describe("docs/lifecycle §6 Tool → Lifecycle mapping (lifecycle-relevant subset of standard profile)", () => {
-  it("standard profile 暴露 19 个工具;lifecycle 表只列其中影响生命周期的子集", () => {
-    // 这里只列出与生命周期强相关的工具子集;完整 19 工具列表由 tool-profile 维护。
-    // 数值 19 由 PROFILE_TOOL_SETS.standard.size 自动算出(防漂移),见 tool-profile.ts。
+  it("standard profile 暴露 21 个工具;lifecycle 表只列其中影响生命周期的子集", () => {
+    // 这里只列出与生命周期强相关的工具子集;完整 21 工具列表由 tool-profile 维护。
+    // 数值 21 由 PROFILE_TOOL_SETS.standard.size 自动算出(防漂移),见 tool-profile.ts。
     const lifecycleTools = [
       "engram_create",
       "engram_update",
@@ -146,7 +146,7 @@ describe("docs/lifecycle §6 Tool → Lifecycle mapping (lifecycle-relevant subs
       "engram_synthesize",
     ] as const;
     expect(lifecycleTools.length).toBeGreaterThan(10);
-    expect(lifecycleTools.length).toBeLessThanOrEqual(19);
+    expect(lifecycleTools.length).toBeLessThanOrEqual(21);
   });
 });
 

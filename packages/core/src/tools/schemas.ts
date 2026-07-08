@@ -530,6 +530,92 @@ export const EngramDismissProposalInputSchema = z.object({
 });
 
 // ============================================================
+// AI-8: batch proposal 工具
+//
+// 背景:2044+ 条 load-test 候选时,LLM 逐条 dismiss 会 token 爆炸。
+// 用户报告「一次性清空 load-test 来源的 2000+ 候选」是高频诉求。
+// batch 工具让 LLM 一次工具调用清空一批,避免 N 次往返。
+// ============================================================
+
+/** proposal source enum 复用 */
+const ProposalSourceSchema = z.enum([
+  "conversation",
+  "auto-memory",
+  "external-markdown",
+]);
+
+export const EngramAcceptProposalsBySourceInputSchema = z
+  .object({
+    /**
+     * 按 source 批量 accept。
+     *
+     * 仅 auto-memory / external-markdown 来源的 proposal 可批量 accept ——
+     * 它们自带 payload(完整 title/content/domainTags/kind),无需 LLM 填表。
+     * conversation 来源的 proposal 没有 payload,必须 LLM 显式提供 title/content,
+     * 因此不支持 batch accept(防止批量创建垃圾 engram)。
+     */
+    source: z.enum(["auto-memory", "external-markdown"]),
+    /** 可选:覆盖所有 accept 的 createdBy(缺省走 proposal.payload.createdBy → ctx.defaultCreatedBy) */
+    createdBy: z.string().min(1).optional(),
+    /** 可选:覆盖所有 accept 的 visibility(缺省走 proposal.payload.visibility → 默认 public) */
+    visibility: EngramVisibilitySchema.optional(),
+    /**
+     * 批量上限(默认 200,最大 500)。
+     *
+     * 防止意外一次性创建海量 engram 触发 N+1 性能问题。
+     * 超过的部分留 pending,用户可再次调用本工具。
+     */
+    limit: z.number().int().min(1).max(500).default(200),
+  })
+  .strict();
+
+export const EngramDismissProposalsByFilterInputSchema = z
+  .object({
+    /**
+     * 按 source 过滤(可选,缺省所有 source)。
+     *
+     * 典型用法:source="conversation" 清掉对话流聚类的噪声;不传 source 仅按
+     * domainTags 过滤。
+     */
+    source: ProposalSourceSchema.optional(),
+    /**
+     * 按 domainTags 过滤(可选,语义:proposal.payload.domainTags 与此有交集)。
+     *
+     * 典型用法:domainTags=["load-test"] 清掉所有 load-test 来源的候选。
+     * 对 conversation 来源(无 payload),按 proposal 自带的 centroid 派生 tags
+     * 匹配;若无可派生 tags,则不命中(避免误删)。
+     */
+    domainTags: z.array(z.string().min(1)).min(1).optional(),
+    /**
+     * 按 createdAt 过滤(可选,ISO8601 字符串)。
+     *
+     * 典型用法:清理某时间窗内产生的候选(如 load-test 运行期间)。
+     */
+    createdBefore: z.string().min(1).optional(),
+    createdAfter: z.string().min(1).optional(),
+    /** 拒绝原因(必填,审计日志留存)。 */
+    reason: z.string().min(1).max(500),
+    /**
+     * 暂时屏蔽天数(可选)。
+     *
+     *   - 不传:永久驳回(status=dismissed,dismissedUntil 留空)
+     *   - 0:等同不传(永久)
+     *   - 正数:N 天后该候选可被新事件重新激活
+     *
+     * 对 batch 场景,通常希望永久驳回(clear out load-test),所以默认是永久。
+     */
+    dismissDays: z.number().int().min(0).max(365).optional(),
+    /**
+     * 批量上限(默认 1000,最大 5000)。
+     *
+     * batch dismiss 通常面向数千条候选(load-test 场景),上限比 batch accept 宽松。
+     * 超过的部分留 pending,用户可再次调用。
+     */
+    limit: z.number().int().min(1).max(5000).default(1000),
+  })
+  .strict();
+
+// ============================================================
 // engram_synthesize
 // （Feature 1：手工触发 REM — 综合多条 engram 形成 pattern）
 // ============================================================

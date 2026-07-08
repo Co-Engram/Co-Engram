@@ -78,6 +78,9 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_synthesize",
     // 审计查询(让挑剔用户不开 viewer 也能查事件历史)
     "engram_audit_query",
+    // AI-8 batch proposal(让用户一次清空数千 load-test 候选)
+    "engram_accept_proposals_by_source",
+    "engram_dismiss_proposals_by_filter",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -104,6 +107,9 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_list_proposals",
     "engram_accept_proposal",
     "engram_dismiss_proposal",
+    // AI-8 batch proposal
+    "engram_accept_proposals_by_source",
+    "engram_dismiss_proposals_by_filter",
     // 仓库健康工具(full-only)
     "engram_doctor",
     "engram_list_paths",

@@ -370,6 +370,26 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **副作用:** 将提案标记为 `dismissed`,记录 reason 以供后续元学习使用。
 
+### `engram_accept_proposals_by_source`
+
+按 source 批量接受提案。当数十到数千条提案堆积时,逐条 accept 不现实,用本工具一次清空。
+
+**必填输入:** `source: "auto-memory" | "external-markdown"`(这两种来源自带 payload,无需 LLM 填表)
+
+**可选:** `createdBy: string`、`visibility: EngramVisibility`、`limit: number`(默认 200,最大 500)
+
+**副作用:** 逐条 accept 匹配的 pending 提案,创建对应 engram,每条 append `accept` 到 audit log。单条失败不阻塞 batch,记录到 `failures[]`。返回 `{ source, acceptedCount, dismissedCount(=0), remainingCount, engramIds, failures }`。
+
+### `engram_dismiss_proposals_by_filter`
+
+按 source / domainTags / 时间窗组合 filter 批量驳回提案。典型用法:一次清空 load-test 污染。
+
+**必填输入:** `reason: string`(1–500 字符,审计留存)
+
+**可选:** `source: ProposalSource`、`domainTags: string[]`(任一 tag 命中即过滤)、`createdBefore: ISO8601`、`createdAfter: ISO8601`、`dismissDays: number`(0–365,默认 0 即永久)、`limit: number`(默认 1000,最大 5000)
+
+**副作用:** 将匹配的提案标记为 `dismissed`,附上 reason。返回 `{ dismissedCount, acceptedCount(=0), remainingCount, dismissedIds, failures }`。
+
 ## 仓库健康检查(`standard` profile 下)
 
 这些工具帮助 LLM(或人类)检视 memory 仓库的物理布局,并自愈常见的漂移(文件移动、标题重命名、孤立的 Markdown)。它们基于 `engram-index.json` 缓存做快速增量扫描,属于 `standard` 工具 profile 的一部分 —— 无需切换到 `full` 即可使用。

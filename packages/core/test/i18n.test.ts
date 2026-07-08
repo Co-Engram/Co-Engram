@@ -150,7 +150,7 @@ describe("i18n / localizeToolDescription", () => {
     expect(localizeToolDescription("xyz_unknown", "en")).toBe("xyz_unknown");
   });
 
-  it("25 个工具在两个语言都有翻译", () => {
+  it("27 个工具在两个语言都有翻译", () => {
     const toolNames = [
       "engram_create",
       "engram_get",
@@ -176,6 +176,8 @@ describe("i18n / localizeToolDescription", () => {
       "engram_list_proposals",
       "engram_accept_proposal",
       "engram_dismiss_proposal",
+      "engram_accept_proposals_by_source",
+      "engram_dismiss_proposals_by_filter",
     ];
     for (const name of toolNames) {
       const enDesc = localizeToolDescription(name, "en");
@@ -316,6 +318,8 @@ describe("i18n / 三层描述拆分 (user/agent/technical)", () => {
     "engram_list_proposals",
     "engram_accept_proposal",
     "engram_dismiss_proposal",
+    "engram_accept_proposals_by_source",
+    "engram_dismiss_proposals_by_filter",
     "engram_doctor",
     "engram_list_paths",
     "engram_synthesize",

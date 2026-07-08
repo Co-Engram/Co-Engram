@@ -1,22 +1,27 @@
 /**
- * Proposal 工具集（M1：候选提示机制）
+ * Proposal 工具集（M1：候选提示机制 + AI-8 batch 扩展）
  *
- * 3 个工具：
- *   - engram_list_proposals   列出 pending/全部提案
- *   - engram_accept_proposal  接受提案 → 创建 engram
- *   - engram_dismiss_proposal 拒绝提案（带冷却期）
+ * 5 个工具：
+ *   - engram_list_proposals              列出 pending/全部提案
+ *   - engram_accept_proposal             接受单个提案 → 创建 engram
+ *   - engram_dismiss_proposal            拒绝单个提案(带冷却期)
+ *   - engram_accept_proposals_by_source  (AI-8) 按 source 批量 accept
+ *   - engram_dismiss_proposals_by_filter (AI-8) 按 source/domainTags/时间窗批量 dismiss
  *
- * Proposal 有两种来源(由 `source` 字段区分):
+ * Proposal 有三种来源(由 `source` 字段区分):
  *   - `conversation`：对话流聚类(ProposalEngine.observe)生成;payload=undefined,
  *     accept 时必须显式传 title/content/domainTags
  *   - `auto-memory`：Claude Code auto-memory 文件(AutoMemorySyncEngine)生成;
  *     payload 携带完整 engram 字段,accept 时可省略 title/content/domainTags/kind
+ *   - `external-markdown`:dataRoot 下未跟踪 .md 文件(watcher 扫描);
+ *     payload 携带 frontmatter 字段,与 auto-memory 同语义
  *
- * 详见 spec §2.2（候选提示机制）。
+ * 详见 spec §2.2（候选提示机制）+ AI-8 设计。
  *
  * @module @co-engram/core/tools
  */
 
+import type { z } from "zod";
 import type { Proposal, ProposalSource } from "../observability/proposal-engine.js";
 import type { Tool, ToolContext } from "./tool.js";
 import {
@@ -28,6 +33,8 @@ import {
   EngramListProposalsInputSchema,
   EngramAcceptProposalInputSchema,
   EngramDismissProposalInputSchema,
+  EngramAcceptProposalsBySourceInputSchema,
+  EngramDismissProposalsByFilterInputSchema,
   type EngramListProposalsToolInput,
   type EngramAcceptProposalToolInput,
   type EngramDismissProposalToolInput,
@@ -311,8 +318,132 @@ export const engramDismissProposalTool: Tool<
   },
 };
 
+// ============================================================
+// engram_accept_proposals_by_source (AI-8)
+// ============================================================
+
+export const engramAcceptProposalsBySourceTool: Tool<
+  z.infer<typeof EngramAcceptProposalsBySourceInputSchema>,
+  {
+    readonly source: "auto-memory" | "external-markdown";
+    readonly acceptedCount: number;
+    readonly dismissedCount: number;
+    readonly remainingCount: number;
+    readonly engramIds: readonly string[];
+    readonly failures: ReadonlyArray<{
+      readonly entityId: string;
+      readonly reason: string;
+    }>;
+  }
+> = {
+  name: "engram_accept_proposals_by_source",
+  description:
+    "AI-8 批量接受候选提案(按 source)。仅支持 source='auto-memory' 或 'external-markdown' —— 这两种 proposal 自带 payload,无需 LLM 填表。conversation 来源必须用单条 engram_accept_proposal(LLM 需要为每条填 title/content)。limit 默认 200(最大 500),超过的 pending 留到下次。单条 accept 失败不阻塞 batch,记录到 failures 数组。",
+  inputSchema: EngramAcceptProposalsBySourceInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<
+      z.infer<typeof EngramAcceptProposalsBySourceInputSchema>
+    >(EngramAcceptProposalsBySourceInputSchema, input);
+    if (!ctx.proposalEngine) {
+      throw configError(
+        "ctx.proposalEngine",
+        "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
+    }
+    const createdBy =
+      parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+    const result = ctx.proposalEngine.acceptBatch(
+      {
+        source: parsed.source,
+        limit: parsed.limit,
+      },
+      {
+        createdBy,
+        ...(parsed.visibility !== undefined
+          ? { visibility: parsed.visibility }
+          : {}),
+      },
+    );
+    // batch 后查 remaining pending(所有 source,不限当前 filter)
+    const remainingCount = ctx.proposalEngine.listPending().length;
+    return {
+      source: parsed.source,
+      acceptedCount: result.acceptedIds.length,
+      // Plan 里要求返回 dismissedCount;但 accept 工具语义上不 dismiss。
+      // 这里固定返回 0,保持返回 shape 与 dismiss_by_filter 对称。
+      dismissedCount: 0,
+      remainingCount,
+      engramIds: result.engramIds,
+      failures: result.failures,
+    };
+  },
+};
+
+// ============================================================
+// engram_dismiss_proposals_by_filter (AI-8)
+// ============================================================
+
+export const engramDismissProposalsByFilterTool: Tool<
+  z.infer<typeof EngramDismissProposalsByFilterInputSchema>,
+  {
+    readonly dismissedCount: number;
+    readonly acceptedCount: number;
+    readonly remainingCount: number;
+    readonly dismissedIds: readonly string[];
+    readonly failures: ReadonlyArray<{
+      readonly entityId: string;
+      readonly reason: string;
+    }>;
+  }
+> = {
+  name: "engram_dismiss_proposals_by_filter",
+  description:
+    "AI-8 批量拒绝候选提案(按 source/domainTags/时间窗组合 filter)。典型用法:`{source:'conversation', reason:'load-test 噪声'}` 一次清空对话流聚类的 load-test 污染;或 `{domainTags:['load-test'], reason:'clear load-test'}` 按 tag 清空。默认永久驳回(dismissDays 不传或 0);显式传 dismissDays > 0 时 N 天后可被新事件重新激活。limit 默认 1000(最大 5000)。reason 必填(审计留存)。",
+  inputSchema: EngramDismissProposalsByFilterInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<
+      z.infer<typeof EngramDismissProposalsByFilterInputSchema>
+    >(EngramDismissProposalsByFilterInputSchema, input);
+    if (!ctx.proposalEngine) {
+      throw configError(
+        "ctx.proposalEngine",
+        "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
+    }
+    const result = ctx.proposalEngine.dismissBatch(
+      {
+        ...(parsed.source !== undefined ? { source: parsed.source } : {}),
+        ...(parsed.domainTags !== undefined
+          ? { domainTags: parsed.domainTags }
+          : {}),
+        ...(parsed.createdBefore !== undefined
+          ? { createdBefore: parsed.createdBefore }
+          : {}),
+        ...(parsed.createdAfter !== undefined
+          ? { createdAfter: parsed.createdAfter }
+          : {}),
+        limit: parsed.limit,
+      },
+      parsed.reason,
+      parsed.dismissDays,
+    );
+    const remainingCount = ctx.proposalEngine.listPending().length;
+    return {
+      dismissedCount: result.dismissedIds.length,
+      // Plan 里要求返回 acceptedCount;但 dismiss 工具语义上不 accept。
+      // 这里固定返回 0,保持返回 shape 与 accept_by_source 对称。
+      acceptedCount: 0,
+      remainingCount,
+      dismissedIds: result.dismissedIds,
+      failures: result.failures,
+    };
+  },
+};
+
 export const ALL_PROPOSAL_TOOLS: readonly Tool[] = [
   engramListProposalsTool,
   engramAcceptProposalTool,
   engramDismissProposalTool,
+  engramAcceptProposalsBySourceTool,
+  engramDismissProposalsByFilterTool,
 ];

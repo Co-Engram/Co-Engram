@@ -32,6 +32,8 @@
       "engram_list_proposals",
       "engram_accept_proposal",
       "engram_dismiss_proposal",
+      "engram_accept_proposals_by_source",
+      "engram_dismiss_proposals_by_filter",
       "engram_doctor",
       "engram_list_paths",
       "engram_synthesize",

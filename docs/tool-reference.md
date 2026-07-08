@@ -370,6 +370,26 @@ Reject a proposal temporarily (default 30 days, then it can re-appear if the top
 
 **Effect:** marks proposal `dismissed`, records reason for future meta-learning.
 
+### `engram_accept_proposals_by_source`
+
+Batch-accept proposals by source. Use when dozens to thousands of proposals pile up and per-item accept is impractical.
+
+**Required inputs:** `source: "auto-memory" | "external-markdown"` (these sources carry built-in payload — no LLM fill-in needed)
+
+**Optional:** `createdBy: string`, `visibility: EngramVisibility`, `limit: number` (default 200, max 500)
+
+**Effect:** accepts each matching proposal, creates the corresponding engrams, appends `accept` to audit log per item. Per-item failures are isolated — recorded in `failures[]` rather than aborting the batch. Returns `{ source, acceptedCount, dismissedCount(=0), remainingCount, engramIds, failures }`.
+
+### `engram_dismiss_proposals_by_filter`
+
+Batch-dismiss proposals by source / domainTags / time window filter. Typical use: clear load-test pollution in one shot.
+
+**Required inputs:** `reason: string` (1–500 chars, audit retention)
+
+**Optional:** `source: ProposalSource`, `domainTags: string[]` (any-tag intersection), `createdBefore: ISO8601`, `createdAfter: ISO8601`, `dismissDays: number` (0–365, default 0 = permanent), `limit: number` (default 1000, max 5000)
+
+**Effect:** marks each matching proposal `dismissed` with the supplied reason. Returns `{ dismissedCount, acceptedCount(=0), remainingCount, dismissedIds, failures }`.
+
 ## Repository health (in `standard` profile)
 
 These tools help an LLM (or a human) inspect the physical layout of the memory repo and self-heal common drift (moved files, renamed titles, orphan markdown). They use the `engram-index.json` cache for fast incremental scans, and are part of the `standard` tool profile — no need to switch to `full` to use them.

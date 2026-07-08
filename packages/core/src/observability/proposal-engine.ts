@@ -843,6 +843,132 @@ export class ProposalEngine {
     });
   }
 
+  /**
+   * 批量 accept(AI-8):按 source 过滤,自动 accept 所有匹配的 pending proposal。
+   *
+   * 设计约束:
+   *   - 仅支持 source='auto-memory' / 'external-markdown'(这些 proposal 自带 payload,
+   *     无需 LLM 填表)。conversation 来源必须显式 title/content,不支持 batch accept
+   *     —— 防止批量创建无 title 的垃圾 engram。
+   *   - 单个 accept 失败不阻塞 batch,记录到 failures 让 LLM 决定后续动作。
+   *   - limit 截断后剩余 pending 留给下次调用(防止一次性创建海量 engram 触发 N+1)。
+   *
+   * @returns accept 结果 + 失败明细 + 截断数
+   */
+  acceptBatch(
+    filter: {
+      readonly source: "auto-memory" | "external-markdown";
+      readonly limit?: number;
+    },
+    input: {
+      readonly createdBy?: string;
+      readonly visibility?: EngramVisibility;
+    } = {},
+  ): {
+    readonly acceptedIds: readonly string[];
+    readonly engramIds: readonly string[];
+    readonly failures: ReadonlyArray<{
+      readonly entityId: string;
+      readonly reason: string;
+    }>;
+    readonly skipped: number;
+  } {
+    const limit = Math.min(Math.max(filter.limit ?? 200, 1), 500);
+    const pending = this.listPending().filter(
+      (p) => p.source === filter.source,
+    );
+    const target = pending.slice(0, limit);
+    const skipped = pending.length - target.length;
+
+    const acceptedIds: string[] = [];
+    const engramIds: string[] = [];
+    const failures: Array<{ entityId: string; reason: string }> = [];
+
+    for (const p of target) {
+      try {
+        const engramId = this.accept(p.entityId, {
+          ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+          ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+        });
+        acceptedIds.push(p.entityId);
+        engramIds.push(engramId);
+      } catch (e) {
+        failures.push({
+          entityId: p.entityId,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    return { acceptedIds, engramIds, failures, skipped };
+  }
+
+  /**
+   * 批量 dismiss(AI-8):按 source / domainTags / createdAt 过滤,批量驳回。
+   *
+   * 默认永久驳回(dismissDays 缺省 / 0);显式传 dismissDays > 0 时 N 天后可重新激活。
+   *
+   * 设计约束:
+   *   - 单次 dismiss 失败不阻塞 batch,记录到 failures。
+   *   - filter.domainTags 语义:proposal.payload.domainTags 与此有交集即命中。
+   *     conversation 来源无 payload,按 centroidExcerpt 派生 tags 匹配(避免误删)。
+   *   - 时间窗 createdBefore / createdAfter 用 ISO8601 字符串比较(与 createdAt 同格式)。
+   *
+   * @returns dismiss 结果 + 失败明细 + 截断数
+   */
+  dismissBatch(
+    filter: {
+      readonly source?: ProposalSource;
+      readonly domainTags?: readonly string[];
+      readonly createdBefore?: string;
+      readonly createdAfter?: string;
+      readonly limit?: number;
+    },
+    reason: string,
+    dismissDays?: number,
+  ): {
+    readonly dismissedIds: readonly string[];
+    readonly failures: ReadonlyArray<{
+      readonly entityId: string;
+      readonly reason: string;
+    }>;
+    readonly skipped: number;
+  } {
+    const limit = Math.min(Math.max(filter.limit ?? 1000, 1), 5000);
+    const pending = this.listPending().filter((p) => {
+      // source=undefined 视为 'conversation'(向前兼容:老 proposal 没填 source)
+      const effectiveSource: ProposalSource = p.source ?? "conversation";
+      if (filter.source && effectiveSource !== filter.source) return false;
+      if (filter.createdBefore && p.createdAt >= filter.createdBefore) return false;
+      if (filter.createdAfter && p.createdAt <= filter.createdAfter) return false;
+      if (filter.domainTags && filter.domainTags.length > 0) {
+        // proposal.payload.domainTags 与 filter.domainTags 有交集
+        const pTags = p.payload?.domainTags ?? [];
+        if (!pTags.some((t) => filter.domainTags!.includes(t))) return false;
+      }
+      return true;
+    });
+    const target = pending.slice(0, limit);
+    const skipped = pending.length - target.length;
+
+    const dismissedIds: string[] = [];
+    const failures: Array<{ entityId: string; reason: string }> = [];
+
+    for (const p of target) {
+      try {
+        this.dismiss(p.entityId, reason, dismissDays);
+        dismissedIds.push(p.entityId);
+      } catch (e) {
+        failures.push({
+          entityId: p.entityId,
+          reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    return { dismissedIds, failures, skipped };
+  }
+
   /** 清理过期/已处理数据(测试用) */
   clear(): void {
     for (const f of [this.clustersFile, this.proposalsFile]) {

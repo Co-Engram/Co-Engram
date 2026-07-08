@@ -34,12 +34,12 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 19 (Task 3.3 加 engram_audit_query 后)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(19);
+  it("standard = 21 (Task 3.3 加 engram_audit_query;AI-8 加 batch proposal)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(21);
   });
 
-  it("full = 28 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(28);
+  it("full = 30 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance,AI-8 加 batch proposal)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(30);
   });
 
   // ============================================================
@@ -196,7 +196,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(28);
+    expect(filtered.length).toBe(30);
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -206,10 +206,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 19 个(Task 3.3 加 engram_audit_query 后)", () => {
+  it("standard 过滤到 21 个(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(19);
+    expect(filtered.length).toBe(21);
   });
 
   it("minimal 不含 engram_delete", () => {

@@ -62,6 +62,10 @@ export const zh = {
     "接受一个候选提案 → 系统自动创建对应记忆,并标记提案为已接受。后续相同主题不会再产生重复提案。",
   "tool.engram_dismiss_proposal":
     "驳回一个候选提案。默认永久不再提示;显式传 dismissDays > 0 时 N 天后可被新事件重新激活。审计日志始终保留。",
+  "tool.engram_accept_proposals_by_source":
+    "按来源(auto-memory 或 external-markdown)批量接受候选提案。仅支持自带 payload 的来源,无需 LLM 填表。适合一次清空数百到数千条候选。",
+  "tool.engram_dismiss_proposals_by_filter":
+    "按来源/domainTags/时间窗组合过滤批量驳回候选提案。典型用法:一次清空 load-test 对话流污染,或按 tag 批量驳回。reason 必填(审计留存)。",
   "tool.engram_synthesize":
     "手工触发 REM:把多条已有记忆交给 LLM 综合成一条 pattern(模式)记忆,并自动为每个源连一条 derives_from(派生自)连接。需要配置 LLM。可选 dryRun 只看草稿不创建。",
 
@@ -272,6 +276,29 @@ export const zh = {
 - 候选处于边缘(改为接受 + 细化)
 
 默认**永久驳回**:status=dismissed + dismissedUntil 留空,后续 watcher/observe 都不再重开此候选。若需"暂时屏蔽",传 dismissDays > 0 —— N 天后该候选可被新事件重新激活。审计日志始终保留(便于排查)。返回:候选标记为已驳回 + 从待处理列表移除。`,
+  "tool.engram_accept_proposals_by_source.agent": `按 source 批量接受候选(转成真正的 engram)。
+
+何时调用:
+- auto-memory / external-markdown 来源的 pending 候选累积到数十到数千条,逐条 accept 不现实
+- load-test 产生大量 auto-memory 文件, watcher 全部转成候选后需要一次性入库
+
+何时不调用:
+- 候选来源是 conversation(必须用单条 engram_accept_proposal,LLM 需要为每条填 title/content)
+- 想筛选特定 domainTags(本工具只按 source 过滤)
+
+返回:\`{ source, acceptedCount, dismissedCount(恒 0), remainingCount, engramIds, failures }\`。单条 accept 失败不阻塞 batch,记录到 failures 数组。limit 默认 200(最大 500),超过的 pending 留到下次。`,
+  "tool.engram_dismiss_proposals_by_filter.agent": `按 source / domainTags / 时间窗组合 filter 批量驳回候选。
+
+何时调用:
+- load-test 一次产生数千条 conversation 候选,逐条 dismiss 不现实
+- 某个 domainTag(如 'load-test')的所有候选都要清空
+- 某时间窗内所有候选都是噪声,要一次清掉
+
+何时不调用:
+- 只是少数几条候选(用单条 engram_dismiss_proposal,让 LLM 逐条审核更稳)
+- 不确定 filter 范围(先调 engram_list_proposals 确认)
+
+返回:\`{ dismissedCount, acceptedCount(恒 0), remainingCount, dismissedIds, failures }\`。reason 必填(审计留存)。默认永久驳回;传 dismissDays > 0 时 N 天后可被新事件重新激活。limit 默认 1000(最大 5000)。`,
   "tool.engram_synthesize.agent": `综合多条 engram 形成一条 pattern 记忆(手工触发的 REM)。
 
 何时调用:
@@ -636,6 +663,16 @@ P1:tool-sequence 执行参数化工具链;prompt-template 渲染并返回 prompt
 副作用:标记提案 status=dismissed;dismissDays>0 时设置 dismissedUntil=N 天后,=0 时 dismissedUntil=undefined(永不重开);append audit。
 错误条件:提案未找到抛错;已 accepted 抛错。
 不变量:dismissed 状态的 proposal 不会被 proposeAutoMemory / observe 重开(即使源事件再次触发)。`,
+  "tool.engram_accept_proposals_by_source.technical": `按 source 批量接受提案。输入:{ source: 'auto-memory'|'external-markdown', createdBy?, visibility?, limit?: 1..500=200 }
+行为:列出 source 匹配的 pending proposal,逐条 accept(单条失败不阻塞 batch,记录到 failures);每条 accept 内部走与 engram_accept_proposal 相同的路径(payload 兜底 title/content/domainTags)。
+副作用:批量创建 engram + 批量标记 accepted + append audit × N。
+返回:{ source, acceptedCount, dismissedCount=0, remainingCount(所有 source), engramIds, failures[] }。
+错误条件:ctx.proposalEngine 缺失抛 configError;source='conversation' 在 schema 层就拒绝(z.enum 限定)。`,
+  "tool.engram_dismiss_proposals_by_filter.technical": `按 filter 批量驳回提案。输入:{ source?, domainTags?, createdBefore?, createdAfter?, reason: string[1..500], dismissDays?: 0..365, limit?: 1..5000=1000 }
+行为:列出符合 filter 的 pending proposal,逐条 dismiss(单条失败不阻塞 batch,记录到 failures);reason 必填(append audit)。
+副作用:批量标记 status=dismissed + 设置 dismissedUntil + append audit × N。
+返回:{ dismissedCount, acceptedCount=0, remainingCount(所有 source), dismissedIds, failures[] }。
+错误条件:ctx.proposalEngine 缺失抛 configError;reason 缺失在 schema 层就拒绝。`,
   "tool.engram_synthesize.technical": `LLM 综合多条 engram 形成 pattern。输入:{ ids: string[2..20], createdBy?, domainTags?: string[1..5], synthesisHints?: string[≤500], dryRun?: boolean }
 行为:读源 → 调 ctx.llmClient.complete(prompt, { maxTokens: 4000, temperature: 0.3 }) → 解析 JSON → createEngram(kind='pattern', sourceType='inferred', importance=0.7, confidence 来自 LLM) → 对每个源 addOutgoingSynapse(kind='derives_from', weight=0.8, directional, evidence 标注 synthesis 来源)。
 domainTags 解析优先级:用户显式 > LLM 推断 > 源 tags 并集(取前 5)。
@@ -1034,6 +1071,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Stats 面板(viewer.stats.*) =====
   "viewer.stats.totalEngrams": "记忆印迹总数",
+  "viewer.stats.totalEngramsTip":
+    "总数 = 活跃 + 已归档 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已归档」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
+  "viewer.stats.activeEngrams": "活跃",
   "viewer.stats.totalSynapses": "记忆突触总数",
   "viewer.stats.pendingProposals": "待审提案",
   "viewer.stats.clickToViewAll": "点击查看全部",
@@ -1185,6 +1225,17 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.trash.purgeConfirm2": "二次确认:真的清空 ${scope} 的全部 ${n} 条?",
   "viewer.trash.purgeDone": "已永久删除 ${n} 条记忆。",
   "viewer.trash.purgeFailed": "清空失败:${err}",
+  "viewer.trash.colTitle": "标题",
+  "viewer.trash.sourceSoft": "软删",
+  "viewer.trash.sourceSwept": "已清",
+  "viewer.trash.loadMore": "加载更多(已加载 ${loaded} / ${total})",
+  "viewer.trash.allLoaded": "已全部加载(${n} 条)",
+  "viewer.trash.partitionSoftSuffix": "(软删)",
+  "viewer.trash.partitionSweptSuffix": "(物理清空)",
+  "viewer.trash.partitionTipSoft":
+    "软删除:engram 仍在主索引,仅 status=forgotten/archived,可一键恢复。",
+  "viewer.trash.partitionTipSwept":
+    "物理清空:文件已移到 .trash/ 目录,git 历史保留,恢复需从 .trash/ 取回。",
 
   // ===== Merges 面板(viewer.merges.*) =====
   "viewer.merges.loading": "加载合并统计中",
