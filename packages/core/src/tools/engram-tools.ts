@@ -19,7 +19,12 @@ import type {
 import type { DigestLine } from "../index/types.js";
 import type { EngramRepository } from "../storage/repository.js";
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import {
+  validateInput,
+  notFoundError,
+  configError,
+  internalError,
+} from "./tool.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
 import { adaptiveDisclosure } from "../disclosure/adaptive.js";
 import { createBudget } from "../disclosure/budget.js";
@@ -283,7 +288,7 @@ function readEngramViewAuto(
   const reserved = options.contextBudget?.reserved ?? 0;
   const budget = createBudget(totalTokens, reserved);
   const digest = repo.readDigest(id);
-  if (!digest) throw new Error(`Engram not found: ${id}`);
+  if (!digest) throw notFoundError("Engram", id);
 
   const line: DigestLine = {
     id,
@@ -340,12 +345,12 @@ export function readEngramView(
   switch (tier) {
     case "catalog": {
       const entry = repo.readCatalogEntry(id);
-      if (!entry) throw new Error(`Engram not found: ${id}`);
+      if (!entry) throw notFoundError("Engram", id);
       return { tier: "catalog", entry };
     }
     case "digest": {
       const digest = repo.readDigest(id);
-      if (!digest) throw new Error(`Engram not found: ${id}`);
+      if (!digest) throw notFoundError("Engram", id);
       return { tier: "digest", digest };
     }
     case "content": {
@@ -366,7 +371,7 @@ export function readEngramView(
     }
     case "synapses": {
       const entry = repo.readCatalogEntry(id);
-      if (!entry) throw new Error(`Engram not found: ${id}`);
+      if (!entry) throw notFoundError("Engram", id);
       const outgoingFile = repo.readSynapses(id);
       const incoming = collectIncoming(repo, id);
       const neighborDigests = collectNeighborDigests(
@@ -562,7 +567,7 @@ export const engramDeleteTool: Tool<
       input,
     );
     if (!ctx.repository.exists(parsed.id)) {
-      throw new Error(`Engram not found: ${parsed.id}`);
+      throw notFoundError("Engram", parsed.id);
     }
     ctx.repository.deleteEngram(parsed.id);
     // F1 修复(fail-loud 契约):post-check 验证删除真的生效。
@@ -572,7 +577,7 @@ export const engramDeleteTool: Tool<
     // 还显示该 engram,因为另一进程的 cache 把旧 entry 写回了。
     // 这里发现不一致立即抛错,让调用方跑 engram_doctor 自愈,而非撒谎。
     if (ctx.repository.exists(parsed.id)) {
-      throw new Error(
+      throw internalError(
         `engram_delete failed: ${parsed.id} still exists after deleteEngram ` +
           `(race condition or index/file inconsistency — run engram_doctor to self-heal)`,
       );
@@ -613,7 +618,10 @@ export const engramSearchTool: Tool<
       input,
     );
     if (!ctx.searchOrchestrator) {
-      throw new Error("SearchOrchestrator not available in ToolContext");
+      throw configError(
+        "ctx.searchOrchestrator",
+        "SearchOrchestrator is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     const results = ctx.searchOrchestrator.search(
       parsed.query,
@@ -771,7 +779,7 @@ export const engramReinforceTool: Tool<
       input,
     );
     if (!ctx.repository.exists(parsed.id)) {
-      throw new Error(`Engram not found: ${parsed.id}`);
+      throw notFoundError("Engram", parsed.id);
     }
     const nowIso = new Date().toISOString();
     const direct = recordRetrievalSuccess(
@@ -858,7 +866,7 @@ export const engramReportFailureTool: Tool<
       input,
     );
     if (!ctx.repository.exists(parsed.id)) {
-      throw new Error(`Engram not found: ${parsed.id}`);
+      throw notFoundError("Engram", parsed.id);
     }
     const result = recordRetrievalFailure(
       ctx.repository,
@@ -913,7 +921,7 @@ export const engramArchiveTool: Tool<
       input,
     );
     if (!ctx.repository.exists(parsed.id)) {
-      throw new Error(`Engram not found: ${parsed.id}`);
+      throw notFoundError("Engram", parsed.id);
     }
     ctx.repository.updateLifecycle(parsed.id, "archived", undefined);
     const updated = ctx.repository.readEngram(parsed.id);
@@ -961,8 +969,10 @@ export const engramRestoreTool: Tool<
         auditLog: ctx.auditLog,
       });
       if (!trashResult.ok) {
-        throw new Error(
-          `Engram not found: ${parsed.id} (${trashResult.reason})`,
+        throw notFoundError(
+          "Engram",
+          parsed.id,
+          `Not in active area and not in trash: ${trashResult.reason}. Use engram_search or engram_list_paths to find the correct ID.`,
         );
       }
       restoredFromTrash = true;
@@ -1003,7 +1013,7 @@ export const engramForgetTool: Tool<
       input,
     );
     if (!ctx.repository.exists(parsed.id)) {
-      throw new Error(`Engram not found: ${parsed.id}`);
+      throw notFoundError("Engram", parsed.id);
     }
     ctx.repository.updateLifecycle(parsed.id, "forgotten", "forgotten");
     ctx.auditLog?.append({

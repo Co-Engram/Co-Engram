@@ -19,6 +19,7 @@
 
 import type { ArbitrateInput, ArbitrateOutput } from "./types.js";
 import type { ContradictionVerdict } from "../types/synapse.js";
+import { internalError } from "../tools/error-schema.js";
 
 /** Arbiter Provider 接口（host 可注入 LLM 实现） */
 export interface ContradictionArbiter {
@@ -118,16 +119,18 @@ export function validateArbiterOutput(output: ArbitrateOutput): void {
     "archive",
   ];
   if (!validVerdicts.includes(output.verdict)) {
-    throw new Error(`Invalid verdict: ${output.verdict}`);
+    throw internalError(`Invalid verdict: ${output.verdict}`);
   }
   if (!output.rationale || output.rationale.trim().length === 0) {
-    throw new Error("Arbiter must provide rationale (spec §3.9)");
+    throw internalError("Arbiter must provide rationale (spec §3.9)");
   }
   if (
     typeof output.confidence !== "number" ||
     output.confidence < 0 ||
     output.confidence > 1
   ) {
-    throw new Error(`confidence must be in [0,1], got ${output.confidence}`);
+    throw internalError(
+      `confidence must be in [0,1], got ${output.confidence}`,
+    );
   }
 }

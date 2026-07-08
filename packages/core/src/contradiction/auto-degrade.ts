@@ -11,6 +11,10 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { SynapseResolutionState } from "../types/synapse.js";
 import type { AuditLog } from "../observability/audit-log.js";
 import { detectContradictions } from "./detector.js";
+import {
+  notFoundError,
+  validationError,
+} from "../tools/error-schema.js";
 
 export interface AutoDegradeResult {
   readonly scanned: number;
@@ -115,12 +119,17 @@ export function manualResolveContradiction(
   const file = repo.readSynapses(input.fromId);
   const synapse = file.outgoing.find((s) => s.id === input.synapseId);
   if (!synapse) {
-    throw new Error(
-      `Synapse not found: ${input.synapseId} (from ${input.fromId})`,
+    throw notFoundError(
+      "Synapse",
+      `${input.fromId}/${input.synapseId}`,
+      `Use synapse_list on engram ${input.fromId} to enumerate its synapses.`,
     );
   }
   if (synapse.kind !== "contradicts") {
-    throw new Error(`Not a contradicts synapse: ${input.synapseId}`);
+    throw validationError(
+      `Not a contradicts synapse: ${input.synapseId} (kind=${synapse.kind})`,
+      "auto_degrade requires a synapse with kind='contradicts'.",
+    );
   }
 
   const nextState: SynapseResolutionState = {

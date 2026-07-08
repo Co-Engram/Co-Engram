@@ -249,7 +249,7 @@ describe("engram_synthesize — error paths", () => {
         { ids: [id1, id2] },
         makeCtx(undefined),
       ),
-    ).rejects.toThrow(/requires LLM client/);
+    ).rejects.toThrow(/LLM client is not available for tool engram_synthesize/);
   });
 
   it("ids 少于 2 → schema 校验拒绝", async () => {

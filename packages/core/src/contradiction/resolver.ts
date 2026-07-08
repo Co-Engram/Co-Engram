@@ -21,6 +21,10 @@
 
 import type { EngramRepository } from "../storage/repository.js";
 import { stripDerivedSection } from "../storage/obsidian-links.js";
+import {
+  notFoundError,
+  validationError,
+} from "../tools/error-schema.js";
 import type {
   SynapseResolutionState,
   ContradictionVerdict,
@@ -81,13 +85,16 @@ export async function resolveContradiction(
   const file = repo.readSynapses(input.fromId);
   const synapse = file.outgoing.find((s) => s.id === input.synapseId);
   if (!synapse) {
-    throw new Error(
-      `Synapse not found: ${input.synapseId} (from ${input.fromId})`,
+    throw notFoundError(
+      "Synapse",
+      `${input.fromId}/${input.synapseId}`,
+      `Use synapse_list on engram ${input.fromId} to enumerate its synapses.`,
     );
   }
   if (synapse.kind !== "contradicts") {
-    throw new Error(
+    throw validationError(
       `Synapse ${input.synapseId} is not a contradicts (kind=${synapse.kind})`,
+      "contradiction_resolve requires a synapse with kind='contradicts'.",
     );
   }
 

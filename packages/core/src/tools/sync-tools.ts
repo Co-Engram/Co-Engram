@@ -19,7 +19,7 @@ import { join } from "node:path";
 import { z } from "zod";
 
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import { validateInput, configError } from "./tool.js";
 import {
   appendToGitignore,
   commitFiles,
@@ -170,7 +170,8 @@ export const engramSyncTool: Tool<EngramSyncToolInput, EngramSyncResult> = {
 
     const repoPath = resolveRepoPathFromContext(ctx);
     if (!isGitRepo(repoPath)) {
-      throw new Error(
+      throw configError(
+        "dataRoot.isGitRepo",
         `engram_sync requires a git repo. dataRoot is not a git repository: ${repoPath}. Initialize with: cd ${repoPath} && git init && git remote add origin <url>`,
       );
     }

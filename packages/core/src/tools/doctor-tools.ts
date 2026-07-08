@@ -10,7 +10,7 @@
 import { z } from "zod";
 
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import { validateInput, configError } from "./tool.js";
 import { runInfraDoctor } from "../storage/infra-doctor.js";
 import { cleanupDanglingIndexReferences } from "../storage/index-cleanup.js";
 import { readEngramIndex } from "../storage/engram-index.js";
@@ -63,8 +63,9 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
         input,
       );
       if (!ctx.repository) {
-        throw new Error(
-          "engram_doctor requires a Repository — inject `repository` into ToolContext",
+        throw configError(
+          "ctx.repository",
+          "engram_doctor requires a Repository — host adapter must inject `repository` into ToolContext.",
         );
       }
       // 基础设施自愈 preflight:补齐 runDoctor 不覆盖的层(派生索引 + merge driver)
@@ -160,8 +161,9 @@ export const engramListPathsTool: Tool<
   execute(input, ctx) {
     validateInput<EngramListPathsToolInput>(EngramListPathsInputSchema, input);
     if (!ctx.repository) {
-      throw new Error(
-        "engram_list_paths requires a Repository — inject `repository` into ToolContext",
+      throw configError(
+        "ctx.repository",
+        "engram_list_paths requires a Repository — host adapter must inject `repository` into ToolContext.",
       );
     }
     const tree = ctx.repository.listPathTree();

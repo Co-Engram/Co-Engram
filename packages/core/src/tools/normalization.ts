@@ -14,6 +14,7 @@
  */
 
 import type { ZodTypeAny } from "zod";
+import { validationError } from "./tool.js";
 
 /** ULID canonical 字符集(Crockford base32,大小写不敏感) */
 export const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -77,7 +78,7 @@ export function parseAndNormalize<T>(
     const issues = result.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    throw new Error(`Invalid input: ${issues}`);
+    throw validationError(`Invalid input: ${issues}`);
   }
   return result.data as T;
 }

@@ -12,7 +12,11 @@
 
 import type { Synapse, SynapseEvidence } from "../types/synapse.js";
 import type { Tool } from "./tool.js";
-import { validateInput } from "./tool.js";
+import {
+  validateInput,
+  notFoundError,
+  validationError,
+} from "./tool.js";
 import { randomUUID } from "node:crypto";
 import {
   SynapseCreateInputSchema,
@@ -43,13 +47,16 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
 
     // 校验端点存在
     if (!ctx.repository.exists(parsed.from)) {
-      throw new Error(`Source engram not found: ${parsed.from}`);
+      throw notFoundError("Source engram", parsed.from);
     }
     if (!ctx.repository.exists(parsed.to)) {
-      throw new Error(`Target engram not found: ${parsed.to}`);
+      throw notFoundError("Target engram", parsed.to);
     }
     if (parsed.from === parsed.to) {
-      throw new Error("Self-synapse not allowed in P0");
+      throw validationError(
+        "Self-synapse is not allowed: `from` and `to` must differ.",
+        "Choose two different engram IDs. Self-connections are intentionally forbidden in P0.",
+      );
     }
 
     const timestamp = new Date().toISOString();
@@ -141,8 +148,10 @@ export const synapseGetTool: Tool<SynapseGetToolInput, Synapse> = {
     const file = ctx.repository.readSynapses(parsed.from);
     const found = file.outgoing.find((s) => s.id === parsed.synapseId);
     if (!found) {
-      throw new Error(
-        `Synapse not found: from=${parsed.from} synapseId=${parsed.synapseId}`,
+      throw notFoundError(
+        "Synapse",
+        `${parsed.from}/${parsed.synapseId}`,
+        `Use synapse_list on engram ${parsed.from} to enumerate its synapses.`,
       );
     }
     return found;

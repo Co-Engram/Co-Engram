@@ -19,7 +19,11 @@
 
 import type { Proposal, ProposalSource } from "../observability/proposal-engine.js";
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import {
+  validateInput,
+  validationError,
+  configError,
+} from "./tool.js";
 import {
   EngramListProposalsInputSchema,
   EngramAcceptProposalInputSchema,
@@ -56,13 +60,19 @@ function decodeProposalCursor(cursor: string): ProposalSortKey {
   try {
     json = Buffer.from(cursor, "base64url").toString("utf8");
   } catch {
-    throw new Error("invalid proposal cursor: base64 decode failed");
+    throw validationError(
+      "invalid proposal cursor: base64 decode failed",
+      "Cursor must be a base64url-encoded JSON array. Use the nextCursor value returned by the previous engram_list_proposals call.",
+    );
   }
   let arr: unknown;
   try {
     arr = JSON.parse(json);
   } catch {
-    throw new Error("invalid proposal cursor: JSON parse failed");
+    throw validationError(
+      "invalid proposal cursor: JSON parse failed",
+      "Cursor payload is not valid JSON. Use the nextCursor value returned by the previous engram_list_proposals call.",
+    );
   }
   if (
     !Array.isArray(arr) ||
@@ -70,7 +80,10 @@ function decodeProposalCursor(cursor: string): ProposalSortKey {
     typeof arr[0] !== "string" ||
     typeof arr[1] !== "string"
   ) {
-    throw new Error("invalid proposal cursor: shape mismatch");
+    throw validationError(
+      "invalid proposal cursor: shape mismatch (expected [createdAt, entityId])",
+      "Cursor payload shape is invalid. Use the nextCursor value returned by the previous engram_list_proposals call.",
+    );
   }
   return [arr[0] as string, arr[1] as string];
 }
@@ -108,7 +121,10 @@ export const engramListProposalsTool: Tool<
       input,
     );
     if (!ctx.proposalEngine) {
-      throw new Error("ProposalEngine not available in ToolContext");
+      throw configError(
+        "ctx.proposalEngine",
+        "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     const all = parsed.includeAll
       ? ctx.proposalEngine.listAll()
@@ -218,7 +234,10 @@ export const engramAcceptProposalTool: Tool<
       input,
     );
     if (!ctx.proposalEngine) {
-      throw new Error("ProposalEngine not available in ToolContext");
+      throw configError(
+        "ctx.proposalEngine",
+        "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     // createdBy 解析链(优先级):
     //   1. 调用方显式传 parsed.createdBy
@@ -265,7 +284,10 @@ export const engramDismissProposalTool: Tool<
       input,
     );
     if (!ctx.proposalEngine) {
-      throw new Error("ProposalEngine not available in ToolContext");
+      throw configError(
+        "ctx.proposalEngine",
+        "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     ctx.proposalEngine.dismiss(
       parsed.entityId,

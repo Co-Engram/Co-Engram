@@ -24,7 +24,7 @@
 import { z } from "zod";
 
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import { validateInput, configError } from "./tool.js";
 import type {
   AuditAction,
   AuditEntry,
@@ -159,8 +159,9 @@ RETURNS: { items: AuditEvent[], nextCursor: string | null }。items 按时间正
       input,
     );
     if (!ctx.auditLog) {
-      throw new Error(
-        "engram_audit_query requires an auditLog — inject `auditLog` into ToolContext",
+      throw configError(
+        "ctx.auditLog",
+        "engram_audit_query requires an auditLog — host adapter must inject `auditLog` into ToolContext.",
       );
     }
     // cursor 优先于 until:cursor 编码了上一页 oldest entry 的 ts,

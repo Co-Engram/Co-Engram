@@ -9,6 +9,20 @@
 
 import type { ZodTypeAny } from "zod";
 
+// re-export EngramToolError 契约(hyper-pattern 1 + 3 修复),
+// 让工具层调用方从 ./tool.js 一站式 import 工厂函数与错误类。
+export {
+  EngramToolError,
+  isEngramToolError,
+  notFoundError,
+  validationError,
+  lockBusyError,
+  llmUnavailableError,
+  configError,
+  internalError,
+} from "./error-schema.js";
+import { validationError } from "./error-schema.js";
+
 /**
  * 工具元信息（可暴露给 host 用于注册）
  */
@@ -107,7 +121,10 @@ export interface Tool<I = unknown, O = unknown> extends ToolMeta {
 }
 
 /**
- * 校验并解析输入（host adapter 通常在 execute 前调用）
+ * 校验并解析输入(host adapter 通常在 execute 前调用)。
+ *
+ * 校验失败时抛 EngramToolError(code="VALIDATION"),
+ * host adapter 捕获后可序列化 schema 字段给 LLM,LLM 据此修正参数重试。
  */
 export function validateInput<T>(schema: ZodTypeAny, raw: unknown): T {
   const result = schema.safeParse(raw);
@@ -115,7 +132,7 @@ export function validateInput<T>(schema: ZodTypeAny, raw: unknown): T {
     const issues = result.error.issues
       .map((i) => `${i.path.join(".")}: ${i.message}`)
       .join("; ");
-    throw new Error(`Invalid input: ${issues}`);
+    throw validationError(`Invalid input: ${issues}`);
   }
   return result.data as T;
 }

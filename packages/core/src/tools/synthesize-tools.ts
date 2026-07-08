@@ -22,7 +22,13 @@ import type { Engram } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
 import type { LlmClient } from "../observability/necessity-evaluator.js";
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import {
+  validateInput,
+  llmUnavailableError,
+  notFoundError,
+  validationError,
+  internalError,
+} from "./tool.js";
 import {
   EngramSynthesizeInputSchema,
   type EngramSynthesizeToolInput,
@@ -269,24 +275,25 @@ export const engramSynthesizeTool: Tool<
 
     const llmClient = ctx.llmClient as LlmClient | undefined;
     if (!llmClient) {
-      throw new Error(
-        "engram_synthesize requires LLM client. " +
-          "Configure necessityLlm in plugin config (MCP: persistedConfig.necessityLlm or ANTHROPIC_API_KEY env; " +
-          "OpenClaw: config.necessityLlm or ~/.openclaw/openclaw.json).",
+      throw llmUnavailableError(
+        "engram_synthesize",
+        "Configure necessityLlm in plugin config (MCP: persistedConfig.necessityLlm or ANTHROPIC_API_KEY env; OpenClaw: config.necessityLlm or ~/.openclaw/openclaw.json).",
       );
     }
 
     // 1. 加载并校验源
     const { sources, missing } = loadAndValidateSources(ctx.repository, parsed.ids);
     if (missing.length > 0) {
-      throw new Error(
-        `Source engrams not found: ${missing.join(", ")}. ` +
-          `Synthesis aborted (no partial execution).`,
+      throw notFoundError(
+        "Source engrams",
+        missing.join(", "),
+        `Synthesis aborted (no partial execution). Verify the IDs via engram_search before retrying.`,
       );
     }
     if (sources.length < 2) {
-      throw new Error(
+      throw validationError(
         `At least 2 unique source engrams required for synthesis (got ${sources.length}).`,
+        "Pass 2 or more distinct engram IDs in the `ids` array.",
       );
     }
 
@@ -311,24 +318,24 @@ export const engramSynthesizeTool: Tool<
         timeoutMs: 60_000,
       });
     } catch (err) {
-      throw new Error(
+      throw internalError(
         `LLM synthesis call failed: ${
           err instanceof Error ? err.message : String(err)
         }`,
+        err,
       );
     }
 
     if (typeof raw !== "string" || raw.length === 0) {
-      throw new Error(
+      throw internalError(
         `LLM returned non-string output (type=${typeof raw}); synthesis aborted.`,
       );
     }
 
     const draft = parseSynthesisOutput(raw);
     if (!draft) {
-      throw new Error(
-        `Failed to parse LLM synthesis output as JSON. ` +
-          `First 200 chars: ${raw.slice(0, 200)}...`,
+      throw internalError(
+        `Failed to parse LLM synthesis output as JSON. First 200 chars: ${raw.slice(0, 200)}...`,
       );
     }
 

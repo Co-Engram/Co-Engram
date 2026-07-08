@@ -11,7 +11,11 @@
 
 import type { Skill, SkillResult } from "../types/skill.js";
 import type { Tool, ToolContext } from "./tool.js";
-import { validateInput } from "./tool.js";
+import {
+  validateInput,
+  notFoundError,
+  configError,
+} from "./tool.js";
 import {
   SkillGetInputSchema,
   SkillInvokeInputSchema,
@@ -46,11 +50,14 @@ export const skillGetTool: Tool<SkillGetToolInput, Skill> = {
     const parsed = validateInput<SkillGetToolInput>(SkillGetInputSchema, input);
     const ext = ctx as SkillAwareContext;
     if (!ext.skills) {
-      throw new Error("Skill registry not available in ToolContext");
+      throw configError(
+        "ctx.skills",
+        "Skill registry is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     const skill = ext.skills.get(parsed.id);
     if (!skill) {
-      throw new Error(`Skill not found: ${parsed.id}`);
+      throw notFoundError("Skill", parsed.id);
     }
     return skill;
   },
@@ -72,11 +79,14 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
     );
     const ext = ctx as SkillAwareContext;
     if (!ext.skills) {
-      throw new Error("Skill registry not available in ToolContext");
+      throw configError(
+        "ctx.skills",
+        "Skill registry is not injected into ToolContext — host adapter must wire it during bootstrap.",
+      );
     }
     const skill = ext.skills.get(parsed.id);
     if (!skill) {
-      throw new Error(`Skill not found: ${parsed.id}`);
+      throw notFoundError("Skill", parsed.id);
     }
 
     // 检查是否处于 deprecated 状态
