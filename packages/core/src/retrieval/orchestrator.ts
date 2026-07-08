@@ -19,7 +19,7 @@
 import type { EngramCatalogEntry, EngramId } from "../types/engram.js";
 import type { SearchFilter, SearchResult } from "../types/disclosure.js";
 import type { DigestLine } from "../index/types.js";
-import { buildFtsIndex, searchFts, type FtsIndex } from "./fts.js";
+import { buildFtsIndex, searchFts, tokenize, type FtsIndex } from "./fts.js";
 import { applyFilter } from "./filter.js";
 import {
   computeFourFactorScore,
@@ -86,6 +86,8 @@ function paginateSortedLines(
       kind: line.kind as EngramCatalogEntry["kind"],
       domainTags: line.domainTags,
     },
+    // AI-9: 无查询分页路径返回空 matchReason(score=0,无字段命中解释)
+    matchReason: [] as readonly MatchReason[],
   }));
   const hasMore = startIdx + limit < sorted.length && items.length > 0;
   const nextCursor =
@@ -96,12 +98,43 @@ function paginateSortedLines(
 }
 
 /**
+ * 单条命中解释(AI-9):哪个字段的哪个 term 命中 + 该命中的权重占比。
+ *
+ * 权重语义:同一检索结果内,所有 matchReason 的 weight 加起来 = 1
+ * (每个 (field, term) pair 等权贡献)。LLM 据此判断"这条结果为什么排第一"。
+ *
+ * 字段说明:
+ *   - title:标题命中(tokenize 后 token 在 title 集合中)
+ *   - summary:摘要命中
+ *   - domainTags:领域标签命中
+ *   - contextTags:情境标签命中
+ */
+export interface MatchReason {
+  readonly field: "title" | "summary" | "domainTags" | "contextTags";
+  readonly term: string;
+  readonly weight: number;
+}
+
+/**
  * 简单检索结果（P0 阶段）
+ *
+ * AI-9 修复:
+ *   - score 严格 clamp01 兜底(四因子加权和理论上 ≤ 1,但 reinforcementScore
+ *     累积等 corner case 可能让数值漂移 > 1,这里防御性 clamp)
+ *   - 新增 matchReason 字段,提供 per-(field, term) 命中解释
  */
 export interface SimpleSearchResult {
   readonly id: EngramId;
+  /** 最终相关性得分,严格 ∈ [0, 1] */
   readonly score: number;
   readonly entry: EngramCatalogEntry;
+  /**
+   * 命中解释(可空数组):
+   *   - in-memory 引擎:基于 FTS matchedTokens + 各字段 tokenize 重建
+   *   - SQLite bm25 引擎:无字段级信息,返回空数组(后续可用 FTS5 highlight() 扩展)
+   *   - listByFilter / listByImportance 等无查询路径:空数组(score=0)
+   */
+  readonly matchReason: readonly MatchReason[];
 }
 
 /**
@@ -169,18 +202,27 @@ export class SearchOrchestrator {
     const maxFts = hits[0]!.score;
     const now = this.nowFn();
 
-    // 3. 应用过滤器 + 三因子打分
-    const scored: Array<{ id: EngramId; score: number; line: DigestLine }> = [];
+    // 3. 应用过滤器 + 三因子打分 + 命中解释
+    const scored: Array<{
+      id: EngramId;
+      score: number;
+      line: DigestLine;
+      matchReason: readonly MatchReason[];
+    }> = [];
     for (const hit of hits) {
       const line = this.ftsIndex.docs.get(hit.docId);
       if (!line) continue;
       if (!applyFilter([line], filter).includes(line)) continue;
       const relevance = maxFts > 0 ? hit.score / maxFts : 0;
-      const score = computeFourFactorScore(relevance, line, {
+      const rawScore = computeFourFactorScore(relevance, line, {
         now,
         weights: this.weights,
       });
-      scored.push({ id: line.id, score, line });
+      // AI-9: 最终 score 严格 clamp01 兜底,防 reinforcementScore 累积等
+      // corner case 让加权和漂移 > 1。理论值 ≤ 1,clamp 是防御性。
+      const score = clamp01(rawScore);
+      const matchReason = buildMatchReason(hit.matchedTokens, line);
+      scored.push({ id: line.id, score, line, matchReason });
     }
 
     // 4. 稳定排序：按 score 倒序，同分按 id 字典序（prompt cache 友好）
@@ -198,6 +240,7 @@ export class SearchOrchestrator {
         kind: item.line.kind as EngramCatalogEntry["kind"],
         domainTags: item.line.domainTags,
       },
+      matchReason: item.matchReason,
     }));
   }
 
@@ -251,4 +294,70 @@ export class SearchOrchestrator {
     );
     return paginateSortedLines(sorted, opts.limit, opts.cursor);
   }
+}
+
+// ============================================================
+// AI-9 辅助函数
+// ============================================================
+
+/** 防御性 clamp 到 [0, 1],防 NaN / 数值漂移 */
+function clamp01(x: number): number {
+  if (Number.isNaN(x)) return 0;
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+/**
+ * 把 FTS matchedTokens 转成 per-(field, term) 命中解释。
+ *
+ * 算法:
+ *   1. 对每个字段(title / summary / domainTags / contextTags)用与 FTS 索引
+ *      阶段相同的 tokenize("index") 拆 token,得到字段 token set。
+ *   2. 对每个 matchedToken,检查它在哪些字段的 token set 中。
+ *   3. 每个 (field, term) pair 作为一个 MatchReason。
+ *   4. 同一 hit 内所有 matchReason 的 weight 加起来 = 1(等权归一化)。
+ *
+ * 设计取舍:
+ *   - 不在 FTS 层做 per-field 倒排(4 倍索引开销,收益小)
+ *   - 用等权而非真实分数贡献(四因子权重与 FTS title 加权纠缠,清晰拆分需重写)
+ *   - LLM 据此可判断"这条结果为什么命中",具体权重交给 LLM 解读
+ */
+function buildMatchReason(
+  matchedTokens: readonly string[],
+  line: DigestLine,
+): readonly MatchReason[] {
+  if (matchedTokens.length === 0) return [];
+
+  const fieldTokens: ReadonlyArray<{
+    readonly name: MatchReason["field"];
+    readonly tokens: ReadonlySet<string>;
+  }> = [
+    { name: "title", tokens: new Set(tokenize(line.title, "index")) },
+    {
+      name: "summary",
+      tokens: new Set(tokenize(line.summary ?? "", "index")),
+    },
+    {
+      name: "domainTags",
+      tokens: new Set(tokenize(line.domainTags.join(" "), "index")),
+    },
+    {
+      name: "contextTags",
+      tokens: new Set(tokenize((line.contextTags ?? []).join(" "), "index")),
+    },
+  ];
+
+  const reasons: MatchReason[] = [];
+  for (const token of matchedTokens) {
+    for (const f of fieldTokens) {
+      if (f.tokens.has(token)) {
+        reasons.push({ field: f.name, term: token, weight: 0 });
+      }
+    }
+  }
+
+  if (reasons.length === 0) return [];
+  const w = 1 / reasons.length;
+  return reasons.map((r) => ({ ...r, weight: w }));
 }

@@ -44,7 +44,7 @@ function getZhSegmenter(): Intl.Segmenter | null {
  *   边界匹配(假阳性)。但用户极少查无意义 2 字组合,单字 query 极常见,
  *   trade-off 划算。FTS 真正消除假阳性需要 phrase matching(未实现)。
  */
-function tokenize(text: string, mode: "index" | "query" = "index"): string[] {
+export function tokenize(text: string, mode: "index" | "query" = "index"): string[] {
   if (!text) {
     return [];
   }

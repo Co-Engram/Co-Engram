@@ -674,12 +674,14 @@ export const engramSearchTool: Tool<
     return {
       // title/kind/domainTags 让 LLM 不必再 engram_get 才知道每条结果是啥。
       // orchestrator 已经从 DigestLine 带出了 entry 字段,直接展开。
+      // AI-9: matchReason 暴露 per-(field, term) 命中解释,LLM 可解读"为什么排第一"
       results: results.map((r) => ({
         id: r.id,
         score: r.score,
         title: r.entry.title,
         kind: r.entry.kind,
         domainTags: r.entry.domainTags,
+        matchReason: r.matchReason,
       })),
       total: results.length,
     };

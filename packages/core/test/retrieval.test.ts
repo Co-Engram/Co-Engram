@@ -302,3 +302,152 @@ describe("SearchOrchestrator", () => {
     expect(r1.map((r) => r.score)).toEqual(r2.map((r) => r.score));
   });
 });
+
+// ============================================================
+// AI-9 score 归一化 + matchReason
+// ============================================================
+
+describe("AI-9: score 归一化 + matchReason", () => {
+  it("score 严格 ∈ [0, 1](clamp01 兜底)", () => {
+    // 极端构造:importance=1 + 多次 reinforce 让 strength 接近 1 + title 命中
+    // 四因子加权和理论 ≤ 1,但 corner case 可能数值漂移,clamp01 兜底
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "Test ADB",
+        summary: "ADB debugging",
+        importance: 1.0,
+        reinforcementScore: 1.0,
+        verificationStatus: undefined,
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const results = orchestrator.search("ADB");
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(r.score).toBeGreaterThanOrEqual(0);
+      expect(r.score).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("matchReason 暴露 title 命中", () => {
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "Android ADB",
+        summary: "调试方法",
+        domainTags: ["mobile"],
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const results = orchestrator.search("adb");
+    expect(results.length).toBe(1);
+    const mr = results[0].matchReason;
+    expect(mr.length).toBeGreaterThan(0);
+    const titleHit = mr.find((m) => m.field === "title");
+    expect(titleHit).toBeDefined();
+    expect(titleHit!.term).toBe("adb");
+  });
+
+  it("matchReason 暴露 summary 命中(非 title)", () => {
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "Android 调试",
+        summary: "通过 ADB 连接设备",
+        domainTags: ["mobile"],
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const results = orchestrator.search("adb");
+    expect(results.length).toBe(1);
+    const summaryHit = results[0].matchReason.find((m) => m.field === "summary");
+    expect(summaryHit).toBeDefined();
+    expect(summaryHit!.term).toBe("adb");
+    // title 不含 "adb",所以不应有 title 命中
+    const titleHit = results[0].matchReason.find((m) => m.field === "title");
+    expect(titleHit).toBeUndefined();
+  });
+
+  it("matchReason 暴露 domainTags 命中", () => {
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "配置",
+        summary: "环境设置",
+        domainTags: ["testing", "adb"],
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const results = orchestrator.search("testing");
+    expect(results.length).toBe(1);
+    const domainHit = results[0].matchReason.find(
+      (m) => m.field === "domainTags",
+    );
+    expect(domainHit).toBeDefined();
+    expect(domainHit!.term).toBe("testing");
+  });
+
+  it("matchReason weight 加起来 = 1(等权归一化)", () => {
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "Android ADB",
+        summary: "ADB 调试",
+        domainTags: ["adb"],
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const results = orchestrator.search("adb");
+    expect(results.length).toBe(1);
+    const mr = results[0].matchReason;
+    expect(mr.length).toBeGreaterThan(0);
+    const sum = mr.reduce((acc, m) => acc + m.weight, 0);
+    // 浮点精度容差
+    expect(Math.abs(sum - 1)).toBeLessThan(0.001);
+  });
+
+  it("listByFilter 返回空 matchReason(无查询路径)", () => {
+    const lines = [
+      makeLine({ id: "a", domainTags: ["x"] }),
+      makeLine({ id: "b", domainTags: ["y"] }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    const result = orchestrator.listByFilter({
+      filter: { domainTags: ["x"] },
+      limit: 100,
+      cursor: null,
+    });
+    expect(result.items.length).toBe(1);
+    expect(result.items[0].matchReason).toEqual([]);
+    expect(result.items[0].score).toBe(0);
+  });
+
+  it("matchReason 多 token 多字段命中", () => {
+    const lines = [
+      makeLine({
+        id: "a",
+        title: "Android ADB",
+        summary: "调试 android 设备",
+        domainTags: ["android", "testing"],
+      }),
+    ];
+    const orchestrator = new SearchOrchestrator();
+    orchestrator.build(lines);
+    // 查两个 token:android + testing
+    const results = orchestrator.search("android testing");
+    expect(results.length).toBe(1);
+    const mr = results[0].matchReason;
+    // 至少 2 个字段命中(android + testing)
+    expect(mr.length).toBeGreaterThanOrEqual(2);
+    // weight 加和 = 1
+    const sum = mr.reduce((acc, m) => acc + m.weight, 0);
+    expect(Math.abs(sum - 1)).toBeLessThan(0.001);
+  });
+});

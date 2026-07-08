@@ -41,6 +41,15 @@ export interface MemorySearchHit {
   readonly title?: string;
   readonly content: string;
   readonly score: number;
+  /**
+   * AI-9: 命中解释,告诉 LLM "为什么这条结果得分高"。
+   * SQLite bm25 路径返回空数组;in-memory 路径返回 per-(field, term) 解释。
+   */
+  readonly matchReason?: readonly {
+    readonly field: "title" | "summary" | "domainTags" | "contextTags";
+    readonly term: string;
+    readonly weight: number;
+  }[];
   readonly metadata: {
     readonly createdAt: string;
     readonly importance: number;
@@ -151,12 +160,17 @@ function truncate(text: string, limit: number): string {
  * 隐藏 co-engram 内部术语（freshness / sourceType 等），
  * 只暴露对 LLM 决策有用的字段。
  */
-function digestToHit(digest: EngramDigest, score: number): MemorySearchHit {
+function digestToHit(
+  digest: EngramDigest,
+  score: number,
+  matchReason?: MemorySearchHit["matchReason"],
+): MemorySearchHit {
   return {
     id: digest.id,
     title: digest.title,
     content: truncate(digest.summary || digest.title, CONTENT_SUMMARY_LIMIT),
     score,
+    matchReason,
     metadata: {
       createdAt: digest.updatedAt,
       importance: digest.importance,
@@ -211,7 +225,7 @@ export function createMemorySearchTool(
           if (r.score < minScore) continue;
           const digest = ctx.repository.readDigest(r.id);
           if (!digest) continue;
-          hits.push(digestToHit(digest, r.score));
+          hits.push(digestToHit(digest, r.score, r.matchReason));
         }
         return toAdaptedToolResult({ results: hits, total: hits.length }, ctx);
       } catch (error) {

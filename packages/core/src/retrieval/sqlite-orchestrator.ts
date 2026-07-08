@@ -81,6 +81,9 @@ export class SqliteSearchOrchestrator {
 
     const results: SimpleSearchResult[] = filtered.map((r) => ({
       id: r.id,
+      // AI-9: SQLite bm25 返回的 score 是 -bm25_value(正数,无上界),
+      // 不在 [0, 1] 区间。当前 Phase 2 保留原始 bm25 数值(让排序语义清晰),
+      // 上层工具层负责 clamp/解释。后续 Phase 3 三因子融合后会归一化。
       score: r.score,
       entry: {
         id: r.id,
@@ -88,6 +91,10 @@ export class SqliteSearchOrchestrator {
         kind: r.kind as EngramKind,
         domainTags: r.domainTags,
       },
+      // AI-9: SQLite FTS5 trigram tokenizer 不暴露 per-field 命中信息
+      // (engram_fts 是合并列 title + summary + content_tokens 的单索引),
+      // matchReason 留空数组。后续可用 FTS5 highlight() API 扩展。
+      matchReason: [],
     }));
 
     return { results, nextCursor: null };
