@@ -16,6 +16,7 @@ import {
   writeEngramFile,
   deleteEngramFile,
   isEngramFile,
+  hasFrontmatterMarker,
   type EngramFile,
 } from "../src/storage/engram-store.js";
 
@@ -323,5 +324,31 @@ legacy content here`;
       await import("../src/storage/engram-store.js");
     const raw = serializeEngramFile(SAMPLE_FILE, "zh");
     expect(detectEngramFileLanguage(raw)).toBe("zh");
+  });
+});
+
+describe("hasFrontmatterMarker", () => {
+  it("顶部 frontmatter → true", () => {
+    expect(hasFrontmatterMarker("---\nid: 01ABC\n---\nbody")).toBe(true);
+  });
+
+  it("底部 frontmatter marker → true", () => {
+    expect(
+      hasFrontmatterMarker(
+        "body\n<!-- co-engram-meta:zh -->\n---\nid: 01ABC\n---\n",
+      ),
+    ).toBe(true);
+  });
+
+  it("无 marker 的裸 .md → false", () => {
+    expect(hasFrontmatterMarker("# just markdown\nno frontmatter")).toBe(false);
+  });
+
+  it("空字符串 → false", () => {
+    expect(hasFrontmatterMarker("")).toBe(false);
+  });
+
+  it("只有 --- 但无闭合 → true(用户意图是 engram 但格式坏)", () => {
+    expect(hasFrontmatterMarker("---\nid: 01ABC\n(无闭合)")).toBe(true);
   });
 });

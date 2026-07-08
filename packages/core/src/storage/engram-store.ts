@@ -335,6 +335,23 @@ export function renameEngramFile(oldPath: string, newPath: string): void {
 }
 
 /**
+ * 检测 raw 字符串是否含 engram frontmatter marker(不尝试 parse)。
+ *
+ * 与 isEngramFile 的区别:
+ *   - isEngramFile 尝试 parse,失败返回 false(无法区分"无 marker"和"marker 坏")
+ *   - hasFrontmatterMarker 只看 marker 是否存在,用于 rebuildEngramIndex 分流:
+ *     有 marker 但 parse 失败 → invalid_frontmatter;无 marker → orphan_markdown
+ *
+ * Marker 形式:
+ *   - 顶部:开头是 `---\n`
+ *   - 底部:含 `<!-- co-engram-meta -->`(BOTTOM_META_MARKER_RE)
+ */
+export function hasFrontmatterMarker(raw: string): boolean {
+  if (raw.startsWith(FRONTMATTER_DELIMITER)) return true;
+  return BOTTOM_META_MARKER_RE.test(raw);
+}
+
+/**
  * 检查文件是否是 engram(顶部 `---` + 有效 frontmatter,或含底部 meta marker)。
  *
  * 用于 doctor 扫描时区分:
