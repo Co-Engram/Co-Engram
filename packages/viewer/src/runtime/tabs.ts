@@ -30,7 +30,10 @@ CO_ENGRAM.renderVisibilityBadge = function(visibility) {
 CO_ENGRAM.on('stats', async function() {
   const el = document.getElementById('stats-content');
   if (!el) return;
-  if (CO_ENGRAM._statsLoaded) return;
+  // 不缓存:stats 数据会被 batch accept / 单条 accept / dismiss / delete / git pull
+  // 等多源改变,维护 invalidate 列表易漏。后端 /api/stats ~24ms,每次进 tab 都拉
+  // 最新数据,避免用户看到陈旧计数(2026-07 修复:batch accept 30 条后切到 stats
+  // tab 显示的还是旧 totalEngrams)。
   const T = CO_ENGRAM_T;
   el.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div>';
   let data;
@@ -109,7 +112,6 @@ CO_ENGRAM.on('stats', async function() {
   }
 
   el.innerHTML = html;
-  CO_ENGRAM._statsLoaded = true;
 });
 
 // ============================================================
