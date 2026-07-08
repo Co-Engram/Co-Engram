@@ -42,6 +42,7 @@ import {
   type NecessityEvaluator,
   type NecessityVerdict,
 } from "./necessity-evaluator.js";
+import { normalizeProposalFields } from "./chinese-post-processor.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -518,22 +519,34 @@ export class ProposalEngine {
     readonly encodingContext?: string;
     readonly at?: string;
   }): "proposed" | "updated" | "no-change" {
+    // AI-6 中文 artifact 后处理:LLM 生成 / Claude Code auto-memory 写入的 title/content
+    // 常含 tokenizer artifact(如"清 cache 时必须先 备份"),落盘前规范化。
+    // 不可变输入 → normalizeProposalFields 返回新对象,不影响调用方。
+    const normalized = normalizeProposalFields(input);
     const entityId = autoMemoryEntityId(input.slug);
     const now = input.at ?? new Date().toISOString();
 
     const payload: ProposalPayload = {
-      title: input.title,
-      content: input.content,
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      domainTags: input.domainTags,
-      ...(input.contextTags !== undefined ? { contextTags: input.contextTags } : {}),
-      kind: input.kind,
-      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
-      ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
-      ...(input.importance !== undefined ? { importance: input.importance } : {}),
-      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
-      ...(input.encodingContext !== undefined
-        ? { encodingContext: input.encodingContext }
+      title: normalized.title,
+      content: normalized.content,
+      ...(normalized.summary !== undefined ? { summary: normalized.summary } : {}),
+      domainTags: normalized.domainTags,
+      ...(normalized.contextTags !== undefined
+        ? { contextTags: normalized.contextTags }
+        : {}),
+      kind: normalized.kind,
+      ...(normalized.createdBy !== undefined ? { createdBy: normalized.createdBy } : {}),
+      ...(normalized.sourceType !== undefined
+        ? { sourceType: normalized.sourceType }
+        : {}),
+      ...(normalized.importance !== undefined
+        ? { importance: normalized.importance }
+        : {}),
+      ...(normalized.visibility !== undefined
+        ? { visibility: normalized.visibility }
+        : {}),
+      ...(normalized.encodingContext !== undefined
+        ? { encodingContext: normalized.encodingContext }
         : {}),
     };
 
@@ -634,22 +647,32 @@ export class ProposalEngine {
     readonly encodingContext?: string;
     readonly at?: string;
   }): "proposed" | "updated" | "no-change" {
+    // AI-6 中文 artifact 后处理(同 proposeAutoMemory)
+    const normalized = normalizeProposalFields(input);
     const entityId = externalMarkdownEntityId(input.sourcePath);
     const now = input.at ?? new Date().toISOString();
 
     const payload: ProposalPayload = {
-      title: input.title,
-      content: input.content,
-      ...(input.summary !== undefined ? { summary: input.summary } : {}),
-      domainTags: input.domainTags,
-      ...(input.contextTags !== undefined ? { contextTags: input.contextTags } : {}),
-      kind: input.kind,
-      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
-      ...(input.sourceType !== undefined ? { sourceType: input.sourceType } : {}),
-      ...(input.importance !== undefined ? { importance: input.importance } : {}),
-      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
-      ...(input.encodingContext !== undefined
-        ? { encodingContext: input.encodingContext }
+      title: normalized.title,
+      content: normalized.content,
+      ...(normalized.summary !== undefined ? { summary: normalized.summary } : {}),
+      domainTags: normalized.domainTags,
+      ...(normalized.contextTags !== undefined
+        ? { contextTags: normalized.contextTags }
+        : {}),
+      kind: normalized.kind,
+      ...(normalized.createdBy !== undefined ? { createdBy: normalized.createdBy } : {}),
+      ...(normalized.sourceType !== undefined
+        ? { sourceType: normalized.sourceType }
+        : {}),
+      ...(normalized.importance !== undefined
+        ? { importance: normalized.importance }
+        : {}),
+      ...(normalized.visibility !== undefined
+        ? { visibility: normalized.visibility }
+        : {}),
+      ...(normalized.encodingContext !== undefined
+        ? { encodingContext: normalized.encodingContext }
         : {}),
       sourcePath: input.sourcePath,
     };

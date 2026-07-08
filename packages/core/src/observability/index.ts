@@ -23,3 +23,8 @@ export {
   acquireLockOrThrow,
   assertNever,
 } from "./fail-loud.js";
+export {
+  normalizeChinesePunctuation,
+  normalizeDomainTags,
+  normalizeProposalFields,
+} from "./chinese-post-processor.js";
