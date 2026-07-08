@@ -17,6 +17,11 @@
  * @module @co-engram/core/observability
  */
 
+import type {
+  LlmTool,
+  LlmToolOptions,
+} from "./llm-tool.js";
+
 // ============================================================
 // LLM 抽象层
 // ============================================================
@@ -725,14 +730,86 @@ Evaluate whether this topic should be promoted to a team memory. Return STRICT J
  *
  * host 注入 LlmClient,core 不绑定 provider。
  * LLM 失败时 fallback 到 RuleBasedNecessityEvaluator,保证可用性。
+ *
+ * AI-4 LlmTool 契约:本类实现 LlmTool<NecessityInput, NecessityVerdict>,
+ * 让 dryRun / fallback 行为标准化。evaluate() 是 LlmTool 适配包装:
+ *   - 旧调用方:evaluator.evaluate(input) → 走 runLlmTool(LLM + fallback)
+ *   - 新调用方:runLlmTool(evaluator, input, { dryRun: true }) → 强制 heuristic
  */
-export class LlmNecessityEvaluator implements NecessityEvaluator {
+export class LlmNecessityEvaluator
+  implements NecessityEvaluator, LlmTool<NecessityInput, NecessityVerdict>
+{
   private readonly fallback: RuleBasedNecessityEvaluator;
+  readonly name = "llm-necessity-evaluator";
 
   constructor(private readonly client: LlmClient) {
     this.fallback = new RuleBasedNecessityEvaluator();
   }
 
+  // ============================================================
+  // LlmTool 契约实现
+  // ============================================================
+
+  hasHeuristicFallback(): boolean {
+    return true;
+  }
+
+  async executeHeuristic(
+    input: NecessityInput,
+    _opts: LlmToolOptions,
+  ): Promise<NecessityVerdict> {
+    // 走规则版,绝调不到 LLM(契约保证)
+    return this.fallback.evaluate(input);
+  }
+
+  async executeWithLlm(
+    input: NecessityInput,
+    opts: LlmToolOptions,
+  ): Promise<NecessityVerdict> {
+    const samplesBlock = input.samples
+      .map((s, i) => `[${i + 1}] ${s}`)
+      .join("\n");
+
+    const existingTitles =
+      input.existingTitles.length > 0
+        ? input.existingTitles.slice(0, 20).join(" | ")
+        : "(none)";
+
+    const prompt = LLM_NECESSITY_PROMPT.replace(
+      "<SAMPLE_COUNT>",
+      String(input.samples.length),
+    )
+      .replace("<OCCURRENCES>", String(input.occurrences))
+      .replace("<SAMPLES_BLOCK>", samplesBlock)
+      .replace("<EXISTING_TITLES>", existingTitles);
+
+    // maxTokens=1500 留足 reasoning 模型预算
+    // reasoning 模型(Qwen3 / DeepSeek-R1 / DeepSeek-V4 / GLM-5.2 / Claude w/ thinking)
+    // 会先输出 reasoning_content 再输出 content,300 tokens 不够会在思考阶段就截断
+    const raw = await this.client.complete(prompt, {
+      maxTokens: opts.maxTokens ?? 1500,
+      temperature: opts.temperature ?? 0.1,
+      timeoutMs: opts.timeoutMs ?? 30_000,
+    });
+
+    if (typeof raw !== "string" || raw.length === 0) {
+      throw new Error(`LlmClient returned non-string: ${typeof raw}`);
+    }
+
+    const parsed = parseLlmVerdict(raw);
+    if (!parsed) {
+      throw new Error("non-JSON output from LLM");
+    }
+    return parsed;
+  }
+
+  // ============================================================
+  // NecessityEvaluator 接口(旧 API,向后兼容)
+  // ============================================================
+  //
+  // 保留 evaluate() 是为了不破坏现有 ProposalEngine 注入契约。新代码应用
+  // runLlmTool(evaluator, input, opts) 显式走 LlmTool 路由。evaluate() 内部
+  // 沿用旧行为(LLM 失败 → safeFallback 到规则),不强制调用方改代码。
   async evaluate(input: NecessityInput): Promise<NecessityVerdict> {
     const samplesBlock = input.samples
       .map((s, i) => `[${i + 1}] ${s}`)

@@ -10,6 +10,9 @@
  * 失败契约(AI-1):
  *   - fail-loud.ts          工具错误边界 / 锁 throw / 穷举性检查
  *
+ * LLM 工具契约(AI-4):
+ *   - llm-tool.ts           dryRun / fallback 统一抽象
+ *
  * @module @co-engram/core/observability
  */
 
@@ -28,3 +31,8 @@ export {
   normalizeDomainTags,
   normalizeProposalFields,
 } from "./chinese-post-processor.js";
+export {
+  runLlmTool,
+  type LlmTool,
+  type LlmToolOptions,
+} from "./llm-tool.js";
