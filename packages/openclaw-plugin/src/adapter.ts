@@ -8,6 +8,7 @@ import {
   localizeToolDescription,
   resolveLlmDescription,
   DEFAULT_LANGUAGE,
+  serializeToolError,
   type Tool,
   type ToolContext,
   type Language,
@@ -475,10 +476,12 @@ function safeReadDigestSummary(ctx: ToolContext, id: string): string {
 }
 
 function toErrorResult(error: unknown): ToolExecuteResult {
-  const message = error instanceof Error ? error.message : String(error);
+  const payload = serializeToolError(error);
+  // details 携带 EngramToolErrorSchema 字段(code/resourceId/suggestion/retryable),
+  // 让 OpenClaw host 与 LLM 都能解析出 actionable 信号决定是否重试。
   return {
-    content: [{ type: "text", text: `Error: ${message}` }],
-    details: { ok: false, error: message },
+    content: [{ type: "text", text: payload.text }],
+    details: { ok: false, error: payload.fields },
   };
 }
 

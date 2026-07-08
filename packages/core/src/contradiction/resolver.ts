@@ -94,7 +94,11 @@ export async function resolveContradiction(
   if (synapse.kind !== "contradicts") {
     throw validationError(
       `Synapse ${input.synapseId} is not a contradicts (kind=${synapse.kind})`,
-      "contradiction_resolve requires a synapse with kind='contradicts'.",
+      {
+        suggestion:
+          "contradiction_resolve requires a synapse with kind='contradicts'.",
+        resourceId: input.synapseId,
+      },
     );
   }
 

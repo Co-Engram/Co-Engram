@@ -124,15 +124,22 @@ export function notFoundError(
 
 /**
  * VALIDATION 错误(从 Zod issue 或自定义消息构造)。
+ *
+ * @param message 用户友好消息
+ * @param options 可选 `{ suggestion, resourceId }`
  */
 export function validationError(
   message: string,
-  suggestion?: string,
+  options?: {
+    readonly suggestion?: string;
+    readonly resourceId?: string;
+  },
 ): EngramToolError {
   return new EngramToolError({
     code: "VALIDATION",
     message,
-    suggestion,
+    ...(options?.suggestion ? { suggestion: options.suggestion } : {}),
+    ...(options?.resourceId ? { resourceId: options.resourceId } : {}),
   });
 }
 

@@ -55,7 +55,11 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
     if (parsed.from === parsed.to) {
       throw validationError(
         "Self-synapse is not allowed: `from` and `to` must differ.",
-        "Choose two different engram IDs. Self-connections are intentionally forbidden in P0.",
+        {
+          suggestion:
+            "Choose two different engram IDs. Self-connections are intentionally forbidden in P0.",
+          resourceId: "from/to",
+        },
       );
     }
 

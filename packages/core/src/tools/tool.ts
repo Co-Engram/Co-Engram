@@ -21,7 +21,8 @@ export {
   configError,
   internalError,
 } from "./error-schema.js";
-import { validationError } from "./error-schema.js";
+export { formatZodError, isZodErrorLike, serializeToolError } from "./zod-formatter.js";
+import { formatZodError } from "./zod-formatter.js";
 
 /**
  * 工具元信息（可暴露给 host 用于注册）
@@ -123,16 +124,13 @@ export interface Tool<I = unknown, O = unknown> extends ToolMeta {
 /**
  * 校验并解析输入(host adapter 通常在 execute 前调用)。
  *
- * 校验失败时抛 EngramToolError(code="VALIDATION"),
- * host adapter 捕获后可序列化 schema 字段给 LLM,LLM 据此修正参数重试。
+ * 校验失败时抛 EngramToolError(code="VALIDATION"),message 经 formatZodError
+ * 翻译成自然语言,host adapter 捕获后可序列化 schema 字段给 LLM。
  */
 export function validateInput<T>(schema: ZodTypeAny, raw: unknown): T {
   const result = schema.safeParse(raw);
   if (!result.success) {
-    const issues = result.error.issues
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; ");
-    throw validationError(`Invalid input: ${issues}`);
+    throw formatZodError(result.error);
   }
   return result.data as T;
 }

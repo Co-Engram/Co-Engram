@@ -128,7 +128,11 @@ export function manualResolveContradiction(
   if (synapse.kind !== "contradicts") {
     throw validationError(
       `Not a contradicts synapse: ${input.synapseId} (kind=${synapse.kind})`,
-      "auto_degrade requires a synapse with kind='contradicts'.",
+      {
+        suggestion:
+          "auto_degrade requires a synapse with kind='contradicts'.",
+        resourceId: input.synapseId,
+      },
     );
   }
 

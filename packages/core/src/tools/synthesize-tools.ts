@@ -293,7 +293,11 @@ export const engramSynthesizeTool: Tool<
     if (sources.length < 2) {
       throw validationError(
         `At least 2 unique source engrams required for synthesis (got ${sources.length}).`,
-        "Pass 2 or more distinct engram IDs in the `ids` array.",
+        {
+          suggestion:
+            "Pass 2 or more distinct engram IDs in the `ids` array.",
+          resourceId: "ids",
+        },
       );
     }
 

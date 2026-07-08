@@ -60,19 +60,21 @@ function decodeProposalCursor(cursor: string): ProposalSortKey {
   try {
     json = Buffer.from(cursor, "base64url").toString("utf8");
   } catch {
-    throw validationError(
-      "invalid proposal cursor: base64 decode failed",
-      "Cursor must be a base64url-encoded JSON array. Use the nextCursor value returned by the previous engram_list_proposals call.",
-    );
+    throw validationError("invalid proposal cursor: base64 decode failed", {
+      suggestion:
+        "Cursor must be a base64url-encoded JSON array. Use the nextCursor value returned by the previous engram_list_proposals call.",
+      resourceId: "cursor",
+    });
   }
   let arr: unknown;
   try {
     arr = JSON.parse(json);
   } catch {
-    throw validationError(
-      "invalid proposal cursor: JSON parse failed",
-      "Cursor payload is not valid JSON. Use the nextCursor value returned by the previous engram_list_proposals call.",
-    );
+    throw validationError("invalid proposal cursor: JSON parse failed", {
+      suggestion:
+        "Cursor payload is not valid JSON. Use the nextCursor value returned by the previous engram_list_proposals call.",
+      resourceId: "cursor",
+    });
   }
   if (
     !Array.isArray(arr) ||
@@ -82,7 +84,11 @@ function decodeProposalCursor(cursor: string): ProposalSortKey {
   ) {
     throw validationError(
       "invalid proposal cursor: shape mismatch (expected [createdAt, entityId])",
-      "Cursor payload shape is invalid. Use the nextCursor value returned by the previous engram_list_proposals call.",
+      {
+        suggestion:
+          "Cursor payload shape is invalid. Use the nextCursor value returned by the previous engram_list_proposals call.",
+        resourceId: "cursor",
+      },
     );
   }
   return [arr[0] as string, arr[1] as string];

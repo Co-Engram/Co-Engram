@@ -23,6 +23,7 @@ import {
   autoOnboardMergeDriver,
   resolveMergeDriverBundle,
   pathOverviewFromTree,
+  serializeToolError,
   type Language,
   type MaintenanceConfig,
   type ProposalEngineConfig,
@@ -484,15 +485,18 @@ export function registerCoEngramTool(
           isError: false,
         };
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const payload = serializeToolError(error);
         return {
           content: [
             {
               type: "text",
-              text: `Error: ${message}`,
+              text: payload.text,
             },
           ],
           isError: true,
+          // structuredContent 携带 EngramToolErrorSchema 字段(code/resourceId/
+          // suggestion/retryable),让 LLM 能解析出 actionable 信号决定是否重试。
+          structuredContent: payload.fields as unknown as Record<string, unknown>,
         };
       }
     },
