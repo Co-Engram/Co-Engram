@@ -57,6 +57,7 @@ describe(`concurrency stress (N=${CONCURRENCY})`, () => {
     const catalog = repo.listEngrams();
     expect(catalog.length).toBe(CONCURRENCY);
     for (const entry of catalog) {
+      // noplus1: test fixture, CONCURRENCY 个验证用,非生产路径
       const en = repo.readEngram(entry.id);
       expect(en.domainTags).toContain("stress-test");
     }
@@ -132,6 +133,7 @@ describe(`concurrency stress (N=${CONCURRENCY})`, () => {
     );
 
     for (const en of created) {
+      // noplus1: test fixture, created 个验证用,非生产路径
       const fresh = repo.readEngram(en.id);
       expect(fresh.version).toBe(2); // create=1, update=2
       expect(fresh.content).toMatch(/^updated content /);

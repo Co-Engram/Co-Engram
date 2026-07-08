@@ -449,6 +449,7 @@ describe("spec 验收：模拟批量场景", () => {
 
     // 验证所有 archived/forgotten 状态正确
     for (const entry of repo.listEngrams()) {
+      // noplus1: test assertion, fixture 个验证用
       const engram = repo.readEngram(entry.id);
       expect(["archived", "forgotten"]).toContain(engram.status);
     }
