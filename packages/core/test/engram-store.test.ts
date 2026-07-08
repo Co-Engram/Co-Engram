@@ -18,6 +18,7 @@ import {
   isEngramFile,
   hasFrontmatterMarker,
   type EngramFile,
+  type ValidationIssue,
 } from "../src/storage/engram-store.js";
 
 let tmpDir: string;
@@ -66,14 +67,21 @@ describe("engram-store — round-trip", () => {
     expect(raw.indexOf("\n---\n", 4)).toBeGreaterThan(0);
   });
 
-  it("parse 拒绝缺 id 的文件", () => {
+  it("parse 缺 id 的文件 → _validationIssues 收集 critical missing_required", () => {
     const malformed = `---
 title: 没id
 kind: observation
 ---
 content
 `;
-    expect(() => parseEngramFile(malformed)).toThrow(/id/);
+    const parsed = parseEngramFile(malformed);
+    expect(parsed._validationIssues ?? []).toContainEqual(
+      expect.objectContaining({
+        field: "id",
+        category: "missing_required",
+        severity: "critical",
+      }),
+    );
   });
 
   it("parse 拒绝缺 closing delimiter 的文件", () => {
@@ -360,7 +368,7 @@ describe("parseEngramFile 归一化(normalizeFrontmatter 间接验证)", () => {
   }
 
   it("数值字符串 importance:\"0.8\" → 归一化为 0.8", () => {
-    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: "0.8"\ntitle: t\nkind: observation`));
+    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: "0.8"\ntitle: t\nkind: observation\ncreatedBy: tester\ncreatedAt: 2026-07-08T00:00:00.000Z\nupdatedAt: 2026-07-08T00:00:00.000Z`));
     expect(file.frontmatter.importance).toBe(0.8);
     expect(file._validationIssues ?? []).toEqual([]);
   });
@@ -391,5 +399,196 @@ describe("parseEngramFile 归一化(normalizeFrontmatter 间接验证)", () => {
     const file1 = parseEngramFile(raw);
     expect(file1.frontmatter.importance).toBe(0.5);
     expect(file1.frontmatter.domainTags).toEqual(["a", "b"]);
+  });
+});
+
+describe("parseEngramFile 校验(_validationIssues 收集)", () => {
+  function wrap(yamlBody: string, content = "body"): string {
+    return `---\n${yamlBody}\n---\n${content}`;
+  }
+  const VALID_ID = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+
+  function expectIssue(
+    issues: readonly ValidationIssue[] | undefined,
+    partial: Partial<ValidationIssue>,
+  ): void {
+    expect(issues ?? []).toContainEqual(expect.objectContaining(partial));
+  }
+
+  it("type_mismatch: id=123(数字)→ critical", () => {
+    const file = parseEngramFile(wrap(`id: 123\ntitle: t\nkind: observation`));
+    expectIssue(file._validationIssues, {
+      field: "id",
+      category: "type_mismatch",
+      severity: "critical",
+    });
+  });
+
+  it("invalid_format: id=\"abc\" 非 ULID → high", () => {
+    const file = parseEngramFile(wrap(`id: abc\ntitle: t\nkind: observation`));
+    expectIssue(file._validationIssues, {
+      field: "id",
+      category: "invalid_format",
+      severity: "high",
+    });
+  });
+
+  it("type_mismatch: version=\"v1\" → medium", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nversion: v1`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "version",
+      category: "type_mismatch",
+    });
+  });
+
+  it("out_of_range: importance=1.5 → medium", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nimportance: 1.5`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "importance",
+      category: "out_of_range",
+    });
+  });
+
+  it("out_of_range: importance=-0.3 → medium", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nimportance: -0.3`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "importance",
+      category: "out_of_range",
+    });
+  });
+
+  it("invalid_enum: kind=\"wrong\" → high", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: wrong`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "kind",
+      category: "invalid_enum",
+      severity: "high",
+    });
+  });
+
+  it("invalid_enum: visibility=\"world\" → critical (SECURITY)", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nvisibility: world`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "visibility",
+      category: "invalid_enum",
+      severity: "critical",
+    });
+    const visIssue = (file._validationIssues ?? []).find(
+      (i) => i.field === "visibility",
+    );
+    expect(visIssue?.message).toMatch(/SECURITY/);
+  });
+
+  it("invalid_enum: status=\"deleted\" → medium", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nstatus: deleted`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "status",
+      category: "invalid_enum",
+    });
+  });
+
+  it("invalid_enum: kinds=[\"observation\",\"wrong\"] → kinds[1] high", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\nkinds: [observation, wrong]`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "kinds[1]",
+      category: "invalid_enum",
+    });
+  });
+
+  it("invalid_format: createdAt=\"yesterday\" → medium", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\ncreatedAt: yesterday`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "createdAt",
+      category: "invalid_format",
+    });
+  });
+
+  it("missing_required: title=\"\" → high", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: ""\nkind: observation`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "title",
+      category: "missing_required",
+      severity: "high",
+    });
+  });
+
+  it("missing_required: createdBy 缺失 → medium", () => {
+    const file = parseEngramFile(wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation`));
+    expectIssue(file._validationIssues, {
+      field: "createdBy",
+      category: "missing_required",
+    });
+  });
+
+  it("missing_required: id 缺失 → critical", () => {
+    const file = parseEngramFile(wrap(`title: t\nkind: observation`));
+    expectIssue(file._validationIssues, {
+      field: "id",
+      category: "missing_required",
+      severity: "critical",
+    });
+  });
+
+  it("unknown_field: priority: high → low", () => {
+    const file = parseEngramFile(
+      wrap(`id: ${VALID_ID}\ntitle: t\nkind: observation\npriority: high`),
+    );
+    expectIssue(file._validationIssues, {
+      field: "priority",
+      category: "unknown_field",
+    });
+  });
+
+  it("derived_mismatch: contentHash 与实际不符 → medium", () => {
+    const file = parseEngramFile(
+      wrap(
+        `id: ${VALID_ID}\ntitle: t\nkind: observation\ncontentHash: sha256:0000000000000000000000000000000000000000000000000000000000000000`,
+        "actual body",
+      ),
+    );
+    expectIssue(file._validationIssues, {
+      field: "contentHash",
+      category: "derived_mismatch",
+    });
+  });
+
+  it("derived_mismatch: contentSize 与实际不符 → low", () => {
+    const file = parseEngramFile(
+      wrap(
+        `id: ${VALID_ID}\ntitle: t\nkind: observation\ncontentSize: 99999`,
+        "tiny",
+      ),
+    );
+    expectIssue(file._validationIssues, {
+      field: "contentSize",
+      category: "derived_mismatch",
+    });
+  });
+
+  it("合法 frontmatter → _validationIssues 为空数组", () => {
+    const file = parseEngramFile(
+      wrap(
+        `id: ${VALID_ID}\ntitle: t\nkind: observation\ncreatedBy: tester\ncreatedAt: 2026-07-08T00:00:00.000Z\nupdatedAt: 2026-07-08T00:00:00.000Z`,
+      ),
+    );
+    expect(file._validationIssues ?? []).toEqual([]);
   });
 });

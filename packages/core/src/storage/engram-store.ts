@@ -543,7 +543,7 @@ function validateFrontmatter(
     }
   }
 
-  // === contentHash 格式(computeContentHash 返回 "sha256:<64-hex>",共 72 字符)==
+  // === contentHash 格式(computeContentHash 返回 "sha256:<64-hex>",共 71 字符:7 前缀 + 64 hex)==
   const contentHash = fm.contentHash;
   if (
     typeof contentHash === "string" &&
@@ -561,7 +561,7 @@ function validateFrontmatter(
   }
 
   // === contentHash 与实际 content 一致(derived_mismatch)==
-  if (typeof contentHash === "string" && contentHash.length === 72) {
+  if (typeof contentHash === "string" && contentHash.length === 71) {
     const actual = computeContentHash(content);
     if (contentHash !== actual) {
       issues.push({
@@ -703,15 +703,23 @@ export function parseEngramFile(raw: string): EngramFile {
   // 这里只是确保未来添加新字段时不会丢失。
   void detectChineseKeys; // 保留导入以便未来扩展(启发式检测目前由 delocalizeKeys 覆盖)
 
-  const frontmatter = normalized as EngramFrontmatter;
-  if (typeof frontmatter.id !== "string" || frontmatter.id.length === 0) {
-    throw new Error("Invalid engram file: frontmatter missing id");
-  }
-  if (typeof frontmatter.title !== "string") {
-    throw new Error("Invalid engram file: frontmatter missing title");
-  }
+  // Task 5 接入:归一化 + 校验,把字段级问题收集到 _validationIssues(不抛错)。
+  // 5 个 YAML 结构错(missing closing/marker/object)仍抛错,Task 6 的
+  // rebuildEngramIndex 用 try/catch 把它们路由到 onInvalidFrontmatter。
+  const normalizedFm = normalizeFrontmatter(normalized);
+  const validationIssues = validateFrontmatter(normalizedFm, body);
 
-  return { frontmatter, content: body };
+  // 把 normalized 包装成 EngramFrontmatter(类型断言;runtime 已是 plain object)。
+  // 旧字段级 throw(id/title 缺失)已移除 — 改走 _validationIssues 由 doctor 处理。
+  // 历史决策追溯:旧行为是 throw "Invalid engram file: frontmatter missing id/title",
+  // 这阻止了 doctor 对部分损坏文件的修复路径;现在统一走 issue 通道。
+  const frontmatter = normalizedFm as unknown as EngramFrontmatter;
+
+  return {
+    frontmatter,
+    content: body,
+    _validationIssues: validationIssues,
+  };
 }
 
 /** 读取 engram 文件 */
@@ -766,13 +774,19 @@ export function hasFrontmatterMarker(raw: string): boolean {
  * 用于 doctor 扫描时区分:
  * - 单文件 frontmatter 的 engram
  * - 普通 markdown(无 frontmatter,提示注册为 engram)
+ *
+ * Task 5 后:parseEngramFile 不再对 missing id/title 抛错,改走 _validationIssues。
+ * 这里同步把"isEngramFile"语义收紧为:parse 成功 且 无 critical 校验问题。
+ * critical 问题(id 不是合法 ULID / visibility 非法 → fail-open 风险)说明
+ * 文件不是"可索引的 engram",应由 doctor 上报修复而非进入索引。
+ * 字段级中低问题(high/medium/low)仍允许进入索引,doctor 后续修复。
  */
 export function isEngramFile(raw: string): boolean {
   // 快速路径:顶部 frontmatter
   if (raw.startsWith(FRONTMATTER_DELIMITER)) {
     try {
-      parseEngramFile(raw);
-      return true;
+      const parsed = parseEngramFile(raw);
+      return !hasCriticalIssue(parsed._validationIssues);
     } catch {
       return false;
     }
@@ -780,13 +794,21 @@ export function isEngramFile(raw: string): boolean {
   // 底部 frontmatter:必须含 marker
   if (BOTTOM_META_MARKER_RE.test(raw)) {
     try {
-      parseEngramFile(raw);
-      return true;
+      const parsed = parseEngramFile(raw);
+      return !hasCriticalIssue(parsed._validationIssues);
     } catch {
       return false;
     }
   }
   return false;
+}
+
+/** 检查 validation issues 中是否含 critical 严重级(id 不合法 / visibility 非法 等) */
+function hasCriticalIssue(
+  issues: readonly ValidationIssue[] | undefined,
+): boolean {
+  if (!issues || issues.length === 0) return false;
+  return issues.some((i) => i.severity === "critical");
 }
 
 /**
