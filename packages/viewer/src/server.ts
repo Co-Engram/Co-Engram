@@ -1408,7 +1408,18 @@ function pruneTreeForJson(
 // ============================================================
 
 interface StatsResponse {
+  /**
+   * 主索引全部 engram 行数(含 active/archived/forgotten/draft)。
+   *
+   * 心智模型对齐(2026-07 修复):
+   *   - 后端语义:行数,反映"仓库里存了多少条"
+   *   - 用户心智:"活跃可用的记忆数"——会预期 restore 后 +1
+   *   - 这两个语义不一致 → 单独暴露 `activeEngrams`(UI 主显示),
+   *     `totalEngrams` 保留作"含归档/遗忘的总数",tooltip 解释差异
+   */
   readonly totalEngrams: number;
+  /** status=active 的 engram 数(UI 主显示,匹配用户心智"活跃记忆数") */
+  readonly activeEngrams: number;
   readonly totalSynapses: number;
   readonly byKind: Record<string, number>;
   readonly byStatus: Record<string, number>;
@@ -1474,6 +1485,12 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
   const totalEngrams =
     (db.prepare(`SELECT count(*) AS n FROM engrams`).get() as { n: number })
       ?.n ?? 0;
+  const activeEngrams =
+    (
+      db
+        .prepare(`SELECT count(*) AS n FROM engrams WHERE status = 'active'`)
+        .get() as { n: number }
+    )?.n ?? 0;
 
   // 2. bySynapseKind / totalSynapses:走 graph.json 缓存(避免 collectAllSynapses 47s)
   const graph = readGraphCache(ctx);
@@ -1513,6 +1530,7 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
 
   return {
     totalEngrams,
+    activeEngrams,
     totalSynapses,
     byKind,
     byStatus,
@@ -1613,6 +1631,7 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
 
   return {
     totalEngrams: entries.length,
+    activeEngrams: byStatus["active"] ?? 0,
     totalSynapses: allSynapses.length,
     byKind,
     byStatus,

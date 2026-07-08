@@ -40,7 +40,9 @@ CO_ENGRAM.on('stats', async function() {
   try { data = await CO_ENGRAM.apiGet('/api/stats'); }
   catch (e) { el.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>'; return; }
 
-  const kpiClickable = (label, value, sub, tab) => '<div class="kpi"' + (tab ? ' onclick="CO_ENGRAM.showTab(\\'' + tab + '\\')"' : '') + '>'
+  const kpiClickable = (label, value, sub, tab, tipText) => '<div class="kpi"'
+    + (tipText ? ' title="' + CO_ENGRAM.escapeHtml(tipText).replaceAll('"', '&quot;') + '"' : '')
+    + (tab ? ' onclick="CO_ENGRAM.showTab(\\'' + tab + '\\')"' : '') + '>'
     + '<div class="kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>'
     + '<div class="kpi-value">' + CO_ENGRAM.escapeHtml(value) + '</div>'
     + (sub ? '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '') + '</div>';
@@ -64,8 +66,21 @@ CO_ENGRAM.on('stats', async function() {
   const contribArr = data.topContributors || [];
   const contribMax = contribArr.length ? Math.max(1, ...contribArr.map(c => c.total || 0)) : 1;
 
+  // 记忆印迹总数:活跃 + 归档/遗忘 同时显示,匹配用户心智
+  // (2026-07 修复:用户从回收站恢复一条 forgotten 后,活跃数 +1,总数不变;
+  // 之前只显示总数,用户误以为"恢复失效"。现在活跃数显式可见。)
+  const totalEngrams = data.totalEngrams || 0;
+  const activeEngrams = data.activeEngrams != null ? (data.activeEngrams || 0) : (data.byStatus?.active || 0);
+  const archivedCount = (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
+  const engramsKpiValue = (archivedCount > 0)
+    ? activeEngrams + ' <span style="color:var(--fg-muted);font-size:0.85em">/ ' + totalEngrams + '</span>'
+    : String(totalEngrams);
+  const engramsKpiSub = (archivedCount > 0)
+    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.clickToViewAll')
+    : T.t('viewer.stats.clickToViewAll');
+
   let html = '<div class="kpi-grid">'
-    + kpiClickable(T.t('viewer.stats.totalEngrams'), data.totalEngrams || 0, T.t('viewer.stats.clickToViewAll'), 'engrams')
+    + kpiClickable(T.t('viewer.stats.totalEngrams'), engramsKpiValue, engramsKpiSub, 'engrams', T.t('viewer.stats.totalEngramsTip'))
     + kpiClickable(T.t('viewer.stats.totalSynapses'), data.totalSynapses || 0, T.t('viewer.stats.clickToViewGraph'), 'graph')
     + kpiClickable(T.t('viewer.stats.pendingProposals'), data.pendingProposals || 0, T.t('viewer.stats.clickToHandle'), 'proposals')
     + '</div>';
@@ -1355,7 +1370,7 @@ window.CO_ENGRAM_AUDIT = {
       // 并行:audit 走 paginator + engram ids 轻量端点(后者判断 engramId 是否仍存在)
       // 2026-07 改用 /api/engrams/ids:仅返回 id 数组(~30KB),替代旧 /api/engrams?limit=500
       // 拉 digest(~100KB) 的浪费,首屏加载提速 50-100ms
-      [engramsData] = await Promise.all([
+      [, engramsData] = await Promise.all([
         CO_ENGRAM._auditPager.load(),
         CO_ENGRAM.apiGet('/api/engrams/ids').catch(() => ({ ids: [] })),
       ]);
@@ -1784,6 +1799,30 @@ window.CO_ENGRAM_TRASH = {
       root.innerHTML = '<div class="empty"><div class="icon">🗑️</div>' + T.t('viewer.trash.empty') + '</div>';
       return;
     }
+
+    // 分区显示标签 + tooltip(2026-07 修复用户反馈):
+    //   forgotten/archived 走 enumLabel 中文化 + tip 翻译
+    //   YYYY-MM 物理清空分区用 "分区(物理清空)" 后缀 + tip 解释
+    //   原先直接显示英文 enum 值,中文用户看不懂。
+    const formatPartitionLabel = (p) => {
+      if (!p) return '—';
+      // 软删分区:forgotten / archived
+      if (p === 'forgotten' || p === 'archived') {
+        return T.enumLabel('status', p);
+      }
+      // 物理清空分区:YYYY-MM 格式
+      if (/^\d{4}-\d{2}$/.test(p)) {
+        return p + ' ' + T.t('viewer.trash.partitionSweptSuffix');
+      }
+      return p;
+    };
+    const formatPartitionTip = (p, source) => {
+      if (source === 'soft' || p === 'forgotten' || p === 'archived') {
+        return T.t('viewer.trash.partitionTipSoft');
+      }
+      return T.t('viewer.trash.partitionTipSwept');
+    };
+
     // 顶部工具栏:统计 + 分区筛选 + 一键清空
     const partitions = [...new Set(items.map((t) => t.partition).filter(Boolean))].sort();
     let html = '<div class="card" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem">'
@@ -1792,7 +1831,7 @@ window.CO_ENGRAM_TRASH = {
       html += '<label style="font-weight:normal;font-size:0.9rem">' + T.t('viewer.trash.partitionLabel')
         + '<select id="trash-partition-filter" onchange="CO_ENGRAM_TRASH.applyFilter()" style="margin-left:0.4rem">'
         + '<option value="">' + T.t('viewer.trash.all') + '</option>'
-        + partitions.map((p) => '<option value="' + CO_ENGRAM.escapeHtml(p) + '">' + CO_ENGRAM.escapeHtml(p) + '</option>').join('')
+        + partitions.map((p) => '<option value="' + CO_ENGRAM.escapeHtml(p) + '">' + CO_ENGRAM.escapeHtml(formatPartitionLabel(p)) + '</option>').join('')
         + '</select></label>';
     }
     html += '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.purgeAll(false)">' + T.t('viewer.trash.purgeAllBtn') + '</button>'
@@ -1800,25 +1839,27 @@ window.CO_ENGRAM_TRASH = {
 
     html += '<table class="data-table" id="trash-table"><thead><tr>'
       + '<th>' + T.t('viewer.trash.colId') + '</th>'
-      + '<th>标题</th>'
+      + '<th>' + T.t('viewer.trash.colTitle') + '</th>'
       + '<th>' + T.t('viewer.trash.colPartition') + '</th>'
       + '<th>' + T.t('viewer.trash.colTrashedAt') + '</th><th></th>'
       + '</tr></thead><tbody>';
     for (const t of items) {
       const part = t.partition || '';
       const sourceBadge = t.source === 'soft'
-        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">软删</span> '
-        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">已清</span> ';
+        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
+        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
       const titleCell = t.title
         ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
         : '<span style="color:var(--fg-dim)">—</span>';
       const trashedAt = t.trashedAt
         ? new Date(t.trashedAt).toLocaleString()
         : '—';
+      const partTip = formatPartitionTip(part, t.source);
+      const partTipAttr = ' title="' + CO_ENGRAM.escapeHtml(partTip).replaceAll('"', '&quot;') + '"';
       html += '<tr data-partition="' + CO_ENGRAM.escapeHtml(part) + '">'
         + '<td><code>' + CO_ENGRAM.escapeHtml(t.id) + '</code></td>'
         + '<td>' + sourceBadge + titleCell + '</td>'
-        + '<td>' + CO_ENGRAM.escapeHtml(t.partition || '—') + '</td>'
+        + '<td' + partTipAttr + '>' + CO_ENGRAM.escapeHtml(formatPartitionLabel(part)) + '</td>'
         + '<td style="font-size:0.8rem;color:var(--fg-muted)">' + CO_ENGRAM.escapeHtml(trashedAt) + '</td>'
         + '<td>'
         + '<button class="btn-link" onclick="CO_ENGRAM_TRASH.preview(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.previewBtn') + '</button> '
@@ -1829,10 +1870,10 @@ window.CO_ENGRAM_TRASH = {
     html += '</tbody></table>';
     if (this._hasMore) {
       html += '<div style="margin-top:1rem;text-align:center">'
-        + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.loadMore()">加载更多(已加载 ' + items.length + ' / ' + this._total + ')</button>'
+        + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.loadMore()">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.loadMore', { loaded: items.length, total: this._total })) + '</button>'
         + '</div>';
     } else if (items.length > 50) {
-      html += '<div style="margin-top:0.75rem;text-align:center;color:var(--fg-muted);font-size:0.85rem)">已全部加载(' + items.length + ' 条)</div>';
+      html += '<div style="margin-top:0.75rem;text-align:center;color:var(--fg-muted);font-size:0.85rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.allLoaded', { n: items.length })) + '</div>';
     }
     root.innerHTML = html;
   },
@@ -1875,10 +1916,23 @@ window.CO_ENGRAM_TRASH = {
     const status = fm.status ? T.enumLabel('status', fm.status) : '';
     const source = fm.sourceType ? T.enumLabel('sourceType', fm.sourceType) : '';
     const sourceBadge = d.source === 'soft'
-      ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">软删除</span> '
+      ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
       : (d.source === 'swept'
-        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">已扫到 .trash/</span> '
+        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
         : '');
+
+    // 分区显示:软删走 enumLabel,物理清空加 (swept) 后缀
+    const formatPartLabel = (p) => {
+      if (!p) return '—';
+      if (p === 'forgotten' || p === 'archived') return T.enumLabel('status', p);
+      if (/^\d{4}-\d{2}$/.test(p)) return p + ' ' + T.t('viewer.trash.partitionSweptSuffix');
+      return p;
+    };
+    const partLabel = formatPartLabel(d.partition);
+    const partTipText = (d.source === 'soft' || d.partition === 'forgotten' || d.partition === 'archived')
+      ? T.t('viewer.trash.partitionTipSoft')
+      : T.t('viewer.trash.partitionTipSwept');
+    const partTipAttr = ' title="' + CO_ENGRAM.escapeHtml(partTipText).replaceAll('"', '&quot;') + '"';
 
     const body = '<div class="warn-banner" style="padding:0.6rem 0.8rem;margin-bottom:0.8rem">'
       + sourceBadge
@@ -1893,7 +1947,7 @@ window.CO_ENGRAM_TRASH = {
       + (fm.domainTags && fm.domainTags.length
         ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + ':</span>' + fm.domainTags.map((t) => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ') + '</div>'
         : '')
-      + '<div class="field"><span class="field-label">' + T.t('viewer.trash.partitionField') + '</span>' + CO_ENGRAM.escapeHtml(d.partition || '—')
+      + '<div class="field"><span class="field-label"' + partTipAttr + '>' + T.t('viewer.trash.partitionField') + '</span>' + CO_ENGRAM.escapeHtml(partLabel)
       + ' <span class="field-label"' + CO_ENGRAM.tip('lastEffectiveAt') + '>' + T.t('viewer.trash.trashedAtField') + '</span>' + CO_ENGRAM.escapeHtml(d.trashedAt || '—') + '</div>'
       + (source ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('sourceType.' + fm.sourceType) + '>' + T.fieldLabel('sourceType') + ':</span>' + CO_ENGRAM.escapeHtml(source) + '</div>' : '')
       + (fm.createdBy ? '<div class="field"><span class="field-label">' + T.t('viewer.trash.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(fm.createdBy) + '</div>' : '')
