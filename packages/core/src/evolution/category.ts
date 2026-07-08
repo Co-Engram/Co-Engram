@@ -371,22 +371,38 @@ export function runCategoryEvolution(
   const entries = [...repo.listEngrams()].sort((a, b) =>
     a.id < b.id ? -1 : 1,
   );
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+
   let scanned = 0;
   for (const entry of entries) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
+    const digest = digestById.get(entry.id);
+    if (!digest) continue;
+    if (digest.status !== "active") continue;
     scanned += 1;
 
-    const assessment = assessUpgrade(engram, conditions);
+    const assessment = assessUpgrade(
+      {
+        kind: digest.kind as EngramKind,
+        kinds: digest.kinds as readonly EngramKind[],
+        effectiveRetrievals: digest.effectiveRetrievals,
+        retrievalCount: digest.retrievalCount,
+        incomingSynapseCount: digest.incomingSynapseCount,
+      },
+      conditions,
+    );
     if (!assessment.canUpgrade || !assessment.targetKind) {
-      skipped.push({ id: engram.id, reason: assessment.reason });
+      skipped.push({ id: digest.id, reason: assessment.reason });
       continue;
     }
 
     if (!dryRun) {
       try {
         upgradeEngramKind(repo, {
-          id: engram.id,
+          id: digest.id,
           newKind: assessment.targetKind,
           reason: assessment.reason,
           evidence: `auto: ${assessment.reason}`,
@@ -395,14 +411,14 @@ export function runCategoryEvolution(
         });
       } catch (e) {
         skipped.push({
-          id: engram.id,
+          id: digest.id,
           reason: `upgrade failed: ${(e as Error).message}`,
         });
         continue;
       }
     }
     upgraded.push({
-      id: engram.id,
+      id: digest.id,
       from: assessment.fromKind,
       to: assessment.targetKind,
       reason: assessment.reason,

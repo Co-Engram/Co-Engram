@@ -25,6 +25,16 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { Engram, EngramId, VerificationStatus } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
 
+/** collectSources 返回的精简结构(只含调用方实际使用的字段) */
+type SourceEngram = {
+  readonly id: EngramId;
+  readonly title: string;
+  readonly content: string;
+  readonly summary: string;
+  readonly domainTags: readonly string[];
+  readonly kind: Engram["kind"];
+};
+
 /** 假设 Provider 输入：候选 engram 摘要 */
 export interface HypothesisProviderInput {
   readonly topic: string;
@@ -458,7 +468,7 @@ function collectSources(
     minSources: number;
     maxSources: number;
   },
-): Engram[] {
+): SourceEngram[] {
   const kindPriority: Record<Engram["kind"], number> = {
     observation: 0,
     fact: 1,
@@ -467,17 +477,28 @@ function collectSources(
     hypothesis: 4, // 不召回其他 hypothesis
   };
 
+  // 性能修复(2026-07):消除循环内 readEngram N+1
   const all = repo.listEngrams();
-  const candidates: Engram[] = [];
+  const allIds = all.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+
+  const candidates: SourceEngram[] = [];
   for (const entry of all) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
-    if (engram.kind === "hypothesis") continue;
+    const digest = digestById.get(entry.id);
+    const content = contentById.get(entry.id);
+    if (!digest || !content) continue;
+    if (digest.status !== "active") continue;
+    if (digest.kind === "hypothesis") continue;
 
     // domainTags 过滤
     if (options.domainTags && options.domainTags.length > 0) {
       const hasOverlap = options.domainTags.some((t) =>
-        engram.domainTags.includes(t),
+        digest.domainTags.includes(t),
       );
       if (!hasOverlap) continue;
     }
@@ -485,12 +506,19 @@ function collectSources(
     // contextTags 过滤
     if (options.contextTags && options.contextTags.length > 0) {
       const hasOverlap = options.contextTags.some((t) =>
-        engram.contextTags.includes(t),
+        digest.contextTags.includes(t),
       );
       if (!hasOverlap) continue;
     }
 
-    candidates.push(engram);
+    candidates.push({
+      id: digest.id,
+      title: content.title,
+      content: content.content,
+      summary: content.summary,
+      domainTags: digest.domainTags,
+      kind: digest.kind as Engram["kind"],
+    });
   }
 
   // 排序：kind 优先级 + id 字典序（稳定）

@@ -22,7 +22,7 @@ import type { Synapse } from "../types/synapse.js";
 import { randomUUID } from "node:crypto";
 import {
   tokenizeForDedup,
-  TokenJaccardSimilarityEngine,
+  jaccardSimilarity,
 } from "../dedup/similar.js";
 
 // ============================================================
@@ -174,7 +174,13 @@ export interface ClusteringOptions {
 }
 
 /**
- * 简单贪心聚类：按 id 字典序遍历，每个 engram 找未聚类的相似邻居组成 cluster
+ * 简单贪心聚类:按 id 字典序遍历,每个 engram 找未聚类的相似邻居组成 cluster
+ *
+ * 性能(2026-07 修复):原走 findCandidatesSync(内部 listEngrams +
+ * readContentBatch + readDigestBatch)在每个 entry 上调用一次,
+ * 簇扫描总成本 O(N²) 且每轮重复 batch 读。现直接 inline Jaccard:
+ * 批量预取 content 一次,预 tokenize 所有 active engram tokens,
+ * 扫描时只做 Set<string> Jaccard 比较(纯内存,无 IO)。
  */
 export function clusterSimilarEngrams(
   repo: EngramRepository,
@@ -183,33 +189,56 @@ export function clusterSimilarEngrams(
   const similarityThreshold = options.similarityThreshold ?? 0.4;
   const maxClusterSize = options.maxClusterSize ?? 10;
 
-  const engine = new TokenJaccardSimilarityEngine(repo);
   const entries = [...repo.listEngrams()].sort((a, b) =>
     a.id < b.id ? -1 : 1,
   );
   const clustered = new Set<string>();
   const clusters: Cluster[] = [];
 
+  // 批量预取 digest + content 一次(消除 findCandidatesSync 内的重复 batch)
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+
+  // 预 tokenize 每个 active engram 的 tokens(避免循环内重复 tokenize)
+  const tokensById = new Map<string, Set<string>>();
+  for (const entry of entries) {
+    const digest = digestById.get(entry.id);
+    const content = contentById.get(entry.id);
+    if (!digest || !content) continue;
+    if (digest.status !== "active") continue;
+    tokensById.set(
+      entry.id,
+      tokenizeForDedup(
+        `${content.title} ${content.summary} ${content.content}`,
+      ),
+    );
+  }
+
   for (const entry of entries) {
     if (clustered.has(entry.id)) continue;
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
-
-    const candidates = engine.findCandidatesSync(
-      `${engram.title} ${engram.summary} ${engram.content}`,
-      { topK: maxClusterSize, minSimilarity: similarityThreshold },
-    );
+    const entryTokens = tokensById.get(entry.id);
+    if (!entryTokens || entryTokens.size === 0) continue;
 
     const memberIds: EngramId[] = [entry.id];
     clustered.add(entry.id);
-    for (const c of candidates) {
-      if (c.id === entry.id) continue;
-      if (clustered.has(c.id)) continue;
-      const candidateEngram = repo.readEngram(c.id);
-      if (candidateEngram.status !== "active") continue;
-      memberIds.push(c.id);
-      clustered.add(c.id);
+
+    for (const other of entries) {
       if (memberIds.length >= maxClusterSize) break;
+      if (other.id === entry.id) continue;
+      if (clustered.has(other.id)) continue;
+      const otherTokens = tokensById.get(other.id);
+      if (!otherTokens || otherTokens.size === 0) continue;
+
+      const sim = jaccardSimilarity(entryTokens, otherTokens);
+      if (sim < similarityThreshold) continue;
+
+      memberIds.push(other.id);
+      clustered.add(other.id);
     }
 
     if (memberIds.length > 1) {
@@ -292,16 +321,27 @@ export async function runRemDreaming(
   for (const cluster of clusters) {
     if (cluster.memberIds.length < minClusterSize) continue;
 
-    const engrams = cluster.memberIds.map((id) => {
-      const e = repo.readEngram(id);
-      return {
-        id: e.id,
-        title: e.title,
-        summary: e.summary,
-        content: e.content,
-        domainTags: [...e.domainTags],
-      };
-    });
+    // 批量预取 content(含 title/summary)+ digest(含 domainTags)
+    // 性能修复(2026-07):消除循环内 readEngram(memberIds 数量次)
+    const memberContents = repo.readContentBatch(cluster.memberIds);
+    const memberDigests = repo.readDigestBatch(cluster.memberIds);
+    const memberDigestById = new Map(
+      memberDigests.map((d) => [d.id, d] as const),
+    );
+
+    const engrams = memberContents
+      .map((c) => {
+        const d = memberDigestById.get(c.id);
+        if (!d) return null;
+        return {
+          id: c.id,
+          title: c.title,
+          summary: c.summary,
+          content: c.content,
+          domainTags: [...d.domainTags],
+        };
+      })
+      .filter((e): e is NonNullable<typeof e> => e !== null);
 
     const output = await provider.abstract({ engrams });
     const proposal: ConsolidationProposal = {

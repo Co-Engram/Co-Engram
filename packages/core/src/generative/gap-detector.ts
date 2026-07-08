@@ -23,7 +23,19 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
-import type { Engram, EngramKind } from "../types/engram.js";
+import type { EngramFreshness, EngramKind, EngramStatus } from "../types/engram.js";
+
+/** detectKnowledgeGaps 使用的精简 engram 视图(只含实际访问的字段) */
+type GapEngram = {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: EngramKind;
+  readonly domainTags: readonly string[];
+  readonly importance: number;
+  readonly incomingSynapseCount: number;
+  readonly freshness: EngramFreshness;
+  readonly status: EngramStatus;
+};
 
 /** 缺口类型 */
 export type GapType =
@@ -106,17 +118,38 @@ export function detectKnowledgeGaps(
   const filterDomains = options.domainTags;
 
   // 一次性加载所有 active engram
-  const allEngrams: Engram[] = [];
-  for (const entry of repo.listEngrams()) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
+  // 性能修复(2026-07):消除循环内 readEngram N+1,
+  // 用 readDigestBatch + readContentBatch 替代
+  const entries = [...repo.listEngrams()];
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+  const allEngrams: GapEngram[] = [];
+  for (const entry of entries) {
+    const digest = digestById.get(entry.id);
+    const content = contentById.get(entry.id);
+    if (!digest || !content) continue;
+    if (digest.status !== "active") continue;
     if (filterDomains && filterDomains.length > 0) {
       const hasOverlap = filterDomains.some((t) =>
-        engram.domainTags.includes(t),
+        digest.domainTags.includes(t),
       );
       if (!hasOverlap) continue;
     }
-    allEngrams.push(engram);
+    allEngrams.push({
+      id: digest.id,
+      title: content.title,
+      kind: digest.kind as EngramKind,
+      domainTags: digest.domainTags,
+      importance: digest.importance,
+      incomingSynapseCount: digest.incomingSynapseCount,
+      freshness: digest.freshness as EngramFreshness,
+      status: digest.status as EngramStatus,
+    });
   }
 
   // 收集每个 engram 的 synapse 信息
@@ -350,7 +383,7 @@ function severityForEvidence(
 }
 
 function collectDomainEngramIds(
-  engrams: readonly Engram[],
+  engrams: readonly GapEngram[],
   domain: string,
 ): string[] {
   return engrams

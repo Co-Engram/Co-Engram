@@ -70,6 +70,9 @@ export function gatherContradictingViews(
   for (const syn of outgoing) {
     if (syn.kind !== "contradicts") continue;
     if (!repo.exists(syn.to)) continue; // 跳过 dangling
+    // noplus1: 需要 perspective 字段(不在 DigestLine/Content 中),outgoing
+    // synapse 数量通常 ≤ 10(由单 engram 的出边限定),非批量级 N+1。
+    // TODO: 加 perspective 到 DigestLine + SQLite v5 后改用 readDigestBatch。
     const other = repo.readEngram(syn.to);
     const key = `out:${syn.to}`;
     if (seen.has(key)) continue;
@@ -92,6 +95,10 @@ export function gatherContradictingViews(
     for (const syn of file.outgoing) {
       if (syn.kind !== "contradicts") continue;
       if (syn.to !== engramId) continue;
+      // noplus1: 需要 perspective 字段(不在 DigestLine/Content 中)。
+      // 实际命中频率低(每个 engram 平均 contradicts 出边很少),
+      // 但最坏情况是 O(N)。修复需把 perspective 加入 DigestLine + SQLite v5。
+      // TODO: perspective 入 schema 后改 readDigestBatch。
       const other = repo.readEngram(entry.id);
       const key = `in:${entry.id}`;
       if (seen.has(key)) continue;
@@ -254,6 +261,10 @@ export function computeMultiViewStats(repo: EngramRepository): MultiViewStats {
   const perspectives = new Set<string>();
 
   for (const entry of repo.listEngrams()) {
+    // TODO: perspective 字段不在 DigestLine 中,目前无法走 readDigestBatch。
+    // 当前 computeMultiViewStats 无调用方(待 viewer 真正使用时再优化 +
+    // 把 perspective 加入 DigestLine + SQLite schema v5)。
+    // noplus1: 见上述 TODO,需 schema 扩展后才能批量。
     const engram = repo.readEngram(entry.id);
     if (engram.perspective) perspectives.add(engram.perspective);
     const file = repo.readSynapses(entry.id);

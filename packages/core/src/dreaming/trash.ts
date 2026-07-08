@@ -152,14 +152,23 @@ export function sweepToTrash(
   const entries = [...repo.listEngramIndex()].sort((a, b) =>
     a.id < b.id ? -1 : 1,
   );
+
+  // 批量预取 digest(只需要 status 字段做过滤)
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+
   for (const entry of entries) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "forgotten") continue;
+    const digest = digestById.get(entry.id);
+    if (!digest) continue;
+    if (digest.status !== "forgotten") continue;
     scanned += 1;
 
     const fileAbs = join(repo.rootPath, entry.path);
     if (!existsSync(fileAbs)) {
-      skipped.push({ id: engram.id, reason: "engram file missing" });
+      skipped.push({ id: digest.id, reason: "engram file missing" });
       continue;
     }
 
@@ -167,7 +176,7 @@ export function sweepToTrash(
     const ageMs = now.getTime() - mtime;
     if (ageMs < thresholdMs) {
       skipped.push({
-        id: engram.id,
+        id: digest.id,
         reason: `only ${Math.floor(ageMs / (24 * 60 * 60 * 1000))} days old (< ${afterDays})`,
       });
       continue;
@@ -176,20 +185,20 @@ export function sweepToTrash(
     if (!dryRun) {
       const moved = moveEngramFileToTrash(
         repo,
-        engram.id,
+        digest.id,
         entry.path,
         formatTrashPartition(now),
       );
       if (!moved.ok) {
-        skipped.push({ id: engram.id, reason: moved.reason });
+        skipped.push({ id: digest.id, reason: moved.reason });
         continue;
       }
     }
-    trashed.push(engram.id);
+    trashed.push(digest.id);
     options.auditLog?.append({
       actor: "system",
       action: "sweep_to_trash",
-      engramId: engram.id,
+      engramId: digest.id,
       metadata: { partition: formatTrashPartition(now) },
     });
   }

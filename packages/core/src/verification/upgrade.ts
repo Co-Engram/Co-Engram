@@ -493,9 +493,12 @@ export function summarizeVerificationStatus(
   };
   let total = 0;
 
-  for (const entry of repo.listEngrams()) {
-    const engram = repo.readEngram(entry.id);
-    const status = engram.verificationStatus ?? "unverified";
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  const entries = repo.listEngrams();
+  const allIds = entries.map((e) => e.id);
+  const digests = repo.readDigestBatch(allIds);
+  for (const digest of digests) {
+    const status = (digest.verificationStatus ?? "unverified") as VerificationStatus;
     byStatus[status] += 1;
     total += 1;
   }

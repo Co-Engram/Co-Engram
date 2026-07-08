@@ -76,27 +76,39 @@ export function runLightDreaming(
     a.id < b.id ? -1 : 1,
   );
 
+  // 批量预取 digest + content,消除循环内 readEngram(N+1 → 2 次 SQL 查询)
+  // 性能修复(2026-07):旧实现循环内 repo.readEngram(entry.id),N=1026 时
+  // 同步阻塞 event loop 30s+。checkDuplicateSync 内部只需要 title + content
+  // 做相似度比对,encodingContext/visibility 等字段在 dedupe 阶段不参与计算。
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+
   let scanned = 0;
   for (const entry of entries) {
     if (removed.has(entry.id)) continue;
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
+    const digest = digestById.get(entry.id);
+    const content = contentById.get(entry.id);
+    if (!digest || !content) continue;
+    if (digest.status !== "active") continue;
     scanned += 1;
 
     const dedupInput: EngramCreateInput = {
-      title: engram.title,
-      content: engram.content,
-      kind: engram.kind,
-      kinds: engram.kinds,
-      summary: engram.summary,
-      domainTags: [...engram.domainTags],
-      contextTags: [...engram.contextTags],
-      encodingContext: engram.encodingContext,
-      importance: engram.importance,
-      confidence: engram.confidence,
-      sourceType: engram.sourceType,
-      visibility: engram.visibility,
-      createdBy: engram.createdBy,
+      title: content.title,
+      content: content.content,
+      kind: digest.kind as EngramCreateInput["kind"],
+      kinds: digest.kinds as EngramCreateInput["kinds"],
+      summary: content.summary,
+      domainTags: [...digest.domainTags],
+      contextTags: [...digest.contextTags],
+      importance: digest.importance,
+      confidence: digest.confidence,
+      sourceType: digest.sourceType as EngramCreateInput["sourceType"],
+      createdBy: digest.createdBy,
     };
 
     const result = checkDuplicateSync(
@@ -105,7 +117,7 @@ export function runLightDreaming(
     );
 
     // targetId 是自己 → 跳过（理论上 checkDuplicate 会返回自己作为候选）
-    if (!result.targetId || result.targetId === engram.id) continue;
+    if (!result.targetId || result.targetId === entry.id) continue;
 
     // 目标已被删除（例如先前的合并）→ 跳过
     if (removed.has(result.targetId)) continue;
@@ -115,11 +127,11 @@ export function runLightDreaming(
       // 强化目标，删除当前
       if (!dryRun) {
         recordRetrievalSuccess(repo, result.targetId, 1);
-        repo.deleteEngram(engram.id);
+        repo.deleteEngram(entry.id);
       }
-      removed.add(engram.id);
+      removed.add(entry.id);
       duplicatesHandled.push({
-        from: engram.id,
+        from: entry.id,
         to: result.targetId,
         reason: result.reason,
         confidence: result.confidence,
@@ -129,18 +141,18 @@ export function runLightDreaming(
       if (!dryRun) {
         mergeEngram(repo, {
           id: result.targetId,
-          newTitle: engram.title,
-          newContent: engram.content,
-          newSummary: engram.summary,
-          newImportance: engram.importance,
+          newTitle: content.title,
+          newContent: content.content,
+          newSummary: content.summary,
+          newImportance: digest.importance,
           mergedBy: "dreaming-light",
           reason: result.reason ?? "light dreaming auto-merge",
         });
-        repo.deleteEngram(engram.id);
+        repo.deleteEngram(entry.id);
       }
-      removed.add(engram.id);
+      removed.add(entry.id);
       updatesHandled.push({
-        from: engram.id,
+        from: entry.id,
         to: result.targetId,
         reason: result.reason,
         confidence: result.confidence,

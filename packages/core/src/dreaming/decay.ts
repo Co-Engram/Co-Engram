@@ -72,25 +72,33 @@ export function applyDecayBatch(
     a.id < b.id ? -1 : 1,
   );
 
+  // 批量预取 digest(含 status/lastEffectiveAt/createdAt/importance)
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+
   let scanned = 0;
   for (const entry of entries) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
+    const digest = digestById.get(entry.id);
+    if (!digest) continue;
+    if (digest.status !== "active") continue;
     scanned += 1;
 
     const freshness = computeFreshness(
-      engram.lastEffectiveAt,
-      engram.createdAt,
-      engram.importance,
+      digest.lastEffectiveAt,
+      digest.createdAt,
+      digest.importance,
       now,
     );
     byFreshness[freshness] += 1;
 
     if (freshness === "forgotten") {
-      forgotten.push(engram.id);
+      forgotten.push(digest.id);
       if (!dryRun) {
         repo.updateLifecycle(
-          engram.id,
+          digest.id,
           "forgotten" satisfies EngramStatus,
           freshness,
         );
@@ -99,20 +107,20 @@ export function applyDecayBatch(
     }
 
     if (freshness === "stale") {
-      if (engram.importance < forgetThreshold) {
-        forgotten.push(engram.id);
+      if (digest.importance < forgetThreshold) {
+        forgotten.push(digest.id);
         if (!dryRun) {
           repo.updateLifecycle(
-            engram.id,
+            digest.id,
             "forgotten" satisfies EngramStatus,
             freshness,
           );
         }
       } else {
-        archived.push(engram.id);
+        archived.push(digest.id);
         if (!dryRun) {
           repo.updateLifecycle(
-            engram.id,
+            digest.id,
             "archived" satisfies EngramStatus,
             freshness,
           );

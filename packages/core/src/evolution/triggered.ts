@@ -156,20 +156,37 @@ export function onEngramCreated(
     ids: [newEngramId],
   });
 
+  // 性能修复(2026-07):消除循环内 readEngram N+1,
+  // triggeredConsolidation 在新 engram 落库后被调用,N=仓库总数,
+  // 在 1000+ engrams 规模下原 N+1 实现 30s+ 卡死 viewer。
+  // 同时需要 digest(status/kind/domainTags/contextTags)+ content(extractKeywords 用)。
+  const allIds = entries.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+
   for (const entry of entries) {
     if (cfg.excludeSelf && entry.id === newEngramId) continue;
 
-    const other = repo.readEngram(entry.id);
+    const other = digestById.get(entry.id);
+    const otherContent = contentById.get(entry.id);
+    if (!other || !otherContent) continue;
     if (other.status !== "active") continue;
 
     // 模式重复检测
-    const otherPatternKey = patternKey(other.kind, other.domainTags);
+    const otherPatternKey = patternKey(
+      other.kind as EngramKind,
+      other.domainTags,
+    );
     const bucket = patternBuckets.get(otherPatternKey);
     if (bucket) {
       bucket.ids.push(other.id);
     } else {
       patternBuckets.set(otherPatternKey, {
-        kind: other.kind,
+        kind: other.kind as EngramKind,
         ids: [other.id],
       });
     }
@@ -257,13 +274,13 @@ export function onEngramCreated(
 
     // 潜在 contradiction 检测：kind 不同 + 关键词重叠
     if (other.kind !== newEngram.kind) {
-      const otherKeywords = extractKeywords(other.content);
+      const otherKeywords = extractKeywords(otherContent.content);
       const sharedKeywords = intersect(newKeywords, otherKeywords);
       if (sharedKeywords.length >= cfg.minContradictionKeywordOverlap) {
         potentialContradictions.push({
           otherEngramId: other.id,
           newKind: newEngram.kind,
-          otherKind: other.kind,
+          otherKind: other.kind as EngramKind,
           sharedKeywords,
           reason: `kind mismatch (${newEngram.kind} vs ${other.kind}) + ${sharedKeywords.length} shared keywords`,
         });

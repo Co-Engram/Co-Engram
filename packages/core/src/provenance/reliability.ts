@@ -95,17 +95,20 @@ export function deriveSourceReliability(
   createdBy: string,
 ): SourceReliability | null {
   const entries = repo.listEngrams();
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  const allIds = entries.map((e) => e.id);
+  const digests = repo.readDigestBatch(allIds);
+
   let totalEffective = 0;
   let totalFailed = 0;
   let totalRetrievals = 0;
   let engramCount = 0;
 
-  for (const entry of entries) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.createdBy !== createdBy) continue;
-    totalEffective += engram.effectiveRetrievals;
-    totalFailed += engram.failedUses;
-    totalRetrievals += engram.retrievalCount;
+  for (const digest of digests) {
+    if (digest.createdBy !== createdBy) continue;
+    totalEffective += digest.effectiveRetrievals;
+    totalFailed += digest.failedUses;
+    totalRetrievals += digest.retrievalCount;
     engramCount += 1;
   }
 
@@ -128,20 +131,55 @@ export function deriveSourceReliability(
  * 派生所有来源的 reliability
  *
  * 返回按 reliability 升序排序（最低信用在前，便于优先标记）。
+ *
+ * 性能(2026-07 修复):原实现遍历每个 creator 调用 deriveSourceReliability,
+ * 每次都 readDigestBatch 全量。M 个 creator × N 个 engram = M×N 次扫描。
+ * 现按 createdBy 分组一次扫描,内联累加,O(N) 总成本。
  */
 export function deriveAllSourceReliability(
   repo: EngramRepository,
 ): SourceReliability[] {
-  const creators = new Set<string>();
-  for (const entry of repo.listEngrams()) {
-    const engram = repo.readEngram(entry.id);
-    creators.add(engram.createdBy);
+  const entries = repo.listEngrams();
+  const allIds = entries.map((e) => e.id);
+  const digests = repo.readDigestBatch(allIds);
+
+  const byCreator = new Map<
+    string,
+    {
+      totalEffective: number;
+      totalFailed: number;
+      totalRetrievals: number;
+      engramCount: number;
+    }
+  >();
+
+  for (const digest of digests) {
+    const entry = byCreator.get(digest.createdBy) ?? {
+      totalEffective: 0,
+      totalFailed: 0,
+      totalRetrievals: 0,
+      engramCount: 0,
+    };
+    entry.totalEffective += digest.effectiveRetrievals;
+    entry.totalFailed += digest.failedUses;
+    entry.totalRetrievals += digest.retrievalCount;
+    entry.engramCount += 1;
+    byCreator.set(digest.createdBy, entry);
   }
 
   const result: SourceReliability[] = [];
-  for (const createdBy of creators) {
-    const r = deriveSourceReliability(repo, createdBy);
-    if (r) result.push(r);
+  for (const [createdBy, stats] of byCreator) {
+    const sampleSize = stats.totalEffective + stats.totalFailed;
+    const reliability =
+      sampleSize === 0 ? 0.5 : stats.totalEffective / sampleSize;
+    result.push({
+      createdBy,
+      totalEffective: stats.totalEffective,
+      totalFailed: stats.totalFailed,
+      totalRetrievals: stats.totalRetrievals,
+      engramCount: stats.engramCount,
+      reliability,
+    });
   }
 
   result.sort((a, b) => {
@@ -239,28 +277,33 @@ export function flagLowReliabilitySources(
     engramIds: string[];
   }> = [];
 
+  // 性能修复(2026-07):预取 digest 一次,避免下方 for-source × for-entry 双层
+  // 循环里反复 readEngram(原实现 O(|sources| × N))
+  const allEntries = repo.listEngrams();
+  const allIds = allEntries.map((e) => e.id);
+  const digests = repo.readDigestBatch(allIds);
+
   for (const source of all) {
     const cls = classifyReliability(source, cfg);
     if (!cls.isLow) continue;
 
     const engramIds: string[] = [];
-    for (const entry of repo.listEngrams()) {
-      const engram = repo.readEngram(entry.id);
-      if (engram.createdBy !== source.createdBy) continue;
+    for (const digest of digests) {
+      if (digest.createdBy !== source.createdBy) continue;
       // 已 refuted 的不覆盖（保留人工裁决）
-      if (engram.verificationStatus === "refuted") {
-        engramIds.push(entry.id);
+      if (digest.verificationStatus === "refuted") {
+        engramIds.push(digest.id);
         continue;
       }
       // 已是目标状态的不重复写盘
-      if (engram.verificationStatus === cfg.flaggedVerificationStatus) {
-        engramIds.push(entry.id);
+      if (digest.verificationStatus === cfg.flaggedVerificationStatus) {
+        engramIds.push(digest.id);
         continue;
       }
       if (persist) {
-        repo.updateVerificationStatus(entry.id, cfg.flaggedVerificationStatus);
+        repo.updateVerificationStatus(digest.id, cfg.flaggedVerificationStatus);
       }
-      engramIds.push(entry.id);
+      engramIds.push(digest.id);
     }
 
     if (engramIds.length > 0) {

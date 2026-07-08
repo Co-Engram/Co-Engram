@@ -20,7 +20,7 @@
 
 import { randomUUID } from "node:crypto";
 import type { EngramRepository } from "../storage/repository.js";
-import type { Engram, EngramKind } from "../types/engram.js";
+import type { EngramKind } from "../types/engram.js";
 import type { SynapseKind } from "../types/synapse.js";
 
 /** Domain 结构指纹 */
@@ -153,12 +153,31 @@ export function computeDomainProfile(
   repo: EngramRepository,
   domain: string,
 ): DomainProfile | null {
-  const engrams: Engram[] = [];
-  for (const entry of repo.listEngrams()) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
-    if (!engram.domainTags.includes(domain)) continue;
-    engrams.push(engram);
+  // 性能修复(2026-07):消除循环内 readEngram N+1
+  type ProfileEngram = {
+    readonly id: string;
+    readonly kind: EngramKind;
+    readonly importance: number;
+    readonly confidence: number;
+  };
+  const all = repo.listEngrams();
+  const allIds = all.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+
+  const engrams: ProfileEngram[] = [];
+  for (const entry of all) {
+    const digest = digestById.get(entry.id);
+    if (!digest) continue;
+    if (digest.status !== "active") continue;
+    if (!digest.domainTags.includes(domain)) continue;
+    engrams.push({
+      id: digest.id,
+      kind: digest.kind as EngramKind,
+      importance: digest.importance,
+      confidence: digest.confidence,
+    });
   }
 
   if (engrams.length === 0) return null;
@@ -272,11 +291,14 @@ export function findCrossDomainCandidates(
   const minEngrams = options.minEngramsPerDomain ?? 2;
 
   // 收集所有 domain
+  // 性能修复(2026-07):消除循环内 readEngram N+1
   const domainSet = new Set<string>();
-  for (const entry of repo.listEngrams()) {
-    const engram = repo.readEngram(entry.id);
-    if (engram.status !== "active") continue;
-    for (const d of engram.domainTags) domainSet.add(d);
+  const allEntries = repo.listEngrams();
+  const allIds = allEntries.map((e) => e.id);
+  const digests = repo.readDigestBatch(allIds);
+  for (const digest of digests) {
+    if (digest.status !== "active") continue;
+    for (const d of digest.domainTags) domainSet.add(d);
   }
 
   // 计算每个 domain 的 profile
@@ -521,13 +543,25 @@ function sampleEngrams(
   domain: string,
   n: number,
 ): Array<{ title: string; content: string }> {
+  // 性能修复(2026-07):消除循环内 readEngram N+1
   const result: Array<{ title: string; content: string }> = [];
-  for (const entry of repo.listEngrams()) {
+  const all = repo.listEngrams();
+  const allIds = all.map((e) => e.id);
+  const digestById = new Map(
+    repo.readDigestBatch(allIds).map((d) => [d.id, d] as const),
+  );
+  const contentById = new Map(
+    repo.readContentBatch(allIds).map((c) => [c.id, c] as const),
+  );
+
+  for (const entry of all) {
     if (result.length >= n) break;
-    const e = repo.readEngram(entry.id);
-    if (e.status !== "active") continue;
-    if (!e.domainTags.includes(domain)) continue;
-    result.push({ title: e.title, content: e.content });
+    const digest = digestById.get(entry.id);
+    const content = contentById.get(entry.id);
+    if (!digest || !content) continue;
+    if (digest.status !== "active") continue;
+    if (!digest.domainTags.includes(domain)) continue;
+    result.push({ title: content.title, content: content.content });
   }
   return result;
 }

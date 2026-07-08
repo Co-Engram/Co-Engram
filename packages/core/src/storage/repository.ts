@@ -892,6 +892,24 @@ export class EngramRepository {
 
   /**
    * 读取完整 Engram(单文件 + 统计)
+   *
+   * ⚠️ **禁止在循环里调用**(2026-07 N+1 系统性 bug 教训):
+   * 每次调用 = 3× readFileSync(content.md + meta.yaml + synapses.yaml)
+   * + YAML parse + delocalizeKeys + assembleEngram(扫 synapses/ 目录)。
+   * N=1026 时单次循环 ~30s,会让 viewer event loop 卡死。
+   *
+   * 替代 API(按字段需求选):
+   *   - catalog 字段(id/title/kind/domainTags)→ listEngrams() 或 listEngramIndex()
+   *     (后者还含 contentHash/slug/mtime/path,已是内存扫,无 I/O)
+   *   - digest 字段(status/kind/kinds/summary/domainTags/contextTags/importance/
+   *     confidence/freshness/sourceType/createdBy/createdAt/updatedAt/
+   *     lastRetrievedAt/lastEffectiveAt/retrievalCount/effectiveRetrievals/
+   *     failedUses/reinforcementScore/contentSize/contentHash/
+   *     outgoingSynapseCount/incomingSynapseCount/activeContradictionCount/
+   *     verificationStatus)→ readDigestBatch(ids)(SQLite WHERE IN,500/批)
+   *   - content + title + summary → readContentBatch(ids)
+   *
+   * 单条且明确不在循环里(例如 engram_get 工具按用户传入的 id 读一条)用本方法 OK。
    */
   readEngram(stableId: string): Engram {
     const relativePath = this.resolvePath(stableId);
@@ -1435,6 +1453,7 @@ export class EngramRepository {
     const out: DigestLine[] = [];
     for (const id of ids) {
       if (!this.exists(id)) continue;
+      // noplus1: readDigestBatch 的 memory fallback 自身,SQLite 路径走 WHERE IN
       const engram = this.readEngram(id);
       out.push({
         id: engram.id,
@@ -1493,6 +1512,7 @@ export class EngramRepository {
     const out: Array<{ id: string; title: string; summary: string; content: string }> = [];
     for (const id of ids) {
       if (!this.exists(id)) continue;
+      // noplus1: readContentBatch 的 memory fallback 自身,SQLite 路径走 WHERE IN
       const engram = this.readEngram(id);
       out.push({
         id: engram.id,
@@ -1697,6 +1717,9 @@ export class EngramRepository {
     for (const entry of this.getIndex().entries.values()) {
       const current = entry.verificationStatus ?? "unverified";
       if (!statusSet.has(current)) continue;
+      // noplus1: listEngramsByVerificationStatus 的语义是返回完整 Engram,
+      // 调用方少(verification 工具内部)且通常按 status 过滤后命中数小。
+      // 若出现 N+1 性能问题,改返回 DigestLine[] 或加 readEngramBatch。
       out.push(this.readEngram(entry.id));
     }
     return out;
