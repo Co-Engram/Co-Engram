@@ -47,8 +47,10 @@ const DEFAULT_LOW_CONFIDENCE_MAX_SCORE = 0.4;
  *   - lowConfidenceTopics:频繁检索但 truthScore 低(RPE 反馈)
  *   - missedTopics:暂留空(需对话历史分析)
  *
- * 内部需要读取完整 engram(不只 catalog)以访问 confidence/retrievalCount。
- * 代价是 N 次 fs 读,light stage 5 分钟一次可接受。
+ * 内部用 readDigestBatch 一次性拉齐 confidence + retrievalCount(SQLite 模式
+ * 单条 WHERE id IN 直查,memory 模式逐个 readEngram 兜底),避免 N+1
+ * readEngram 在 light stage 每 5 分钟触发时同步阻塞 event loop 30+s 卡死
+ * viewer。500 id/批以避免 SQL 参数上限。
  */
 export function computePromptSignals(
   repository: EngramRepository,
@@ -69,25 +71,23 @@ export function computePromptSignals(
   const topTags = pickTopTags(tagCounts, topTagsLimit, topTagsMinCount);
 
   // 收集低置信度 engram 的 tags(RPE 反馈)
+  // P0-2:批量读 DigestLine(SQLite 模式 ~25ms / 1026 engram),替代逐个
+  // readEngram(30+s,含 listSynapsesForEngram 扫 synapses/ 目录的二次 N+1)
   const lowConfidenceTagCounts: Record<string, number> = {};
-  for (const entry of entries) {
-    let engram: { confidence: number; retrievalCount: number } | null = null;
-    try {
-      const full = repository.readEngram(entry.id);
-      engram = {
-        confidence: full.confidence,
-        retrievalCount: full.retrievalCount,
-      };
-    } catch {
-      continue;
-    }
-    if (engram.retrievalCount < lowConfidenceMinRetrievals) continue;
-    if (engram.confidence >= lowConfidenceMaxScore) continue;
-    for (const tag of entry.domainTags ?? []) {
-      const normalized = tag.trim();
-      if (!normalized) continue;
-      lowConfidenceTagCounts[normalized] =
-        (lowConfidenceTagCounts[normalized] ?? 0) + 1;
+  const allIds = entries.map((e) => e.id);
+  const READ_BATCH_SIZE = 500;
+  for (let i = 0; i < allIds.length; i += READ_BATCH_SIZE) {
+    const batch = allIds.slice(i, i + READ_BATCH_SIZE);
+    const digests = repository.readDigestBatch(batch);
+    for (const d of digests) {
+      if (d.retrievalCount < lowConfidenceMinRetrievals) continue;
+      if (d.confidence >= lowConfidenceMaxScore) continue;
+      for (const tag of d.domainTags ?? []) {
+        const normalized = tag.trim();
+        if (!normalized) continue;
+        lowConfidenceTagCounts[normalized] =
+          (lowConfidenceTagCounts[normalized] ?? 0) + 1;
+      }
     }
   }
   const lowConfidenceTopics = pickTopTags(
