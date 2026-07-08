@@ -61,6 +61,8 @@ import type {
   VerificationStatus,
 } from "../types/engram.js";
 import type { StableEngramId } from "../types/repository-types.js";
+import { ULID_REGEX } from "../types/repository-types.js";
+import { computeContentHash, computeContentSize } from "./hash.js";
 import type { Language } from "../i18n/types.js";
 import { DEFAULT_LANGUAGE } from "../i18n/index.js";
 import {
@@ -240,6 +242,51 @@ const ARRAY_FIELDS = new Set([
   "kinds",
 ]);
 
+const VALID_ENGRAM_KINDS = new Set<string>([
+  "observation",
+  "fact",
+  "pattern",
+  "procedure",
+  "hypothesis",
+]);
+
+const VALID_VISIBILITY = new Set<string>([
+  "public",
+  "team",
+  "private",
+  "restricted",
+]);
+
+const VALID_STATUS = new Set<string>(["draft", "active", "archived", "forgotten"]);
+
+const VALID_SOURCE_TYPE = new Set<string>([
+  "firsthand",
+  "secondhand",
+  "inferred",
+]);
+
+const VALID_FRESHNESS = new Set<string>(["fresh", "aging", "stale", "forgotten"]);
+
+const VALID_VERIFICATION = new Set<string>([
+  "unverified",
+  "plausible",
+  "probable",
+  "verified",
+  "refuted",
+]);
+
+const REQUIRED_FIELDS: ReadonlyArray<{
+  readonly name: string;
+  readonly severity: ValidationIssue["severity"];
+}> = [
+  { name: "id", severity: "critical" },
+  { name: "title", severity: "high" },
+  { name: "kind", severity: "high" },
+  { name: "createdBy", severity: "medium" },
+  { name: "createdAt", severity: "medium" },
+  { name: "updatedAt", severity: "medium" },
+];
+
 /**
  * 安全归一化 frontmatter(幂等)。
  *
@@ -268,6 +315,318 @@ function normalizeFrontmatter(
     }
   }
   return out;
+}
+
+/**
+ * 校验 frontmatter 字段值合法性,收集 ValidationIssue(不抛错)。
+ *
+ * 校验维度:
+ *   1. 必填字段存在且非空(REQUIRED_FIELDS)
+ *   2. id 是合法 ULID
+ *   3. 数值字段是 number 且在 [0,1](importance/confidence 等)
+ *   4. 枚举字段在合法值集合(kind/visibility/status/sourceType/...)
+ *   5. 时间字段是合法 ISO(Date.parse 非 NaN)
+ *   6. contentHash 与 contentSize 与实际 content 一致(derived_mismatch)
+ *   7. 未知字段(unknown_field)
+ */
+function validateFrontmatter(
+  fm: Record<string, unknown>,
+  content: string,
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  // === 必填 ===
+  for (const { name, severity } of REQUIRED_FIELDS) {
+    const v = fm[name];
+    if (v === undefined || v === null || v === "") {
+      issues.push({
+        field: name,
+        category: "missing_required",
+        severity,
+        message: `Required field "${name}" is missing or empty`,
+        currentValue: v,
+      });
+    }
+  }
+
+  // === id 必须是 ULID ===
+  const id = fm.id;
+  if (typeof id === "string" && id.length > 0 && !ULID_REGEX.test(id)) {
+    issues.push({
+      field: "id",
+      category: "invalid_format",
+      severity: "high",
+      message: `id must match ULID format (26-char Crockford Base32), got: "${id}"`,
+      currentValue: id,
+      expectedType: "ULID",
+    });
+  }
+  if (typeof id !== "string" && id !== undefined && id !== null) {
+    issues.push({
+      field: "id",
+      category: "type_mismatch",
+      severity: "critical",
+      message: `id must be a string ULID, got ${typeof id}`,
+      currentValue: id,
+      expectedType: "ULID string",
+    });
+  }
+
+  // === 数值字段类型 + 范围 ===
+  const numericRangeChecks: ReadonlyArray<{
+    readonly name: string;
+    readonly min: number;
+    readonly max: number;
+    readonly severity: ValidationIssue["severity"];
+  }> = [
+    { name: "importance", min: 0, max: 1, severity: "medium" },
+    { name: "confidence", min: 0, max: 1, severity: "medium" },
+    { name: "lastRetrievalScore", min: 0, max: 1, severity: "low" },
+    { name: "reinforcementScore", min: 0, max: 1, severity: "low" },
+  ];
+  for (const { name, min, max, severity } of numericRangeChecks) {
+    const v = fm[name];
+    if (v === undefined) continue;
+    if (typeof v !== "number" || Number.isNaN(v)) {
+      issues.push({
+        field: name,
+        category: "type_mismatch",
+        severity: "high",
+        message: `${name} must be a number, got ${typeof v}`,
+        currentValue: v,
+        expectedType: `number in [${min}, ${max}]`,
+      });
+      continue;
+    }
+    if (v < min || v > max) {
+      issues.push({
+        field: name,
+        category: "out_of_range",
+        severity,
+        message: `${name}=${v} is out of range [${min}, ${max}]`,
+        currentValue: v,
+        expectedType: `number in [${min}, ${max}]`,
+      });
+    }
+  }
+
+  // === version 必须正整数 ===
+  const version = fm.version;
+  if (version !== undefined) {
+    if (
+      typeof version !== "number" ||
+      !Number.isInteger(version) ||
+      version < 1
+    ) {
+      issues.push({
+        field: "version",
+        category: "type_mismatch",
+        severity: "medium",
+        message: `version must be a positive integer, got ${String(version)}`,
+        currentValue: version,
+        expectedType: "positive integer",
+      });
+    }
+  }
+
+  // === contentSize 非负 ===
+  const contentSize = fm.contentSize;
+  if (typeof contentSize === "number" && contentSize < 0) {
+    issues.push({
+      field: "contentSize",
+      category: "out_of_range",
+      severity: "low",
+      message: `contentSize=${contentSize} must be non-negative`,
+      currentValue: contentSize,
+      expectedType: "non-negative integer",
+    });
+  }
+
+  // === 枚举字段 ===
+  const enumChecks: ReadonlyArray<{
+    readonly name: string;
+    readonly valid: Set<string>;
+    readonly severity: ValidationIssue["severity"];
+    readonly message: string;
+  }> = [
+    {
+      name: "kind",
+      valid: VALID_ENGRAM_KINDS,
+      severity: "high",
+      message:
+        "kind must be one of: observation, fact, pattern, procedure, hypothesis",
+    },
+    {
+      name: "visibility",
+      valid: VALID_VISIBILITY,
+      severity: "critical", // fail-open 风险
+      message:
+        "visibility must be one of: public, team, private, restricted (SECURITY: invalid value may cause fail-open visibility leak)",
+    },
+    {
+      name: "status",
+      valid: VALID_STATUS,
+      severity: "medium",
+      message: "status must be one of: draft, active, archived, forgotten",
+    },
+    {
+      name: "sourceType",
+      valid: VALID_SOURCE_TYPE,
+      severity: "low",
+      message: "sourceType must be one of: firsthand, secondhand, inferred",
+    },
+    {
+      name: "forcedFreshness",
+      valid: VALID_FRESHNESS,
+      severity: "low",
+      message: "forcedFreshness must be one of: fresh, aging, stale, forgotten",
+    },
+    {
+      name: "verificationStatus",
+      valid: VALID_VERIFICATION,
+      severity: "low",
+      message:
+        "verificationStatus must be one of: unverified, plausible, probable, verified, refuted",
+    },
+  ];
+  for (const { name, valid, severity, message } of enumChecks) {
+    const v = fm[name];
+    if (v === undefined) continue;
+    if (typeof v !== "string" || !valid.has(v)) {
+      issues.push({
+        field: name,
+        category: "invalid_enum",
+        severity,
+        message,
+        currentValue: v,
+        validValues: Array.from(valid),
+      });
+    }
+  }
+
+  // === kinds 数组每一项必须在枚举 ===
+  const kinds = fm.kinds;
+  if (Array.isArray(kinds)) {
+    kinds.forEach((k, i) => {
+      if (typeof k !== "string" || !VALID_ENGRAM_KINDS.has(k)) {
+        issues.push({
+          field: `kinds[${i}]`,
+          category: "invalid_enum",
+          severity: "high",
+          message: `kinds[${i}]="${String(k)}" is not a valid EngramKind`,
+          currentValue: k,
+          validValues: Array.from(VALID_ENGRAM_KINDS),
+        });
+      }
+    });
+  }
+
+  // === 时间字段格式 ===
+  const dateFields = [
+    "createdAt",
+    "updatedAt",
+    "lastRetrievedAt",
+    "lastEffectiveAt",
+  ];
+  for (const name of dateFields) {
+    const v = fm[name];
+    if (v === undefined) continue;
+    if (typeof v !== "string" || Number.isNaN(Date.parse(v))) {
+      issues.push({
+        field: name,
+        category: "invalid_format",
+        severity: "medium",
+        message: `${name}="${String(v)}" is not a valid ISO 8601 date`,
+        currentValue: v,
+        expectedType: "ISO 8601 date string",
+      });
+    }
+  }
+
+  // === contentHash 格式(computeContentHash 返回 "sha256:<64-hex>",共 72 字符)==
+  const contentHash = fm.contentHash;
+  if (
+    typeof contentHash === "string" &&
+    contentHash.length > 0 &&
+    !/^sha256:[0-9a-f]{64}$/.test(contentHash)
+  ) {
+    issues.push({
+      field: "contentHash",
+      category: "invalid_format",
+      severity: "low",
+      message: "contentHash must be sha256-prefixed 64-char hex (sha256:<hex>)",
+      currentValue: contentHash,
+      expectedType: "sha256:<64-char hex>",
+    });
+  }
+
+  // === contentHash 与实际 content 一致(derived_mismatch)==
+  if (typeof contentHash === "string" && contentHash.length === 72) {
+    const actual = computeContentHash(content);
+    if (contentHash !== actual) {
+      issues.push({
+        field: "contentHash",
+        category: "derived_mismatch",
+        severity: "medium",
+        message: `contentHash does not match actual content (expected ${actual})`,
+        currentValue: contentHash,
+      });
+    }
+  }
+
+  // === contentSize 与实际 content 一致 ===
+  if (typeof contentSize === "number" && contentSize >= 0) {
+    const actual = computeContentSize(content);
+    if (contentSize !== actual) {
+      issues.push({
+        field: "contentSize",
+        category: "derived_mismatch",
+        severity: "low",
+        message: `contentSize=${contentSize} does not match actual ${actual}`,
+        currentValue: contentSize,
+      });
+    }
+  }
+
+  // === 未知字段(unknown_field)==
+  const knownFields = new Set<string>([
+    ...REQUIRED_FIELDS.map((f) => f.name),
+    "summary",
+    "contentHash",
+    "contentSize",
+    "slug",
+    "tags",
+    "forcedFreshness",
+    "verificationStatus",
+    "encodingContext",
+    "perspective",
+    "lastRetrievedAt",
+    "lastEffectiveAt",
+    "lastRetrievalScore",
+    "effectiveRetrievals",
+    "failedUses",
+    "evidenceCount",
+    "retrievalCount",
+    "__lang",
+    "__语言",
+  ]);
+  // 把 NUMERIC_FIELDS 和 ARRAY_FIELDS 的 key 也加入
+  for (const k of NUMERIC_FIELDS) knownFields.add(k);
+  for (const k of ARRAY_FIELDS) knownFields.add(k);
+
+  for (const key of Object.keys(fm)) {
+    if (!knownFields.has(key)) {
+      issues.push({
+        field: key,
+        category: "unknown_field",
+        severity: "low",
+        message: `Unknown field "${key}" will be removed by doctor (not in EngramFrontmatter schema)`,
+        currentValue: fm[key],
+      });
+    }
+  }
+
+  return issues;
 }
 
 /**
