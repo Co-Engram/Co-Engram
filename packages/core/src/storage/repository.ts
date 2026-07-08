@@ -51,6 +51,7 @@ import type {
   EngramIndexEntry,
   DoctorReport,
   DoctorIssue,
+  DoctorNextAction,
   PathTreeNode,
 } from "../types/repository-types.js";
 import { isStableEngramId } from "../types/repository-types.js";
@@ -67,6 +68,7 @@ import { DEFAULT_LANGUAGE, type Language } from "../i18n/index.js";
 import {
   type EngramFrontmatter,
   type EngramFile,
+  type ValidationIssue,
   readEngramFile,
   writeEngramFile,
   deleteEngramFile,
@@ -2391,6 +2393,207 @@ export class EngramRepository {
   // ─── Doctor 自愈扫描 ───────────────────────────────────────────────────
 
   /**
+   * 自动可 clamp 的数值字段(doctor 安全修,语义保留)。
+   *
+   * 不在此集合的数值字段(version/contentSize/evidenceCount 等)语义更敏感:
+   *   - version 必须 ≥1 整数,clamp 会掩盖 bug
+   *   - contentSize 是 derived,走 derived_mismatch 路径重算(不 clamp)
+   *   - evidenceCount/retrievalCount 是计数,负数语义可疑,留给用户
+   */
+  private static readonly CLAMPABLE_NUMERIC = new Set([
+    "importance",
+    "confidence",
+    "lastRetrievalScore",
+    "reinforcementScore",
+  ]);
+
+  /**
+   * ValidationIssue → DoctorIssue 转换 + 自动修复决策。
+   *
+   * 规则(spec 4.5.1):
+   *   - derived_mismatch → kind=derived_field_stale,自动修(contentHash/contentSize 重算)
+   *   - out_of_range 数值字段(clampable)→ kind=invalid_field_value,自动修(clamp)
+   *   - unknown_field → kind=invalid_field_value,自动修(删字段)
+   *   - 其余 → kind=invalid_field_value,pendingManualReview
+   *
+   * 自动修走一次 `mutateFrontmatter`(per-file 原子):
+   *   - mutateFrontmatter 内部用 `computeContentHash(oldFile.content)` 重算 hash,
+   *     所以 derived_mismatch 用 identity mutator `fm => fm` 即可触发重算并落盘。
+   *   - clamp / delete 在 mutator 内修改对应字段。
+   *
+   * 修复失败(并发删 / IO 错)→ 把所有 autoFixable 降级为 pending 不阻塞 doctor。
+   */
+  private processValidationIssues(
+    stableId: string,
+    relativePath: string,
+    issues: readonly ValidationIssue[],
+  ): { fixes: DoctorIssue[]; pending: DoctorIssue[] } {
+    const fixes: DoctorIssue[] = [];
+    const pending: DoctorIssue[] = [];
+
+    const isAutoFixable = (i: ValidationIssue): boolean =>
+      i.category === "derived_mismatch" ||
+      (i.category === "out_of_range" &&
+        EngramRepository.CLAMPABLE_NUMERIC.has(i.field)) ||
+      i.category === "unknown_field";
+
+    const autoFixable = issues.filter(isAutoFixable);
+    const manual = issues.filter((i) => !isAutoFixable(i));
+
+    // manual → 直接转 DoctorIssue(不修,带 nextAction 提示)
+    for (const issue of manual) {
+      pending.push({
+        kind: "invalid_field_value",
+        stableId: stableId as StableEngramId,
+        path: relativePath,
+        message: issue.message,
+        autoFixed: false,
+        nextAction: this.nextActionFor(issue, stableId),
+      });
+    }
+
+    // autoFixable → 一次 mutateFrontmatter 批量改
+    if (autoFixable.length > 0) {
+      try {
+        this.mutateFrontmatter(stableId, (fm) => {
+          const next = { ...fm } as Record<string, unknown>;
+          for (const issue of autoFixable) {
+            if (issue.category === "out_of_range") {
+              const v = next[issue.field];
+              if (typeof v === "number") {
+                next[issue.field] = v < 0 ? 0 : v > 1 ? 1 : v;
+              }
+            } else if (issue.category === "unknown_field") {
+              delete next[issue.field];
+            }
+            // derived_mismatch(contentHash/contentSize):
+            //   mutateFrontmatter 内部用 oldFile.content 重算,identity 即可。
+            //   这里不手动写 hash/size,避免与 computeContentHash 实现不同步。
+          }
+          return next as EngramFrontmatter;
+        });
+
+        // 记录 fixes(按 issue 类别选 kind)
+        for (const issue of autoFixable) {
+          const kind: DoctorIssue["kind"] =
+            issue.category === "derived_mismatch"
+              ? "derived_field_stale"
+              : "invalid_field_value";
+          fixes.push({
+            kind,
+            stableId: stableId as StableEngramId,
+            path: relativePath,
+            message: issue.message,
+            autoFixed: true,
+          });
+        }
+      } catch {
+        // 修复失败:把 autoFixable 全部降级为 pending(保留 nextAction)
+        for (const issue of autoFixable) {
+          pending.push({
+            kind: "invalid_field_value",
+            stableId: stableId as StableEngramId,
+            path: relativePath,
+            message: `Auto-fix failed: ${issue.message}`,
+            autoFixed: false,
+            nextAction: this.nextActionFor(issue, stableId),
+          });
+        }
+      }
+    }
+
+    return { fixes, pending };
+  }
+
+  /**
+   * 按 ValidationIssue.category 模板生成 nextAction(spec 4.6)。
+   *
+   * 不可修字段(id invalid/missing/type-mismatch)→ engram_delete + 重建
+   * 可修字段(枚举/格式/必填/类型)→ engram_update 或 (manual edit)
+   * 已自动修(derived/out_of_range/unknown)→ (auto-fixed) sentinel
+   */
+  private nextActionFor(
+    issue: ValidationIssue,
+    stableId: string,
+  ): DoctorNextAction {
+    switch (issue.category) {
+      case "invalid_enum":
+        if (issue.field === "visibility") {
+          return {
+            tool: "engram_update",
+            argsHint: `id=${stableId}, visibility="public"`,
+            explanation:
+              "visibility must be public/team/private/restricted. SECURITY: invalid value may cause fail-open visibility leak.",
+          };
+        }
+        if (issue.field === "kind") {
+          return {
+            tool: "engram_update",
+            argsHint: `id=${stableId}, kinds=["observation"]`,
+            explanation:
+              "kind must be one of: observation, fact, pattern, procedure, hypothesis",
+          };
+        }
+        return {
+          tool: "engram_update",
+          argsHint: `id=${stableId}, ${issue.field}=<valid value from: ${(issue.validValues ?? [])
+            .map((v) => String(v))
+            .join(", ")}>`,
+          explanation: issue.message,
+        };
+      case "invalid_format":
+        if (issue.field === "id") {
+          return {
+            tool: "engram_delete",
+            argsHint: `id=${stableId}`,
+            explanation:
+              "id is not a valid ULID; delete and recreate with engram_create (id is identity, cannot be patched)",
+          };
+        }
+        return {
+          tool: "(manual edit)",
+          argsHint: `Edit frontmatter.${issue.field} to a valid ${issue.expectedType ?? "value"}`,
+          explanation: issue.message,
+        };
+      case "missing_required":
+        if (issue.field === "id") {
+          return {
+            tool: "engram_delete",
+            argsHint: `id=${stableId}`,
+            explanation:
+              "id is missing; delete and recreate (id is identity, cannot be patched)",
+          };
+        }
+        return {
+          tool: "engram_update",
+          argsHint: `id=${stableId}, ${issue.field}=<value>`,
+          explanation: issue.message,
+        };
+      case "type_mismatch":
+        if (issue.field === "id") {
+          return {
+            tool: "engram_delete",
+            argsHint: `id=${stableId}`,
+            explanation: "id type is wrong; delete and recreate",
+          };
+        }
+        return {
+          tool: "engram_update",
+          argsHint: `id=${stableId}, ${issue.field}=<${issue.expectedType ?? "correct type"}>`,
+          explanation: issue.message,
+        };
+      case "out_of_range":
+      case "unknown_field":
+      case "derived_mismatch":
+        return {
+          tool: "(auto-fixed)",
+          argsHint: "",
+          explanation: "doctor has already auto-fixed this issue",
+        };
+    }
+  }
+
+  /**
    * Doctor 全量扫描 + 自愈修复。
    *
    * 修复:
@@ -2424,6 +2627,60 @@ export class EngramRepository {
           },
         });
         pendingManualReview.push(issues[issues.length - 1]!);
+      },
+      (invalidPath, errorMessage) => {
+        // 有 frontmatter marker 但 isEngramFile false(YAML 结构错 / critical 校验问题)。
+        // Re-parse 文件,把具体字段级 issue 也上报(visibility/kind/id critical 等),
+        // 让用户/agent 拿到精确 nextAction 而非通用 "parse failed" 消息。
+        const absPath = join(this.config.rootPath, invalidPath);
+        let parsed: EngramFile | undefined;
+        try {
+          const raw = readFileSync(absPath, "utf8");
+          parsed = parseEngramFile(raw);
+        } catch {
+          parsed = undefined;
+        }
+
+        if (parsed && parsed._validationIssues && parsed._validationIssues.length > 0) {
+          // 字段级 issue 上报(critical 路径,非 orphan)
+          const fmId = parsed.frontmatter.id;
+          const stableId =
+            typeof fmId === "string" && isStableEngramId(fmId)
+              ? (fmId as StableEngramId)
+              : undefined;
+          for (const vi of parsed._validationIssues) {
+            const issue: DoctorIssue = {
+              kind: "invalid_field_value",
+              stableId,
+              path: invalidPath,
+              message: vi.message,
+              autoFixed: false,
+              nextAction: this.nextActionFor(
+                vi,
+                typeof fmId === "string" ? fmId : "<unknown>",
+              ),
+            };
+            issues.push(issue);
+            pendingManualReview.push(issue);
+          }
+          return;
+        }
+
+        // 真 YAML 结构错(re-parse 也抛 / 无 issue):报 invalid_frontmatter
+        const issue: DoctorIssue = {
+          kind: "invalid_frontmatter",
+          path: invalidPath,
+          message: `YAML/parse error in ${invalidPath}: ${errorMessage}`,
+          autoFixed: false,
+          nextAction: {
+            tool: "(manual edit)",
+            argsHint: `Fix YAML syntax in ${invalidPath}`,
+            explanation:
+              "File has frontmatter marker but parsing failed. Common causes: tab indentation, unbalanced quotes, malformed YAML.",
+          },
+        };
+        issues.push(issue);
+        pendingManualReview.push(issue);
       },
     );
 
@@ -2527,6 +2784,35 @@ export class EngramRepository {
 
     // 3. 写回 fresh index(同步更新 mtime,避免下次 getIndex 误判)
     this.persistIndex(freshIndex);
+
+    // 3.5 Task 7:消费每个 indexed engram 的 _validationIssues。
+    //   - indexed 路径 = isEngramFile true(parse 成功 + 无 critical)→ 字段级
+    //     中低问题(枚举/格式/范围/未知字段/derived_mismatch)在这里处理。
+    //   - critical 问题(id/visibility 非法)不进 index,已在 step 1 的
+    //     onInvalidFrontmatter 回调里处理。
+    //   - 自动修修完后 index 未重新读(中低字段问题不影响 index 的 id/path/title/slug,
+    //     保留 freshIndex 即可);obsidian 视图在 step 5 重新生成。
+    for (const [id, entry] of freshIndex.entries) {
+      const absPath = join(this.config.rootPath, entry.path);
+      if (!existsSync(absPath)) continue;
+      let parsed: EngramFile | undefined;
+      try {
+        parsed = parseEngramFile(readFileSync(absPath, "utf8"));
+      } catch {
+        // parse 失败 → step 1 的 onInvalidFrontmatter 已上报,跳过
+        continue;
+      }
+      if (!parsed._validationIssues || parsed._validationIssues.length === 0) {
+        continue;
+      }
+      const { fixes: fmFixes, pending: fmPending } = this.processValidationIssues(
+        id,
+        entry.path,
+        parsed._validationIssues,
+      );
+      fixes.push(...fmFixes);
+      pendingManualReview.push(...fmPending);
+    }
 
     // 4. 检测 dangling synapse(from/to 不在 index)
     const allSynapses = collectAllSynapses(this.config.rootPath);
