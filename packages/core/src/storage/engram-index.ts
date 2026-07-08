@@ -33,6 +33,7 @@ import { isStableEngramId } from "../types/repository-types.js";
 import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import {
   isEngramFile,
+  hasFrontmatterMarker,
   parseEngramFile,
   type EngramFrontmatter,
 } from "./engram-store.js";
@@ -191,6 +192,7 @@ export function buildIndexEntryFromFrontmatter(params: {
 export function rebuildEngramIndex(
   dataRoot: string,
   onOrphan?: (relativePath: string) => void,
+  onInvalidFrontmatter?: (relativePath: string, errorMessage: string) => void,
 ): EngramIndexMap {
   const index = createEmptyEngramIndex();
 
@@ -215,10 +217,25 @@ export function rebuildEngramIndex(
       if (!entry.name.endsWith(".md")) continue;
       if (SKIP_MARKDOWN_FILENAMES.has(entry.name.toLowerCase())) continue;
 
+      let raw: string;
       try {
-        const raw = readFileSync(absolutePath, "utf8");
+        raw = readFileSync(absolutePath, "utf8");
+      } catch {
+        continue;
+      }
+
+      try {
         if (!isEngramFile(raw)) {
-          onOrphan?.(relativePath);
+          // 分流:有 marker 但 parse 失败或 critical 校验问题 → invalid_frontmatter;
+          // 无 marker → orphan(行为不变)。
+          if (hasFrontmatterMarker(raw)) {
+            onInvalidFrontmatter?.(
+              relativePath,
+              "engram file has frontmatter marker but isEngramFile returned false (parse failed or critical validation issue)",
+            );
+          } else {
+            onOrphan?.(relativePath);
+          }
           continue;
         }
         const parsed = parseEngramFile(raw);
@@ -230,8 +247,14 @@ export function rebuildEngramIndex(
           contentHash: parsed.frontmatter.contentHash ?? "",
         });
         index.entries.set(entryRecord.id, entryRecord);
-      } catch {
-        onOrphan?.(relativePath);
+      } catch (err) {
+        // parseEngramFile/stat 抛错(YAML 结构错等):有 marker 走 invalid,无 marker 走 orphan
+        const msg = err instanceof Error ? err.message : String(err);
+        if (hasFrontmatterMarker(raw)) {
+          onInvalidFrontmatter?.(relativePath, msg);
+        } else {
+          onOrphan?.(relativePath);
+        }
       }
     }
   }

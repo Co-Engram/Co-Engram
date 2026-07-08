@@ -302,3 +302,89 @@ describe("engram-index — buildIndexEntryFromFrontmatter", () => {
     expect(entry.tags).toEqual(["性能", "优化"]);
   });
 });
+
+describe("rebuildEngramIndex invalid_frontmatter 分流", () => {
+  it("有 frontmatter marker 但 YAML 语法错 → onInvalidFrontmatter(非 onOrphan)", () => {
+    // tab 缩进触发 YAML parser 抛错(YAML 规范禁止 tab 作缩进)
+    const raw =
+      "---\nid: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n\ttitle: bad-indent\n---\nbody";
+    writeFileSync(join(tmpDir, "bad.md"), raw);
+
+    const orphanPaths: string[] = [];
+    const invalidPaths: string[] = [];
+    rebuildEngramIndex(
+      tmpDir,
+      (rel) => orphanPaths.push(rel),
+      (rel, _msg) => invalidPaths.push(rel),
+    );
+
+    expect(orphanPaths).toEqual([]);
+    expect(invalidPaths).toEqual(["bad.md"]);
+  });
+
+  it("有 marker 但 critical 校验问题 → onInvalidFrontmatter", () => {
+    // visibility 非法触发 critical(fail-open 安全风险),isEngramFile 返回 false
+    const raw = [
+      "---",
+      "id: 01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      "title: x",
+      "kind: observation",
+      "visibility: leaked",
+      "createdBy: a",
+      "createdAt: 2026-06-22T10:00:00Z",
+      "updatedBy: a",
+      "updatedAt: 2026-06-22T10:00:00Z",
+      "version: 1",
+      "---",
+      "body",
+      "",
+    ].join("\n");
+    writeFileSync(join(tmpDir, "crit.md"), raw);
+
+    const orphanPaths: string[] = [];
+    const invalidPaths: string[] = [];
+    rebuildEngramIndex(
+      tmpDir,
+      (rel) => orphanPaths.push(rel),
+      (rel, _msg) => invalidPaths.push(rel),
+    );
+
+    expect(orphanPaths).toEqual([]);
+    expect(invalidPaths).toEqual(["crit.md"]);
+  });
+
+  it("无 frontmatter marker 的裸 .md → onOrphan(行为不变)", () => {
+    writeFileSync(join(tmpDir, "bare.md"), "# just markdown\nno frontmatter");
+    const orphanPaths: string[] = [];
+    const invalidPaths: string[] = [];
+    rebuildEngramIndex(
+      tmpDir,
+      (rel) => orphanPaths.push(rel),
+      (rel, _msg) => invalidPaths.push(rel),
+    );
+    expect(orphanPaths).toEqual(["bare.md"]);
+    expect(invalidPaths).toEqual([]);
+  });
+
+  it("onInvalidFrontmatter 可选(向后兼容)", () => {
+    writeFileSync(join(tmpDir, "bare.md"), "# just markdown");
+    expect(() => rebuildEngramIndex(tmpDir, () => {})).not.toThrow();
+  });
+
+  it("onInvalidFrontmatter 回调收到错误信息", () => {
+    const raw =
+      "---\nid: 01ARZ3NDEKTSV4RRFFQ69G5FAV\n\ttitle: bad-indent\n---\nbody";
+    writeFileSync(join(tmpDir, "bad.md"), raw);
+
+    const errors: Array<{ path: string; msg: string }> = [];
+    rebuildEngramIndex(
+      tmpDir,
+      () => {},
+      (rel, msg) => errors.push({ path: rel, msg }),
+    );
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]?.path).toBe("bad.md");
+    expect(errors[0]?.msg.length).toBeGreaterThan(0);
+  });
+});
