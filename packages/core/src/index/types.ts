@@ -32,6 +32,8 @@ export interface DigestLine {
   readonly contextTags: readonly string[];
   /** 重要性 [0,1](单一动态字段,由 D1 dynamics 后验更新) */
   readonly importance: number;
+  /** 置信度 [0,1](由 sourceType 默认 + report_failure 累积削弱,prompt signals 用) */
+  readonly confidence: number;
   /** 新鲜度 */
   readonly freshness: string;
   /** 生命周期状态 */

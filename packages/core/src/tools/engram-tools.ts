@@ -294,6 +294,7 @@ function readEngramViewAuto(
     domainTags: digest.domainTags,
     contextTags: [],
     importance: digest.importance,
+    confidence: 0,
     freshness: digest.freshness,
     status: "active",
     sourceType: "firsthand",
