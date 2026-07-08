@@ -58,6 +58,7 @@ import {
   type PathOverviewItem,
   DEFAULT_AUDIT_CONFIG,
   acquireProcessLock,
+  verifyDerivedIntegrity,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -128,6 +129,23 @@ export function createCoEngramContext(
       dataRoot: fullConfig.dataRoot,
       ...(fullConfig.language ? { language: fullConfig.language } : {}),
     });
+
+  // AI-2 派生层完整性自检:启动时把"源 markdown vs 派生索引(digest/graph/index)的
+  // 静默不一致"变成可见 warning。read-only,不修复;status=warning/critical 时
+  // 通过 console.warn 输出(OpenClaw 插件无 stderr 直通)。
+  try {
+    const report = verifyDerivedIntegrity(fullConfig.dataRoot);
+    if (report.status !== "ok") {
+      for (const issue of report.issues) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[co-engram] integrity ${report.status}: ${issue.kind} — ${issue.message}`,
+        );
+      }
+    }
+  } catch {
+    // verifyDerivedIntegrity 自身异常不应阻塞启动
+  }
 
   // 启动迁移:首次启动或语言切换时,把所有文件重写为目标格式。
   // 迁移是幂等的(已是目标格式则跳过),因此每次启动都跑也无副作用。

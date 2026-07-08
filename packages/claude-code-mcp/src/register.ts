@@ -35,6 +35,7 @@ import {
   type ToolContext,
   DEFAULT_AUDIT_CONFIG,
   acquireProcessLock,
+  verifyDerivedIntegrity,
   type ProcessLock,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -237,6 +238,26 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     });
   // SQLite 模式 build 是 no-op(write-through 已维护);memory 模式 build 真正生效
   rebuildSearchIndex(searchOrchestrator, repository);
+
+  // AI-2 派生层完整性自检:启动时把"源 markdown vs 派生索引(digest/graph/index)的
+  // 静默不一致"变成可见 warning。read-only,不修复;status=warning/critical 时
+  // 写 stderr 提示用户跑 engram_doctor 自愈。
+  //
+  // 不在 holder-only gating 内 —— non-holder 也跑(只读 + 极快 <5s,与 lock 无关)。
+  // 不阻塞启动(只写 stderr),让用户先看到 server up,再决定是否处理。
+  try {
+    const report = verifyDerivedIntegrity(config.dataRoot);
+    if (report.status !== "ok") {
+      for (const issue of report.issues) {
+        process.stderr.write(
+          `[co-engram] integrity ${report.status}: ${issue.kind} — ${issue.message}\n`,
+        );
+      }
+    }
+  } catch {
+    // verifyDerivedIntegrity 自身异常不应阻塞启动(host adapter 仍能工作,
+    // 只是失去了启动告警能力)。fail-loud 由后续工具调用保证。
+  }
 
   const signalSink = createDefaultSignalSink(config.dataRoot);
 

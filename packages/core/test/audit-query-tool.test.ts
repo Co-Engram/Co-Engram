@@ -17,9 +17,13 @@ let tmpDir: string;
 let audit: AuditLog;
 let ctx: ToolContext;
 
-// Minimal stub repository — engram_audit_query 不读 repository,只读 auditLog,
-// 但 ToolContext 类型要求 repository 字段存在。
-const stubRepo = { /* opaque */ } as unknown as EngramRepository;
+// Minimal stub repository — engram_audit_query 不读 repository 的内容,
+// 但 AI-2 修复后会调 ctx.repository.exists(engramId) 校验存在性。
+// stub 默认所有 id 都"存在",除非在 NONEXISTENT_IDS 集合里(用于 NOT_FOUND 测试)。
+const NONEXISTENT_IDS = new Set(["nonexistent-id", "deleted-id"]);
+const stubRepo = {
+  exists: (id: string): boolean => !NONEXISTENT_IDS.has(id),
+} as unknown as EngramRepository;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "co-engram-audit-query-"));
@@ -201,14 +205,40 @@ describe("engram_audit_query (Task 3.3 + 3.4)", () => {
     expect(engramAuditQueryTool.description).toContain("{{concept:");
   });
 
-  it("returns empty items when no events match filter", () => {
+  it("returns empty items when engramId exists but has no audit events", () => {
+    // AI-2 修复后:engrId 必须先通过 exists() 校验,再走 query 过滤。
+    // 这里测的语义是"存在但无事件" → 空数组 + null cursor(不是 NOT_FOUND)。
     audit.append({ actor: "user", action: "create", engramId: "E1" });
     const result = engramAuditQueryTool.execute(
-      { engramId: "nonexistent", limit: 100 },
+      { engramId: "E_other_exists_but_empty", limit: 100 },
       ctx,
     );
     expect(result.items).toHaveLength(0);
     expect(result.nextCursor).toBeNull();
+  });
+
+  it("AI-2: nonexistent engramId throws NOT_FOUND (no silent empty)", () => {
+    // 旧实现:engrId 笔误 / 已 deleted → 静默返回空数组,agent 把"空"当作"无历史"。
+    // AI-2 修复:对存在性明确发声,抛结构化 EngramToolError(code=NOT_FOUND)。
+    audit.append({ actor: "user", action: "create", engramId: "E1" });
+    expect(() =>
+      engramAuditQueryTool.execute(
+        { engramId: "nonexistent-id", limit: 100 },
+        ctx,
+      ),
+    ).toThrow(/NOT_FOUND|does not exist|nonexistent-id/);
+  });
+
+  it("AI-2: omitted engramId 不触发 exists 校验(跨 engram 查询)", () => {
+    // 跨 engram 查询(action / since / until / 全量)不应受 exists 校验影响。
+    // 这是最常见的"看最近 reinforce 历史"场景。
+    audit.append({ actor: "user", action: "reinforce", engramId: "E1" });
+    audit.append({ actor: "user", action: "reinforce", engramId: "E2" });
+    const result = engramAuditQueryTool.execute(
+      { action: "reinforce", limit: 100 },
+      ctx,
+    );
+    expect(result.items).toHaveLength(2);
   });
 
   it("returns items in time-ascending order (AuditLog.query semantics)", () => {

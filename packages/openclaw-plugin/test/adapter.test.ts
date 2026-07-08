@@ -91,7 +91,15 @@ describe("adaptTool", () => {
     });
 
     expect(result.details?.ok).toBe(false);
-    expect(result.details?.error).toMatch(/not found/);
+    // AI-3b:details.error 是 EngramToolErrorSchema 对象,不是裸字符串。
+    // 含 code/message/resourceId/suggestion 等结构化字段。
+    const err = result.details?.error as {
+      code: string;
+      message: string;
+      resourceId?: string;
+    };
+    expect(err.code).toBe("NOT_FOUND");
+    expect(err.message).toMatch(/not found|no such|invalid/i);
   });
 
   it("schema 缺失时回退到通配 object", () => {

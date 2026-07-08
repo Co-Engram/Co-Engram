@@ -25,6 +25,7 @@ import { z } from "zod";
 
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput, configError } from "./tool.js";
+import { notFoundError } from "./error-schema.js";
 import type {
   AuditAction,
   AuditEntry,
@@ -162,6 +163,19 @@ RETURNS: { items: AuditEvent[], nextCursor: string | null }。items 按时间正
       throw configError(
         "ctx.auditLog",
         "engram_audit_query requires an auditLog — host adapter must inject `auditLog` into ToolContext.",
+      );
+    }
+    // AI-2 修复:不存在的 engramId 显式抛 NOT_FOUND,而不是静默返回空数组。
+    // 旧实现:engramId 笔误 / 已 deleted / 已 sweep_to_trash 的 id 都让
+    // audit.query 走默认过滤,返回 items=[],agent 把"空"当作"无修改历史"。
+    // 修复后:对存在性明确发声,让调用方知道 id 本身就不对,引导修正。
+    if (parsed.engramId && !ctx.repository.exists(parsed.engramId)) {
+      throw notFoundError(
+        "Engram",
+        parsed.engramId,
+        "engram_audit_query: this engramId does not exist in the repository. " +
+          "Use engram_list or engram_search to find valid IDs, or omit engramId " +
+          "to query across all engrams.",
       );
     }
     // cursor 优先于 until:cursor 编码了上一页 oldest entry 的 ts,

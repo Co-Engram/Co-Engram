@@ -20,3 +20,4 @@ export * from "./index-cleanup.js";
 export { IndexDb } from "./index-db.js";
 export type { SynapseIndexEntry } from "./index-db.js";
 export * from "./bootstrap.js";
+export * from "./transactional-write.js";
