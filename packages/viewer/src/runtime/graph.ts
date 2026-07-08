@@ -62,13 +62,17 @@ async function renderGraphInner(container) {
 
   // === 节点匹配文本/路径过滤(顶栏) ===
   // textFilter: 标题/domainTags/id 包含关键词则保留
-  // pathFilter: engram id(去 .md 后缀)以 pathFilter + '/' 开头,或 pathFilter === '' 时仅匹配无 '/' 的根级
+  // pathFilter: 用 id→path Map 查路径后做前缀匹配(2026-07 修复 ULID id 假设)
+  //   pathFilter === '' 时仅匹配 path 无 '/' 的根级 engram
+  //   pathFilter !== '' 时匹配 path === pathFilter 或 path 以 pathFilter + '/' 开头
   function matchesNodeFilters(n) {
     if (state.pathFilter !== '') {
-      const id = (n.id || '').replace(/\.md$/, '');
+      const locMap = CO_ENGRAM._engramLocations;
+      const ep = locMap ? locMap.get(n.id) : null;
+      if (ep == null) return false;
       if (state.pathFilter === '') {
-        if (id.includes('/')) return false;
-      } else if (!id.startsWith(state.pathFilter + '/')) {
+        if (ep.includes('/')) return false;
+      } else if (ep !== state.pathFilter && !ep.startsWith(state.pathFilter + '/')) {
         return false;
       }
     }
@@ -438,6 +442,12 @@ window.CO_ENGRAM_GRAPH = {
         return;
       }
       root = resp.root;
+      // 缓存 id→path Map(2026-07 修复 ULID id 假设):setPathFilter 用它过滤节点
+      if (Array.isArray(resp.engramLocations)) {
+        CO_ENGRAM._engramLocations = new Map(
+          resp.engramLocations.map((x) => [x.id, x.path]),
+        );
+      }
     } catch (e) {
       CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>');
       return;
@@ -541,10 +551,12 @@ window.CO_ENGRAM_GRAPH = {
       s.state.showKinds[n.kind] !== false
       && (function matchesNodeFilters(n) {
         if (s.state.pathFilter !== '') {
-          const id = (n.id || '').replace(/\.md$/, '');
+          const locMap = CO_ENGRAM._engramLocations;
+          const ep = locMap ? locMap.get(n.id) : null;
+          if (ep == null) return false;
           if (s.state.pathFilter === '') {
-            if (id.includes('/')) return false;
-          } else if (!id.startsWith(s.state.pathFilter + '/')) {
+            if (ep.includes('/')) return false;
+          } else if (ep !== s.state.pathFilter && !ep.startsWith(s.state.pathFilter + '/')) {
             return false;
           }
         }

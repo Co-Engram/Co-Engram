@@ -386,11 +386,17 @@ export class ProposalEngine {
       throw new Error(`Proposal not found: ${entityId}`);
     }
 
-    // payload 兜底:auto-memory 来源的 proposal 已携带完整 engram 字段
+    // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
+    // 注意:`??` 只在 null/undefined 时回落,空数组/空字符串需要显式判断(2026-07 修复):
+    //   旧实现 `input.domainTags ?? payload?.domainTags` 在前端传 `domainTags: []` 时
+    //   不会回落,导致 accept 抛 400。现用「非空生效,否则回落」语义覆盖所有「空」形态。
     const payload = target.payload;
-    const title = input.title ?? payload?.title;
-    const content = input.content ?? payload?.content;
-    const domainTags = input.domainTags ?? payload?.domainTags;
+    const title = nonEmpty(input.title) ? input.title : payload?.title;
+    const content = nonEmpty(input.content) ? input.content : payload?.content;
+    const domainTags =
+      input.domainTags && input.domainTags.length > 0
+        ? input.domainTags
+        : payload?.domainTags;
     const kind = input.kind ?? payload?.kind ?? "fact";
     if (!title || !content || !domainTags || domainTags.length === 0) {
       throw new Error(
@@ -1259,6 +1265,18 @@ function normalize(text: string): string {
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * 字符串/数组非空判断(2026-07 修复 accept 兜底用)
+ *
+ * `??` 只在 null/undefined 时回落,但前端可能传空字符串或空数组(语义等同"未提供"),
+ * 这种情况下应当回落到 payload 兜底值。本函数把"空"统一判定为 falsy。
+ */
+function nonEmpty<T>(value: readonly T[] | string | null | undefined): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") return value.length > 0;
+  return value.length > 0;
 }
 
 // CJK / Hangana / Hangul 范围。用于把连续 CJK 段切成字符 bigram。

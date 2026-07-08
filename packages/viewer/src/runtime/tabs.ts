@@ -239,13 +239,17 @@ window.CO_ENGRAM_ENGRAMS = {
       // - 'private' → 仅显示 visibility === 'private'
       if (visibility === 'private' && e.visibility !== 'private') return false;
       if (visibility === 'team' && e.visibility === 'private') return false;
-      // path 前缀过滤:engram id 即相对路径(去 .md 后缀);空 pathPrefix 仅匹配无 "/" 的根级
+      // path 前缀过滤:用 id→path Map(2026-07 修复,ULID id 不再当作路径)
+      // pathPrefix === '' 表示 root 直属:匹配 path 中无 '/' 的根级 engram
+      // pathPrefix !== '' 匹配 path === pathPrefix 或 path 以 pathPrefix + '/' 开头
       if (pathPrefix !== null) {
-        const id = (e.id || '').replace(/\.md$/, '');
+        const locMap = CO_ENGRAM._engramLocations;
+        const ep = locMap ? locMap.get(e.id) : null;
+        if (ep == null) return false; // 没有 path 数据 → 不匹配任何目录过滤
         if (pathPrefix === '') {
-          if (id.includes('/')) return false;
-        } else {
-          if (!id.startsWith(pathPrefix + '/')) return false;
+          if (ep.includes('/')) return false;
+        } else if (ep !== pathPrefix && !ep.startsWith(pathPrefix + '/')) {
+          return false;
         }
       }
       if (textQ) {
@@ -473,6 +477,13 @@ window.CO_ENGRAM_ENGRAMS = {
           CO_ENGRAM._pathTree = null;
         } else {
           CO_ENGRAM._pathTree = resp.root;
+          // 缓存 id→path Map(2026-07 修复):applyFilter 用它做目录前缀过滤,
+          // 替代已失效的 id.startsWith(prefix) 假设(ULID id 无 '/')
+          if (Array.isArray(resp.engramLocations)) {
+            CO_ENGRAM._engramLocations = new Map(
+              resp.engramLocations.map((x) => [x.id, x.path]),
+            );
+          }
         }
       } catch (e) {
         body.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>';
@@ -985,8 +996,19 @@ window.CO_ENGRAM_PROPOSALS = {
     CO_ENGRAM._proposalsViewStart = viewStart;
     const visible = items.slice(viewStart, viewStart + VIEW_SIZE);
 
+    // 批量操作(2026-07 新增):全部采纳 / 全部驳回,作用范围 = 当前已加载的 pending 提案
+    // 仅显示当前页面这批(visible),用户翻页后范围随之变化,避免误操作整批 2000+ 条
+    const visiblePending = visible.filter(p => p.status === 'pending');
+    const batchBtns = visiblePending.length > 0
+      ? '<button class="btn mini" style="margin-left:0.5rem" onclick="CO_ENGRAM_PROPOSALS.acceptAllLoaded()">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.acceptAll', { n: visiblePending.length })) + '</button>'
+        + '<button class="btn mini" style="margin-left:0.25rem" onclick="CO_ENGRAM_PROPOSALS.dismissAllLoaded()">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.dismissAll', { n: visiblePending.length })) + '</button>'
+      : '';
+
     let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
-      + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.loadingHint')) : '') + '</span></div>';
+      + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
+      + batchBtns + '</div>';
     if (!items.length) {
       html += '<div class="empty"><div class="icon">🌱</div>'
         + '<div style="font-size:1.05rem;margin-bottom:0.3rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>'
@@ -1137,7 +1159,7 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.hint')) + '</div></div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.tagsLabel') : T.t('viewer.proposals.tagsLabelReadonly')) + '</label>'
-      + '<input id="pf-tags" type="text" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.tagsPlaceholder')) + '"' + (editable ? '' : ' readonly') + '></div>'
+      + '<input id="pf-tags" type="text" value="' + CO_ENGRAM.escapeHtml((p.payload && Array.isArray(p.payload.domainTags) ? p.payload.domainTags : []).join(',')) + '" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.tagsPlaceholder')) + '"' + (editable ? '' : ' readonly') + '></div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.contentLabel') : T.t('viewer.proposals.contentLabelReadonly')) + '</label>'
       + '<textarea id="pf-content" rows="6"' + (editable ? '' : ' readonly') + '>' + CO_ENGRAM.escapeHtml(p.centroidExcerpt || '') + '</textarea></div>'
@@ -1171,6 +1193,85 @@ window.CO_ENGRAM_PROPOSALS = {
       const engramId = r && r.engramId ? r.engramId : '';
       alert(T.t('viewer.proposals.acceptedToast') + (engramId ? '\\n' + T.t('viewer.proposals.createdEngramToast', { id: engramId }) : ''));
     } catch (e) { alert(T.t('viewer.proposals.acceptFailed', { err: (e.message || e) })); }
+  },
+
+  /**
+   * 批量采纳当前可见页面的 pending 提案(2026-07 新增)
+   *
+   * 设计要点:
+   *   - 范围限定 visible(当前 30 条),避免误操作 2000+ 条整批
+   *   - accept() 内部用 payload 兜底(auto-memory / external-markdown 来源自带完整字段)
+   *   - 串行执行:每条 accept 写 proposals.json,后端单进程但 fetch 并发会触发文件
+   *     race,串行 await 是最简单的正确性保证
+   *   - 高 blast radius:每条创建一条 engram(不可一键撤销),需 confirm 对话框
+   *   - 部分失败:逐条 try-catch,最终 alert 汇总(ok / fail)
+   */
+  async acceptAllLoaded() {
+    const T = CO_ENGRAM_T;
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager) return;
+    const items = pager.getItems();
+    const VIEW_SIZE = 30;
+    const viewStart = CO_ENGRAM._proposalsViewStart || 0;
+    const visible = items.slice(viewStart, viewStart + VIEW_SIZE);
+    const pending = visible.filter(p => p.status === 'pending');
+    if (!pending.length) { alert(T.t('viewer.proposals.batch.noPending')); return; }
+    if (!confirm(T.t('viewer.proposals.batch.acceptAllConfirm', { n: pending.length }))) return;
+
+    let ok = 0, fail = 0;
+    const errors = [];
+    for (const p of pending) {
+      try {
+        // 不传任何字段 → accept() 走 payload 兜底(auto-memory/external-markdown 自带)
+        // conversation 来源缺字段时会抛错,记入 fail 继续下一条
+        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', {});
+        ok++;
+      } catch (e) {
+        fail++;
+        errors.push(p.entityId + ': ' + (e.message || e));
+      }
+    }
+    CO_ENGRAM._proposalsLoaded = false;
+    await this.render(document.getElementById('proposals-content'));
+    const summary = T.t('viewer.proposals.batch.acceptAllToast', { ok, fail })
+      + (errors.length ? '\\n\\n' + errors.slice(0, 5).join('\\n') : '');
+    alert(summary);
+  },
+
+  /**
+   * 批量驳回当前可见页面的 pending 提案(2026-07 新增)
+   *
+   * dismiss 是低风险操作(只是状态标记 + audit 保留),但仍串行执行避免文件 race。
+   * 范围同 acceptAllLoaded:visible 内的 pending。
+   */
+  async dismissAllLoaded() {
+    const T = CO_ENGRAM_T;
+    const pager = CO_ENGRAM._proposalsPager;
+    if (!pager) return;
+    const items = pager.getItems();
+    const VIEW_SIZE = 30;
+    const viewStart = CO_ENGRAM._proposalsViewStart || 0;
+    const visible = items.slice(viewStart, viewStart + VIEW_SIZE);
+    const pending = visible.filter(p => p.status === 'pending');
+    if (!pending.length) { alert(T.t('viewer.proposals.batch.noPending')); return; }
+    if (!confirm(T.t('viewer.proposals.batch.dismissAllConfirm', { n: pending.length }))) return;
+
+    let ok = 0, fail = 0;
+    const errors = [];
+    for (const p of pending) {
+      try {
+        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/dismiss', 'POST', {});
+        ok++;
+      } catch (e) {
+        fail++;
+        errors.push(p.entityId + ': ' + (e.message || e));
+      }
+    }
+    CO_ENGRAM._proposalsLoaded = false;
+    await this.render(document.getElementById('proposals-content'));
+    const summary = T.t('viewer.proposals.batch.dismissAllToast', { ok, fail })
+      + (errors.length ? '\\n\\n' + errors.slice(0, 5).join('\\n') : '');
+    alert(summary);
   },
 
   async dismissFromForm() {
@@ -1222,6 +1323,9 @@ CO_ENGRAM.on('audit', async function() {
     + '<span class="chip removable audit-action-chip" id="audit-action-chip" style="display:none" title="' + T.t('viewer.audit.filter.actionChipTitle') + '" onclick="CO_ENGRAM_AUDIT.clearActionFilter()"></span>'
     + '<span class="spacer"></span>'
     + '<span class="chip" id="audit-count">—</span>'
+    // timing instrument(2026-07 修复 audit 慢的元思考):显示 filter/render/DOM 三段耗时
+    // 让用户能在 chip 旁直接看到瓶颈在哪,无需打开 devtools
+    + '<span class="chip" id="audit-timing" style="display:none;font-variant-numeric:tabular-nums;color:var(--fg-muted);font-size:0.75rem"></span>'
     + '</div>'
     + '<div id="audit-stats" class="kpi-grid" style="margin-bottom:1rem"></div>'
     + '<div id="audit-timeline" class="timeline"></div>';
@@ -1299,6 +1403,13 @@ window.CO_ENGRAM_AUDIT = {
   },
 
   applyFilter() {
+    // timing instrument(2026-07 修复 audit 慢的元思考):
+    // 前几次「修了多次仍慢」是因为没做端到端测量,只单点 fast。现在显式测三段:
+    //   1. filter(纯 JS 逻辑,小)
+    //   2. renderRow × N(字符串拼接 + escapeHtml + renderMeta)
+    //   3. innerHTML assignment(浏览器 parse + layout)
+    // 结果写到 #audit-timing,用户能在 chip 旁直接看到,无需 devtools
+    const tStart = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const cache = this._cache || [];
     const actor = (document.getElementById('audit-actor') || {}).value || '';
     const cat = (document.getElementById('audit-cat') || {}).value || '';
@@ -1335,10 +1446,19 @@ window.CO_ENGRAM_AUDIT = {
       return;
     }
 
+    const tFiltered = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const ACTOR_LETTER = { user: 'U', llm: 'L', system: 'S' };
+    // 把 _existingIds 提到外层一次性算好(2026-07 优化):
+    // 旧实现 renderRow 内每行都重新 'this._existingIds || new Set()',300 行 fallback
+    // 300 次 new Set(),触发 GC 压力。提到 applyFilter 顶层传闭包引用,每行 Set.has 是 O(1)。
+    const existingIds = this._existingIds || new Set();
+    // renderRow 是 hot path:缓存最近的 N 条结果(同 row 在分页/过滤切换时复用)
+    // 但 audit entry 是 append-only + 不会重复渲染同一对象引用,memoize 收益小,
+    // 不引入。降级为直接调用,保证内存可预测。
     let html = filtered.slice(0, 300).map(e => {
-      return CO_ENGRAM_AUDIT.renderRow(e, ACTOR_LETTER);
+      return CO_ENGRAM_AUDIT.renderRow(e, ACTOR_LETTER, existingIds);
     }).join('');
+    const tRendered = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     if (filtered.length > 300) {
       html += '<div class="muted" style="text-align:center;padding:0.5rem">仅显示前 300 条过滤结果(共 ' + filtered.length + ' 条匹配,加载更多可扩大范围)</div>';
     }
@@ -1349,6 +1469,16 @@ window.CO_ENGRAM_AUDIT = {
         + '<button class="btn" onclick="CO_ENGRAM_AUDIT.loadMore()">加载更多(已加载 ' + items.length + ' / 共 ' + total + ')</button></div>';
     }
     tl.innerHTML = html;
+    const tEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    // 显示 timing 到 #audit-timing(若存在),让用户能直接看到「filter Xms · render Yms · DOM Zms」
+    const timingEl = document.getElementById('audit-timing');
+    if (timingEl) {
+      const filterMs = (tFiltered - tStart).toFixed(1);
+      const renderMs = (tRendered - tFiltered).toFixed(1);
+      const domMs = (tEnd - tRendered).toFixed(1);
+      timingEl.textContent = '⏱ filter ' + filterMs + 'ms · render ' + renderMs + 'ms · DOM ' + domMs + 'ms';
+      timingEl.style.display = 'inline-flex';
+    }
   },
 
   /** 点击 action 标签 → 按该 action 精确过滤;再次点同一个 → 清除 */
@@ -1434,7 +1564,7 @@ window.CO_ENGRAM_AUDIT = {
   },
 
   /** 渲染单条 audit row,判断 engram/synapse 是否仍存在,生成可点按钮或灰色文本 */
-  renderRow(e, ACTOR_LETTER) {
+  renderRow(e, ACTOR_LETTER, existingIds) {
     const T = CO_ENGRAM_T;
     const ts = CO_ENGRAM.relativeTime(e.ts);
     const tsFull = CO_ENGRAM.escapeHtml(e.ts);
@@ -1445,7 +1575,8 @@ window.CO_ENGRAM_AUDIT = {
     const actionTipKey = 'viewer.audit.actionTip.' + (e.action || '');
     const actionTip = T.t(actionTipKey) === actionTipKey ? (e.action || '') : T.t(actionTipKey);
 
-    const existing = this._existingIds || new Set();
+    // 2026-07 优化:existingIds 由 applyFilter 顶层传入(避免每行 new Set)
+    const existing = existingIds || new Set();
     const m = e.metadata || {};
     const isSynapse = m.target === 'synapse' || !!m.synapseId;
     // synapse 类:目标 from engram(用 metadata.from 优先,fallback 到 engramId)

@@ -353,6 +353,51 @@ describe("ProposalEngine.accept", () => {
       });
     }).toThrow(/not found/i);
   });
+
+  // 2026-07 修复:accept 兜底语义(`??` → 「非空生效,否则回落」)
+  // 前端 acceptFromForm 始终传 domainTags: [](空数组,非 null/undefined),
+  // 旧实现 `input.domainTags ?? payload?.domainTags` 不回落 → 抛 400。
+  // 现在空数组也算"未提供",回落到 payload?.domainTags。
+  it("auto-memory proposal + domainTags 空数组 → 回落到 payload.domainTags", () => {
+    engine.proposeAutoMemory({
+      slug: "fallback-test",
+      title: "fallback title",
+      content: "fallback body",
+      domainTags: ["auto-memory-fallback"],
+      kind: "observation",
+      createdBy: "claude-code-auto-memory",
+    });
+    const [proposal] = engine.listPending();
+    expect(proposal).toBeTruthy();
+
+    // 模拟前端:domainTags 传 [],title/content 也传空字符串
+    const engramId = engine.accept(proposal!.entityId, {
+      title: "",
+      content: "",
+      domainTags: [],
+    });
+    expect(engramId).toBeTruthy();
+    const engram = repo.readEngram(engramId);
+    expect(engram.title).toBe("fallback title");
+    expect(engram.content).toBe("fallback body");
+    expect(engram.domainTags).toContain("auto-memory-fallback");
+  });
+
+  it("conversation proposal(payload 缺失)+ 空字段 → 仍然抛错(无兜底)", async () => {
+    for (const s of TS_CI_SAMPLES) {
+      await engine.observe({ role: "user", content: s });
+    }
+    const [proposal] = engine.listPending();
+    expect(proposal).toBeTruthy();
+    // conversation 来源 payload 为 undefined,空字段无回落 → 必须抛错
+    expect(() => {
+      engine.accept(proposal!.entityId, {
+        title: "",
+        content: "",
+        domainTags: [],
+      });
+    }).toThrow(/accept requires title\/content\/domainTags/);
+  });
 });
 
 describe("ProposalEngine.dismiss", () => {

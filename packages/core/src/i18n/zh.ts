@@ -1060,6 +1060,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.status.all": "全部",
   "viewer.proposals.empty": "没有 ${status} 提案",
   "viewer.proposals.emptyHint": "系统正在后台观察候选记忆,新提案会自动出现在这里。",
+  "viewer.proposals.pager.hasMoreHint": "还有 ${n} 条,翻页时自动加载",
   "viewer.proposals.card.occurrences": "${n} 次出现",
   "viewer.proposals.card.samples": "${n} 条样本",
   "viewer.proposals.card.inferred": "推断",
@@ -1096,6 +1097,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.acceptFailed": "采纳失败:${err}",
   "viewer.proposals.dismissConfirm": "确认驳回此提案?驳回后将不再出现,审计日志保留。",
   "viewer.proposals.dismissFailed": "驳回失败:${err}",
+  "viewer.proposals.batch.acceptAll": "全部采纳(${n})",
+  "viewer.proposals.batch.dismissAll": "全部驳回(${n})",
+  "viewer.proposals.batch.acceptAllConfirm": "确认批量采纳 ${n} 条已加载的待审提案?\n\n每条会创建一条记忆印迹(无法一键撤销)。已加载范围之外的提案不受影响。",
+  "viewer.proposals.batch.dismissAllConfirm": "确认批量驳回 ${n} 条已加载的待审提案?\n\n驳回后将不再出现。已加载范围之外的提案不受影响。",
+  "viewer.proposals.batch.acceptAllToast": "批量采纳完成:成功 ${ok} 条,失败 ${fail} 条",
+  "viewer.proposals.batch.dismissAllToast": "批量驳回完成:成功 ${ok} 条,失败 ${fail} 条",
+  "viewer.proposals.batch.noPending": "当前没有待审提案可批量操作",
 
   // ===== Audit 面板(viewer.audit.*) =====
   "viewer.audit.filter.actor": "发起者",

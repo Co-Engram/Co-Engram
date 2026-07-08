@@ -997,6 +997,10 @@ async function routeApi(
   }
 
   // /api/path-tree (progressive disclosure directory tree)
+  //
+  // 同时返回 engramLocations(每条 engram 的 {id, path}):前端 applyFilter
+  // 用它构建 id→path Map,目录过滤基于 path 而非 id。修复 ULID id 无 '/'
+  // 导致目录过滤失效的 bug(2026-07 修复:engrams + graph 两 tab 共用)。
   if (path === "/api/path-tree" && req.method === "GET") {
     if (!ctx.repository) {
       respondJson(res, 200, { enabled: false, root: null });
@@ -1007,9 +1011,12 @@ async function routeApi(
       ? Math.min(10, Math.max(1, Number(rawDepth) || 5))
       : 5;
     const tree = ctx.repository.listPathTree();
+    const entries = ctx.repository.listEngramIndex();
+    const engramLocations = entries.map((e) => ({ id: e.id, path: e.path }));
     respondJson(res, 200, {
       enabled: true,
       root: pruneTreeForJson(tree as unknown as MutablePathNode, maxDepth, 0),
+      engramLocations,
     });
     return;
   }
