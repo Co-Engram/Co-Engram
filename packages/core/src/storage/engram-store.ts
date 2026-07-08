@@ -220,6 +220,56 @@ export function serializeEngramFile(
   return `${FRONTMATTER_DELIMITER}\n${yamlTrimmed}${FRONTMATTER_DELIMITER}\n\n${body}\n`;
 }
 
+const NUMERIC_FIELDS = new Set([
+  "importance",
+  "confidence",
+  "lastRetrievalScore",
+  "reinforcementScore",
+  "evidenceCount",
+  "retrievalCount",
+  "effectiveRetrievals",
+  "failedUses",
+  "version",
+  "contentSize",
+]);
+
+const ARRAY_FIELDS = new Set([
+  "domainTags",
+  "tags",
+  "contextTags",
+  "kinds",
+]);
+
+/**
+ * 安全归一化 frontmatter(幂等)。
+ *
+ * 只做"显式可逆"的轻量转换,失败字段保留原值(留给 validate 报 issue):
+ *   - 数值字段:字符串 "0.8" → 0.8(Number() 成功用)
+ *   - 数组字段:单值 "x" → ["x"]
+ *
+ * 不归一化:
+ *   - bool → number(语义可疑)
+ *   - 枚举外值、时间格式错、id 类型错(值语义只有用户知道)
+ */
+function normalizeFrontmatter(
+  parsed: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...parsed };
+  for (const [key, value] of Object.entries(out)) {
+    if (NUMERIC_FIELDS.has(key) && typeof value === "string") {
+      const converted = Number(value);
+      if (!Number.isNaN(converted)) {
+        out[key] = converted;
+      }
+      // NaN 时保留原值,validate 阶段报 type_mismatch
+    }
+    if (ARRAY_FIELDS.has(key) && typeof value === "string") {
+      out[key] = [value];
+    }
+  }
+  return out;
+}
+
 /**
  * 解析单文件,自动检测格式(顶部/底部、中文/英文)。
  *

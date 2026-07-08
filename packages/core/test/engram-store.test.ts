@@ -352,3 +352,44 @@ describe("hasFrontmatterMarker", () => {
     expect(hasFrontmatterMarker("---\nid: 01ABC\n(无闭合)")).toBe(true);
   });
 });
+
+describe("parseEngramFile 归一化(normalizeFrontmatter 间接验证)", () => {
+  /** 构造顶部 frontmatter 的 raw 字符串 */
+  function wrap(yamlBody: string, content = "body"): string {
+    return `---\n${yamlBody}\n---\n${content}`;
+  }
+
+  it("数值字符串 importance:\"0.8\" → 归一化为 0.8", () => {
+    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: "0.8"\ntitle: t\nkind: observation`));
+    expect(file.frontmatter.importance).toBe(0.8);
+    expect(file._validationIssues ?? []).toEqual([]);
+  });
+
+  it("数组字段单值 domainTags:\"single\" → 归一化为 [\"single\"]", () => {
+    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\ndomainTags: single\ntitle: t\nkind: observation`));
+    expect(file.frontmatter.domainTags).toEqual(["single"]);
+  });
+
+  it("bool 不归一化为 number(留 issue 给 validate)", () => {
+    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: true\ntitle: t\nkind: observation`));
+    expect(file.frontmatter.importance).toBe(true); // 原值保留
+    expect(file._validationIssues ?? []).toContainEqual(
+      expect.objectContaining({ field: "importance", category: "type_mismatch" })
+    );
+  });
+
+  it("非数值字符串 importance:\"abc\" → 归一化失败,留 issue", () => {
+    const file = parseEngramFile(wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: "abc"\ntitle: t\nkind: observation`));
+    expect(file.frontmatter.importance).toBe("abc"); // 原值保留
+    expect(file._validationIssues ?? []).toContainEqual(
+      expect.objectContaining({ field: "importance", category: "type_mismatch" })
+    );
+  });
+
+  it("已是合法值不变形(幂等)", () => {
+    const raw = wrap(`id: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nimportance: 0.5\ndomainTags: [a, b]\ntitle: t\nkind: observation`);
+    const file1 = parseEngramFile(raw);
+    expect(file1.frontmatter.importance).toBe(0.5);
+    expect(file1.frontmatter.domainTags).toEqual(["a", "b"]);
+  });
+});
