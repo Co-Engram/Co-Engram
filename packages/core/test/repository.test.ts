@@ -38,8 +38,9 @@ describe("EngramRepository — Engram CRUD", () => {
     });
     expect(engram.id).toMatch(/^[0-7][0-9A-HJKMNP-TV-Z]{25}$/);
     expect(engram.title).toBe("操作系统内存优化");
+    // AI-10: domainTags 排序后再拼路径(内 U+5185 < 操 U+64CD)
     expect(
-      existsSync(join(tmpDir, "操作系统", "内存管理", "操作系统内存优化.md")),
+      existsSync(join(tmpDir, "内存管理", "操作系统", "操作系统内存优化.md")),
     ).toBe(true);
   });
 

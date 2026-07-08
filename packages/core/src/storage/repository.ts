@@ -882,8 +882,15 @@ export class EngramRepository {
    */
   private deriveDefaultPath(input: EngramCreateInput): string {
     const slug = slugify(input.title);
-    const domains = input.domainTags.length > 0 ? input.domainTags : [];
-    const parts = [...domains, `${slug}.md`];
+    // AI-10 路径分裂修复:domainTags 先按 Unicode 字母序排序,再拼路径。
+    // 旧实现直接用 raw 顺序,导致同语义不同顺序的 tag 集合产生不同的目录树:
+    //   ["协作原则","方法论","设计原则"] → 协作原则/方法论/设计原则/<slug>.md
+    //   ["协作原则","设计原则","方法论"] → 协作原则/设计原则/方法论/<slug>.md
+    // 这是路径分裂的根因 —— 排序后两者都归一到 协作原则/方法论/设计原则/。
+    // domainTags 概念上是「无序集合」,frontmatter 仍按用户原始顺序保留(信息无损),
+    // 只在路径派生时规范化,不影响展示语义。
+    const sortedDomains = [...input.domainTags].sort();
+    const parts = [...sortedDomains, `${slug}.md`];
     const basePath = parts.join("/");
     return input.visibility === "private"
       ? `private/${basePath}`

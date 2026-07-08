@@ -15,15 +15,16 @@ import {
 import { EngramRepository } from "../src/storage/repository.js";
 
 describe("deriveEngramPath", () => {
-  it("从 domainTags + title 推导路径", () => {
+  it("从 domainTags + title 推导路径(domainTags 排序规范化)", () => {
     const path = deriveEngramPath({
       title: "Android 14 无线 ADB",
       domainTags: ["testing", "adb", "android"],
     });
-    expect(path).toBe("testing/adb/android/android-14-无线-adb");
+    // AI-10: domainTags 排序后再拼路径,消除路径分裂
+    expect(path).toBe("adb/android/testing/android-14-无线-adb");
   });
 
-  it("限制最多 3 层 domainTags", () => {
+  it("限制最多 3 层 domainTags(取排序后的前 3 个)", () => {
     const path = deriveEngramPath({
       title: "某知识",
       domainTags: ["a", "b", "c", "d", "e"],
@@ -45,6 +46,31 @@ describe("deriveEngramPath", () => {
       domainTags: ["a"],
     });
     expect(path).toBe("a/untitled");
+  });
+
+  it("AI-10 验证:同语义不同顺序的 tag 集合产生相同路径(消除路径分裂)", () => {
+    const pathA = deriveEngramPath({
+      title: "团队记忆系统设计",
+      domainTags: ["协作原则", "方法论", "设计原则"],
+    });
+    const pathB = deriveEngramPath({
+      title: "团队记忆系统设计",
+      domainTags: ["协作原则", "设计原则", "方法论"],
+    });
+    const pathC = deriveEngramPath({
+      title: "团队记忆系统设计",
+      domainTags: ["方法论", "设计原则", "协作原则"],
+    });
+    expect(pathA).toBe(pathB);
+    expect(pathB).toBe(pathC);
+  });
+
+  it("AI-10 验证:中文 tags 按 Unicode 序排序(内 U+5185 < 操 U+64CD)", () => {
+    const path = deriveEngramPath({
+      title: "操作系统内存优化",
+      domainTags: ["操作系统", "内存管理"],
+    });
+    expect(path).toBe("内存管理/操作系统/操作系统内存优化");
   });
 });
 

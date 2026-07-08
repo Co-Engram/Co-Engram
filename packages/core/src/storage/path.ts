@@ -23,6 +23,9 @@ const MAX_DOMAIN_DEPTH = 3;
 /**
  * 推导 engram 的相对路径（不含扩展名）
  *
+ * AI-10 路径分裂修复:domainTags 先按 Unicode 字母序排序,再拼路径。
+ * 同语义不同顺序的 tag 集合不再产生不同目录树。
+ *
  * @param input - 创建参数
  * @returns 相对路径，如 "testing/adb/android/android-14-无线-adb"
  */
@@ -30,7 +33,8 @@ export function deriveEngramPath(
   input: Pick<EngramCreateInput, "title" | "domainTags">,
 ): string {
   const domainTags = input.domainTags ?? [];
-  const domainPath = domainTags
+  const domainPath = [...domainTags]
+    .sort()
     .slice(0, MAX_DOMAIN_DEPTH)
     .map((t) => slugify(t))
     .filter(Boolean)
