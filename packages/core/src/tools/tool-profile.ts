@@ -33,7 +33,7 @@ export type ToolProfile = "minimal" | "standard" | "full";
  * standard: 19 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
  *   自愈/路径树 + engram_synthesize + engram_audit_query
  *
- * full: 29 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ * full: 28 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
  *   但不含 skill_invoke —— 它是 P0 stub(Task 3.2 移除,等 P1 真正实现再放回)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
