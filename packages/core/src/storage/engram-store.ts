@@ -71,6 +71,34 @@ import {
   localizeKeys,
 } from "../i18n/field-names.js";
 
+/**
+ * frontmatter 字段校验问题(parseEngramFile 内部收集,不抛错)。
+ *
+ * _validationIssues 字段是 EngramFile 的可选属性,consumer 可忽略;
+ * runDoctor 消费它转成 DoctorIssue 上报。
+ */
+export interface ValidationIssue {
+  /** 字段路径,如 "kind" / "kinds[0]" / "visibility" */
+  readonly field: string;
+  readonly category:
+    | "type_mismatch"
+    | "out_of_range"
+    | "invalid_enum"
+    | "invalid_format"
+    | "missing_required"
+    | "unknown_field"
+    | "derived_mismatch";
+  readonly severity: "critical" | "high" | "medium" | "low";
+  /** 人类可读说明,如 "kind must be one of: observation, fact, pattern, procedure, hypothesis" */
+  readonly message: string;
+  /** 当前值(供 doctor 展示) */
+  readonly currentValue: unknown;
+  /** 期望类型/格式(可选,如 "ULID" / "ISO 8601 date" / "number in [0,1]") */
+  readonly expectedType?: string;
+  /** 枚举的合法值列表(invalid_enum 用) */
+  readonly validValues?: readonly unknown[];
+}
+
 /** Frontmatter 字段 */
 export interface EngramFrontmatter {
   /** Stable engram id (ULID) */
@@ -118,6 +146,14 @@ export interface EngramFrontmatter {
 export interface EngramFile {
   readonly frontmatter: EngramFrontmatter;
   readonly content: string;
+  /**
+   * 校验问题清单(parseEngramFile 内部收集,不抛错)。
+   *
+   * 下划线前缀显式标记"内部字段,消费者应忽略";只有 runDoctor 消费它。
+   * 老 consumer(readEngramFile / rebuildEngramIndex / syncEngramToIndex /
+   * FTS / viewer)忽略此字段即向后兼容。
+   */
+  readonly _validationIssues?: readonly ValidationIssue[];
 }
 
 const FRONTMATTER_DELIMITER = "---";

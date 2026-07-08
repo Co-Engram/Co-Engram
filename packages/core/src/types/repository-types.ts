@@ -110,7 +110,11 @@ export interface DoctorIssue {
     | "obsidian_view_stale" // frontmatter.aliases 缺失 或 派生段与 synapse 不一致
     | "index_rebuilt" // digest.jsonl / graph.json 缺失,被 infra-doctor 全量重建
     | "merge_driver_installed" // merge driver 未配置,被 infra-doctor 自动 onboard
-    | "dangling_index_reference"; // 派生索引(observation-windows/digest/graph)引用了已删 engram,被 post-doctor cleanup 清理
+    | "dangling_index_reference" // 派生索引(observation-windows/digest/graph)引用了已删 engram,被 post-doctor cleanup 清理
+    // ── frontmatter 值合法性校验(2026-07 增强)──
+    | "invalid_frontmatter" // YAML 语法错(从 orphan_markdown 分流;有 marker 但 parse 失败)
+    | "invalid_field_value" // 字段类型/枚举/范围/格式/必填错(category 通过 message 区分)
+    | "derived_field_stale"; // contentHash/contentSize 与实际 content 不符(可自动修)
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;
