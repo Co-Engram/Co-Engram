@@ -46,6 +46,12 @@ import {
   formatStatusAsText,
   DEFAULT_LANGUAGE,
   type Language,
+  // AI-3c：config set 子命令的 schema 驱动 catalog 与 setter
+  setConfigField,
+  listWritableKeys,
+  CONFIG_KEY_CATALOG,
+  readTeamMemoryConfig,
+  normalizeConfig,
 } from "@co-engram/core";
 import { resolveDefaultCreatedBy } from "./mcp-server.js";
 
@@ -53,6 +59,8 @@ interface CliArgs {
   readonly command: string;
   readonly subcommand?: string;
   readonly positional?: string;
+  /** 第三个位置参数：`config set <key> <value>` 中的 value */
+  readonly value?: string;
   readonly path?: string;
   readonly cwd?: string;
   readonly language?: Language;
@@ -71,6 +79,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
 
   let subcommand: string | undefined;
   let positional: string | undefined;
+  let value: string | undefined;
   let path: string | undefined;
   let cwd: string | undefined;
   let language: Language | undefined;
@@ -124,12 +133,14 @@ function parseArgs(argv: readonly string[]): CliArgs {
     } else if (arg.startsWith("--created-by=")) {
       createdBy = arg.slice("--created-by=".length);
     } else if (!arg.startsWith("-")) {
-      // 位置参数:第一个非 flag 是 subcommand,第二个是 positional
-      // 用于 `co-engram config data-root <path>`
+      // 位置参数:第一个非 flag 是 subcommand,第二个是 positional,第三个是 value
+      // 用于 `co-engram config data-root <path>` 与 `co-engram config set <key> <value>`
       if (!subcommand) {
         subcommand = arg;
       } else if (positional === undefined) {
         positional = arg;
+      } else if (value === undefined) {
+        value = arg;
       }
     }
   }
@@ -137,6 +148,7 @@ function parseArgs(argv: readonly string[]): CliArgs {
     command,
     subcommand,
     positional,
+    value,
     path,
     cwd,
     language,
@@ -289,21 +301,160 @@ async function initTeamMemory(args: CliArgs): Promise<void> {
  * `co-engram config` 命令入口
  *
  * 子命令:
- *   - `data-root`             显示当前 dataRoot
- *   - `data-root <path>`      设置 dataRoot(写入 ~/.co-engram/config.json)
- *   - `data-root --reset`     重置为默认 $HOME/team-memory
+ *   - `data-root`                 显示当前 dataRoot
+ *   - `data-root <path>`          设置 dataRoot（写入 ~/.co-engram/config.json）
+ *   - `data-root --reset`         重置为默认 $HOME/team-memory
  *   - `data-root <path> --force`  强制接管非空目录
+ *   - `set <key> <value>`         按 dotted path 修改任意 config 字段（AI-3c）
+ *   - `set`                       不带参数 → 列出所有可写 key 与类型
  */
 async function runConfigCommand(args: CliArgs): Promise<void> {
   const sub = args.subcommand;
-  if (sub !== "data-root") {
+  if (sub === "data-root") {
+    await runConfigDataRoot(args);
+    return;
+  }
+  if (sub === "set") {
+    await runConfigSet(args);
+    return;
+  }
+  process.stderr.write(
+    `Unknown 'config' subcommand: ${sub ?? "(none)"}\n` +
+      `Available:\n` +
+      `  config data-root [path] [--reset] [--force]\n` +
+      `  config set <key> <value>     (e.g. 'config set language zh')\n` +
+      `  config set                   (list all writable keys)\n`,
+  );
+  process.exit(1);
+}
+
+/**
+ * `co-engram config set` 子命令实现（AI-3c）
+ *
+ * 三种调用形态：
+ *   1. `config set`（无参）→ 列出所有可写 key（含类型 + 描述 + deprecated 标记）
+ *   2. `config set <key>`（无值）→ 显示当前值
+ *   3. `config set <key> <value>` → 写入 dataRoot/.co-engram/config.json
+ *
+ * 校验链：
+ *   - key 在 CONFIG_KEY_CATALOG 中存在 → 否则 VALIDATION 错误并列出 valid keys
+ *   - key 非 deprecated → 否则 VALIDATION 错误并显示废弃原因
+ *   - value 能 coerce 为声明类型 → 否则 VALIDATION 错误
+ *   - 写盘前 normalizeConfig 补齐缺失字段（防御性，避免破坏 config 完整性）
+ */
+async function runConfigSet(args: CliArgs): Promise<void> {
+  // 1. 无 key → list all
+  if (args.positional === undefined) {
+    process.stdout.write(
+      `[co-engram] writable config keys (use 'co-engram config set <key> <value>'):\n\n`,
+    );
+    const rows = listWritableKeys();
+    const maxKey = Math.max(...rows.map((r) => r.key.length));
+    const maxType = Math.max(...rows.map((r) => r.type.length));
+    for (const row of rows) {
+      const flag = row.deprecated ? " [DEPRECATED]" : "";
+      process.stdout.write(
+        `  ${row.key.padEnd(maxKey)}  ${row.type.padEnd(maxType)}  ${row.description}${flag}\n`,
+      );
+    }
+    process.stdout.write(
+      `\n  Total: ${rows.length} keys (${rows.filter((r) => r.deprecated).length} deprecated)\n`,
+    );
+    return;
+  }
+
+  const key = args.positional;
+
+  // 2. 有 key 无 value → show current
+  if (args.value === undefined) {
+    const dataRoot = readBootstrapDataRootSync() ?? getDefaultDataRoot();
+    const config = await readTeamMemoryConfig(dataRoot);
+    if (!config) {
+      process.stderr.write(
+        `[co-engram] no config.json found at ${dataRoot}; run 'co-engram init' first.\n`,
+      );
+      process.exit(1);
+    }
+    const meta = CONFIG_KEY_CATALOG[key];
+    if (!meta) {
+      process.stderr.write(
+        `[co-engram] unknown config key: '${key}'\n` +
+          `  Run 'co-engram config set' (no args) to list all writable keys.\n`,
+      );
+      process.exit(1);
+    }
+    const parts = key.split(".");
+    let cursor: unknown = config;
+    for (const part of parts) {
+      if (cursor === null || cursor === undefined || typeof cursor !== "object") {
+        cursor = undefined;
+        break;
+      }
+      cursor = (cursor as Record<string, unknown>)[part];
+    }
+    const display =
+      cursor === undefined ? "(unset)" : JSON.stringify(cursor);
+    process.stdout.write(
+      `[co-engram] ${key} = ${display}\n` +
+        `  type: ${meta.type}\n` +
+        `  description: ${meta.description}\n` +
+        (meta.deprecated
+          ? `  ⚠ DEPRECATED: ${meta.deprecatedReason ?? "no reason provided"}\n`
+          : "") +
+        `  Change it with: co-engram config set ${key} <value>\n`,
+    );
+    return;
+  }
+
+  // 3. set
+  const dataRoot = readBootstrapDataRootSync() ?? getDefaultDataRoot();
+  const existing = await readTeamMemoryConfig(dataRoot);
+  if (!existing) {
     process.stderr.write(
-      `Unknown 'config' subcommand: ${sub ?? "(none)"}\n` +
-        `Available: config data-root [path] [--reset] [--force]\n`,
+      `[co-engram] no config.json found at ${dataRoot}; run 'co-engram init' first.\n`,
     );
     process.exit(1);
   }
-  await runConfigDataRoot(args);
+
+  let next;
+  try {
+    const result = setConfigField(existing, key, args.value);
+    next = normalizeConfig(result.config);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const suggestion =
+      err && typeof err === "object" && "suggestion" in err
+        ? (err as { suggestion?: string }).suggestion
+        : undefined;
+    process.stderr.write(`[co-engram] config set failed: ${msg}\n`);
+    if (suggestion) {
+      process.stderr.write(`\n${suggestion}\n`);
+    }
+    process.exit(1);
+  }
+
+  await writeTeamMemoryConfig(dataRoot, next);
+  process.stdout.write(
+    `[co-engram] config updated: ${key}\n` +
+      `  new value: ${JSON.stringify(
+        ((): unknown => {
+          const parts = key.split(".");
+          let cursor: unknown = next;
+          for (const part of parts) {
+            if (cursor === null || cursor === undefined || typeof cursor !== "object") {
+              return undefined;
+            }
+            cursor = (cursor as Record<string, unknown>)[part];
+          }
+          return cursor;
+        })(),
+      )}\n` +
+      `  dataRoot:  ${dataRoot}\n` +
+      `  config:    ${dataRoot}/.co-engram/config.json\n\n` +
+      `  Restart co-engram for the change to take effect:\n` +
+      `    - Claude Code: restart Claude Code\n` +
+      `    - OpenClaw:    run 'openclaw gateway restart'\n`,
+  );
 }
 
 /**

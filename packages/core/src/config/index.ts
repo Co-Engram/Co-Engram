@@ -62,6 +62,21 @@ export type {
 } from "../maintenance/types.js";
 export type { ProposalEngineConfig } from "../observability/proposal-engine.js";
 
+// AI-3c：config key catalog + programmatic setter（供 `co-engram config set` CLI 用）
+export {
+  CONFIG_KEY_CATALOG,
+  isValidConfigKey,
+  getConfigKeyMeta,
+  listWritableKeys,
+  type ConfigKeyType,
+  type ConfigKeyMeta,
+} from "./keys.js";
+export {
+  coerceValue,
+  setConfigField,
+  type ConfigSetResult,
+} from "./set.js";
+
 /** config 文件名(放在 dataRoot/.co-engram/ 下) */
 export const TEAM_MEMORY_CONFIG_FILENAME = "config.json";
 
