@@ -24,7 +24,7 @@ export interface ContractResult {
 }
 
 export interface ContractDiff {
-  readonly kind: "profile" | "i18n" | "config" | "help";
+  readonly kind: "profile" | "i18n" | "config" | "help" | "adapter";
   readonly detail: string;
 }
 
@@ -60,3 +60,19 @@ export {
 export {
   runHelpTextContractTests,
 } from "./help-contract.js";
+
+/**
+ * adapter 入口 shape 两端一致性测试(AI-5 hyper-pattern 5)
+ *
+ * 验证 createCoEngramMcpServer(CC)与 registerCoEngramTools(OC)的返回值
+ * 归一化后共享同一 HostRuntime shape —— ctx / diagnostic refs / lifecycle
+ * handles 对称,让 viewer / 维护编排等消费者 host-agnostic。
+ */
+export {
+  runAdapterContractTests,
+  extractHostRuntime,
+  INTENTIONAL_ASYMMETRIES,
+  EXPECTED_LIFECYCLE_HANDLES,
+  EXPECTED_DIAGNOSTIC_REFS,
+  type HostRuntime,
+} from "./adapter-contract.js";
