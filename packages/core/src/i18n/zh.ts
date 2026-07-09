@@ -166,12 +166,12 @@ export const zh = {
 
 何时不调用:
 - 两条记忆无关
-- 不确定关系类型(默认用 'related_to')
+- 5 族(结构/因果/证据/时间/调节)能覆盖几乎所有合理关联,选最贴近的;不要因「拿不准」就跳过,但也别硬凑。
 
-返回:synapse ID + from/to engram ID。常见类型:extends、contradicts、related_to、caused_by。
+返回:synapse ID + from/to engram ID。12 种 kind 按 5 族严格推导:结构族(extends/part_of/similar_to)、因果族(depends_on/causes/follows)、证据族(derives_from/contradicts/exemplifies)、时间族(supersedes/consolidates)、调节族(contextualizes)。
 
-副作用(SIDE EFFECTS):
-- kind="contradicts":自动给双方 engram 写 contradicted audit 事件(可被 engram_audit_query 查到),并触发矛盾解决流程。`,
+副作用:
+- kind="contradicts":给双方 engram 写 contradicted audit 事件(engram_audit_query 可查),并触发矛盾解决流程。`,
   "tool.engram_reinforce.agent": `标记某条记忆被有效使用(正向强化)。
 
 何时调用:
@@ -234,7 +234,7 @@ export const zh = {
 - 需要标记 contradiction synapse 里哪一方胜出
 
 何时不调用:
-- 两条记忆只是不同视角(用 synapse kind 'related_to')
+- 两条记忆只是不同视角(裁决为 merge / archive,新 synapse 选用 similar_to 或 contextualizes,不要建 contradicts)
 - 不确定哪个对(问用户)
 
 返回:resolution 记录 + 两条 engram 的验证状态更新。`,
@@ -1070,6 +1070,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "enum.synapseKind.supersedes": "取代",
   "enum.synapseKind.consolidates": "整合",
   "enum.synapseKind.contextualizes": "上下文",
+  "enum.synapseKind.related_to": "关联",
   "enum.synapseDirection.directional": "单向",
   "enum.synapseDirection.bidirectional": "双向",
   "enum.resolution.pending": "待处理",
@@ -1707,6 +1708,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "整合 (consolidates) · 时间族:A 合并/精炼了 B 的内容。",
   "tip.synapse.contextualizes":
     "上下文 (contextualizes) · 调节族:A 为 B 提供情境背景(非因果、非证据)。",
+  "tip.synapse.related_to":
+    "关联 (related_to) · 历史遗留类型,不在神经科学 5 族推导内,不再推荐创建新数据;请改用相似/情境等具体类型。仅作前端显示兼容存在。",
   "tip.family.structural": "结构族 (structural):描述知识间的组成/扩展关系。蓝色。",
   "tip.family.causal": "因果族 (causal):描述触发/依赖关系。橙色。",
   "tip.family.evidential":

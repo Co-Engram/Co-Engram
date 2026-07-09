@@ -1167,6 +1167,106 @@ export class EngramRepository {
   }
 
   /**
+   * 批量删除 engram(2026-07 修复 Bug #6:回收站清空很慢)。
+   *
+   * 单条 deleteEngram 的瓶颈是 persistIndex(全量写 engram-index.json):
+   *   - N 条回收站 → N 次 deleteEngram → N 次 persistIndex
+   *   - 单次写盘 ~30-80ms(index.json ~1MB),N=267 时累计 8-22 秒
+   *   - 期间 HTTP 服务器被单条同步 fs 操作阻塞,前端 fetch 超时(Bug #7)
+   *
+   * 批量优化:把 N 次 persistIndex 合并成 1 次。其余操作(deleteEngramFile /
+   * deleteSynapsesTouching / indexDb.deleteEngram)各自已经够快(SQLite
+   * fast path),保留逐条调用。
+   *
+   * 删除顺序与单条 deleteEngram 一致(index → 文件 → synapse),只是 index
+   * 移除合并成一次。失败模式与单条相同,doctor 仍可自愈。
+   *
+   * 返回:实际删除的 stableId 数(部分项 resolvePath 失败会跳过)。
+   */
+  deleteEngramsBatch(stableIds: readonly string[]): string[] {
+    if (stableIds.length === 0) return [];
+    const deleted: string[] = [];
+    const neighborsToRefresh = new Set<string>();
+
+    // (1) 一次性批量从 index 移除并 persistIndex(关键优化)
+    const index = this.getIndex();
+    const relativePaths = new Map<string, string>();
+    for (const id of stableIds) {
+      const rp = this.resolvePath(id);
+      if (!rp) continue;
+      relativePaths.set(id, rp);
+      if (isStableEngramId(id)) {
+        removeEngramIndexEntry(index, id as StableEngramId);
+      }
+    }
+    if (relativePaths.size === 0) return [];
+    this.persistIndex(index);
+
+    // (2) 逐个删 .md(磁盘 IO,无法批量化)
+    for (const [id, rp] of relativePaths) {
+      const absolutePath = join(this.config.rootPath, rp);
+      try {
+        deleteEngramFile(absolutePath);
+      } catch {
+        // 文件可能已被并发删除,继续
+      }
+    }
+
+    // (3) 逐个 deleteSynapsesTouching(已走 SQLite fast path,O(log N))
+    //     但 refreshObsidianLinks 逐条调;这里收集 neighbors,最后合并 refresh。
+    for (const id of relativePaths.keys()) {
+      // 直接调内部逻辑(不通过 this.deleteSynapsesTouching 以合并 refresh)
+      let touching: { outgoing: Synapse[]; incoming: Synapse[] };
+      if (this.indexDb) {
+        try {
+          touching = this.listSynapsesForEngramFromIndex(id);
+        } catch {
+          touching = listSynapsesForEngram(this.config.rootPath, id);
+        }
+      } else {
+        touching = listSynapsesForEngram(this.config.rootPath, id);
+      }
+      for (const s of touching.outgoing) {
+        if (s.to !== id) neighborsToRefresh.add(s.to);
+      }
+      for (const s of touching.incoming) {
+        if (s.from !== id) neighborsToRefresh.add(s.from);
+      }
+      const all = [...touching.outgoing, ...touching.incoming];
+      const seen = new Set<string>();
+      for (const s of all) {
+        if (seen.has(s.id)) continue;
+        seen.add(s.id);
+        const synPath = join(this.config.rootPath, synapseRelativePath(s.id, s.kind));
+        try {
+          deleteSynapseFile(synPath);
+        } catch {
+          // 文件可能已被并发删除
+        }
+      }
+
+      // (4) SQLite 删(逐条,但每条 O(log N))
+      if (this.indexDb) {
+        try {
+          this.indexDb.deleteEngram(id);
+        } catch {
+          // 派生数据失败不阻塞
+        }
+      }
+      deleted.push(id);
+    }
+
+    // (5) 合并邻居派生段刷新(O(K) 次,而非 O(N×K))
+    if (neighborsToRefresh.size > 0) {
+      this.refreshObsidianLinks(...neighborsToRefresh);
+    }
+    this.invalidateSynapseCache();
+    this.invalidateTruthPathsCache();
+
+    return deleted;
+  }
+
+  /**
    * 按 path 读 engram(用于 doctor 自愈 / 人类浏览)
    */
   readEngramByPath(relativePath: string): Engram | undefined {

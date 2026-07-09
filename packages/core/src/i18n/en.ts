@@ -159,17 +159,17 @@ RETURNS: List of engram summaries (title, tags, updatedAt) + total count. Use cu
 
 WHEN TO CALL:
 - A new memory extends / contradicts / relates to an existing one
-- User mentions causal or dependency relationship ("X happened because of Y")
-- Connecting a decision to its rationale, or a bug to its fix
+- User mentions causal or dependency ("X happened because of Y")
+- Linking a decision to rationale, or a bug to its fix
 
 WHEN NOT TO CALL:
 - The two memories are unrelated
-- You're unsure of the relationship kind (use 'related_to' as default)
+- Pick the closest of the 5 families; do not skip just because uncertain, do not force.
 
-RETURNS: Synapse ID + from/to engram IDs. Common kinds: extends, contradicts, related_to, caused_by.
+RETURNS: Synapse ID + from/to engram IDs. 12 kinds, 5 families: structural (extends/part_of/similar_to), causal (depends_on/causes/follows), evidential (derives_from/contradicts/exemplifies), temporal (supersedes/consolidates), modulatory (contextualizes).
 
 SIDE EFFECTS:
-- kind="contradicts": automatically writes contradicted audit events to both engrams (queryable via engram_audit_query) and triggers the contradiction resolution flow.`,
+- kind="contradicts": writes audit events (engram_audit_query), triggers resolution.`,
   "tool.engram_reinforce.agent": `Mark a memory as effectively used (positive reinforcement).
 
 WHEN TO CALL:
@@ -232,7 +232,7 @@ WHEN TO CALL:
 - You need to mark which side wins in a contradiction synapse
 
 WHEN NOT TO CALL:
-- The two memories are just different perspectives (use synapse kind 'related_to')
+- The two memories are just different perspectives (resolve as merge / archive; the replacement synapse should use similar_to or contextualizes, not contradicts)
 - You're not sure which is right (ask the user)
 
 RETURNS: Resolution record + updated verification status on both engrams.`,
@@ -1077,6 +1077,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "enum.synapseKind.supersedes": "supersedes",
   "enum.synapseKind.consolidates": "consolidates",
   "enum.synapseKind.contextualizes": "contextualizes",
+  "enum.synapseKind.related_to": "related to",
   "enum.synapseDirection.directional": "Directional",
   "enum.synapseDirection.bidirectional": "Bidirectional",
   "enum.resolution.pending": "Pending",
@@ -1770,6 +1771,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "consolidates (temporal): A merges/refines the content of B.",
   "tip.synapse.contextualizes":
     "contextualizes (modulatory): A provides context for B (neither causal nor evidential).",
+  "tip.synapse.related_to":
+    "related_to — legacy kind outside the 5 neuroscience-derived families; no longer recommended for new data. Use a concrete kind (similar_to / contextualizes / etc.) instead. Kept only for front-end display compatibility.",
   "tip.family.structural":
     "Structural: composition / extension relationships. Blue.",
   "tip.family.causal": "Causal: trigger / dependency relationships. Orange.",

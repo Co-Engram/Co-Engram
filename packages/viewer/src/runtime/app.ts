@@ -22,12 +22,15 @@ const CO_ENGRAM = (function() {
   'use strict';
 
   // === 颜色 / 类型 映射 ===
+  // 注意:related_to 不在 SynapseKind 类型里(神经科学 5 族严格推导,无兜底),
+  // 但历史数据中存在;familyColor/edgeColor 兜底为 modulatory 灰色,避免渲染崩成 undefined。
   const SYNAPSE_FAMILY = {
     extends: 'structural', part_of: 'structural', similar_to: 'structural',
     depends_on: 'causal', causes: 'causal', follows: 'causal',
     derives_from: 'evidential', contradicts: 'evidential', exemplifies: 'evidential',
     supersedes: 'temporal', consolidates: 'temporal',
-    contextualizes: 'modulatory'
+    contextualizes: 'modulatory',
+    related_to: 'modulatory'
   };
 
   const FAMILY_COLOR = {
@@ -48,6 +51,8 @@ const CO_ENGRAM = (function() {
   };
 
   // 12 种 synapse kind 各自独立的颜色(同族保持色调相近,但明度不同以便区分)
+  // related_to 不属于神经科学 5 族,但历史数据中存在;这里给一个浅灰 fallback
+  // 防止渲染时取不到颜色 - 颜色是显示层细节,不影响类型/schema 严格性。
   const SYNAPSE_KIND_COLOR = {
     // 结构族 · 蓝色系
     extends: '#3b82f6',      // 主蓝
@@ -65,7 +70,8 @@ const CO_ENGRAM = (function() {
     supersedes: '#8b5cf6',   // 主紫
     consolidates: '#c4b5fd', // 浅紫
     // 调节族 · 灰色系
-    contextualizes: '#6b7280' // 灰
+    contextualizes: '#6b7280', // 灰
+    related_to: '#9ca3af'      // 浅灰(历史数据 fallback,非正式族成员)
   };
 
   // === 术语提示(鼠标悬停时显示) ===

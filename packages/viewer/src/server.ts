@@ -969,15 +969,31 @@ async function routeApi(
       for (const r of softRows) {
         if (dryRun) {
           purgedIds.push(r.id);
-        } else {
-          try {
-            ctx.repository.deleteEngram(r.id);
-            purgedIds.push(r.id);
-          } catch (err) {
-            console.error(
-              `[viewer] failed to purge soft-deleted engram ${r.id}:`,
-              err,
-            );
+        }
+      }
+      // 批量删除(2026-07 修复 Bug #6):
+      //   旧实现逐条 deleteEngram,每次都触发 persistIndex 全量写盘,
+      //   N 条回收站 = N 次写盘 = O(N²)。N=267 时累计 8-22s,期间 HTTP
+      //   服务器被阻塞 → 前端 fetch 超时(Bug #7 预扫描失败的元凶)。
+      //   批量路径把 N 次 persistIndex 合并成 1 次,其余逐条。
+      if (!dryRun && softRows.length > 0) {
+        try {
+          const ids = softRows.map((r) => r.id);
+          const deleted = ctx.repository.deleteEngramsBatch(ids);
+          purgedIds.push(...deleted);
+        } catch (err) {
+          console.error("[viewer] deleteEngramsBatch failed:", err);
+          // fallback:逐条删(保证功能性正确,牺牲性能)
+          for (const r of softRows) {
+            try {
+              ctx.repository.deleteEngram(r.id);
+              purgedIds.push(r.id);
+            } catch (e) {
+              console.error(
+                `[viewer] failed to purge soft-deleted engram ${r.id}:`,
+                e,
+              );
+            }
           }
         }
       }

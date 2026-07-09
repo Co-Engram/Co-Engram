@@ -1466,8 +1466,14 @@ window.CO_ENGRAM_AUDIT = {
     // 是 engrams tab 已验证过的模式。详见 CO_ENGRAM_ENGRAMS 的 pager 实现。
     const PAGE_SIZE = 50;
     const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    // _auditPage 在首次 load 时是 undefined(对象字面量未初始化),
+    // undefined >= N / undefined < 0 都是 false → 不钳制 → undefined * 50 = NaN
+    // → filtered.slice(NaN, NaN) = [] → timeline 渲染 0 行(只有 pager-nav)。
+    // 这里显式 fallback 到 0,避免 NaN 坑(2026-07 修复 audit tab 不渲染 bug)。
+    if (typeof this._auditPage !== 'number' || isNaN(this._auditPage) || this._auditPage < 0) {
+      this._auditPage = 0;
+    }
     if (this._auditPage >= totalPages) this._auditPage = totalPages - 1;
-    if (this._auditPage < 0) this._auditPage = 0;
     const currentPage = this._auditPage;
     const startIdx = currentPage * PAGE_SIZE;
     const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE);

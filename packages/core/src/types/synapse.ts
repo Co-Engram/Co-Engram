@@ -11,7 +11,12 @@ import type { EngramId, EngramVisibility, SynapseId } from "./engram.js";
 /**
  * Synapse kind（12 种，5 族）
  *
- * 中文 label 在 registry 中定义
+ * 中文 label 在 registry 中定义。
+ *
+ * 设计原则:12 种 kind 严格按神经科学 5 族推导,无兜底类型。
+ * 历史数据中存在的 `related_to` 是 prompt 早期引导的产物,现已从工具描述中
+ * 移除推荐;i18n 字典保留 `enum.synapseKind.related_to` / `tip.synapse.related_to`
+ * 仅作前端显示兼容,不进入 schema/类型。
  */
 export type SynapseKind =
   /* 结构族 */
