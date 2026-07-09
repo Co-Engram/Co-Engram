@@ -49,7 +49,7 @@ CO_ENGRAM.on('stats', async function() {
 
   const barRow = (label, count, max, color, onclick, tipAttr) => '<div class="bar-row">'
     + '<div class="bar-label"' + (tipAttr || '') + (onclick ? ' onclick="' + onclick + '"' : '') + '>' + CO_ENGRAM.escapeHtml(label) + '</div>'
-    + '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100) : 0).toFixed(1) + '%;background:' + (color || '#5eead4') + '"></div></div>'
+    + '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100) : 0).toFixed(1) + '%;background:' + (color || '#5DECD9') + '"></div></div>'
     + '<div class="bar-value">' + count + '</div></div>';
 
   const kindMap = data.byKind || {};
@@ -91,7 +91,7 @@ CO_ENGRAM.on('stats', async function() {
 
   html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('status.active') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.statusDistribution')) + '</h3>';
   if (!statusKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-  else statusKeys.forEach(k => html += barRow(T.enumLabel('status', k), statusMap[k], statusMax, '#94a3b8', '', CO_ENGRAM.tip('status.' + k)));
+  else statusKeys.forEach(k => html += barRow(T.enumLabel('status', k), statusMap[k], statusMax, '#8b92a8', '', CO_ENGRAM.tip('status.' + k)));
   html += '</div>';
 
   // 记忆突触区(独立一块,与印迹分开)
@@ -111,7 +111,7 @@ CO_ENGRAM.on('stats', async function() {
         + '<td><code>' + CO_ENGRAM.escapeHtml(c.actor) + '</code></td>'
         + '<td>' + c.engramCount + '</td>'
         + '<td>' + c.synapseCount + '</td>'
-        + '<td><div class="bar-track" style="min-width:120px"><div class="bar-fill" style="width:' + pct + '%;background:#5eead4"></div></div> <span style="margin-left:.4rem">' + c.total + '</span></td>'
+        + '<td><div class="bar-track" style="min-width:120px"><div class="bar-fill" style="width:' + pct + '%;background:#5DECD9"></div></div> <span style="margin-left:.4rem">' + c.total + '</span></td>'
         + '</tr>';
     });
     html += '</tbody></table>';
@@ -120,7 +120,7 @@ CO_ENGRAM.on('stats', async function() {
 
   if (tagArr.length) {
     html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTags') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
-    tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#c084fc'); });
+    tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#5DECD9'); });
     html += '</div>';
   }
 
@@ -1145,10 +1145,10 @@ window.CO_ENGRAM_PROPOSALS = {
           html += '<div class="card-meta" style="margin-bottom:0.3rem">' + tagsHtml + '</div>';
         }
         if (p.status === 'accepted' && p.acceptedEngramId) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(16,185,129,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="background:rgba(93,236,217,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
         }
         if (p.status === 'dismissed' && p.dismissReason) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="background:rgba(184,64,90,.12);color:#b8405a">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
         }
         html += '</div>';
       }
@@ -1525,10 +1525,10 @@ window.CO_ENGRAM_AUDIT = {
     const kpi = (label, n, color) => '<div class="kpi"><div class="kpi-label">' + label + '</div>'
       + '<div class="kpi-value" style="color:' + color + '">' + n + '</div></div>';
     el.innerHTML = kpi(T.t('viewer.audit.kpi.total'), cache.length, 'var(--fg)')
-      + kpi(T.t('viewer.audit.kpi.state'), cat.state, '#3b82f6')
-      + kpi(T.t('viewer.audit.kpi.effective'), cat.effective, '#10b981')
-      + kpi(T.t('viewer.audit.kpi.contradicted'), cat.contradicted, '#ef4444')
-      + kpi(T.t('viewer.audit.kpi.proposal'), cat.proposal, '#8b5cf6');
+      + kpi(T.t('viewer.audit.kpi.state'), cat.state, '#5DECD9')
+      + kpi(T.t('viewer.audit.kpi.effective'), cat.effective, '#5DECD9')
+      + kpi(T.t('viewer.audit.kpi.contradicted'), cat.contradicted, '#b8405a')
+      + kpi(T.t('viewer.audit.kpi.proposal'), cat.proposal, '#c0c8d4');
   },
 
   applyFilter() {
@@ -1916,7 +1916,7 @@ window.CO_ENGRAM_MERGES = {
     const bar = (label, count, max, color) =>
       '<div class="bar-row">' +
       '<div class="bar-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
-      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5eead4') + '"></div></div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5DECD9') + '"></div></div>' +
       '<div class="bar-value">' + count + '</div>' +
       '</div>';
 
@@ -1946,7 +1946,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byStrategy') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [name, count] of strategies.slice(0, 8)) {
-        html += bar(name, count, max, '#5eead4');
+        html += bar(name, count, max, '#5DECD9');
       }
       html += '</div>';
     }
@@ -1958,7 +1958,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.hotPaths') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [p, count] of paths.slice(0, 8)) {
-        html += bar(p, count, max, '#fbbf24');
+        html += bar(p, count, max, '#d4af37');
       }
       html += '</div>';
     }
@@ -1970,7 +1970,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byDay') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [day, count] of days) {
-        html += bar(day, count, max, '#60a5fa');
+        html += bar(day, count, max, '#93f3e7');
       }
       html += '</div>';
     }
@@ -2072,8 +2072,8 @@ window.CO_ENGRAM_TRASH = {
     for (const t of items) {
       const part = t.partition || '';
       const sourceBadge = t.source === 'soft'
-        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
-        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
+        ? '<span class="chip" style="background:rgba(212,175,55,0.12);color:#d4af37;border-color:rgba(212,175,55,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
+        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5DECD9;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
       const titleCell = t.title
         ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
         : '<span style="color:var(--fg-dim)">—</span>';
@@ -2142,9 +2142,9 @@ window.CO_ENGRAM_TRASH = {
     const status = fm.status ? T.enumLabel('status', fm.status) : '';
     const source = fm.sourceType ? T.enumLabel('sourceType', fm.sourceType) : '';
     const sourceBadge = d.source === 'soft'
-      ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
+      ? '<span class="chip" style="background:rgba(212,175,55,0.12);color:#d4af37;border-color:rgba(212,175,55,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
       : (d.source === 'swept'
-        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
+        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5DECD9;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
         : '');
 
     // 分区显示:软删走 enumLabel,物理清空加 (swept) 后缀
@@ -2549,7 +2549,7 @@ window.CO_ENGRAM_CONFIG = {
     // 首次用户(dataRoot=null)展示欢迎引导卡片,推荐常用路径 + 解释 .co-engram/ 子目录
     // 已设置过 dataRoot 的用户跳过引导,只看下面的输入框
     if (!data.dataRoot) {
-      html += '<div class="info-banner" style="margin:0 0 .8rem 0;padding:1rem;border-left:3px solid var(--accent,#4a90e2)">'
+      html += '<div class="info-banner" style="margin:0 0 .8rem 0;padding:1rem;border-left:3px solid var(--accent,#5DECD9)">'
         + '<h4 style="margin:0 0 .5rem 0">' + T.t('viewer.config.dataRootWelcomeTitle') + '</h4>'
         + '<div style="font-size:.92em">' + T.t('viewer.config.dataRootWelcomeBody') + '</div>'
         + '<div style="margin-top:.6rem;display:flex;flex-direction:column;gap:.4rem">'
@@ -2859,7 +2859,7 @@ window.CO_ENGRAM_SYNAPSES = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('family.' + family) + '>' + T.t('viewer.detail.familyField') + '</span><span class="chip dot" style="color:' + CO_ENGRAM.familyColor(family) + '">' + CO_ENGRAM.escapeHtml(familyLabel) + '</span></div>'
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('synapseDirection.' + (d.direction || 'directional')) + '>' + T.t('viewer.detail.directionField') + '</span>' + CO_ENGRAM.escapeHtml(dirLabel) + '</div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.weightField') + '</span>' + (d.weight != null ? Number(d.weight).toFixed(2) : '—') + '</div>'
-      + (d.resolutionStatus ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('resolution.' + d.resolutionStatus) + '>' + T.t('viewer.detail.resolutionField') + '</span><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.enumLabel('resolution', d.resolutionStatus) || d.resolutionStatus) + '</span></div>' : '')
+      + (d.resolutionStatus ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('resolution.' + d.resolutionStatus) + '>' + T.t('viewer.detail.resolutionField') + '</span><span class="chip" style="background:rgba(184,64,90,.12);color:#b8405a">' + CO_ENGRAM.escapeHtml(T.enumLabel('resolution', d.resolutionStatus) || d.resolutionStatus) + '</span></div>' : '')
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + id + '</code></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.sourceToTargetField') + '</span><span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.from) + '">' + CO_ENGRAM.escapeHtml(d.from) + '</span> → <span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.to) + '">' + CO_ENGRAM.escapeHtml(d.to) + '</span></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(d.createdBy || '')
