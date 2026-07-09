@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -149,6 +149,47 @@ describe("engram_synthesize — happy path", () => {
     // 仓库内不应有任何 pattern engram
     const all = repo.listEngrams();
     expect(all.filter((e) => e.id !== id1 && e.id !== id2)).toHaveLength(0);
+  });
+
+  // AI-4 修复验证:dryRun=true 时绝不调 LLM(plan 硬约束)
+  // 旧实现:dryRun 检查在 LLM 调用之后,导致 dryRun=true 仍消耗一次 LLM 调用
+  // 新实现:dryRun=true 走 heuristic 路径,llmClient.complete 不被调用
+  it("AI-4: dryRun=true 时 llmClient.complete 不被调用(heuristic 路径)", async () => {
+    const id1 = makeSource("源 A", "内容 A");
+    const id2 = makeSource("源 B", "内容 B");
+    const completeSpy = vi.fn(async () => VALID_LLM_JSON);
+    const client = { complete: completeSpy } as unknown as LlmClient;
+
+    const result = (await engramSynthesizeTool.execute(
+      { ids: [id1, id2], dryRun: true },
+      makeCtx(client),
+    )) as EngramSynthesizeResult;
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(result.dryRun).toBe(true);
+    expect(result.draft.confidence).toBe(0.0);
+    expect(result.draft.reason).toMatch(/dryRun.*heuristic.*未调.*LLM/);
+    expect(result.draft.title).toContain("heuristic");
+    expect(result.draft.content).toContain("源 A");
+    expect(result.draft.content).toContain("源 B");
+  });
+
+  // AI-4:dryRun=true 时即使 llmClient 缺失也能返回 draft(因为不调 LLM)
+  it("AI-4: dryRun=true 时 llmClient 缺失也能返回 draft(不需 LLM 配置)", async () => {
+    const id1 = makeSource("源 X", "内容 X");
+    const id2 = makeSource("源 Y", "内容 Y");
+    // makeCtx() 不传 client,llmClient = undefined
+
+    const result = (await engramSynthesizeTool.execute(
+      { ids: [id1, id2], dryRun: true },
+      makeCtx(),
+    )) as EngramSynthesizeResult;
+
+    expect(result.dryRun).toBe(true);
+    expect(result.draft).toBeTruthy();
+    expect(result.draft.confidence).toBe(0.0);
+    expect(result.draft.content).toContain("源 X");
+    expect(result.draft.content).toContain("源 Y");
   });
 
   it("ids 重复自动去重", async () => {

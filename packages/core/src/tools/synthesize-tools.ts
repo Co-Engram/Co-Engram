@@ -240,6 +240,45 @@ ${body}`;
     .join("\n\n");
 }
 
+/**
+ * AI-4: dryRun=true 时的 heuristic 路径,不调 LLM。
+ *
+ * 构造机械拼接 draft:从源 engram 的 title/summary/content/domainTags
+ * 简单组装,让调用方看到源数据但不做语义综合。confidence=0 + reason
+ * 字段标记为 heuristic 路径(无 LLM 信心)。
+ *
+ * 与 LLM 路径的区别:
+ *   - LLM 路径:draft.content 是 LLM 新写的 pattern insight
+ *   - heuristic 路径:draft.content 是源 content 的截断展示(机械拼接)
+ *
+ * 用户看到 confidence=0 + reason 标记,知道这是 dryRun 草稿,不是 LLM 综合,
+ * 不会误当真实 pattern 使用。
+ */
+function buildHeuristicDraft(
+  sources: readonly SourceEngram[],
+  parsed: EngramSynthesizeToolInput,
+): SynthesisDraft {
+  const titles = sources.map((s) => s.title);
+  const userTags =
+    parsed.domainTags && parsed.domainTags.length > 0
+      ? parsed.domainTags
+      : Array.from(new Set(sources.flatMap((s) => s.domainTags))).slice(0, 5);
+
+  return {
+    title: `综合草稿(${sources.length} 条源,heuristic)`,
+    summary: `dryRun=true,未调 LLM。源标题:${titles.join(" / ")}`,
+    content: sources
+      .map((s, i) =>
+        `## 源 ${i + 1}: ${s.title}\n\n**Summary:** ${s.summary}\n\n${s.content.slice(0, 500)}`,
+      )
+      .join("\n\n---\n\n"),
+    domainTags: userTags,
+    confidence: 0.0,
+    reason:
+      "dryRun=true,heuristic 路径,未调外部 LLM(plan AI-4 硬约束)",
+  };
+}
+
 // ============================================================
 // 工具实现
 // ============================================================
@@ -273,15 +312,7 @@ export const engramSynthesizeTool: Tool<
       input,
     );
 
-    const llmClient = ctx.llmClient as LlmClient | undefined;
-    if (!llmClient) {
-      throw llmUnavailableError(
-        "engram_synthesize",
-        "Configure necessityLlm in plugin config (MCP: persistedConfig.necessityLlm or ANTHROPIC_API_KEY env; OpenClaw: config.necessityLlm or ~/.openclaw/openclaw.json).",
-      );
-    }
-
-    // 1. 加载并校验源
+    // 1. 加载并校验源(无 LLM 依赖,先做)
     const { sources, missing } = loadAndValidateSources(ctx.repository, parsed.ids);
     if (missing.length > 0) {
       throw notFoundError(
@@ -298,6 +329,36 @@ export const engramSynthesizeTool: Tool<
             "Pass 2 or more distinct engram IDs in the `ids` array.",
           resourceId: "ids",
         },
+      );
+    }
+
+    // AI-4 修复:dryRun=true 时绝不调 LLM(plan 硬约束)。
+    //
+    // 旧实现(line 347):dryRun 检查在 LLM 调用(line 319)之后,导致
+    // dryRun=true 仍然消耗一次 LLM 调用(最贵 + 有副作用的步骤),违反
+    // plan AI-4「dryRun=true 时绝不调外部 LLM」硬约束。这是与 AI-9
+    // SQLite score 漏归一化同类的假完成 —— plan 声明完成,场景验证发现
+    // 核心约束没满足。
+    //
+    // 新实现:dryRun=true 走 heuristic 路径,构造机械拼接 draft(源
+    // title/summary/content/domainTags 简单组装),不调 LLM。confidence=0
+    // + reason 字段标记为 heuristic 路径,让调用方知道这不是 LLM 综合。
+    if (parsed.dryRun === true) {
+      const heuristicDraft = buildHeuristicDraft(sources, parsed);
+      return {
+        synapseIds: [],
+        sourceIds: sources.map((s) => s.id),
+        draft: heuristicDraft,
+        dryRun: true,
+      };
+    }
+
+    // dryRun=false 时,LLM client 必须存在
+    const llmClient = ctx.llmClient as LlmClient | undefined;
+    if (!llmClient) {
+      throw llmUnavailableError(
+        "engram_synthesize",
+        "Configure necessityLlm in plugin config (MCP: persistedConfig.necessityLlm or ANTHROPIC_API_KEY env; OpenClaw: config.necessityLlm or ~/.openclaw/openclaw.json).",
       );
     }
 
@@ -343,17 +404,7 @@ export const engramSynthesizeTool: Tool<
       );
     }
 
-    // 3. dry-run 模式:只返回草稿,不创建
-    if (parsed.dryRun === true) {
-      return {
-        synapseIds: [],
-        sourceIds: sources.map((s) => s.id),
-        draft,
-        dryRun: true,
-      };
-    }
-
-    // 4. 创建 pattern engram
+    // 3. 创建 pattern engram(dryRun=true 已在 execute 入口提前返回)
     const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
     // 用户显式 domainTags 优先;否则用 LLM 推断的;再 fallback 到源 tags 的并集
     const domainTags =
