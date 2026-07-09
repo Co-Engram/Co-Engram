@@ -874,28 +874,132 @@ export class ProposalEngine {
     readonly skipped: number;
   } {
     const limit = Math.min(Math.max(filter.limit ?? 200, 1), 500);
-    const pending = this.listPending().filter(
-      (p) => p.source === filter.source,
-    );
-    const target = pending.slice(0, limit);
-    const skipped = pending.length - target.length;
+    const now = new Date().toISOString();
+
+    // AI-8 N+1 修复:1次 readProposals + 1次 readClusters + 逐条 createEngram(O(1))+
+    // 1次 writeProposals + 1次 writeClusters。旧实现逐条调 this.accept(),
+    // 每次全量读写 proposals + clusters(各 9.4MB),500 候选预计 7-15s。
+    const allProposals = this.readProposals();
+    const allClusters = this.readClusters();
+
+    // 匹配 pending + source(与 listPending 语义一致:status=pending 且 dismissedUntil 未过期)
+    const matched = allProposals.filter((p) => {
+      if (p.status !== "pending") return false;
+      if (p.dismissedUntil && p.dismissedUntil > now) return false;
+      return p.source === filter.source;
+    });
+    const target = matched.slice(0, limit);
+    const skipped = matched.length - target.length;
 
     const acceptedIds: string[] = [];
     const engramIds: string[] = [];
     const failures: Array<{ entityId: string; reason: string }> = [];
+    const acceptedMap = new Map<string, string>(); // entityId → engramId
+    const proposalMeta = new Map<string, Proposal>(); // entityId → proposal(audit 用)
 
+    // 逐条 createEngram(O(1) 各):payload 兜底 + createEngram + path conflict。
+    // acceptBatch 的 input 只含 createdBy/visibility(无 title/content/domainTags/kind),
+    // 这些必须从 proposal.payload 兜底 —— filter.source 限制为 auto-memory/external-markdown,
+    // 它们的 payload 一定存在(设计约束)。
     for (const p of target) {
       try {
-        const engramId = this.accept(p.entityId, {
-          ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
-          ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
-        });
+        const payload = p.payload;
+        const title = payload?.title;
+        const content = payload?.content;
+        const domainTags = payload?.domainTags;
+        const kind = payload?.kind ?? "fact";
+        if (!title || !content || !domainTags || domainTags.length === 0) {
+          throw new Error(
+            `acceptBatch requires proposal.payload with title/content/domainTags for entityId=${p.entityId} (source=${filter.source})`,
+          );
+        }
+        const createInput: EngramCreateInput = {
+          title,
+          content,
+          kind,
+          domainTags,
+          createdBy: input.createdBy ?? payload?.createdBy ?? "proposal-engine",
+          ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
+          ...(payload?.contextTags !== undefined
+            ? { contextTags: payload.contextTags }
+            : {}),
+          ...(payload?.sourceType !== undefined
+            ? { sourceType: payload.sourceType }
+            : {}),
+          ...(payload?.importance !== undefined
+            ? { importance: payload.importance }
+            : {}),
+          ...(input.visibility !== undefined
+            ? { visibility: input.visibility }
+            : payload?.visibility !== undefined
+              ? { visibility: payload.visibility }
+              : {}),
+          ...(payload?.encodingContext !== undefined
+            ? { encodingContext: payload.encodingContext }
+            : {}),
+        };
+
+        let engram: { id: string };
+        try {
+          engram = this.repository.createEngram(createInput);
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          const m = msg.match(/^Engram already exists at (.+)$/);
+          if (!m) throw e;
+          const existing = this.repository.ingestExistingEngramFile(m[1]!);
+          if (!existing) throw e;
+          engram = existing;
+        }
+
         acceptedIds.push(p.entityId);
-        engramIds.push(engramId);
+        engramIds.push(engram.id);
+        acceptedMap.set(p.entityId, engram.id);
+        proposalMeta.set(p.entityId, p);
       } catch (e) {
         failures.push({
           entityId: p.entityId,
           reason: e instanceof Error ? e.message : String(e),
+        });
+      }
+    }
+
+    // 批量更新 proposals + clusters(仅当至少一个成功)
+    if (acceptedMap.size > 0) {
+      const updatedProposals = allProposals.map((p) => {
+        if (!acceptedMap.has(p.entityId)) return p;
+        return {
+          ...p,
+          status: "accepted" as const,
+          acceptedEngramId: acceptedMap.get(p.entityId),
+        };
+      });
+      this.writeProposals(updatedProposals); // 1次写
+
+      // 移除已转化的 cluster(conversation proposal 的 cluster id = entityId;
+      // auto-memory/external-markdown proposal 无对应 cluster,filter 是 noop)
+      const updatedClusters = allClusters.filter(
+        (c) => !acceptedMap.has(c.id),
+      );
+      this.writeClusters(updatedClusters); // 1次写
+
+      // audit + emit:逐条(auditLog.append 是 O(1) 追加)
+      for (const [entityId, engramId] of acceptedMap) {
+        const proposal = proposalMeta.get(entityId)!;
+        this.auditLog.append({
+          actor: "user",
+          action: "accept",
+          engramId,
+          metadata: {
+            entityId,
+            occurrences: proposal.occurrences,
+            ...(proposal.source ? { source: proposal.source } : {}),
+            ...(proposal.slug ? { slug: proposal.slug } : {}),
+          },
+        });
+        safeEmit({
+          type: "proposal_accepted",
+          engramId,
+          at: now,
         });
       }
     }

@@ -1329,6 +1329,61 @@ describe("ProposalEngine.acceptBatch (AI-8)", () => {
     const engram = repo.readEngram(result.engramIds[0]!);
     expect(engram.createdBy).toBe("batch-override");
   });
+
+  // AI-8 N+1 修复验证(follow-up):500 条候选 batch accept 应在 30s 内完成。
+  // 旧实现逐条调 this.accept(),每次全量读写 proposals + clusters(各 9.4MB),
+  // 500 候选 = 501 读 + 500 写 proposals + 500 读 + 500 写 clusters,预计 7-15s 纯文件 IO,
+  // 加上 500 次 createEngram(逐条写 engram 文件 + 更新 index),总时间可能 20-40s。
+  // 新实现:1读 + 1写 proposals/clusters + 500 createEngram(O(1) 各),应在 30s 内。
+  it("AI-8 N+1 修复 follow-up:500 条候选 batch accept 应在 30s 内完成(非 N+1 全量读写)", () => {
+    // 直接写 500 条带 payload 的 auto-memory proposal(避免 N+1 构造)
+    const proposalsFile = join(tmpDir, ".co-engram", "proposals.jsonl");
+    mkdirSync(join(tmpDir, ".co-engram"), { recursive: true });
+    const lines: string[] = [];
+    for (let i = 0; i < 500; i++) {
+      lines.push(
+        JSON.stringify({
+          entityId: `am:acc-scale-${i}`,
+          occurrences: 1,
+          sampleQuotes: [`sample ${i}`],
+          centroidExcerpt: `excerpt ${i}`,
+          firstSeenAt: "2026-07-09T00:00:00.000Z",
+          lastSeenAt: "2026-07-09T00:00:00.000Z",
+          status: "pending",
+          source: "auto-memory",
+          slug: `acc-scale-${i}`,
+          payload: {
+            title: `Accept Scale ${i}`,
+            content: `content for scale test item ${i}`,
+            domainTags: ["accept-scale-test", "claude-code-auto-memory"],
+            kind: "fact" as const,
+            createdBy: "scale-test",
+          },
+          createdAt: "2026-07-09T00:00:00.000Z",
+        }),
+      );
+    }
+    writeFileSync(proposalsFile, lines.join("\n") + "\n", "utf8");
+
+    expect(engine.listPending().length).toBe(500);
+
+    const start = Date.now();
+    const result = engine.acceptBatch(
+      { source: "auto-memory", limit: 500 },
+      { createdBy: "batch-scale" },
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.acceptedIds.length).toBe(500);
+    expect(result.engramIds.length).toBe(500);
+    expect(result.failures.length).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(engine.listPending().length).toBe(0);
+    // 验证 engram 真的创建了
+    expect(repo.listEngrams().length).toBeGreaterThanOrEqual(500);
+    // 性能门:30s 是宽松上限(500 createEngram 逐条写文件),实际应远低于此
+    expect(elapsed).toBeLessThan(30000);
+  });
 });
 
 describe("ProposalEngine.dismissBatch (AI-8)", () => {
