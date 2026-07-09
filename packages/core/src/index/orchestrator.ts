@@ -1,7 +1,7 @@
 /**
  * 索引编排器
  *
- * 协调 digest / graph / 增量状态 等多个索引的构建
+ * 协调 digest / graph / 增量状态 / SQLite synapse 表 等多个索引的构建
  *
  * @module @co-engram/core/index
  */
@@ -18,6 +18,8 @@ import type { DigestBuildResult } from "./types.js";
 export interface IndexBuildResult {
   readonly digest: DigestBuildResult;
   readonly graph: { nodes: number; edges: number };
+  /** SQLite synapse 表重建结果(undefined 表示未触发,如 indexDb 未注入) */
+  readonly synapses?: { inserted: number; skippedDangling: number };
   readonly durationMs: number;
 }
 
@@ -70,17 +72,54 @@ export class IndexOrchestrator {
 
   /**
    * 全量重建所有索引
+   *
+   * 三处派生索引同时重建,保证一致:
+   *   1. digest.jsonl(DigestBuilder)
+   *   2. graph.json(GraphBuilder,/api/stats 读这里)
+   *   3. SQLite synapse 表(若 indexDb 注入)
+   *
+   * 第 3 项在长期运行后可能与磁盘脱钩 — 例如 doctor 清理 dangling synapse 文件
+   * 但 SQLite 行残留,或反之。每次 fullRebuild 强制同步,让 stats 端点读到的
+   * totalSynapses 与磁盘真相一致,而不是历史峰值快照。
    */
   fullRebuild(): IndexBuildResult {
     const start = Date.now();
     const digestResult = this.digestBuilder.rebuild();
     const graphResult = this.graphBuilder.rebuild();
+    let synapses: { inserted: number; skippedDangling: number } | undefined;
+    if (this.repo.indexDb) {
+      synapses = this.rebuildSynapseTableFromDisk();
+    }
     this.tracker.updateLastIndexedAt();
     return {
       digest: digestResult,
       graph: graphResult,
+      ...(synapses ? { synapses } : {}),
       durationMs: Date.now() - start,
     };
+  }
+
+  /**
+   * 从磁盘 collectAllSynapses 重建 SQLite synapse 表。
+   *
+   * 单独抽出以便 doctor 在不重建 digest/graph 的情况下也能强制同步 synapse 表。
+   * 返回插入/跳过统计,doctor 报告可附在 fixes 里让用户看到。
+   */
+  rebuildSynapseTableFromDisk(): { inserted: number; skippedDangling: number } {
+    const db = this.repo.indexDb;
+    if (!db) return { inserted: 0, skippedDangling: 0 };
+    const all = this.repo.collectAllSynapses();
+    const knownEngramIds = new Set(this.repo.listEngrams().map((e) => e.id));
+    return db.rebuildSynapseTable(
+      all.map(({ synapse }) => ({
+        id: synapse.id,
+        fromId: synapse.from,
+        toId: synapse.to,
+        kind: synapse.kind,
+        weight: synapse.weight ?? 0.5,
+      })),
+      knownEngramIds,
+    );
   }
 
   /**

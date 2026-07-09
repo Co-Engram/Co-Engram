@@ -29,7 +29,7 @@
  * @module @co-engram/core/storage
  */
 
-import { existsSync, renameSync, statSync, writeFileSync, readFileSync } from "node:fs";
+import { existsSync, renameSync, statSync, writeFileSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { readEngramIndex } from "./engram-index.js";
 
@@ -97,10 +97,6 @@ export function atomicWriteFile(
   } catch (err) {
     // rename 失败 → 清理 tmp 文件,避免遗留垃圾
     try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { unlinkSync } = require("node:fs") as {
-        unlinkSync: (p: string) => void;
-      };
       unlinkSync(tmpPath);
     } catch {
       // ignore — tmp 残留不致命
@@ -266,7 +262,7 @@ function walk(
 ): void {
   let entries: import("node:fs").Dirent[];
   try {
-    entries = require("node:fs").readdirSync(dir, {
+    entries = readdirSync(dir, {
       withFileTypes: true,
     }) as import("node:fs").Dirent[];
   } catch {

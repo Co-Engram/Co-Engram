@@ -946,6 +946,43 @@ export class IndexDb {
   }
 
   /**
+   * 用 entries 全量替换 synapses 表内容。
+   *
+   * 用例:doctor / fullRebuild 路径强制同步 SQLite synapse 表与磁盘真相。
+   * 长期运行后,DELETE/cascade 路径可能漏掉某些边界(如 dangling synapse 文件
+   * 被 doctor 清理但 SQLite 行残留,或反过来),导致 SQLite synapse 表与
+   * `collectAllSynapses()` 扫盘结果脱钩 — /api/stats 读 graph.json 缓存
+   * 显示 1827,SQLite 表实际 0 行,而磁盘 15 个 synapse 文件。
+   *
+   * 实现:
+   * - 单 transaction 内:DELETE FROM synapses + 批量 upsertSynapse
+   * - 中途任一 INSERT 失败(FK 违反 / 字段缺失)→ rollback,SQLite 保持原状
+   * - 已知 engram 集合由 caller 传入做预过滤,避免 FK 错误回滚整批
+   *
+   * @param entries 磁盘扫盘得到的全部 synapse
+   * @param knownEngramIds SQLite engrams 表已知的 engram id 集合,用于过滤 dangling
+   */
+  rebuildSynapseTable(
+    entries: readonly SynapseIndexEntry[],
+    knownEngramIds: ReadonlySet<string>,
+  ): { inserted: number; skippedDangling: number } {
+    let inserted = 0;
+    let skippedDangling = 0;
+    this.transaction(() => {
+      this.exec("DELETE FROM synapses");
+      for (const s of entries) {
+        if (!knownEngramIds.has(s.fromId) || !knownEngramIds.has(s.toId)) {
+          skippedDangling++;
+          continue;
+        }
+        this.upsertSynapse(s);
+        inserted++;
+      }
+    });
+    return { inserted, skippedDangling };
+  }
+
+  /**
    * 删除一个 engram 及其所有派生数据。
    *
    * - engrams 主表:显式 DELETE。
