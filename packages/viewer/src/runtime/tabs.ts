@@ -1078,9 +1078,12 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
       + batchBtns + '</div>';
     if (!items.length) {
+      // pending 用 emptyHint（「系统在后台观察」教育性提示）；其他 tab 用 empty 反映 filter（如「没有 已采纳 提案」），避免 emptyHint 在 accepted/dismissed 下暗示「新提案会出现在这里」造成误导。
+      const emptyText = currentStatus === 'pending'
+        ? T.t('viewer.proposals.emptyHint')
+        : T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) });
       html += '<div class="empty"><div class="icon">🌱</div>'
-        + '<div style="font-size:1.05rem;margin-bottom:0.3rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) })) + '</div>'
-        + '<div style="color:var(--fg-muted);font-size:0.88rem;max-width:480px;text-align:center">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.emptyHint')) + '</div>'
+        + '<div style="color:var(--fg-muted);font-size:0.95rem;max-width:480px;text-align:center">' + CO_ENGRAM.escapeHtml(emptyText) + '</div>'
         + '</div>';
     } else {
       html += '<div class="grid cols-3">';
@@ -1540,16 +1543,44 @@ window.CO_ENGRAM_AUDIT = {
     }).join('');
     const tRendered = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
-    // pager nav:prev / 页码信息 / next。next 到边界时 nextPage 自动 await pager.loadMore() 扩容。
+    // pager nav:« 上一页  1 2 3 … N  下一页 »(数字页码可点击直达,与印迹栏一致)
+    // server cursor 还有更多 → next 到边界自动 await loadMore() 扩容
+    // gotoPage(target) 跨多页跳转时按需多次 loadMore,直到覆盖 target
     const hasMoreServer = !!(CO_ENGRAM._auditPager && CO_ENGRAM._auditPager.hasMore());
     const atLastClientPage = currentPage >= totalPages - 1;
     const hint = hasMoreServer ? ' ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.loadingHint')) : '';
     const prevDisabled = currentPage === 0 ? ' disabled' : '';
     const nextDisabled = (atLastClientPage && !hasMoreServer) ? ' disabled' : '';
+
+    // 数字页码:与印迹栏同一套首末+当前页前后 2 页+省略号规则
+    const pageList = [];
+    if (totalPages <= 9) {
+      for (let i = 1; i <= totalPages; i++) pageList.push(i);
+    } else {
+      pageList.push(1);
+      if (currentPage + 1 > 4) pageList.push('ellipsis');
+      const start = Math.max(2, currentPage);
+      const end = Math.min(totalPages - 1, currentPage + 2);
+      for (let i = start; i <= end; i++) pageList.push(i);
+      if (currentPage + 1 < totalPages - 3) pageList.push('ellipsis');
+      pageList.push(totalPages);
+    }
+    let pageButtonsHtml = '';
+    for (const p of pageList) {
+      if (p === 'ellipsis') {
+        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+      } else if (p === currentPage + 1) {
+        pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
+      } else {
+        pageButtonsHtml += '<button class="btn secondary" onclick="CO_ENGRAM_AUDIT.gotoPage(' + (p - 1) + ')" style="min-width:2.2rem">' + p + '</button>';
+      }
+    }
+
     html += '<div class="pager-nav" style="text-align:center;padding:1rem 0;display:flex;justify-content:center;align-items:center;gap:0.4rem;flex-wrap:wrap">'
       + '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_AUDIT.prevPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.prev')) + '</button>'
-      + '<span class="pager-info" style="color:var(--muted,#666);font-size:0.85em">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.pageInfo', { current: currentPage + 1, total: totalPages, itemTotal: filtered.length })) + hint + '</span>'
+      + pageButtonsHtml
       + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_AUDIT.nextPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.next')) + '</button>'
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:0.85em">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.pageInfo', { current: currentPage + 1, total: totalPages, itemTotal: filtered.length })) + hint + '</span>'
       + '</div>';
     tl.innerHTML = html;
     const tEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -1599,6 +1630,31 @@ window.CO_ENGRAM_AUDIT = {
       }
     }
     this._auditPage++;
+    this.applyFilter();
+  },
+
+  /**
+   * 直达指定页(0-indexed)。若 target 超出当前已加载 _cache 的页范围,
+   * 且 server pager 还有更多数据,自动多次 await loadMore() 扩容直到覆盖 target。
+   * 与印迹栏 gotoPage 行为对齐。
+   */
+  async gotoPage(target) {
+    if (!Number.isInteger(target) || target < 0) return;
+    const pager = CO_ENGRAM._auditPager;
+    const PAGE_SIZE = 50;
+    // 扩容:直到 _cache 能覆盖 target 页,或 server 数据耗尽
+    while (pager && pager.hasMore()) {
+      const cache = this._cache || [];
+      const totalPages = Math.max(1, Math.ceil(cache.length / PAGE_SIZE));
+      if (target < totalPages) break;
+      try { await pager.loadMore(); }
+      catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+      this._cache = pager.getItems().slice();
+      this._renderStats();
+    }
+    const cache = this._cache || [];
+    const totalPages = Math.max(1, Math.ceil(cache.length / PAGE_SIZE));
+    this._auditPage = Math.min(target, totalPages - 1);
     this.applyFilter();
   },
 

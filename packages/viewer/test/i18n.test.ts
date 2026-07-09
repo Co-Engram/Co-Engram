@@ -158,6 +158,66 @@ describe("viewer i18n / dictionary coverage", () => {
       }
     }
   });
+
+  // ============================================================
+  // audit actionLabel 覆盖
+  //
+  // 起因:审计时间线按钮调用 _actionLabel(action),但字典里只有
+  // actionTip(action 长句解释),没有 actionLabel(短词),导致按钮文字
+  // 长期回退到原 action 字符串,中文 UI 出现 accept/dismiss/create 等英文。
+  // 此测试固定 audit 全部 emit 的 action 集合,任何一个在 zh/en 漏译都会被捕获。
+  // ============================================================
+  const AUDIT_ACTION_KEYS = [
+    "create",
+    "update",
+    "update_lifecycle",
+    "importance_update",
+    "reinforce",
+    "report_failure",
+    "learning_loop_success",
+    "forget",
+    "restore",
+    "sweep_to_trash",
+    "restore_from_trash",
+    "purge",
+    "retrieve_hit",
+    "retrieve_effective",
+    "retrieve_inconclusive",
+    "contradicted",
+    "noise_filtered",
+    "necessity_rejected",
+    "propose",
+    "accept",
+    "dismiss",
+    "merge_resolved",
+    "merge_backup_failed",
+    "merge_conflict_escalated",
+    "merge_llm_arbitrated",
+    "merge_llm_arbitrated_escalated",
+    "merge_llm_arbitrated_failed",
+  ] as const;
+
+  it("每个 audit action 在两种语言都有 actionLabel 短词翻译", () => {
+    for (const action of AUDIT_ACTION_KEYS) {
+      const key = `viewer.audit.actionLabel.${action}`;
+      const zhVal = zh[key as keyof typeof zh];
+      const enVal = en[key as keyof typeof en];
+      expect(zhVal, `zh.${key} 缺翻译`).toBeTruthy();
+      expect(enVal, `en.${key} 缺翻译`).toBeTruthy();
+      expect(zhVal, `zh.${key} 误填成 key 本身`).not.toBe(key);
+      expect(enVal, `en.${key} 误填成 key 本身`).not.toBe(key);
+    }
+  });
+
+  it("每个 audit action 在两种语言都有 actionTip 长句提示(按钮 hover title)", () => {
+    for (const action of AUDIT_ACTION_KEYS) {
+      const key = `viewer.audit.actionTip.${action}`;
+      const zhVal = zh[key as keyof typeof zh];
+      const enVal = en[key as keyof typeof en];
+      expect(zhVal, `zh.${key} 缺翻译`).toBeTruthy();
+      expect(enVal, `en.${key} 缺翻译`).toBeTruthy();
+    }
+  });
 });
 
 // ============================================================

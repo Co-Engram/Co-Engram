@@ -1203,10 +1203,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actionTip.update": "update: modify fields of an existing engram",
   "viewer.audit.actionTip.update_lifecycle":
     "update_lifecycle: lifecycle transition (frozen/forgotten)",
+  "viewer.audit.actionTip.importance_update":
+    "importance_update: importance score auto-adjusted (decay or maintenance calibration)",
   "viewer.audit.actionTip.reinforce":
     "reinforce: potentiation (LTP) — retrieval effective, loop succeeded",
   "viewer.audit.actionTip.report_failure":
     "report_failure: negative feedback (LTD) — retrieval inaccurate, loop failed",
+  "viewer.audit.actionTip.learning_loop_success":
+    "learning_loop_success: learning loop closed (retrieve → use → verify → confirm)",
   "viewer.audit.actionTip.forget": "forget: marked as forgotten",
   "viewer.audit.actionTip.restore":
     "restore: restored from forgotten/frozen back to active",
@@ -1223,10 +1227,62 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "retrieve_inconclusive: hit but unsure if effective",
   "viewer.audit.actionTip.contradicted":
     "contradicted: conflict with other engrams detected, entering resolution",
+  "viewer.audit.actionTip.noise_filtered":
+    "noise_filtered: observation cluster judged as noise, no candidate formed",
+  "viewer.audit.actionTip.necessity_rejected":
+    "necessity_rejected: candidate rejected by necessity evaluation",
   "viewer.audit.actionTip.propose": "propose: candidate memory captured",
   "viewer.audit.actionTip.accept":
     "accept: candidate adopted, converted to a formal engram",
   "viewer.audit.actionTip.dismiss": "dismiss: candidate rejected",
+  "viewer.audit.actionTip.merge_resolved":
+    "merge_resolved: cross-file merge conflict resolved",
+  "viewer.audit.actionTip.merge_backup_failed":
+    "merge_backup_failed: pre-merge backup failed, process aborted",
+  "viewer.audit.actionTip.merge_conflict_escalated":
+    "merge_conflict_escalated: merge conflict escalated, manual resolution required",
+  "viewer.audit.actionTip.merge_llm_arbitrated":
+    "merge_llm_arbitrated: LLM arbitrated merge conflict",
+  "viewer.audit.actionTip.merge_llm_arbitrated_escalated":
+    "merge_llm_arbitrated_escalated: LLM arbitration escalated, manual review required",
+  "viewer.audit.actionTip.merge_llm_arbitrated_failed":
+    "merge_llm_arbitrated_failed: LLM arbitration failed, manual intervention required",
+  // Short action labels for timeline buttons. When translation missing,
+  // _actionLabel falls back to the raw action string — but to keep the audit
+  // timeline locale-consistent we cover every emitted action here.
+  "viewer.audit.actionLabel.create": "Create",
+  "viewer.audit.actionLabel.update": "Update",
+  "viewer.audit.actionLabel.update_lifecycle": "Lifecycle",
+  "viewer.audit.actionLabel.importance_update": "Importance",
+  "viewer.audit.actionLabel.reinforce": "Reinforce",
+  "viewer.audit.actionLabel.report_failure": "Decay",
+  "viewer.audit.actionLabel.learning_loop_success": "Confirmed",
+  "viewer.audit.actionLabel.forget": "Forget",
+  "viewer.audit.actionLabel.restore": "Restore",
+  "viewer.audit.actionLabel.sweep_to_trash": "Trash",
+  "viewer.audit.actionLabel.restore_from_trash": "Recover",
+  "viewer.audit.actionLabel.purge": "Purge",
+  "viewer.audit.actionLabel.retrieve_hit": "Hit",
+  "viewer.audit.actionLabel.retrieve_effective": "Effective",
+  "viewer.audit.actionLabel.retrieve_inconclusive": "Inconclusive",
+  "viewer.audit.actionLabel.contradicted": "Conflict",
+  "viewer.audit.actionLabel.noise_filtered": "Filtered",
+  "viewer.audit.actionLabel.necessity_rejected": "Rejected",
+  "viewer.audit.actionLabel.propose": "Propose",
+  "viewer.audit.actionLabel.accept": "Accept",
+  "viewer.audit.actionLabel.dismiss": "Dismiss",
+  "viewer.audit.actionLabel.merge_resolved": "Resolved",
+  "viewer.audit.actionLabel.merge_backup_failed": "Backup Fail",
+  "viewer.audit.actionLabel.merge_conflict_escalated": "Conflict",
+  "viewer.audit.actionLabel.merge_llm_arbitrated": "LLM",
+  "viewer.audit.actionLabel.merge_llm_arbitrated_escalated": "Escalated",
+  "viewer.audit.actionLabel.merge_llm_arbitrated_failed": "LLM Fail",
+  // audit pager (bottom paginator of audit timeline; mirrors engrams.pager).
+  // Long-missing — UI used to show raw key strings. Added 2026-07.
+  "viewer.audit.pager.prev": "« Prev",
+  "viewer.audit.pager.next": "Next »",
+  "viewer.audit.pager.pageInfo": "Page ${current} / ${total} (${itemTotal} items)",
+  "viewer.audit.pager.loadingHint": "Loading more…",
 
   // ===== Trash panel (viewer.trash.*) =====
   "viewer.trash.empty": "Trash is empty",
