@@ -24,7 +24,7 @@
 
 import type { EngramKind } from "../types/engram.js";
 import type { EngramRepository } from "../storage/repository.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 // ============================================================
 // 进化链定义
@@ -243,7 +243,7 @@ export function upgradeEngramKind(
   }
   const old = repo.readEngram(input.id);
   if (!isUpgradeAllowed(old.kind, input.newKind)) {
-    throw new Error(
+    throw validationError(
       `Upgrade not allowed: ${old.kind} → ${input.newKind}. Allowed upgrades: see ALLOWED_UPGRADES.`,
     );
   }

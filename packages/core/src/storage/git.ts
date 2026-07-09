@@ -15,6 +15,7 @@
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { internalError } from "../tools/error-schema.js";
 
 /** Git 提交选项 */
 export interface GitCommitOptions {
@@ -164,7 +165,7 @@ function runGitSpawn(repoPath: string, args: readonly string[]): string {
   });
   if (result.status !== 0) {
     const stderr = (result.stderr ?? "").trim();
-    throw new Error(
+    throw internalError(
       `git ${args.join(" ")} failed (status=${result.status}): ${stderr}`,
     );
   }

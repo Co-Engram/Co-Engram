@@ -17,6 +17,7 @@ import type { DigestLine } from "../index/types.js";
 import type { SearchFilter } from "../types/disclosure.js";
 import { SearchOrchestrator, type SimpleSearchResult } from "./orchestrator.js";
 import { SqliteSearchOrchestrator } from "./sqlite-orchestrator.js";
+import { configError } from "../tools/error-schema.js";
 
 /** 引擎类型 */
 export type SearchEngineType = "memory" | "sqlite";
@@ -73,7 +74,8 @@ export function createSearchEngine(opts: {
 }): SearchEngine {
   if (opts.type === "sqlite") {
     if (!opts.indexDb) {
-      throw new Error(
+      throw configError(
+        "indexDb",
         "createSearchEngine: sqlite 模式必须提供 indexDb(已 open)。若要 fallback 到 memory,显式传 type='memory' 或设 CO_ENGRAM_SEARCH_ENGINE=memory。",
       );
     }

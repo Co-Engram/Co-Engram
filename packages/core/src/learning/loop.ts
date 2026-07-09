@@ -27,7 +27,7 @@ import {
   DEFAULT_CONFIG,
   type ReinforcementConfig,
 } from "../reinforcement/config.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 /** 使用结果分类 */
 export type LearningOutcome = "success" | "failure" | "partial";
@@ -135,7 +135,7 @@ export function closeLearningLoop(
       break;
   }
   if (effectiveness < 0 || effectiveness > 1) {
-    throw new Error(`effectiveness must be in [0,1], got ${effectiveness}`);
+    throw validationError(`effectiveness must be in [0,1], got ${effectiveness}`);
   }
 
   let importanceDelta = 0;

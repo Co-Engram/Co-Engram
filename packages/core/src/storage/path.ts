@@ -16,6 +16,7 @@
 import { resolve, normalize, relative, sep } from "node:path";
 import type { EngramCreateInput } from "../types/engram.js";
 import { slugify } from "../types/slugify.js";
+import { internalError } from "../tools/error-schema.js";
 
 /** 最大 domainTags 深度（防止路径过深） */
 const MAX_DOMAIN_DEPTH = 3;
@@ -110,14 +111,14 @@ export function deriveAllFilePaths(relativePath: string): {
  */
 export function safeJoinWithinRoot(root: string, relativePath: string): string {
   if (typeof relativePath !== "string" || relativePath.length === 0) {
-    throw new Error("safeJoinWithinRoot: relativePath is empty");
+    throw internalError("safeJoinWithinRoot: relativePath is empty");
   }
   if (relativePath.includes("\0")) {
-    throw new Error(`safeJoinWithinRoot: NUL byte in path`);
+    throw internalError(`safeJoinWithinRoot: NUL byte in path`);
   }
   // 拒绝绝对路径(POSIX `/` 与 Windows `C:\\` / `C:foo`)
   if (relativePath.startsWith("/") || /^[a-zA-Z]:[\\/]/.test(relativePath) || /^[a-zA-Z]:[^\\/]/.test(relativePath)) {
-    throw new Error(`safeJoinWithinRoot: absolute path not allowed: ${relativePath}`);
+    throw internalError(`safeJoinWithinRoot: absolute path not allowed: ${relativePath}`);
   }
   const absRoot = resolve(root);
   const absTarget = normalize(resolve(absRoot, relativePath));
@@ -125,7 +126,7 @@ export function safeJoinWithinRoot(root: string, relativePath: string): string {
   // rel === '' 表示 absTarget === absRoot(自身,合法)
   // rel 不以 `..` 开头且不以 `..${sep}` 开头 → 仍在 root 内
   if (rel === ".." || rel.startsWith(`..${sep}`)) {
-    throw new Error(
+    throw internalError(
       `safeJoinWithinRoot: path escapes root (root=${absRoot}, target=${absTarget})`,
     );
   }

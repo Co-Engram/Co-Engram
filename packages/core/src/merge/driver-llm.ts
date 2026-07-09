@@ -24,6 +24,7 @@ import {
 import { dirname, join } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import type { LlmClient } from "../observability/necessity-evaluator.js";
+import { internalError } from "../tools/error-schema.js";
 
 /**
  * LLM 配置(序列化形式)。
@@ -179,7 +180,7 @@ export function createHttpLlmClient(config: LlmClientConfig): LlmClient {
 
       if (!resp.ok) {
         const text = await resp.text();
-        throw new Error(
+        throw internalError(
           `LLM call failed (${resp.status}): ${text.slice(0, 200)}`,
         );
       }
@@ -197,7 +198,7 @@ export function createHttpLlmClient(config: LlmClientConfig): LlmClient {
       // reasoning 模型 fallback:某些 endpoint 把内容塞到 reasoning_content
       const content = choice?.content ?? choice?.reasoning_content ?? "";
       if (!content) {
-        throw new Error("LLM returned empty content");
+        throw internalError("LLM returned empty content");
       }
       return content;
     },

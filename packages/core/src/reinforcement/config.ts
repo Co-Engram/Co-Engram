@@ -14,6 +14,8 @@
  * @module @co-engram/core/reinforcement
  */
 
+import { validationError } from "../tools/error-schema.js";
+
 /** LTP/LTD 参数(importance 增量由 dynamics.ts 计算) */
 export interface ReinforcementConfig {
   /** Hebbian 邻居强化系数 ∈ [0,1] */
@@ -36,17 +38,17 @@ export const DEFAULT_CONFIG: ReinforcementConfig = {
  */
 export function validateConfig(config: ReinforcementConfig): void {
   if (config.hebbianRatio < 0 || config.hebbianRatio > 1) {
-    throw new Error(
+    throw validationError(
       `hebbianRatio must be in [0,1], got ${config.hebbianRatio}`,
     );
   }
   if (config.archiveThreshold < 1) {
-    throw new Error(
+    throw validationError(
       `archiveThreshold must be >= 1, got ${config.archiveThreshold}`,
     );
   }
   if (config.forgetThreshold < config.archiveThreshold) {
-    throw new Error(
+    throw validationError(
       `forgetThreshold must be >= archiveThreshold (${config.archiveThreshold}), got ${config.forgetThreshold}`,
     );
   }

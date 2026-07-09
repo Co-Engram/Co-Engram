@@ -21,6 +21,7 @@ import type {
   LlmTool,
   LlmToolOptions,
 } from "./llm-tool.js";
+import { internalError } from "../tools/error-schema.js";
 
 // ============================================================
 // LLM 抽象层
@@ -793,12 +794,12 @@ export class LlmNecessityEvaluator
     });
 
     if (typeof raw !== "string" || raw.length === 0) {
-      throw new Error(`LlmClient returned non-string: ${typeof raw}`);
+      throw internalError(`LlmClient returned non-string: ${typeof raw}`);
     }
 
     const parsed = parseLlmVerdict(raw);
     if (!parsed) {
-      throw new Error("non-JSON output from LLM");
+      throw internalError("non-JSON output from LLM");
     }
     return parsed;
   }

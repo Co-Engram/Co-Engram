@@ -14,6 +14,8 @@
  * @module @co-engram/core/disclosure
  */
 
+import { validationError } from "../tools/error-schema.js";
+
 /** CJK 字符检测（包含常见汉字扩展区） */
 const CJK_REGEX = /[㐀-鿿豈-﫿\u{20000}-\u{2a6df}\u{2a700}-\u{2ebef}]/u;
 
@@ -45,10 +47,10 @@ export function estimateTokens(text: string): number {
  */
 export function createBudget(totalTokens: number, reserved = 0): ContextBudget {
   if (totalTokens < 0) {
-    throw new Error(`totalTokens must be >= 0, got ${totalTokens}`);
+    throw validationError(`totalTokens must be >= 0, got ${totalTokens}`);
   }
   if (reserved < 0 || reserved > totalTokens) {
-    throw new Error(`reserved must be in [0, totalTokens], got ${reserved}`);
+    throw validationError(`reserved must be in [0, totalTokens], got ${reserved}`);
   }
   return {
     totalTokens,
@@ -64,7 +66,7 @@ export function createBudget(totalTokens: number, reserved = 0): ContextBudget {
  */
 export function consume(budget: ContextBudget, tokens: number): ContextBudget {
   if (tokens < 0) {
-    throw new Error(`tokens to consume must be >= 0, got ${tokens}`);
+    throw validationError(`tokens to consume must be >= 0, got ${tokens}`);
   }
   const remaining = Math.max(0, budget.remaining - tokens);
   return { ...budget, remaining };

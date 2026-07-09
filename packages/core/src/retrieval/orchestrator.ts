@@ -33,6 +33,7 @@ import {
   encodeCursor,
   type SortKey,
 } from "../storage/index-db-cursor.js";
+import { internalError } from "../tools/error-schema.js";
 
 /**
  * cursor 分页返回 shape(Phase 3 PR3)。
@@ -191,7 +192,7 @@ export class SearchOrchestrator {
     limit = 20,
   ): SimpleSearchResult[] {
     if (!this.ftsIndex) {
-      throw new Error("SearchOrchestrator not built. Call build() first.");
+      throw internalError("SearchOrchestrator not built. Call build() first.");
     }
 
     // 1. FTS 搜索
@@ -258,7 +259,7 @@ export class SearchOrchestrator {
     cursor: string | null;
   }): CursorListResult {
     if (this.ftsIndex === null) {
-      throw new Error("SearchOrchestrator not built. Call build() first.");
+      throw internalError("SearchOrchestrator not built. Call build() first.");
     }
     const filtered = applyFilter(this.lines, opts.filter);
     const sorted = [...filtered].sort((a, b) =>
@@ -286,7 +287,7 @@ export class SearchOrchestrator {
     cursor: string | null;
   }): CursorListResult {
     if (this.ftsIndex === null) {
-      throw new Error("SearchOrchestrator not built. Call build() first.");
+      throw internalError("SearchOrchestrator not built. Call build() first.");
     }
     const filtered = applyFilter(this.lines, opts.filter);
     const sorted = [...filtered].sort((a, b) =>

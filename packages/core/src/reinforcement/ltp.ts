@@ -23,7 +23,7 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { Engram } from "../types/engram.js";
 import { updateOnReinforce } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 export interface LtpResult {
   readonly id: string;
@@ -58,7 +58,7 @@ export function recordRetrievalSuccess(
   nowIso: string = new Date().toISOString(),
 ): LtpResult {
   if (effectiveness < 0 || effectiveness > 1) {
-    throw new Error(`effectiveness must be in [0,1], got ${effectiveness}`);
+    throw validationError(`effectiveness must be in [0,1], got ${effectiveness}`);
   }
   if (!repo.exists(id)) {
     throw notFoundError("Engram", id);
@@ -132,7 +132,7 @@ export function reinforceEngram(
     throw notFoundError("Engram", id);
   }
   if (amount < 0) {
-    throw new Error(`amount must be >= 0, got ${amount}`);
+    throw validationError(`amount must be >= 0, got ${amount}`);
   }
   const withStats = options.withStats ?? false;
   const effectiveness = options.effectiveness ?? amount;

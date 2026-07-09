@@ -50,6 +50,7 @@ import {
   computePromptSignals,
   writePromptSignals,
 } from "../prompt-signals/index.js";
+import { configError } from "../tools/error-schema.js";
 
 /**
  * Maintenance Engine
@@ -197,7 +198,8 @@ export class MaintenanceEngine {
   async runDeep(): Promise<MaintenanceReport> {
     return this.runStage("deep", async () => {
       if (!this.deps.dreamingScheduler) {
-        throw new Error(
+        throw configError(
+          "dreamingScheduler",
           "dreamingScheduler not configured (required for deep stage)",
         );
       }
@@ -220,7 +222,8 @@ export class MaintenanceEngine {
   async runRem(): Promise<MaintenanceReport> {
     return this.runStage("rem", async () => {
       if (!this.deps.dreamingScheduler) {
-        throw new Error(
+        throw configError(
+          "dreamingScheduler",
           "dreamingScheduler not configured (required for rem stage)",
         );
       }

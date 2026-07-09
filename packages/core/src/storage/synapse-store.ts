@@ -34,6 +34,7 @@ import { computeSynapseId, isSynapseId } from "../types/synapse-id.js";
 import type { Language } from "../i18n/types.js";
 import { DEFAULT_LANGUAGE } from "../i18n/index.js";
 import { delocalizeSynapse, localizeSynapse } from "../i18n/field-names.js";
+import { internalError } from "../tools/error-schema.js";
 
 /** Synapse 文件结构(per-edge 单文件) */
 export type SynapseFile = Synapse;
@@ -77,18 +78,18 @@ export function serializeSynapseFile(
 export function parseSynapseFile(raw: string): SynapseFile {
   const parsed = parse(raw);
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("Invalid synapse file: not an object");
+    throw internalError("Invalid synapse file: not an object");
   }
   const { normalized } = delocalizeSynapse(parsed as Record<string, unknown>);
   const s = normalized as Partial<Synapse>;
   if (typeof s.id !== "string" || !isSynapseId(s.id)) {
-    throw new Error(`Invalid synapse file: bad id "${s.id}"`);
+    throw internalError(`Invalid synapse file: bad id "${s.id}"`);
   }
   if (typeof s.from !== "string" || typeof s.to !== "string") {
-    throw new Error("Invalid synapse file: missing from/to");
+    throw internalError("Invalid synapse file: missing from/to");
   }
   if (typeof s.kind !== "string") {
-    throw new Error("Invalid synapse file: missing kind");
+    throw internalError("Invalid synapse file: missing kind");
   }
   return {
     id: s.id,

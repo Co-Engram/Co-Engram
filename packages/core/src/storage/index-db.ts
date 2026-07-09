@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { decodeCursor } from "./index-db-cursor.js";
 import type { SearchFilter } from "../types/disclosure.js";
+import { internalError } from "../tools/error-schema.js";
 
 /** SearchFilter 的本地别名,避免上游改字段时全文件改名 */
 type SearchFilterInput = SearchFilter;
@@ -310,7 +311,7 @@ export class IndexDb {
 
   private requireOpen(): void {
     if (!this.db) {
-      throw new Error("IndexDb not opened. Call open() first.");
+      throw internalError("IndexDb not opened. Call open() first.");
     }
   }
 

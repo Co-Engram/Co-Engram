@@ -30,6 +30,7 @@ import {
   effectiveImportance as computeEffectiveImportance,
 } from "../importance/dynamics.js";
 import type { VerificationStatus } from "../types/engram.js";
+import { validationError } from "../tools/error-schema.js";
 
 /** 四因子权重配置 */
 export interface FourFactorWeights {
@@ -57,13 +58,13 @@ export const DEFAULT_WEIGHTS: FourFactorWeights = {
 export function validateWeights(w: FourFactorWeights): void {
   const sum = w.alpha + w.beta + w.gamma + w.delta;
   if (Math.abs(sum - 1) > 0.001) {
-    throw new Error(
+    throw validationError(
       `Weights must sum to 1, got ${sum} (α=${w.alpha} β=${w.beta} γ=${w.gamma} δ=${w.delta})`,
     );
   }
   for (const v of [w.alpha, w.beta, w.gamma, w.delta]) {
     if (v < 0 || v > 1) {
-      throw new Error(`Weight must be in [0,1], got ${v}`);
+      throw validationError(`Weight must be in [0,1], got ${v}`);
     }
   }
 }
@@ -184,7 +185,7 @@ export function reciprocalRankFusion(
   k = 60,
 ): ReadonlyArray<{ id: string; score: number }> {
   if (k <= 0) {
-    throw new Error(`RRF k must be > 0, got ${k}`);
+    throw validationError(`RRF k must be > 0, got ${k}`);
   }
   const scores = new Map<string, number>();
   for (const list of rankedLists) {

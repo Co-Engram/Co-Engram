@@ -18,6 +18,8 @@
  * @module @co-engram/core/observability
  */
 
+import { configError } from "../tools/error-schema.js";
+
 /**
  * LLM 工具执行选项
  */
@@ -111,7 +113,8 @@ export async function runLlmTool<TInput, TOutput>(
   // 路径 1:dryRun=true → 绝不调 LLM
   if (opts.dryRun === true) {
     if (!tool.hasHeuristicFallback()) {
-      throw new Error(
+      throw configError(
+        "llmClient",
         `dryRun=true requested but tool "${tool.name}" has no heuristic fallback. ` +
           `Either configure an LLM client and remove dryRun, or implement executeHeuristic.`,
       );

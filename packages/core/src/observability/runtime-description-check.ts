@@ -14,6 +14,7 @@
  */
 
 import { FORBIDDEN_TERMS } from "../tools/llm-descriptions.js";
+import { validationError } from "../tools/error-schema.js";
 
 /** 失败模式 */
 export type FailMode = "strict" | "warn";
@@ -86,7 +87,7 @@ export function applyRuntimeCheck(
   const messages = violations.map((v) => v.message).join("; ");
 
   if (failMode === "strict") {
-    throw new Error(`forbidden term: ${messages}`);
+    throw validationError(`forbidden term: ${messages}`);
   }
 
   if (options.onWarn) {

@@ -24,7 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { EngramRepository } from "../storage/repository.js";
 import type { Engram, EngramId, VerificationStatus } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 /** collectSources 返回的精简结构(只含调用方实际使用的字段) */
 type SourceEngram = {
@@ -405,7 +405,7 @@ export function verifyHypothesis(
   const engram = repo.readEngram(engramId);
 
   if (engram.kind !== "hypothesis") {
-    throw new Error(
+    throw validationError(
       `Engram ${engramId} is not a hypothesis (kind=${engram.kind})`,
     );
   }

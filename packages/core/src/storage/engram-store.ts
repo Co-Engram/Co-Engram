@@ -72,6 +72,7 @@ import {
   detectChineseKeys,
   localizeKeys,
 } from "../i18n/field-names.js";
+import { internalError } from "../tools/error-schema.js";
 
 /**
  * frontmatter 字段校验问题(parseEngramFile 内部收集,不抛错)。
@@ -656,7 +657,7 @@ export function parseEngramFile(raw: string): EngramFile {
     const closeMarker = `\n${FRONTMATTER_DELIMITER}\n`;
     const closeIndex = raw.indexOf(closeMarker, FRONTMATTER_DELIMITER.length);
     if (closeIndex === -1) {
-      throw new Error(
+      throw internalError(
         "Invalid engram file: missing closing frontmatter delimiter",
       );
     }
@@ -668,21 +669,21 @@ export function parseEngramFile(raw: string): EngramFile {
     // 底部 frontmatter:查找 `<!-- co-engram-meta -->` 标记
     const markerMatch = raw.match(BOTTOM_META_MARKER_RE);
     if (!markerMatch || markerMatch.index === undefined) {
-      throw new Error(
+      throw internalError(
         "Invalid engram file: missing frontmatter (expected leading `---` or `<!-- co-engram-meta -->` marker)",
       );
     }
     const yamlRegionStart = markerMatch.index + markerMatch[0].length;
     const rest = raw.slice(yamlRegionStart);
     if (!rest.startsWith(FRONTMATTER_DELIMITER)) {
-      throw new Error(
+      throw internalError(
         "Invalid engram file: bottom meta marker not followed by `---`",
       );
     }
     const closeMarker = `\n${FRONTMATTER_DELIMITER}\n`;
     const closeIndex = rest.indexOf(closeMarker, FRONTMATTER_DELIMITER.length);
     if (closeIndex === -1) {
-      throw new Error(
+      throw internalError(
         "Invalid engram file: missing closing bottom frontmatter delimiter",
       );
     }
@@ -694,7 +695,7 @@ export function parseEngramFile(raw: string): EngramFile {
 
   const parsed = parse(yamlText);
   if (!parsed || typeof parsed !== "object") {
-    throw new Error("Invalid engram file: frontmatter is not an object");
+    throw internalError("Invalid engram file: frontmatter is not an object");
   }
 
   const rawObj = parsed as Record<string, unknown>;

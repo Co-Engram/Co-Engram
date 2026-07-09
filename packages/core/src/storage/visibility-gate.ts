@@ -1,4 +1,5 @@
 import type { EngramVisibility } from "../types/engram.js";
+import { validationError } from "../tools/error-schema.js";
 
 /**
  * Visibility 单向闸门:禁止任何 → private 的转换。
@@ -22,7 +23,7 @@ export function assertVisibilityTransitionAllowed(
 ): void {
   if (from === to) return;
   if (to === "private" && from !== "private") {
-    throw new Error(
+    throw validationError(
       `Visibility transition ${from} → private is not allowed. ` +
         `Private visibility can only be set at creation time. ` +
         `Reason: private paths are gitignored; switching to private would ` +

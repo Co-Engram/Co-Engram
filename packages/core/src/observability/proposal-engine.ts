@@ -43,7 +43,7 @@ import {
   type NecessityVerdict,
 } from "./necessity-evaluator.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -401,7 +401,7 @@ export class ProposalEngine {
         : payload?.domainTags;
     const kind = input.kind ?? payload?.kind ?? "fact";
     if (!title || !content || !domainTags || domainTags.length === 0) {
-      throw new Error(
+      throw validationError(
         `accept requires title/content/domainTags (neither provided nor available in proposal.payload for entityId=${entityId})`,
       );
     }
@@ -910,7 +910,7 @@ export class ProposalEngine {
         const domainTags = payload?.domainTags;
         const kind = payload?.kind ?? "fact";
         if (!title || !content || !domainTags || domainTags.length === 0) {
-          throw new Error(
+          throw validationError(
             `acceptBatch requires proposal.payload with title/content/domainTags for entityId=${p.entityId} (source=${filter.source})`,
           );
         }

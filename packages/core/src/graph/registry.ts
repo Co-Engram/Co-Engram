@@ -11,6 +11,7 @@ import type {
   SynapseFamily,
   SynapseKind,
 } from "../types/synapse.js";
+import { internalError } from "../tools/error-schema.js";
 
 /** Synapse kind 元数据 */
 export interface SynapseKindMeta {
@@ -163,7 +164,7 @@ export function isValidSynapseKind(kind: string): kind is SynapseKind {
 export function getSynapseKindMeta(kind: SynapseKind): SynapseKindMeta {
   const meta = SYNAPSE_KIND_REGISTRY[kind];
   if (!meta) {
-    throw new Error(`Unknown SynapseKind: ${kind}`);
+    throw internalError(`Unknown SynapseKind: ${kind}`);
   }
   return meta;
 }

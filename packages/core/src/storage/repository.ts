@@ -130,7 +130,7 @@ import type { DigestLine } from "../index/types.js";
 import type { SearchFilter } from "../types/disclosure.js";
 import { deriveHalfLifeDays } from "../importance/dynamics.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
-import { notFoundError } from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -566,6 +566,15 @@ export class EngramRepository {
         // 启动扫描失败不阻塞 watcher,后续 .md 变化仍可被捕获
       }
     }
+    // 启动即清孤儿:覆盖"co-engram 启动前 .md 已被外部 rm 但 index 未同步"的场景。
+    // 不依赖 externalMarkdownHook:索引一致性是基础保证,即使 host 未启用外部
+    // 提案,也要让用户在重启后立即看到正确的 viewer 列表/统计。
+    // 典型场景:用户在 co-engram 未运行时 rm 了文件 → 下次启动自动清孤儿。
+    try {
+      this.scanForDeletedEngrams();
+    } catch {
+      // 启动清孤儿失败不阻塞 watcher,后续 .md 变化仍可被捕获并重试
+    }
   }
 
   /**
@@ -876,7 +885,7 @@ export class EngramRepository {
     const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
 
     if (existsSync(absolutePath)) {
-      throw new Error(`Engram already exists at ${relativePath}`);
+      throw validationError(`Engram already exists at ${relativePath}`);
     }
 
     // 自愈:外部 rm / git 操作可能让 engram-index.json 残留指向同 path
@@ -1134,7 +1143,7 @@ export class EngramRepository {
       const newAbsolutePath = join(this.config.rootPath, newPath);
       if (existsSync(newAbsolutePath)) {
         // 原子性保证:目标已存在就报错,不动旧文件
-        throw new Error(`Rename conflict: ${newPath} already exists`);
+        throw validationError(`Rename conflict: ${newPath} already exists`);
       }
       writeEngramFile(newAbsolutePath, newFile, this.language);
       rmSync(absolutePath);

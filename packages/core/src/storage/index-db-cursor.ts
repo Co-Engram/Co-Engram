@@ -8,6 +8,8 @@
  * base64url 无需 URL encode(+ / = 等特殊字符)。
  */
 
+import { validationError } from "../tools/error-schema.js";
+
 export interface SortKey {
 	readonly importance: number;
 	readonly updatedAt: number; // epoch ms
@@ -21,18 +23,18 @@ export function encodeCursor(key: SortKey): string {
 }
 
 export function decodeCursor(cursor: string): SortKey {
-	if (!cursor) throw new Error("invalid cursor: empty");
+	if (!cursor) throw validationError("invalid cursor: empty");
 	let json: string;
 	try {
 		json = Buffer.from(cursor, "base64url").toString("utf8");
 	} catch {
-		throw new Error("invalid cursor: base64 decode failed");
+		throw validationError("invalid cursor: base64 decode failed");
 	}
 	let arr: unknown;
 	try {
 		arr = JSON.parse(json);
 	} catch {
-		throw new Error("invalid cursor: JSON parse failed");
+		throw validationError("invalid cursor: JSON parse failed");
 	}
 	if (
 		!Array.isArray(arr) ||
@@ -41,7 +43,7 @@ export function decodeCursor(cursor: string): SortKey {
 		typeof arr[1] !== "number" ||
 		typeof arr[2] !== "string"
 	) {
-		throw new Error("invalid cursor: shape mismatch");
+		throw validationError("invalid cursor: shape mismatch");
 	}
 	return { importance: arr[0], updatedAt: arr[1], id: arr[2] };
 }
