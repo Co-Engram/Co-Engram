@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -1535,6 +1535,56 @@ describe("ProposalEngine.dismissBatch (AI-8)", () => {
     expect(target).toBeDefined();
     expect(target!.status).toBe("dismissed");
     expect(target!.dismissedUntil).toBeDefined();
+  });
+
+  // AI-8 N+1 修复验证:2000 条候选 batch dismiss 应在秒级完成。
+  // 旧实现逐条调 this.dismiss(),每次全量 readProposals + writeProposals,
+  // 2000 条 = 2001 次全量读 + 2000 次全量写,几分钟级延迟。
+  // 新实现:1次 read + 内存批量改 + 1次 write,应在 5s 内完成。
+  it("AI-8 N+1 修复:2000 条候选 batch dismiss 应在 5s 内完成(非 N+1)", () => {
+    // 直接写 2000 条 proposal 到 proposals.jsonl(避免 N+1 构造)
+    const proposalsFile = join(tmpDir, ".co-engram", "proposals.jsonl");
+    mkdirSync(join(tmpDir, ".co-engram"), { recursive: true });
+    const lines: string[] = [];
+    for (let i = 0; i < 2000; i++) {
+      lines.push(
+        JSON.stringify({
+          entityId: `am:scale-${i}`,
+          occurrences: 1,
+          sampleQuotes: [`sample ${i}`],
+          centroidExcerpt: `excerpt ${i}`,
+          firstSeenAt: "2026-07-09T00:00:00.000Z",
+          lastSeenAt: "2026-07-09T00:00:00.000Z",
+          status: "pending",
+          source: "auto-memory",
+          slug: `scale-${i}`,
+          payload: {
+            title: `Scale ${i}`,
+            content: `content ${i}`,
+            domainTags: ["scale-test", "claude-code-auto-memory"],
+            kind: "fact" as const,
+          },
+          createdAt: "2026-07-09T00:00:00.000Z",
+        }),
+      );
+    }
+    writeFileSync(proposalsFile, lines.join("\n") + "\n", "utf8");
+
+    expect(engine.listPending().length).toBe(2000);
+
+    const start = Date.now();
+    const result = engine.dismissBatch(
+      { source: "auto-memory", limit: 5000 },
+      "scale test N+1 verify",
+    );
+    const elapsed = Date.now() - start;
+
+    expect(result.dismissedIds.length).toBe(2000);
+    expect(result.failures.length).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(engine.listPending().length).toBe(0);
+    // 性能门:5s 是宽松上限,实际应在 1s 内(本地实测 ~260ms)
+    expect(elapsed).toBeLessThan(5000);
   });
 });
 

@@ -935,38 +935,75 @@ export class ProposalEngine {
     readonly skipped: number;
   } {
     const limit = Math.min(Math.max(filter.limit ?? 1000, 1), 5000);
-    const pending = this.listPending().filter((p) => {
-      // source=undefined 视为 'conversation'(向前兼容:老 proposal 没填 source)
+    const now = new Date().toISOString();
+    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    const dismissedUntil =
+      days > 0
+        ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
+        : undefined;
+
+    // AI-8 N+1 修复:1次 readProposals + 内存批量改 status + 1次 writeProposals。
+    // 旧实现逐条调 this.dismiss(),每次都 readProposals(全量)+ writeProposals(全量),
+    // writeProposals 后 proposalsCache=null,导致下次 readProposals 真读文件。
+    // 处理 2000 候选 = 2001 次全量读 + 2000 次全量写,几分钟级延迟 + event loop 阻塞。
+    const allProposals = this.readProposals();
+
+    // 内存中匹配 pending + filter(与 listPending 语义一致:status=pending 且 dismissedUntil 未过期)
+    const matched: Proposal[] = [];
+    for (const p of allProposals) {
+      if (p.status !== "pending") continue;
+      if (p.dismissedUntil && p.dismissedUntil > now) continue;
       const effectiveSource: ProposalSource = p.source ?? "conversation";
-      if (filter.source && effectiveSource !== filter.source) return false;
-      if (filter.createdBefore && p.createdAt >= filter.createdBefore) return false;
-      if (filter.createdAfter && p.createdAt <= filter.createdAfter) return false;
+      if (filter.source && effectiveSource !== filter.source) continue;
+      if (filter.createdBefore && p.createdAt >= filter.createdBefore) continue;
+      if (filter.createdAfter && p.createdAt <= filter.createdAfter) continue;
       if (filter.domainTags && filter.domainTags.length > 0) {
-        // proposal.payload.domainTags 与 filter.domainTags 有交集
         const pTags = p.payload?.domainTags ?? [];
-        if (!pTags.some((t) => filter.domainTags!.includes(t))) return false;
+        if (!pTags.some((t) => filter.domainTags!.includes(t))) continue;
       }
-      return true;
-    });
-    const target = pending.slice(0, limit);
-    const skipped = pending.length - target.length;
+      matched.push(p);
+    }
+    const target = matched.slice(0, limit);
+    const skipped = matched.length - target.length;
 
+    // 内存中批量改 status
+    const targetIds = new Set(target.map((p) => p.entityId));
     const dismissedIds: string[] = [];
-    const failures: Array<{ entityId: string; reason: string }> = [];
+    const updatedProposals = allProposals.map((p) => {
+      if (!targetIds.has(p.entityId)) return p;
+      dismissedIds.push(p.entityId);
+      return {
+        ...p,
+        status: "dismissed" as const,
+        dismissReason: reason,
+        dismissedUntil,
+      };
+    });
 
-    for (const p of target) {
-      try {
-        this.dismiss(p.entityId, reason, dismissDays);
-        dismissedIds.push(p.entityId);
-      } catch (e) {
-        failures.push({
-          entityId: p.entityId,
-          reason: e instanceof Error ? e.message : String(e),
-        });
-      }
+    // 1次 writeProposals(全量)
+    this.writeProposals(updatedProposals);
+
+    // audit:逐条 append(appendFileSync 是 O(1) 追加,非全量读写,可接受)。
+    // 保持与单条 dismiss() 的 audit shape 一致,让 engram_audit_query 能查到每个 proposal。
+    for (const entityId of dismissedIds) {
+      this.auditLog.append({
+        actor: "user",
+        action: "dismiss",
+        metadata: { entityId, reason, dismissedUntil },
+      });
     }
 
-    return { dismissedIds, failures, skipped };
+    // 1次 emit(而非 N 次 safeEmit)
+    if (dismissedIds.length > 0) {
+      safeEmit({
+        type: "proposal_dismissed",
+        at: now,
+      });
+    }
+
+    // failures 恒为空:批量操作不调 createEngram,不涉及路径冲突;
+    // target 来自 listPending,proposal 一定存在,不会抛 not found。
+    return { dismissedIds, failures: [], skipped };
   }
 
   /** 清理过期/已处理数据(测试用) */
