@@ -27,7 +27,7 @@ export const en: TranslationDict = {
   "tool.engram_archive":
     "Archive a memory (excluded from default search, but data preserved and recoverable).",
   "tool.engram_restore":
-    "Restore a memory from archived or forgotten state back to active, re-entering default search.",
+    "Restore a memory from frozen or forgotten state back to active, re-entering default search.",
   "tool.engram_forget":
     "Actively forget a memory. Files remain (Git-tracked); the memory leaves all default search immediately. A reason is required. Automatic cleanup follows: moved to trash after 30 days, physically deleted after another 365 days; recoverable until physical deletion.",
 
@@ -380,12 +380,12 @@ WHEN NOT TO CALL:
 - Memory should be permanently removed (use engram_delete or engram_forget)
 - You just want to refresh a memory (use engram_update)
 
-RETURNS: { archived: true } + new status. Search excludes archived by default; use a filter to include.`,
-  "tool.engram_restore.agent": `Restore an archived or forgotten memory to active state.
+RETURNS: { frozen: true } + new status. Search excludes frozen by default; use a filter to include.`,
+  "tool.engram_restore.agent": `Restore an frozen or forgotten memory to active state.
 
 WHEN TO CALL:
 - User asks to "bring back" / "unarchive" / "restore" a memory
-- A previously archived memory becomes relevant again
+- A previously frozen memory becomes relevant again
 - Recovering from the trash tab in the viewer
 
 WHEN NOT TO CALL:
@@ -530,7 +530,7 @@ RETURNS: Full content + metadata (importance, tags, kind) + related memory IDs.`
 Input: { query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
 Side effects: none (read-only). Does not update lastRetrievedAt (use engram_reinforce for that).
 Error conditions: empty query throws; limit clamped to [1, 100].
-Invariant: archived engrams excluded unless filter.status includes 'archived'.
+Invariant: frozen engrams excluded unless filter.status includes 'frozen'.
 Index: reads digest.jsonl + FTS index; cold-start rebuilds if missing.`,
   "tool.engram_get.technical": `Read engram by disclosure tier (progressive disclosure to control token cost).
 Input: { id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synapses' | 'auto'; contextBudget?: number }
@@ -578,25 +578,25 @@ Auto-suggest: failedUses ≥ archiveThreshold (default 3) → suggest archive; �
 Side effects: writes .meta.json; appends audit (action=importance_update, reason=report_failure); appends effectiveness signal (failure).
 Error conditions: not found throws; empty reason throws.`,
   "tool.engram_archive.technical": `Archive engram. Input: { id, reason? }
-Status transition: active → archived.
-Side effects: writes .meta.json (status); rebuilds digest (excludes archived from default FTS).
-Error conditions: not found throws; already archived is idempotent.
-Invariant: data preserved; recoverable via engram_restore. Search excludes archived unless filter.status='archived'.`,
-  "tool.engram_restore.technical": `Restore from archived/forgotten. Input: { id }
-Status transition: archived|forgotten → active.
+Status transition: active → frozen.
+Side effects: writes .meta.json (status); rebuilds digest (excludes frozen from default FTS).
+Error conditions: not found throws; already frozen is idempotent.
+Invariant: data preserved; recoverable via engram_restore. Search excludes frozen unless filter.status='frozen'.`,
+  "tool.engram_restore.technical": `Restore from frozen/forgotten. Input: { id }
+Status transition: frozen|forgotten → active.
 If engram was swept to .trash/, moves files back first.
 Side effects: writes .meta.json; rebuilds digest; appends audit.
 Error conditions: not found throws; physically purged throws (irrecoverable).
 Invariant: re-enters default retrieval immediately.`,
   "tool.engram_forget.technical": `RIF retrieval-induced forgetting. Input: { id, reason }
-Status: active|archived → forgotten.
+Status: active|frozen → forgotten.
 Files preserved (Git-tracked). Leaves all default retrieval immediately.
 Sweep pipeline (maintenance): forgotten → 30d → .trash/ (removed from main index) → 365d → physical rm.
 Side effects: writes .meta.json (status + forgottenAt); rebuilds digest; appends audit.
 Error conditions: not found throws; empty reason throws.
 Recovery: engram_restore anytime before physical purge; after purge, only git history.`,
   "tool.contradiction_resolve.technical": `Resolve contradicts synapse. Input: { fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
-Updates: synapse.resolutionState = 'resolved'; appends to evidence[]; if verdict=archive, loser engram status → archived.
+Updates: synapse.resolutionState = 'resolved'; appends to evidence[]; if verdict=archive, loser engram status → frozen.
 Side effects: writes synapse file + .meta.json (if archive); appends audit.
 Error conditions: not found throws; non-contradicts synapse throws; already resolved throws.
 Spec ref: §3.9 phase 2 human intervention.`,
@@ -719,7 +719,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "prompt.memory.when_to_search":
     'When to call memory_search: semantic retrieval — user asks "what do we know about X / did we discuss X / find memories about X". The query is a search keyword (e.g. "low-friction-defaults", "ADB debugging"), NOT a "list all" instruction — empty query throws. Run memory_search first, then memory_get for full content on specific hits.',
   "prompt.memory.when_to_list":
-    'When to call engram_list (listing scenario): user asks "what memories do I have / list all memories / show my memory store / how many memories" — use the engram_list tool (paginated + filtered), NOT memory_search. memory_search ranks by keyword relevance; listing everything needs engram_list. Optional filters: domainTags, kind (fact/pattern/procedure/observation), status (active/archived).',
+    'When to call engram_list (listing scenario): user asks "what memories do I have / list all memories / show my memory store / how many memories" — use the engram_list tool (paginated + filtered), NOT memory_search. memory_search ranks by keyword relevance; listing everything needs engram_list. Optional filters: domainTags, kind (fact/pattern/procedure/observation), status (active/frozen).',
   "prompt.memory.when_not_to_search":
     "When NOT to call: general knowledge questions, pure code problems unrelated to team context, simple greetings. Avoid redundant searches for topics already answered in this conversation.",
   "prompt.memory.reading_results":
@@ -815,12 +815,12 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.badge.error": "ERROR",
   "viewer.health.badge.info": "INFO",
   "viewer.health.stats.total": "Total engrams",
-  "viewer.health.stats.archived": "Archived",
+  "viewer.health.stats.frozen": "Frozen",
   "viewer.health.stats.forgotten": "Forgotten",
   "viewer.health.stats.totalTip":
-    "Total engrams in the warehouse (active + archived + forgotten). Shares the same data source as the Stats tab totalEngrams (/api/status -> computeStatus), so the numbers match. If you see different numbers on the two tabs it is usually a stale HTML in the browser cache (fixed via Cache-Control: no-store).",
-  "viewer.health.stats.archivedTip":
-    "Engrams in the archived status: no longer participate in retrieval but can still be restored to active. Source: demoted via dismiss/contradiction or long without reinforcement.",
+    "Total engrams in the warehouse (active + frozen + forgotten). Shares the same data source as the Stats tab totalEngrams (/api/status -> computeStatus), so the numbers match. If you see different numbers on the two tabs it is usually a stale HTML in the browser cache (fixed via Cache-Control: no-store).",
+  "viewer.health.stats.frozenTip":
+    "Engrams in the frozen status: no longer participate in retrieval but can still be restored to active. Source: demoted via dismiss/contradiction or long without reinforcement, or explicitly via the engram_archive tool. Frozen is a true freeze — no decay, no reinforcement, no synthesis; data fully preserved.",
   "viewer.health.stats.forgottenTip":
     "Engrams in the forgotten status: equivalent to a soft delete, visible in the trash, restorable or purge-able. The web UI delete button writes this status (no immediate physical delete).",
 
@@ -959,7 +959,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   "enum.status.draft": "Draft",
   "enum.status.active": "Active",
-  "enum.status.archived": "Archived",
+  "enum.status.frozen": "Frozen",
   "enum.status.forgotten": "Forgotten",
 
   "enum.sourceType.firsthand": "Firsthand",
@@ -1089,9 +1089,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Stats panel (viewer.stats.*) =====
   "viewer.stats.totalEngrams": "Total engrams",
   "viewer.stats.totalEngramsTip":
-    "Total = active + archived + forgotten (all rows in main index). Restoring a forgotten/archived item from trash increments active count but leaves total unchanged — the engram was already in the repository.",
+    "Total = active + frozen + forgotten (all rows in main index). Restoring a forgotten/frozen item from trash increments active count but leaves total unchanged — the engram was already in the repository.",
   "viewer.stats.activeEngrams": "active",
-  "viewer.stats.archivedCount": "archived/forgotten",
+  "viewer.stats.frozenCount": "frozen/forgotten",
   "viewer.stats.totalSynapses": "Total synapses",
   "viewer.stats.pendingProposals": "Pending proposals",
   "viewer.stats.clickToViewAll": "Click to view all",
@@ -1202,14 +1202,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actionTip.create": "create: create a new engram",
   "viewer.audit.actionTip.update": "update: modify fields of an existing engram",
   "viewer.audit.actionTip.update_lifecycle":
-    "update_lifecycle: lifecycle transition (archived/forgotten)",
+    "update_lifecycle: lifecycle transition (frozen/forgotten)",
   "viewer.audit.actionTip.reinforce":
     "reinforce: potentiation (LTP) — retrieval effective, loop succeeded",
   "viewer.audit.actionTip.report_failure":
     "report_failure: negative feedback (LTD) — retrieval inaccurate, loop failed",
   "viewer.audit.actionTip.forget": "forget: marked as forgotten",
   "viewer.audit.actionTip.restore":
-    "restore: restored from forgotten/archived back to active",
+    "restore: restored from forgotten/frozen back to active",
   "viewer.audit.actionTip.sweep_to_trash":
     "sweep_to_trash: forgotten after 30 days, file moved to .trash/",
   "viewer.audit.actionTip.restore_from_trash":
@@ -1268,7 +1268,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.trash.partitionSoftSuffix": "(soft)",
   "viewer.trash.partitionSweptSuffix": "(swept)",
   "viewer.trash.partitionTipSoft":
-    "Soft delete: engram remains in main index with status=forgotten/archived; one-click restore.",
+    "Soft delete: engram remains in main index with status=forgotten/frozen; one-click restore.",
   "viewer.trash.partitionTipSwept":
     "Physical sweep: file moved to .trash/ directory; git history preserved, restore from .trash/.",
 
@@ -1359,6 +1359,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.filter.pathPick": "Show only this directory",
   "viewer.graph.filter.pathPickerEmpty": "No directory data available",
   "viewer.graph.filter.count": "Nodes ${nodes} · Synapses ${edges}",
+  "viewer.graph.filter.countTip": "Format: \"filtered / total\". The stats bar's synapse total comes from /api/status (full count), while this graph only renders synapses whose both endpoint engrams exist (dangling synapses are auto-cleaned by doctor). Keyword/path/kind filters narrow the visible range further.",
 
   // ===== Detail panel / drawer (viewer.detail.*) =====
   "viewer.detail.editModeHint":
@@ -1552,7 +1553,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.conceptLifecycle":
     "<strong>Lifecycle</strong>",
   "viewer.help.conceptLifecycleDesc":
-    "<code>draft → active → archived → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
+    "<code>draft → active → frozen → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
   "viewer.help.rulesTitle": "Reinforcement rules & default parameters",
   "viewer.help.rulesIntro":
     "Memory importance evolves with use feedback. Below are the real defaults (per-event deltas are governed by importance/dynamics.ts; other knobs live in ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG in source); override via config.json or the matching config keys.",
@@ -1724,8 +1725,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Dormant: long unretrieved; weight has decayed but not forgotten.",
   "tip.status.forgotten":
     "Forgotten: actively forgotten by maintenance; file remains but excluded from default recall.",
-  "tip.status.archived":
-    "Archived: cold-storage state; only for historical lookups.",
+  "tip.status.frozen":
+    "Frozen: fully frozen state — no decay, no reinforcement, no synthesis, no retrieval. Data fully preserved, restorable to active via engram_restore. Renamed from archived (2026-07) to match the actual code behavior.",
   "tip.visibility.public": "Public: visible to everyone / every agent.",
   "tip.visibility.team": "Team: visible only within the same team.",
   "tip.visibility.private": "Private: visible only to the creator.",

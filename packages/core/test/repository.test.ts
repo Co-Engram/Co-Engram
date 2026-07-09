@@ -700,7 +700,7 @@ describe("EngramRepository — Doctor 自愈", () => {
     expect(moved!.path).toBe("new/test.md");
   });
 
-  it("检测 dangling_synapse(from/to 不存在)", () => {
+  it("检测并清理 dangling_synapse(from/to 不存在)", () => {
     // 手动写一个引用不存在 engram 的 synapse
     mkdirSync(join(tmpDir, "synapses", "extends"), { recursive: true });
     writeFileSync(
@@ -719,10 +719,17 @@ retrievalWeight: 0.5
 `,
     );
     const report = repo.runDoctor();
-    const dangling = report.pendingManualReview.filter(
-      (i) => i.kind === "dangling_synapse",
+    // 2026-07:doctor 不再只报告 dangling_synapse,而是自动删除文件
+    // 并用 dangling_synapse_cleaned kind 上报(仍走 pendingManualReview 让用户可见)
+    const cleaned = report.pendingManualReview.filter(
+      (i) => i.kind === "dangling_synapse_cleaned",
     );
-    expect(dangling.length).toBeGreaterThan(0);
+    expect(cleaned.length).toBeGreaterThan(0);
+    expect(cleaned.every((i) => i.autoFixed === true)).toBe(true);
+    // 文件应已被删除
+    expect(
+      existsSync(join(tmpDir, "synapses", "extends", "syn-a1b2c3d4e5f67890.yaml")),
+    ).toBe(false);
   });
 
   it("增量 vs 全量都工作", () => {

@@ -735,7 +735,7 @@ describe("engram_report_failure", () => {
 // ============================================================
 
 describe("engram_archive", () => {
-  it("归档后 status=archived", () => {
+  it("归档后 status=frozen(2026-07 archived→frozen 重命名)", () => {
     const { id } = engramCreateTool.execute(
       {
         title: "A",
@@ -747,9 +747,9 @@ describe("engram_archive", () => {
       ctx,
     );
     const result = engramArchiveTool.execute({ id }, ctx);
-    expect(result.status).toBe("archived");
+    expect(result.status).toBe("frozen");
     const engram = repo.readEngram(id);
-    expect(engram.status).toBe("archived");
+    expect(engram.status).toBe("frozen");
   });
 
   it("返回派生 freshness", () => {

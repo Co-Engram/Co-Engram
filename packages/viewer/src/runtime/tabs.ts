@@ -70,10 +70,11 @@ CO_ENGRAM.on('stats', async function() {
   // 误以为格式坏了——2026-07 用户反馈)。活跃/归档拆解放到 sub,信息不丢但视觉干净。
   const totalEngrams = data.totalEngrams || 0;
   const activeEngrams = data.activeEngrams != null ? (data.activeEngrams || 0) : (data.byStatus?.active || 0);
-  const archivedCount = (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
+  // archivedCount = frozen + archived(旧值兼容) + forgotten;变量名保留以匹配后端 stats.archived 字段
+  const archivedCount = (data.byStatus?.frozen || 0) + (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
   const engramsKpiValue = String(totalEngrams);
   const engramsKpiSub = (archivedCount > 0)
-    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.archivedCount') + ' ' + archivedCount + ' · ' + T.t('viewer.stats.clickToViewAll')
+    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.frozenCount') + ' ' + archivedCount + ' · ' + T.t('viewer.stats.clickToViewAll')
     : T.t('viewer.stats.clickToViewAll');
 
   let html = '<div class="kpi-grid">'
@@ -148,6 +149,11 @@ window.CO_ENGRAM_ENGRAMS = {
       CO_ENGRAM._engramsPager = CO_ENGRAM.createPaginator({
         endpoint: '/api/engrams',
         pageSize: 200,
+        // 2026-07 Bug B:engrams tab 只显示 status=active 的 engram。
+        // 删除(soft delete → forgotten)/ 冻结(archived/frozen)/ 草稿(draft)
+        // 都不在此显示 —— 用户心智「这里看到的是当前活跃的记忆」。
+        // forgotten/frozen 在回收站看;draft 在草稿/单独入口看(若未来加)。
+        getExtraParams: function() { return { status: 'active' }; },
       });
       CO_ENGRAM._engramsViewStart = 0;
     }
@@ -884,37 +890,85 @@ window.CO_ENGRAM_PROPOSALS = {
   },
 
   /**
-   * 启发式推断 proposal 的标题和类型(后端 Proposal 没有这两个字段)。
+   * 启发式推断 proposal 的卡片标题和类型。
    *
-   * 标题:取 centroidExcerpt 首句,超过 50 字截断;空时回退 entityId。
-   * 类型:基于关键词匹配。中英双语关键词覆盖 5 种 EngramKind。
+   * 优先级(p.payload 存在 = auto-memory / external-markdown 来源):
+   *   - title:p.payload.title(完整,LLM 已生成)→ 否则从 centroidExcerpt 取首句(≤50 字)→ entityId
+   *   - kind:p.payload.kind(明确)→ 否则基于关键词匹配 centroidExcerpt
+   *
+   * 类型关键词覆盖 5 种 EngramKind:
    *   - procedure:步骤/流程/how to/step
    *   - fact:应该/必须/always/never/事实
    *   - hypothesis:也许/可能/maybe/probably/假设
    *   - pattern:规律/总是/usually/pattern
    *   - observation:观察到/noticed/看到
    *   默认 observation(中性、不强行猜)。
+   *
+   * 注意:返回的 title 已为「卡片视图」截断到 50 字。drawer 详情用 _drawerTitle 拿全长。
    */
   _inferMeta(p) {
-    const text = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
-    const lower = text.toLowerCase();
+    const payload = p.payload;
+    // kind:payload 明确 → 否则关键词推断
+    let kind = (payload && payload.kind) || '';
+    if (!kind) {
+      const text = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
+      if (/(步骤|流程|怎么|如何|how to|step|procedure|process|算法|流程图)/i.test(text)) kind = 'procedure';
+      else if (/(应该|必须|总是|事实|always|never|must|fact|规则|定律)/i.test(text)) kind = 'fact';
+      else if (/(也许|可能|猜测|假设|maybe|probably|hypoth|hypo|猜测)/i.test(text)) kind = 'hypothesis';
+      else if (/(规律|模式|通常|惯|pattern|usually|tend to|often)/i.test(text)) kind = 'pattern';
+      else kind = 'observation';
+    }
 
-    let kind = 'observation';
-    if (/(步骤|流程|怎么|如何|how to|step|procedure|process|算法|流程图)/i.test(text)) kind = 'procedure';
-    else if (/(应该|必须|总是|事实|always|never|must|fact|规则|定律)/i.test(text)) kind = 'fact';
-    else if (/(也许|可能|猜测|假设|maybe|probably|hypoth|hypo|猜测)/i.test(text)) kind = 'hypothesis';
-    else if (/(规律|模式|通常|惯|pattern|usually|tend to|often)/i.test(text)) kind = 'pattern';
-    else if (/(观察|看到|发现|noticed|observed|saw|found)/i.test(text)) kind = 'observation';
-
-    let title = text.trim();
-    if (title) {
-      const firstClause = title.split(/[。.!?\\n??;；]/)[0].trim();
-      title = firstClause || title;
+    // title:payload.title(完整) → centroidExcerpt 首句截断 → entityId
+    let title = '';
+    if (payload && payload.title) {
+      title = payload.title.trim();
+      // 卡片视图仍要截断(避免单条标题撑爆卡片高度)
       if (title.length > 50) title = title.slice(0, 50) + '…';
+    } else {
+      const text = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
+      title = text.trim();
+      if (title) {
+        const firstClause = title.split(/[。.!?\\n??;；]/)[0].trim();
+        title = firstClause || title;
+        if (title.length > 50) title = title.slice(0, 50) + '…';
+      }
     }
     if (!title) title = p.entityId;
 
     return { title, kind };
+  },
+
+  /**
+   * Drawer 详情页用的全长标题(不截断,用户可编辑)。
+   * payload.title → centroidExcerpt 首句(无截断)→ entityId。
+   */
+  _drawerTitle(p) {
+    const payload = p.payload;
+    if (payload && payload.title) return payload.title;
+    const text = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
+    const trimmed = text.trim();
+    if (trimmed) {
+      const firstClause = trimmed.split(/[。.!?\\n??;；]/)[0].trim();
+      return firstClause || trimmed;
+    }
+    return p.entityId;
+  },
+
+  /**
+   * 卡片预览文本(140 字截断)。
+   * 优先级:payload.summary → payload.content → centroidExcerpt → sampleQuotes[0]。
+   */
+  _previewClip(p) {
+    const payload = p.payload;
+    const preview = (
+      (payload && payload.summary) ||
+      (payload && payload.content) ||
+      p.centroidExcerpt ||
+      (p.sampleQuotes || [])[0] ||
+      ''
+    ).toString();
+    return preview.length > 140 ? preview.slice(0, 140) + '…' : preview;
   },
 
   async _setStatus(status) {
@@ -1034,8 +1088,7 @@ window.CO_ENGRAM_PROPOSALS = {
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const kindColor = CO_ENGRAM.kindColor(meta.kind);
-        const preview = (p.centroidExcerpt || (p.sampleQuotes || [])[0] || '').toString();
-        const previewClip = preview.length > 140 ? preview.slice(0, 140) + '…' : preview;
+        const previewClip = this._previewClip(p);
         const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"';
         const sampleCount = (p.sampleQuotes || []).length;
         // payload.domainTags(若有)+ occurrences/sample chip
@@ -1162,7 +1215,7 @@ window.CO_ENGRAM_PROPOSALS = {
       + '</div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.titleLabel') : T.t('viewer.proposals.titleLabelReadonly')) + '</label>'
-      + '<input id="pf-title" type="text" value="' + CO_ENGRAM.escapeHtml(meta.title) + '"' + (editable ? '' : ' readonly') + '></div>'
+      + '<input id="pf-title" type="text" value="' + CO_ENGRAM.escapeHtml(this._drawerTitle(p)) + '"' + (editable ? '' : ' readonly') + '></div>'
       + '<div class="field"'
       + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label"' + CO_ENGRAM.tip('kind.fact') + '>' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.kindLabel') : T.t('viewer.proposals.kindLabelReadonly')) + '</label>'
@@ -1176,7 +1229,7 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<input id="pf-tags" type="text" value="' + CO_ENGRAM.escapeHtml((p.payload && Array.isArray(p.payload.domainTags) ? p.payload.domainTags : []).join(',')) + '" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.tagsPlaceholder')) + '"' + (editable ? '' : ' readonly') + '></div>'
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.contentLabel') : T.t('viewer.proposals.contentLabelReadonly')) + '</label>'
-      + '<textarea id="pf-content" rows="6"' + (editable ? '' : ' readonly') + '>' + CO_ENGRAM.escapeHtml(p.centroidExcerpt || '') + '</textarea></div>'
+      + '<textarea id="pf-content" rows="6"' + (editable ? '' : ' readonly') + '>' + CO_ENGRAM.escapeHtml((p.payload && p.payload.content) || p.centroidExcerpt || '') + '</textarea></div>'
       + '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.samples', { n: (p.occurrences || 0) })) + '</h3>'
       + (samples || '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.noSamples')) + '</div>')
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.firstSeen')) + '</span>' + CO_ENGRAM.escapeHtml(p.firstSeenAt || '—')
@@ -1859,13 +1912,13 @@ window.CO_ENGRAM_TRASH = {
     }
 
     // 分区显示标签 + tooltip(2026-07 修复用户反馈):
-    //   forgotten/archived 走 enumLabel 中文化 + tip 翻译
+    //   forgotten/frozen(旧值 archived)走 enumLabel 中文化 + tip 翻译
     //   YYYY-MM 物理清空分区用 "分区(物理清空)" 后缀 + tip 解释
     //   原先直接显示英文 enum 值,中文用户看不懂。
     const formatPartitionLabel = (p) => {
       if (!p) return '—';
-      // 软删分区:forgotten / archived
-      if (p === 'forgotten' || p === 'archived') {
+      // 软删分区:forgotten / frozen / archived(旧值兼容)
+      if (p === 'forgotten' || p === 'frozen' || p === 'archived') {
         return T.enumLabel('status', p);
       }
       // 物理清空分区:YYYY-MM 格式
@@ -1875,7 +1928,7 @@ window.CO_ENGRAM_TRASH = {
       return p;
     };
     const formatPartitionTip = (p, source) => {
-      if (source === 'soft' || p === 'forgotten' || p === 'archived') {
+      if (source === 'soft' || p === 'forgotten' || p === 'frozen' || p === 'archived') {
         return T.t('viewer.trash.partitionTipSoft');
       }
       return T.t('viewer.trash.partitionTipSwept');
@@ -1982,12 +2035,12 @@ window.CO_ENGRAM_TRASH = {
     // 分区显示:软删走 enumLabel,物理清空加 (swept) 后缀
     const formatPartLabel = (p) => {
       if (!p) return '—';
-      if (p === 'forgotten' || p === 'archived') return T.enumLabel('status', p);
+      if (p === 'forgotten' || p === 'frozen' || p === 'archived') return T.enumLabel('status', p);
       if (/^\d{4}-\d{2}$/.test(p)) return p + ' ' + T.t('viewer.trash.partitionSweptSuffix');
       return p;
     };
     const partLabel = formatPartLabel(d.partition);
-    const partTipText = (d.source === 'soft' || d.partition === 'forgotten' || d.partition === 'archived')
+    const partTipText = (d.source === 'soft' || d.partition === 'forgotten' || d.partition === 'frozen' || d.partition === 'archived')
       ? T.t('viewer.trash.partitionTipSoft')
       : T.t('viewer.trash.partitionTipSwept');
     const partTipAttr = ' title="' + CO_ENGRAM.escapeHtml(partTipText).replaceAll('"', '&quot;') + '"';
@@ -2100,7 +2153,7 @@ CO_ENGRAM.on('health', async function() {
       + '<div class="kpi-value">' + (value ?? 0) + '</div></div>';
     html += '<div class="kpi-grid" style="margin-top:1rem">'
       + healthKpi(T.t('viewer.health.stats.total'), snap.stats.total, 'viewer.health.stats.totalTip')
-      + healthKpi(T.t('viewer.health.stats.archived'), snap.stats.archived, 'viewer.health.stats.archivedTip')
+      + healthKpi(T.t('viewer.health.stats.frozen'), snap.stats.archived, 'viewer.health.stats.frozenTip')
       + healthKpi(T.t('viewer.health.stats.forgotten'), snap.stats.forgotten, 'viewer.health.stats.forgottenTip')
       + '</div>';
   }

@@ -477,6 +477,7 @@ export class IndexDb {
   queryEngrams(opts: {
     readonly kind?: string;
     readonly domainTags?: readonly string[];
+    readonly status?: readonly string[];
     readonly sort?: "createdAt" | "updatedAt" | "importance" | "retrievalCount" | "title";
     readonly descending?: boolean;
     readonly limit?: number;
@@ -492,6 +493,12 @@ export class IndexDb {
     if (opts.kind) {
       where.push("e.kind = ?");
       params.push(opts.kind);
+    }
+    if (opts.status && opts.status.length > 0) {
+      // 多 status OR(用于 trash tab 同时看 forgotten/frozen/archived)
+      const placeholders = opts.status.map(() => "?").join(",");
+      where.push(`e.status IN (${placeholders})`);
+      for (const s of opts.status) params.push(s);
     }
     if (opts.domainTags && opts.domainTags.length > 0) {
       const placeholders = opts.domainTags.map(() => "?").join(",");

@@ -38,7 +38,7 @@ export const EngramKindSchema = z.enum([
 export const EngramStatusSchema = z.enum([
   "active",
   "draft",
-  "archived",
+  "frozen",
   "forgotten",
 ]);
 

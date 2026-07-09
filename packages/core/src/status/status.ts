@@ -155,7 +155,8 @@ export function computeStatus(
         for (const [k, v] of Object.entries(g.byKind)) stats.byKind[k] = v;
         for (const [s, v] of Object.entries(g.byStatus)) {
           stats.byStatus[s] = v;
-          if (s === "archived") stats.archived += v;
+          // 双值兼容:迁移期可能仍读到旧 "archived";doctor 自动迁移后只剩 "frozen"
+          if (s === "frozen" || s === "archived") stats.archived += v;
           if (s === "forgotten") stats.forgotten += v;
         }
       } catch {
@@ -177,8 +178,11 @@ export function computeStatus(
             const full = repo.readEngram(e.id);
             const status = full.status ?? "active";
             stats.byStatus[status] = (stats.byStatus[status] ?? 0) + 1;
-            if (status === "archived") stats.archived += 1;
-            if (status === "forgotten") stats.forgotten += 1;
+            // 双值兼容:迁移期可能仍读到旧 "archived"(VALID_STATUS 仍容忍);
+            // doctor 自动迁移后只剩 "frozen"。cast 到 string 避免 TS 字面量类型窄化。
+            const statusStr = status as string;
+            if (statusStr === "frozen" || statusStr === "archived") stats.archived += 1;
+            if (statusStr === "forgotten") stats.forgotten += 1;
           } catch {
             // 单条 engram meta 读失败,跳过(下面 check 会标记)
           }

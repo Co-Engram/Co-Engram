@@ -37,13 +37,21 @@ export type EngramKinds = readonly EngramKind[];
 /**
  * Engram 生命周期状态
  *
- * 神经科学依据：多级存储模型（海马 → 皮层 → 归档）
+ * 2026-07 改名:`archived` → `frozen`。原因:旧名"归档"暗示"可能还会自己
+ * 代谢或被遗忘",但代码实际行为是"完全冻结 —— 不衰退、不强化、不综合、
+ * 不检索,数据完整保留可恢复,不会自动转 forgotten"。`frozen` 与代码实际
+ * 行为精确一致,避免用户误解。
+ *
+ * 向后兼容:doctor 自动扫描 frontmatter,把旧的 `status: archived` 迁移为
+ * `status: frozen`;旧数据升级后无差异。
+ *
+ * 神经科学依据:多级存储模型(海马 → 皮层 → 归档)
  */
 export type EngramStatus =
-  | "draft" // 草稿，未激活
-  | "active" // 激活，正常检索
-  | "archived" // 归档，默认不检索
-  | "forgotten"; // 遗忘，移出索引但 Git 保留
+  | "draft" // 草稿,未激活
+  | "active" // 激活,正常检索
+  | "frozen" // 冻结,不参与衰退/检索/强化(原 archived,2026-07 改名)
+  | "forgotten"; // 遗忘,移出索引但 Git 保留
 
 /**
  * Engram 新鲜度（系统计算，不可手动设置）

@@ -1469,6 +1469,7 @@ export class EngramRepository {
   queryEngramsForList(opts: {
     readonly kind?: string;
     readonly domainTags?: readonly string[];
+    readonly status?: readonly string[];
     readonly sort?: "createdAt" | "updatedAt" | "importance" | "retrievalCount" | "title";
     readonly descending?: boolean;
     readonly limit?: number;
@@ -1508,9 +1509,20 @@ export class EngramRepository {
     // memory fallback:listEngrams + enriched,在前端期望 shape 上对齐
     const all = this.listEngrams();
     const kindFilter = opts.kind;
+    const statusFilter = opts.status;
     const tagFilters = opts.domainTags ?? [];
     const filtered = all.filter((e) => {
       if (kindFilter && e.kind !== kindFilter) return false;
+      if (statusFilter && statusFilter.length > 0) {
+        let curStatus: string | undefined;
+        try {
+          const full = this.readEngram(e.id);
+          curStatus = full?.status;
+        } catch {
+          curStatus = undefined;
+        }
+        if (!curStatus || !statusFilter.includes(curStatus)) return false;
+      }
       if (tagFilters.length > 0) {
         return tagFilters.some((t) => e.domainTags.includes(t));
       }
@@ -2914,24 +2926,74 @@ export class EngramRepository {
       pendingManualReview.push(...fmPending);
     }
 
-    // 4. 检测 dangling synapse(from/to 不在 index)
+    // 4. 检测并自动清理 dangling synapse(from/to 不在 index)
+    //
+    // 历史:此前仅报告不修,导致历史遗留 dangling synapse 累积(Bug A:
+    // 统计栏突触总数与 graph 面板过滤后数量差 1000+)。2026-07 改为自动删除:
+    // 任一端缺失 → synapse 无意义 → 删文件 + SQLite 行由 cascade 清。
+    // 仍在 pendingManualReview 里报告(让用户/agent 知道发生了什么)。
     const allSynapses = collectAllSynapses(this.config.rootPath);
     for (const syn of allSynapses) {
-      if (!freshIndex.entries.has(syn.from as StableEngramId)) {
-        pendingManualReview.push({
-          kind: "dangling_synapse",
-          stableId: syn.from as StableEngramId,
-          message: `Synapse ${syn.id} references .from="${syn.from}" which no longer exists`,
-          autoFixed: false,
-        });
+      const fromMissing = !freshIndex.entries.has(syn.from as StableEngramId);
+      const toMissing = !freshIndex.entries.has(syn.to as StableEngramId);
+      if (!fromMissing && !toMissing) continue;
+
+      const synPath = join(
+        this.config.rootPath,
+        synapseRelativePath(syn.id, syn.kind),
+      );
+      try {
+        deleteSynapseFile(synPath);
+      } catch {
+        // 文件可能已被并发删除,忽略
       }
-      if (!freshIndex.entries.has(syn.to as StableEngramId)) {
-        pendingManualReview.push({
-          kind: "dangling_synapse",
-          stableId: syn.to as StableEngramId,
-          message: `Synapse ${syn.id} references .to="${syn.to}" which no longer exists`,
-          autoFixed: false,
-        });
+      const stableId = (fromMissing ? syn.from : syn.to) as StableEngramId;
+      const which = fromMissing ? (toMissing ? "both" : "from") : "to";
+      pendingManualReview.push({
+        kind: "dangling_synapse_cleaned",
+        stableId,
+        message: `Synapse ${syn.id} auto-deleted (.${which}="${which === "both" ? `${syn.from}/${syn.to}` : (which === "from" ? syn.from : syn.to)}" no longer exists)`,
+        autoFixed: true,
+      });
+    }
+
+    // 4.5 2026-07 archived → frozen migration
+    //
+    // EngramStatus 枚举改名(archived → frozen)。旧数据 frontmatter 里仍是
+    // `status: archived`,VALID_STATUS 临时容忍读取,但写入永远用 frozen。
+    // 这里一次性扫完所有 engram,把 frontmatter.status === "archived" 改写成
+    // "frozen",让旧数据升级后无差异。
+    //
+    // 注意:EngramFrontmatter.status 的 TS 类型已不含 "archived",但 VALID_STATUS
+    // 仍容忍读取(过渡期)。这里 cast 到 string 比较 + 用 spread 构造新 frontmatter
+    // 对象(因为 frontmatter 字段是 readonly)。
+    for (const [id, entry] of freshIndex.entries) {
+      const absPath = join(this.config.rootPath, entry.path);
+      if (!existsSync(absPath)) continue;
+      let parsed: EngramFile | undefined;
+      try {
+        parsed = readEngramFile(absPath);
+      } catch {
+        continue;
+      }
+      const curStatus = parsed.frontmatter.status as string | undefined;
+      if (curStatus === "archived") {
+        const migrated: EngramFile = {
+          ...parsed,
+          frontmatter: { ...parsed.frontmatter, status: "frozen" },
+        };
+        try {
+          writeEngramFile(absPath, migrated, this.language);
+          fixes.push({
+            kind: "status_renamed",
+            stableId: id as StableEngramId,
+            path: entry.path,
+            message: `Status renamed: archived → frozen (2026-07 rename, see EngramStatus docs)`,
+            autoFixed: true,
+          });
+        } catch {
+          // 写入失败忽略,下次 doctor 还会再扫
+        }
       }
     }
 

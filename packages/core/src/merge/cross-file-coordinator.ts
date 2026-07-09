@@ -45,7 +45,7 @@ export interface CrossFileConsistencyReport {
 }
 
 /** spec §7.3 中"refuted/forgotten"对应的 engram status 集合 */
-const INACTIVE_STATUSES: readonly EngramStatus[] = ["archived", "forgotten"];
+const INACTIVE_STATUSES: readonly EngramStatus[] = ["frozen", "forgotten"];
 
 /** spec §7.3 中"应被 archived"的 verification status */
 const REFUTED_VERIFICATION: VerificationStatus = "refuted";
@@ -178,15 +178,15 @@ function checkSupersedesTargets(repository: EngramRepository): Inconsistency[] {
       } catch {
         continue; // target 不存在 — dangling synapse,doctor 已处理
       }
-      if (target.status === "archived") continue;
-      // 自动修复:把 target.status 设为 archived(spec §7.3 行 2:明确语义)
+      if (target.status === "frozen") continue;
+      // 自动修复:把 target.status 设为 frozen(spec §7.3 行 2:明确语义)
       try {
-        repository.updateLifecycle(target.id, "archived");
+        repository.updateLifecycle(target.id, "frozen");
         out.push({
           kind: "supersedes_target_not_archived",
           engramId: target.id,
           synapseId: syn.id,
-          detail: `auto-archived ${target.id} (superseded by ${engram.id})`,
+          detail: `auto-frozen ${target.id} (superseded by ${engram.id})`,
           autoFixed: true,
         });
       } catch {
@@ -194,7 +194,7 @@ function checkSupersedesTargets(repository: EngramRepository): Inconsistency[] {
           kind: "supersedes_target_not_archived",
           engramId: target.id,
           synapseId: syn.id,
-          detail: `failed to auto-archive ${target.id}`,
+          detail: `failed to auto-freeze ${target.id}`,
           autoFixed: false,
         });
       }

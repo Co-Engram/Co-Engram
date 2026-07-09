@@ -143,7 +143,7 @@ export function reinforceRelated(
       skipped += 1;
       continue;
     }
-    if (status === "archived" || status === "forgotten") {
+    if (status === "frozen" || status === "forgotten") {
       skipped += 1;
       continue;
     }

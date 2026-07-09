@@ -24,17 +24,17 @@ export const zh = {
   "tool.engram_reinforce":
     "上报一次有效使用(正向强化)。提升记忆的强度分数和使用计数,并连带强化相关记忆。",
   "tool.engram_report_failure":
-    "上报一次失败使用(负向强化)。降低记忆的强度分数;多次失败会建议归档或遗忘。",
+    "上报一次失败使用(负向强化)。降低记忆的强度分数;多次失败会建议冻结或遗忘。",
   "tool.engram_archive":
-    "归档一条记忆(移出默认搜索,但保留数据可恢复)。",
+    "冻结一条记忆(移出默认搜索,但保留数据可恢复)。",
   "tool.engram_restore":
-    "从归档或遗忘状态恢复一条记忆,重新进入默认搜索。",
+    "从冻结或遗忘状态恢复一条记忆,重新进入默认搜索。",
   "tool.engram_forget":
     "主动遗忘一条记忆。文件保留(Git 可追溯),立即移出所有默认搜索。需要填写理由。后续会自动清理:30 天后进回收站,365 天后物理删除;物理删除前可随时恢复。",
 
   // ===== 学习回路工具(4 个) =====
   "tool.contradiction_resolve":
-    "人工裁决两条互相矛盾的记忆(旧 vs 新):决定保留哪一方、合并还是归档败方。需要给出裁决理由和裁决人。",
+    "人工裁决两条互相矛盾的记忆(旧 vs 新):决定保留哪一方、合并还是冻结败方。需要给出裁决理由和裁决人。",
   "tool.close_learning_loop":
     "关闭验证回路:把使用结果反馈给系统。成功则正向强化,失败则负向弱化并触发降级检查。",
   "tool.upgrade_verification":
@@ -367,7 +367,7 @@ export const zh = {
 翻页把 nextCursor 原样回传到下一页的 cursor 参数(与 until 互斥,cursor 优先)。
 items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
   // 13 个原未覆盖工具的 agent 描述
-  "tool.engram_archive.agent": `归档记忆(移出默认检索,但保留数据可恢复)。
+  "tool.engram_archive.agent": `冻结记忆(移出默认检索,但保留数据可恢复)。
 
 何时调用:
 - 记忆不再活跃相关,但将来可能需要
@@ -379,12 +379,12 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 记忆应永久删除(用 engram_delete 或 engram_forget)
 - 只是想刷新记忆(用 engram_update)
 
-返回:{ archived: true } + 新状态。检索默认排除 archived,可用 filter 包含。`,
-  "tool.engram_restore.agent": `从 archived/forgotten 恢复为 active,重新进入默认检索。
+返回:{ frozen: true } + 新状态。检索默认排除 frozen,可用 filter 包含。`,
+  "tool.engram_restore.agent": `从 frozen/forgotten 恢复为 active,重新进入默认检索。
 
 何时调用:
-- 用户要求"找回"/"取消归档"/"恢复"某条记忆
-- 之前归档的记忆又变相关了
+- 用户要求"找回"/"取消冻结"/"恢复"某条记忆
+- 之前冻结的记忆又变相关了
 - 从 viewer 回收站恢复
 
 何时不调用:
@@ -529,7 +529,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 输入:{ query: string; filter?: { domainTags?, kind?, kinds?, status?, freshness?, createdBy?, createdAfter?, createdBefore?, minImportance? }; limit?: number }
 副作用:无(只读)。不更新 lastRetrievedAt(用 engram_reinforce)。
 错误条件:空 query 抛错;limit 钳到 [1, 100]。
-不变量:archived engram 默认排除,除非 filter.status 包含 'archived'。
+不变量:frozen engram 默认排除,除非 filter.status 包含 'frozen'。
 索引:读 digest.jsonl + FTS 索引;冷启动重建。`,
   "tool.engram_get.technical": `按披露层级读取 engram(渐进式披露,控制 token 成本)。
 输入:{ id: EngramId; tier?: 'catalog' | 'digest' | 'content' | 'meta' | 'synapses' | 'auto'; contextBudget?: number }
@@ -576,26 +576,26 @@ Hebbian 强化:邻居 engram(经 synapse)得 50% delta,contradicts synapse kind 
 自动建议:failedUses ≥ archiveThreshold(默认 3)→ 建议 archive;≥ forgetThreshold(默认 5)→ 建议 forget。
 副作用:写 .meta.json;append audit(action=importance_update, reason=report_failure);append effectiveness signal(failure)。
 错误条件:未找到抛错;空 reason 抛错。`,
-  "tool.engram_archive.technical": `归档 engram。输入:{ id, reason? }
-状态转换:active → archived。
-副作用:写 .meta.json(status);重建 digest(默认 FTS 排除 archived)。
-错误条件:未找到抛错;已 archived 幂等。
-不变量:数据保留;可通过 engram_restore 恢复。检索默认排除 archived,除非 filter.status='archived'。`,
-  "tool.engram_restore.technical": `从 archived/forgotten 恢复。输入:{ id }
-状态转换:archived|forgotten → active。
+  "tool.engram_archive.technical": `冻结 engram。输入:{ id, reason? }
+状态转换:active → frozen。
+副作用:写 .meta.json(status);重建 digest(默认 FTS 排除 frozen)。
+错误条件:未找到抛错;已 frozen 幂等。
+不变量:数据保留;可通过 engram_restore 恢复。检索默认排除 frozen,除非 filter.status='frozen'。`,
+  "tool.engram_restore.technical": `从 frozen/forgotten 恢复。输入:{ id }
+状态转换:frozen|forgotten → active。
 若 engram 已被 sweep 到 .trash/,先移回。
 副作用:写 .meta.json;重建 digest;append audit。
 错误条件:未找到抛错;物理清除抛错(不可恢复)。
 不变量:立即重新进入默认检索。`,
   "tool.engram_forget.technical": `RIF 检索诱导遗忘。输入:{ id, reason }
-状态:active|archived → forgotten。
+状态:active|frozen → forgotten。
 文件保留(Git 跟踪)。立即移出所有默认检索。
 清理流程(maintenance):forgotten → 30 天 → .trash/(主索引移除)→ 365 天 → 物理 rm。
 副作用:写 .meta.json(status + forgottenAt);重建 digest;append audit。
 错误条件:未找到抛错;空 reason 抛错。
 恢复:物理清除前可随时 engram_restore;清除后只能 git 历史。`,
   "tool.contradiction_resolve.technical": `裁决 contradicts synapse。输入:{ fromId, synapseId, verdict: 'keep_new' | 'keep_old' | 'merge' | 'archive', rationale, resolvedBy }
-更新:synapse.resolutionState = 'resolved';append evidence[];verdict=archive 时,败方 engram status → archived。
+更新:synapse.resolutionState = 'resolved';append evidence[];verdict=archive 时,败方 engram status → frozen。
 副作用:写 synapse 文件 + .meta.json(若 archive);append audit。
 错误条件:未找到抛错;非 contradicts synapse 抛错;已 resolved 抛错。
 Spec:§3.9 phase 2 人工介入。`,
@@ -718,7 +718,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "prompt.memory.when_to_search":
     '何时调用 memory_search:用户问"关于 X 的记忆 / 我们之前讨论过 X 吗 / 找一下 X"等语义检索场景。memory_search 的 query 是搜索词(如 "low-friction-defaults" "调试 ADB"),不是"列出所有"的指令——空 query 会报错。先调 memory_search,再按需调 memory_get 获取完整内容。',
   "prompt.memory.when_to_list":
-    '何时调用 engram_list(列举场景):用户问"我有哪些记忆 / 列出所有记忆 / 显示我的记忆库 / 记忆总数"时,使用 engram_list 工具(分页+过滤),不要用 memory_search。memory_search 是按关键词召回相关性,列举全部需要 engram_list。可选 filter:domainTags(领域标签)、kind(fact/pattern/procedure/observation)、status(active/archived)。',
+    '何时调用 engram_list(列举场景):用户问"我有哪些记忆 / 列出所有记忆 / 显示我的记忆库 / 记忆总数"时,使用 engram_list 工具(分页+过滤),不要用 memory_search。memory_search 是按关键词召回相关性,列举全部需要 engram_list。可选 filter:domainTags(领域标签)、kind(fact/pattern/procedure/observation)、status(active/frozen)。',
   "prompt.memory.when_not_to_search":
     "何时不调用:通用知识问题、与团队上下文无关的纯代码问题、简单问候。当前对话已回答过的话题不要重复搜索。",
   "prompt.memory.reading_results":
@@ -814,12 +814,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.badge.error": "错误",
   "viewer.health.badge.info": "信息",
   "viewer.health.stats.total": "记忆总数",
-  "viewer.health.stats.archived": "已归档",
+  "viewer.health.stats.frozen": "已冻结",
   "viewer.health.stats.forgotten": "已遗忘",
   "viewer.health.stats.totalTip":
-    "仓库内全部记忆印迹数量(含活跃 + 已归档 + 已遗忘),与统计栏 totalEngrams 共享同一数据源 /api/status → computeStatus,数值一致。若你在两边看到不同数字,通常是浏览器缓存了旧 HTML(已加 Cache-Control: no-store 修复)。",
-  "viewer.health.stats.archivedTip":
-    "处于 archived 状态的记忆:不再参与检索,但仍可恢复为 active。来源:通过 dismiss/contradiction 或长时间未强化自动降级。",
+    "仓库内全部记忆印迹数量(含活跃 + 已冻结 + 已遗忘),与统计栏 totalEngrams 共享同一数据源 /api/status → computeStatus,数值一致。若你在两边看到不同数字,通常是浏览器缓存了旧 HTML(已加 Cache-Control: no-store 修复)。",
+  "viewer.health.stats.frozenTip":
+    "处于 frozen 状态的记忆:不再参与检索,但仍可恢复为 active。来源:通过 dismiss/contradiction 或长时间未强化自动降级,或主动调用 engram_archive 工具。frozen 是真正的冻结态——不衰退、不强化、不综合,数据完整保留。",
   "viewer.health.stats.forgottenTip":
     "处于 forgotten 状态的记忆:相当于软删除,在回收站可见,可恢复或永久清空。Web UI 删除按钮即写入此状态(不立即物理删除)。",
 
@@ -952,7 +952,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   "enum.status.draft": "草稿",
   "enum.status.active": "激活",
-  "enum.status.archived": "归档",
+  "enum.status.frozen": "冻结",
   "enum.status.forgotten": "遗忘",
 
   "enum.sourceType.firsthand": "一手",
@@ -1082,9 +1082,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== Stats 面板(viewer.stats.*) =====
   "viewer.stats.totalEngrams": "记忆印迹总数",
   "viewer.stats.totalEngramsTip":
-    "总数 = 活跃 + 已归档 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已归档」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
+    "总数 = 活跃 + 已冻结 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已冻结」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
   "viewer.stats.activeEngrams": "活跃",
-  "viewer.stats.archivedCount": "归档/遗忘",
+  "viewer.stats.frozenCount": "冻结/遗忘",
   "viewer.stats.totalSynapses": "记忆突触总数",
   "viewer.stats.pendingProposals": "待审提案",
   "viewer.stats.clickToViewAll": "点击查看全部",
@@ -1190,11 +1190,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.audit.actorTip.system": "系统 (system):由后台维护/自愈流程触发的事件",
   "viewer.audit.actionTip.create": "create:创建新记忆印迹",
   "viewer.audit.actionTip.update": "update:修改已有印迹的字段",
-  "viewer.audit.actionTip.update_lifecycle": "update_lifecycle:状态迁移(archived/forgotten)",
+  "viewer.audit.actionTip.update_lifecycle": "update_lifecycle:状态迁移(frozen/forgotten)",
   "viewer.audit.actionTip.reinforce": "reinforce:强化(LTP)— 检索有效、闭环成功",
   "viewer.audit.actionTip.report_failure": "report_failure:负向反馈(LTD)— 检索不准、闭环失败",
   "viewer.audit.actionTip.forget": "forget:标记为 forgotten",
-  "viewer.audit.actionTip.restore": "restore:从 forgotten/archived 恢复为 active",
+  "viewer.audit.actionTip.restore": "restore:从 forgotten/frozen 恢复为 active",
   "viewer.audit.actionTip.sweep_to_trash": "sweep_to_trash:forgotten 满 30 天,文件移到 .trash/",
   "viewer.audit.actionTip.restore_from_trash": "restore_from_trash:从 .trash/ 物理恢复",
   "viewer.audit.actionTip.purge": "purge:硬删除(内容 + 元 + 关联突触)",
@@ -1244,7 +1244,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.trash.partitionSoftSuffix": "(软删)",
   "viewer.trash.partitionSweptSuffix": "(物理清空)",
   "viewer.trash.partitionTipSoft":
-    "软删除:engram 仍在主索引,仅 status=forgotten/archived,可一键恢复。",
+    "软删除:engram 仍在主索引,仅 status=forgotten/frozen,可一键恢复。",
   "viewer.trash.partitionTipSwept":
     "物理清空:文件已移到 .trash/ 目录,git 历史保留,恢复需从 .trash/ 取回。",
 
@@ -1315,6 +1315,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.filter.pathPick": "仅显示此目录",
   "viewer.graph.filter.pathPickerEmpty": "暂无目录数据",
   "viewer.graph.filter.count": "节点 ${nodes} · 突触 ${edges}",
+  "viewer.graph.filter.countTip": "格式「过滤后 / 总数」。统计栏的突触总数走 /api/status 全量统计,本图谱只渲染两端记忆印迹都存在的突触(悬空突触由 doctor 自动清理);关键词/目录/类型过滤进一步收窄显示范围。",
 
   // ===== 详情面板 / Drawer(viewer.detail.*) =====
   "viewer.detail.editModeHint": "编辑模式 · 修改后点击「保存」提交",
@@ -1502,7 +1503,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.conceptLifecycle":
     "<strong>生命周期</strong>",
   "viewer.help.conceptLifecycleDesc":
-    "<code>draft → active → archived → forgotten</code>。遗忘的文件仍在仓库,但默认不召回。维护周期会自动评估并迁移状态。",
+    "<code>draft → active → frozen → forgotten</code>。遗忘的文件仍在仓库,但默认不召回。维护周期会自动评估并迁移状态。",
   "viewer.help.rulesTitle": "强化机制与规则参数(默认值)",
   "viewer.help.rulesIntro":
     "记忆的 importance 分数会随使用反馈演化。下面是真实的默认参数(单次增减由 importance/dynamics.ts 治理;其余可在源码 ReinforcementConfig.DEFAULT_CONFIG / DEFAULT_WEIGHTS / DEFAULT_EFFECTIVENESS_WINDOWS / DEFAULT_VERIFICATION_CONFIG 找到),用 config.json 或对应配置项可覆盖。",
@@ -1670,7 +1671,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "tip.status.dormant": "休眠 (dormant):长期未被检索,权重已衰减但未遗忘。",
   "tip.status.forgotten":
     "已遗忘 (forgotten):维护阶段主动遗忘,文件仍在但默认不召回。",
-  "tip.status.archived": "已归档 (archived):冷归档状态,仅用于历史回溯。",
+  "tip.status.frozen": "已冻结 (frozen):完全冻结状态——不衰退、不强化、不综合、不检索。数据完整保留,可通过 engram_restore 恢复为 active。2026-07 从 archived 改名为 frozen,以匹配代码实际行为。",
   "tip.visibility.public": "公开 (public):所有人/所有 agent 可见。",
   "tip.visibility.team": "团队 (team):仅同团队可见。",
   "tip.visibility.private": "私有 (private):仅创建者可见。",

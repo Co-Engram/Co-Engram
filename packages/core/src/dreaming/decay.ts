@@ -121,7 +121,7 @@ export function applyDecayBatch(
         if (!dryRun) {
           repo.updateLifecycle(
             digest.id,
-            "archived" satisfies EngramStatus,
+            "frozen" satisfies EngramStatus,
             freshness,
           );
         }

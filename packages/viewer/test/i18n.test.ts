@@ -10,7 +10,7 @@ import { renderSpaHtml } from "../src/index.js";
 const ENUM_COVERAGE: Record<string, readonly string[]> = {
   kind: ["observation", "fact", "pattern", "procedure", "hypothesis"],
   freshness: ["fresh", "aging", "stale", "forgotten"],
-  status: ["draft", "active", "archived", "forgotten"],
+  status: ["draft", "active", "frozen", "forgotten"],
   sourceType: ["firsthand", "secondhand", "inferred"],
   verificationStatus: [
     "unverified",

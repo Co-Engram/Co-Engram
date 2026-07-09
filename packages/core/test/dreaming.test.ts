@@ -92,7 +92,7 @@ describe("applyDecayBatch", () => {
     const result = applyDecayBatch(repo, { nowIso: new Date().toISOString() });
     expect(result.archived).toContain(engram.id);
     expect(result.forgotten).toEqual([]);
-    expect(repo.readEngram(engram.id).status).toBe("archived");
+    expect(repo.readEngram(engram.id).status).toBe("frozen");
   });
 
   it("stale + 低 importance → forget", () => {
@@ -447,11 +447,11 @@ describe("spec 验收：模拟批量场景", () => {
     expect(result.archived.length).toBe(5);
     expect(result.forgotten.length).toBe(3);
 
-    // 验证所有 archived/forgotten 状态正确
+    // 验证所有 frozen/forgotten 状态正确
     for (const entry of repo.listEngrams()) {
       // noplus1: test assertion, fixture 个验证用
       const engram = repo.readEngram(entry.id);
-      expect(["archived", "forgotten"]).toContain(engram.status);
+      expect(["frozen", "forgotten"]).toContain(engram.status);
     }
   });
 });

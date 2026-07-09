@@ -575,7 +575,21 @@ window.CO_ENGRAM_GRAPH = {
       s.state.showSynapseKinds[e.kind] !== false
       && passIds.has(e.from) && passIds.has(e.to),
     );
-    countEl.textContent = T.t('viewer.graph.filter.count', { nodes: passNodes.length, edges: passEdges.length });
+    const totalEdges = s.data.edges.length;
+    const totalNodes = s.data.nodes.length;
+    // 显示「过滤后 / 总数」帮助用户理解为什么 stats 总数 ≠ graph 显示数:
+    //   - stats 走 /api/status 全量统计(包括未在 graph 渲染的节点 / 边)
+    //   - graph 走 /api/graph,只渲染两端 engram 都存在的边(dangling 已被 doctor 清理)
+    //   - 过滤(关键词 / 目录 / 类型)进一步收窄
+    // 当 passEdges == totalEdges 时只显示一个数,避免视觉噪音
+    const edgesText = passEdges.length === totalEdges
+      ? String(passEdges.length)
+      : passEdges.length + ' / ' + totalEdges;
+    const nodesText = passNodes.length === totalNodes
+      ? String(passNodes.length)
+      : passNodes.length + ' / ' + totalNodes;
+    countEl.textContent = T.t('viewer.graph.filter.count', { nodes: nodesText, edges: edgesText });
+    countEl.title = T.t('viewer.graph.filter.countTip');
   }
 };
 `;

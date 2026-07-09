@@ -20,7 +20,7 @@ const ENGRAM_KIND_ENUM = [
 const ENGRAM_STATUS_ENUM = [
   "active",
   "draft",
-  "archived",
+  "frozen",
   "forgotten",
 ] as const;
 const ENGRAM_FRESHNESS_ENUM = ["fresh", "aging", "stale", "forgotten"] as const;

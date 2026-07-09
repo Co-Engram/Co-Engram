@@ -426,6 +426,10 @@ async function routeApi(
   if (path === "/api/engrams" && req.method === "GET") {
     const tagFilter = url.searchParams.get("tag") ?? undefined;
     const kindFilter = url.searchParams.get("kind") ?? undefined;
+    const statusFilters = url.searchParams
+      .getAll("status")
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0);
     const domainTagFilters = url.searchParams
       .getAll("domainTags")
       .filter((t) => t.length > 0);
@@ -443,6 +447,7 @@ async function routeApi(
     const result = ctx.repository.queryEngramsForList({
       ...(kindFilter ? { kind: kindFilter } : {}),
       domainTags: [...(tagFilter ? [tagFilter] : []), ...domainTagFilters],
+      ...(statusFilters.length > 0 ? { status: statusFilters } : {}),
       ...(sortParam
         ? {
             sort: sortParam as
@@ -932,17 +937,20 @@ async function routeApi(
     purgedIds.push(...sweptResult.purged);
     partitionsRemoved.push(...sweptResult.partitionsRemoved);
 
-    // (2) soft forgotten/archived
+    // (2) soft forgotten/frozen(旧值 archived,doctor 自动迁移,期兼容)
     // 双路径:SQLite 可用时 O(N) 查询;不可用时(legacy / 旧 Node)走 readEngram 循环。
     // listTrashedSimple 早有 readEngram fallback,但旧 DELETE 漏掉,导致无 indexDb
     // 时 count=0(2026-07 用户反馈"永久清空全部"不生效,实测根因之一)。
+    //
+    // 2026-07 改名 archived → frozen:partition 参数接受新值 "frozen" 和旧值
+    // "archived"(兼容未刷新的浏览器),SQLite 查询同时匹配两个值。
     const softStatuses =
       partition === "forgotten"
         ? ["forgotten"]
-        : partition === "archived"
-          ? ["archived"]
+        : partition === "frozen" || partition === "archived"
+          ? ["frozen", "archived"]
           : (!partition || /^\d{4}-\d{2}$/.test(partition)
-              ? ["forgotten", "archived"]
+              ? ["forgotten", "frozen", "archived"]
               : []);
     if (softStatuses.length > 0) {
       let softRows: { id: string }[] = [];
@@ -957,7 +965,7 @@ async function routeApi(
           try {
             const full = ctx.repository.readEngram(entry.id);
             if (
-              softStatuses.includes(full.status as "forgotten" | "archived")
+              softStatuses.includes(full.status as "forgotten" | "frozen" | "archived")
             ) {
               softRows.push({ id: entry.id });
             }
@@ -1027,11 +1035,12 @@ async function routeApi(
       respondJson(res, 200, { ...swept, source: "swept" as const });
       return;
     }
-    // fallback:engrams/ 中 status=forgotten/archived 的软删除项
+    // fallback:engrams/ 中 status=forgotten/frozen(旧值 archived 兼容)的软删除项
     if (ctx.repository.exists(id)) {
       try {
         const engram = ctx.repository.readEngram(id);
-        if (engram.status === "forgotten" || engram.status === "archived") {
+        const st = engram.status as string | undefined;
+        if (st === "forgotten" || st === "frozen" || st === "archived") {
           respondJson(res, 200, {
             id,
             source: "soft" as const,
@@ -1093,7 +1102,8 @@ async function routeApi(
     if (ctx.repository.exists(id)) {
       try {
         const engram = ctx.repository.readEngram(id);
-        if (engram.status === "forgotten" || engram.status === "archived") {
+        const st = engram.status as string | undefined;
+        if (st === "forgotten" || st === "frozen" || st === "archived") {
           ctx.repository.updateLifecycle(id, "active", "stale");
           ctx.auditLog?.append({
             actor: "user",
@@ -1827,13 +1837,13 @@ interface TrashListItem {
   /**
    * 回收站项来源:
    *   - "swept":物理已 sweep 到 .trash/<partition>/ 下(由 sweepToTrash 移入)
-   *   - "soft":逻辑软删除(status=forgotten/archived)但文件仍在主索引 engrams/
+   *   - "soft":逻辑软删除(status=forgotten/frozen,旧值 archived)但文件仍在主索引 engrams/
    *
    * 区分原因:用户「查看/恢复/清空」三类操作对两种来源的处理路径不同。
    * 旧实现把它们混入同一列表但只支持 .trash/ 路径,导致 386 条全部按钮失败。
    */
   readonly source: "swept" | "soft";
-  /** 分区:swept 时是 .trash/<YYYY-MM>;soft 时是 "forgotten" / "archived" */
+  /** 分区:swept 时是 .trash/<YYYY-MM>;soft 时是 "forgotten" / "frozen"(旧值 "archived" 兼容) */
   readonly partition?: string;
   /** 进入回收站的时间:swept 时是 .trash/ 目录 mtime;soft 时是 engram.updatedAt */
   readonly trashedAt?: string;
@@ -1899,12 +1909,13 @@ function listTrashedSimple(ctx: ToolContext): TrashListItem[] {
       console.error("[viewer] SQLite trash query failed, falling back:", err);
     }
   }
-  // Legacy fallback(SQLite 不可用时):对 forgotten/archived 子集 readEngram
+  // Legacy fallback(SQLite 不可用时):对 forgotten/frozen(旧值 archived 兼容)子集 readEngram
   for (const entry of ctx.repository.listEngrams()) {
     if (seen.has(entry.id)) continue;
     try {
       const full = ctx.repository.readEngram(entry.id);
-      if (full.status === "forgotten" || full.status === "archived") {
+      const st = full.status as string | undefined;
+      if (st === "forgotten" || st === "frozen" || st === "archived") {
         out.push({
           id: entry.id,
           source: "soft",

@@ -911,11 +911,13 @@ export const engramReportFailureTool: Tool<
 
 export const engramArchiveTool: Tool<
   EngramArchiveToolInput,
-  { id: string; status: "archived"; freshness: string }
+  { id: string; status: "frozen"; freshness: string }
 > = {
+  // 工具名保留 engram_archive(MCP 工具名改了破坏向后兼容),但状态值用 frozen。
+  // 详见 types/engram.ts 中 EngramStatus 的改名说明。
   name: "engram_archive",
   description:
-    "归档 engram（移出默认检索，但保留数据可恢复）。检索默认排除 archived，可用 filter 包含。",
+    "冻结 engram(状态变为 frozen,移出默认检索,但保留数据可恢复)。frozen 状态不衰退、不强化、不综合,数据完整保留。检索默认排除 frozen,可用 filter 包含。",
   inputSchema: EngramArchiveInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramArchiveToolInput>(
@@ -925,17 +927,17 @@ export const engramArchiveTool: Tool<
     if (!ctx.repository.exists(parsed.id)) {
       throw notFoundError("Engram", parsed.id);
     }
-    ctx.repository.updateLifecycle(parsed.id, "archived", undefined);
+    ctx.repository.updateLifecycle(parsed.id, "frozen", undefined);
     const updated = ctx.repository.readEngram(parsed.id);
     ctx.auditLog?.append({
       actor: "user",
       action: "update_lifecycle",
       engramId: parsed.id,
-      metadata: { to: "archived", reason: parsed.reason },
+      metadata: { to: "frozen", reason: parsed.reason },
     });
     return {
       id: parsed.id,
-      status: "archived",
+      status: "frozen",
       freshness: computeFreshness(
         updated.lastEffectiveAt,
         updated.createdAt,
@@ -956,7 +958,7 @@ export const engramRestoreTool: Tool<
 > = {
   name: "engram_restore",
   description:
-    "从 archived/forgotten 恢复为 active，重新进入默认检索。若 engram 已被 sweep 到 .trash/,会先从回收站移回再恢复。",
+    "从 frozen/forgotten 恢复为 active,重新进入默认检索。若 engram 已被 sweep 到 .trash/,会先从回收站移回再恢复。",
   inputSchema: EngramRestoreInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<EngramRestoreToolInput>(

@@ -142,9 +142,10 @@ describe("Bug #1: stats KPI 记忆印迹总数格式", () => {
     expect(TABS_RUNTIME).toContain("String(totalEngrams)");
   });
 
-  it("zh/en 都有 viewer.stats.archivedCount 翻译(sub 文案)", () => {
-    expect(zh["viewer.stats.archivedCount" as keyof typeof zh]).toBeTruthy();
-    expect(en["viewer.stats.archivedCount" as keyof typeof en]).toBeTruthy();
+  it("zh/en 都有 viewer.stats.frozenCount 翻译(sub 文案)", () => {
+    // 2026-07 archived→frozen 重命名,字段名同步更新
+    expect(zh["viewer.stats.frozenCount" as keyof typeof zh]).toBeTruthy();
+    expect(en["viewer.stats.frozenCount" as keyof typeof en]).toBeTruthy();
   });
 });
 
@@ -338,14 +339,14 @@ describe("Bug #5: 健康栏 KPI 悬停说明", () => {
     // 旧实现是 inline '<div class="kpi"><div class="kpi-label">'(无 title)
     expect(TABS_RUNTIME).toContain("healthKpi(");
     expect(TABS_RUNTIME).toContain("'viewer.health.stats.totalTip'");
-    expect(TABS_RUNTIME).toContain("'viewer.health.stats.archivedTip'");
+    expect(TABS_RUNTIME).toContain("'viewer.health.stats.frozenTip'");
     expect(TABS_RUNTIME).toContain("'viewer.health.stats.forgottenTip'");
   });
 
   it("zh/en 都有 3 个 tip 翻译", () => {
     const tipKeys = [
       "viewer.health.stats.totalTip",
-      "viewer.health.stats.archivedTip",
+      "viewer.health.stats.frozenTip",
       "viewer.health.stats.forgottenTip",
     ] as const;
     for (const k of tipKeys) {

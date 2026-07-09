@@ -93,6 +93,8 @@ function makeMockRepository(spec: MockRepoSpec): {
   repo: EngramRepository;
   archivedIds: string[];
 } {
+  // 2026-07 archived→frozen 重命名后,变量名 archivedIds 保留(语义不变:已被
+  // 自动冻结的 id 列表),内部 status 比较改用 "frozen"。
   const archivedIds = [...(spec.archivedIds ?? [])];
   const catalog: EngramCatalogEntry[] = spec.engrams.map((e) => ({
     id: e.id,
@@ -107,9 +109,9 @@ function makeMockRepository(spec: MockRepoSpec): {
     readEngram: (id: string) => {
       const en = engramsById.get(id as EngramId);
       if (!en) throw new Error(`Engram not found: ${id}`);
-      // 如果被 archived,返回 archived 状态
+      // 如果被 frozen,返回 frozen 状态
       if (archivedIds.includes(id)) {
-        return { ...en, status: "archived" as const };
+        return { ...en, status: "frozen" as const };
       }
       return en;
     },
@@ -118,7 +120,7 @@ function makeMockRepository(spec: MockRepoSpec): {
       incoming: [],
     }),
     updateLifecycle: (id: string, status?: unknown) => {
-      if (status === "archived") {
+      if (status === "frozen") {
         archivedIds.push(id);
       }
     },
@@ -206,9 +208,9 @@ describe("runCrossFileConsistency", () => {
     expect(archivedIds).toContain("E2");
   });
 
-  it("Check 2: does not re-archive already-archived target", async () => {
+  it("Check 2: does not re-archive already-frozen target", async () => {
     const newer = makeEngram("E1");
-    const older = makeEngram("E2", { status: "archived" });
+    const older = makeEngram("E2", { status: "frozen" });
     const { repo, archivedIds } = makeMockRepository({
       engrams: [newer, older],
       archivedIds: ["E2"],

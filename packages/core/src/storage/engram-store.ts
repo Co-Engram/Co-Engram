@@ -134,7 +134,7 @@ export interface EngramFrontmatter {
   readonly lastRetrievalScore?: number;
   /** 显式锁定的 freshness(优先于派生);仅当 lifecycle 工具强制切换时设置 */
   readonly forcedFreshness?: "fresh" | "aging" | "stale" | "forgotten";
-  readonly status?: "draft" | "active" | "archived" | "forgotten";
+  readonly status?: "draft" | "active" | "frozen" | "forgotten";
   readonly visibility?: EngramVisibility;
   readonly verificationStatus?: VerificationStatus;
   readonly encodingContext?: string;
@@ -257,7 +257,9 @@ const VALID_VISIBILITY = new Set<string>([
   "restricted",
 ]);
 
-const VALID_STATUS = new Set<string>(["draft", "active", "archived", "forgotten"]);
+// 兼容旧值 "archived":doctor migration 会自动迁移到 "frozen",但迁移前
+// 的数据读取仍需容忍(否则旧数据会让 readEngram 抛错)。写入永远用 "frozen"。
+const VALID_STATUS = new Set<string>(["draft", "active", "frozen", "forgotten", "archived"]);
 
 const VALID_SOURCE_TYPE = new Set<string>([
   "firsthand",

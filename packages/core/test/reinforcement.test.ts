@@ -341,7 +341,7 @@ describe("reinforceRelated", () => {
     expect(repo.readEngram(b.id).importance).toBe(0.5);
   });
 
-  it("archived 邻居不强化", () => {
+  it("frozen 邻居不强化", () => {
     const a = createEngram({ title: "A", importance: 0.5 });
     const b = createEngram({ title: "B", importance: 0.5 });
     repo.addOutgoingSynapse(a.id, {
@@ -357,7 +357,7 @@ describe("reinforceRelated", () => {
       updatedAt: "2026-06-20T00:00:00Z",
       retrievalWeight: 0.5,
     });
-    repo.updateLifecycle(b.id, "archived", undefined);
+    repo.updateLifecycle(b.id, "frozen", undefined);
     const result = reinforceRelated(repo, a.id, 0.2);
     expect(result.reinforcedNeighborIds).not.toContain(b.id);
     expect(repo.readEngram(b.id).importance).toBe(0.5);
