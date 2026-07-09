@@ -104,6 +104,10 @@ header.app-header {
   -webkit-backdrop-filter: blur(20px) saturate(140%);
   border-bottom: 1px solid var(--border);
   padding: 0.85rem 1.5rem;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.5rem;
 }
 header.app-header h1 {
   margin: 0;
@@ -172,11 +176,17 @@ header.app-header h1 {
   .brand-logo-light { display: none; }
   .brand-logo-dark { display: inline-flex; }
 }
-header.app-header nav {
+header.app-header nav.primary-nav {
   display: inline-flex;
   gap: 0.15rem;
   margin-left: 1.5rem;
   flex-wrap: wrap;
+}
+.header-tools {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
 }
 .tab {
   background: transparent;
@@ -212,8 +222,101 @@ header.app-header nav {
   background: var(--accent);
   box-shadow: 0 0 8px var(--accent);
 }
+
+/* === Proposals tab badge ===
+ * 有待审批的候选记忆时,在「记忆提案」tab 上显示带数字的脉动徽标,
+ * 引导用户进入审批。徽标复用主色(青绿)而非红色,保持页面配色克制。
+ */
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.4rem;
+  margin-left: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace;
+  color: #050816;
+  background: linear-gradient(135deg, #5eead4 0%, #38bdf8 100%);
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(10, 14, 31, 0.85), 0 0 10px rgba(94, 234, 212, 0.55);
+  animation: tab-badge-pulse 2.4s ease-in-out infinite;
+  vertical-align: middle;
+}
+.tab-badge[hidden] { display: none; }
+@keyframes tab-badge-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(10, 14, 31, 0.85), 0 0 6px rgba(94, 234, 212, 0.45); }
+  50%      { box-shadow: 0 0 0 2px rgba(10, 14, 31, 0.85), 0 0 16px rgba(94, 234, 212, 0.85); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tab-badge { animation: none; }
+}
+
+/* === 「更多」下拉菜单 ===
+ * 二级工具(merges/audit/trash/health/config/help)折叠到 header 右侧下拉,
+ * 降低主页面心智负担。点击触发器展开,外部点击/Escape/选中 tab 后自动收起。
+ */
+.more-menu {
+  position: relative;
+  display: inline-flex;
+}
+.more-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.more-menu-caret {
+  font-size: 0.7rem;
+  opacity: 0.7;
+  transition: transform .2s ease;
+}
+.more-menu.open .more-menu-caret {
+  transform: rotate(180deg);
+}
+.more-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  min-width: 12rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(94, 234, 212, 0.08);
+  padding: 0.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  z-index: 25;
+  animation: more-menu-fade .18s ease-out;
+}
+.more-menu-dropdown[hidden] { display: none; }
+@keyframes more-menu-fade {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.more-menu-dropdown .tab {
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  font-size: 0.8rem;
+  padding: 0.45rem 0.75rem;
+}
+/* 当某个二级 tab 处于 active 时,触发器上加一个圆点提示用户「当前页在更多里」 */
+.more-menu.has-active .more-menu-trigger::after {
+  content: '';
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+}
 .auth-bar {
-  margin-top: 0.6rem;
+  margin-top: 0;
   font-size: 0.78rem;
   display: flex;
   align-items: center;

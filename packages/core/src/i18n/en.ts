@@ -771,6 +771,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.help": "Help",
   "viewer.tab.merges": "Team Memory Merges",
   "viewer.tab.health": "Health",
+  "viewer.tab.more": "More",
+  "viewer.tab.more.tip": "Secondary tools: team merges, audit, trash, health, config, help",
   "viewer.tab.stats.tip": "Memory repository overview: engram/synapse counts, kind & status distributions, top contributors, popular tags",
   "viewer.tab.engrams.tip": "Browse and search all memory engrams (card view or directory view grouped by domain/kind)",
   "viewer.tab.graph.tip": "Memory synapse visualization; filter and color by family (structural/causal/evidential/temporal/modulatory) and kind",
@@ -1164,6 +1166,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.batch.acceptAllToast": "Batch accept done: ${ok} succeeded, ${fail} failed",
   "viewer.proposals.batch.dismissAllToast": "Batch dismiss done: ${ok} succeeded, ${fail} failed",
   "viewer.proposals.batch.noPending": "No pending proposals in current view to batch-operate",
+  "viewer.proposals.batch.purgeDismissed": "Purge (${n})",
+  "viewer.proposals.batch.purgeDismissedConfirm": "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
+  "viewer.proposals.batch.purgeDismissedToast": "Purged ${n} dismissed proposals",
+  "viewer.proposals.batch.purgeDismissedFailed": "Purge failed: ${err}",
+  "viewer.proposals.batch.noDismissed": "No dismissed proposals to purge",
 
   // ===== Audit panel (viewer.audit.*) =====
   "viewer.audit.filter.actor": "Actor",
@@ -1489,6 +1496,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "These toggles persist the \"desired state at next launch\" to config.json. The currently running instance is unaffected — new values take effect only after restarting ${host}.",
   "viewer.config.runtimeSection.openclawExtra":
     " In OpenClaw mode, run <code>openclaw gateway restart</code> in a terminal.",
+  "viewer.config.runtimeSection.mcpExtra":
+    " In Claude Code mode, run <code>/mcp</code> in each session and choose to reconnect co-engram (or Reload Window). If multiple Claude Code windows are open, reconnect every session — new values take effect globally only after all sessions have reconnected.",
   "viewer.config.runtime.audit": "Audit log",
   "viewer.config.runtime.audit.desc":
     "Records all API / tool invocation events",
@@ -1765,6 +1774,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "host.gateway.mcp": "MCP server",
 
   // ===== Tooltip strings (tip.*) =====
+  "tip.stats.topTags": "Top domain tags: counts how often each domainTag appears across active engrams, top 10. Each engram usually has multiple domainTags (many-to-many), so the sum of all tag counts exceeds the total engram count — this is expected, not a bug.",
   "tip.kind.fact":
     "Fact: a confirmed, independently verifiable objective statement. Example: \"The project uses PostgreSQL 14\".",
   "tip.kind.observation":

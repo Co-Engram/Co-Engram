@@ -770,6 +770,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.help": "帮助",
   "viewer.tab.merges": "团队记忆合并",
   "viewer.tab.health": "健康",
+  "viewer.tab.more": "更多",
+  "viewer.tab.more.tip": "次要工具:团队记忆合并、审计、回收站、健康、配置、帮助",
   "viewer.tab.stats.tip": "记忆库整体统计:印迹/突触数量、kind 与 status 分布、贡献者排名、热门 tag",
   "viewer.tab.engrams.tip": "浏览和搜索所有记忆印迹(卡片视图或按 domain/kind 分组的目录视图)",
   "viewer.tab.graph.tip": "记忆突触可视化图谱;按 family(结构/因果/证据/时序/调制)和 kind 着色与过滤",
@@ -1155,6 +1157,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.batch.acceptAllToast": "批量采纳完成:成功 ${ok} 条,失败 ${fail} 条",
   "viewer.proposals.batch.dismissAllToast": "批量驳回完成:成功 ${ok} 条,失败 ${fail} 条",
   "viewer.proposals.batch.noPending": "当前没有待审提案可批量操作",
+  "viewer.proposals.batch.purgeDismissed": "彻底清空(${n})",
+  "viewer.proposals.batch.purgeDismissedConfirm": "确认从磁盘物理删除 ${n} 条已驳回提案?\n\n物理删除不可恢复(audit log 仍保留)。该操作只影响 status=dismissed 的提案,不影响 pending / accepted。",
+  "viewer.proposals.batch.purgeDismissedToast": "已物理清空 ${n} 条已驳回提案",
+  "viewer.proposals.batch.purgeDismissedFailed": "清空失败:${err}",
+  "viewer.proposals.batch.noDismissed": "当前没有已驳回提案可清空",
 
   // ===== Audit 面板(viewer.audit.*) =====
   "viewer.audit.filter.actor": "发起者",
@@ -1432,6 +1439,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "这些开关把「下次启动时期望的状态」持久化到 config.json。当前正在运行的实例不会受影响——重启 ${host} 后,新值才会生效。",
   "viewer.config.runtimeSection.openclawExtra":
     " OpenClaw 模式下请在终端运行 <code>openclaw gateway restart</code>。",
+  "viewer.config.runtimeSection.mcpExtra":
+    " Claude Code 模式下,需在每个 session 内执行 <code>/mcp</code> 选择重连 co-engram(或 Reload Window);若打开了多个 Claude Code 窗口,所有 session 都要重连,新值才会全局生效。",
   "viewer.config.runtime.audit": "审计日志",
   "viewer.config.runtime.audit.desc": "记录所有 API / 工具调用事件",
   "viewer.config.runtime.proposals": "提案引擎",
@@ -1703,6 +1712,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== Tooltip 文案(tip.*)—— viewer 运行时通过 T.tip(key) 查询 =====
   // 注意:这部分中文很长,但与 viewer 运行时挂载的 TOOLTIPS 对象一一对应。
   // viewer app.ts 中 TOOLTIPS 仍是固定中文对象,后续若要做 tooltip i18n 可读这里。
+  "tip.stats.topTags": "高频领域标签:统计所有 active engram 的 domainTags 出现次数,取前 10。一个 engram 通常有多个 domainTags(多对多),所以这里所有 tag 的 count 之和会大于 engram 总数 —— 这是正常的,不是 bug。",
   "tip.kind.fact":
     "事实 (fact):被确认成立、可独立验证的客观陈述。例:「项目使用 PostgreSQL 14」。",
   "tip.kind.observation":

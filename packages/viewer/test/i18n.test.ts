@@ -107,6 +107,9 @@ const VIEWER_RUNTIME_KEYS = [
   "viewer.config.dataRootWelcomeSuggestHome",
   "viewer.config.dataRootWelcomeSuggestHidden",
   "viewer.config.dataRootWelcomeCustom",
+
+  // 「更多」下拉触发器(header 右侧收纳 6 个二级 tab)
+  "viewer.tab.more",
 ] as const;
 
 describe("viewer i18n / dictionary coverage", () => {

@@ -313,7 +313,49 @@ const CO_ENGRAM = (function() {
     document.querySelectorAll('section.tab-panel').forEach(function(s) {
       s.classList.toggle('active', s.dataset.tab === name);
     });
+    // 二级 tab 在「更多」下拉中:展开状态下切 tab 后要收起,避免遮挡内容;
+    // 同时给触发器加 .has-active 提示「当前页在更多里」(see styles.ts)。
+    var inMore = document.querySelector('#more-menu-dropdown .tab[data-tab="' + name + '"]');
+    var menu = document.getElementById('more-menu');
+    if (menu) menu.classList.toggle('has-active', !!inMore);
+    toggleMoreMenu(false);
     CO_ENGRAM.onTabEnter(name);
+  }
+
+  // === 「更多」下拉菜单切换 ===
+  // open 未传 = toggle;true/false 强制打开/关闭。aria-expanded 同步给屏幕阅读器。
+  function toggleMoreMenu(open) {
+    var menu = document.getElementById('more-menu');
+    var trigger = document.getElementById('more-menu-trigger');
+    var dropdown = document.getElementById('more-menu-dropdown');
+    if (!menu || !trigger || !dropdown) return;
+    var shouldOpen = typeof open === 'boolean' ? open : !menu.classList.contains('open');
+    menu.classList.toggle('open', shouldOpen);
+    trigger.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+    dropdown.hidden = !shouldOpen;
+  }
+
+  // === Proposals 徽标 ===
+  // 由 stats 加载完成后 + accept/dismiss 后调用。count=0 时隐藏,否则显示数字
+  // (>=100 显示 99+,避免 3 位数撑爆徽标宽度)。
+  function setProposalsBadge(count) {
+    var n = Math.max(0, count | 0);
+    document.querySelectorAll('[data-badge="proposals"]').forEach(function(b) {
+      if (n > 0) {
+        b.textContent = n > 99 ? '99+' : String(n);
+        b.hidden = false;
+      } else {
+        b.hidden = true;
+      }
+    });
+  }
+  async function refreshProposalsBadge() {
+    try {
+      var data = await apiGet('/api/stats');
+      setProposalsBadge((data && data.pendingProposals) || 0);
+    } catch (e) {
+      // /api/stats 失败时不抹掉已有徽标(可能是临时网络抖动)
+    }
   }
 
   // === Drawer (right side detail panel) ===
@@ -383,6 +425,9 @@ const CO_ENGRAM = (function() {
     showTab: showTab, openDrawer: openDrawer, closeDrawer: closeDrawer,
     clearSearch: clearSearch,
     auditActionClass: auditActionClass,
+    toggleMoreMenu: toggleMoreMenu,
+    setProposalsBadge: setProposalsBadge,
+    refreshProposalsBadge: refreshProposalsBadge,
     on: on, onTabEnter: onTabEnter
   };
 })();
@@ -401,10 +446,31 @@ document.addEventListener('DOMContentLoaded', function() {
     });
   }
 
-  // tab 点击切换
+  // tab 点击切换(跳过 more-menu-trigger,它有 .tab class 是为了复用样式,
+  // 但没有 data-tab,不能让 showTab(undefined) 把所有 panel 都置为 inactive)
   document.querySelectorAll('.tab').forEach(function(btn) {
+    if (btn.id === 'more-menu-trigger') return;
+    if (!btn.dataset.tab) return;
     btn.addEventListener('click', function() { CO_ENGRAM.showTab(btn.dataset.tab); });
   });
+
+  // 「更多」下拉:点击触发器 toggle;外部点击 / ESC 关闭。
+  // 二级 tab 本身带 .tab class,click 已由上面 handler 处理 → 切 tab 后 showTab 内部会关闭下拉。
+  var moreTrigger = document.getElementById('more-menu-trigger');
+  if (moreTrigger) {
+    moreTrigger.addEventListener('click', function(e) {
+      e.stopPropagation();
+      CO_ENGRAM.toggleMoreMenu();
+    });
+  }
+  document.addEventListener('click', function(e) {
+    var menu = document.getElementById('more-menu');
+    if (menu && !menu.contains(e.target)) CO_ENGRAM.toggleMoreMenu(false);
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') CO_ENGRAM.toggleMoreMenu(false);
+  });
+
   // 默认显示 stats
   CO_ENGRAM.showTab('stats');
 

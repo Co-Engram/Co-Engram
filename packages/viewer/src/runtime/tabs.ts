@@ -119,12 +119,18 @@ CO_ENGRAM.on('stats', async function() {
   }
 
   if (tagArr.length) {
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
+    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTags') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
     tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#c084fc'); });
     html += '</div>';
   }
 
   el.innerHTML = html;
+
+  // stats 已经拉到 pendingProposals,顺手更新「记忆提案」tab 上的徽标。
+  // 进 stats tab 是用户主动查看全局状态的场景,徽标同步这里最自然。
+  if (typeof CO_ENGRAM.setProposalsBadge === 'function') {
+    CO_ENGRAM.setProposalsBadge(data.pendingProposals || 0);
+  }
 });
 
 // ============================================================
@@ -1047,9 +1053,18 @@ window.CO_ENGRAM_PROPOSALS = {
     const STATUS_KEY = { pending: 'viewer.proposals.status.pending', accepted: 'viewer.proposals.status.accepted', dismissed: 'viewer.proposals.status.dismissed', all: 'viewer.proposals.status.all' };
     const statusLabel = (s) => T.t(STATUS_KEY[s] || 'viewer.proposals.status.pending');
 
+    // Bug 5: 从 last response 取 statusCounts,让按钮显示「已采纳(N) / 已驳回(N) / 全部(N)」。
+    // 后端 GET /api/proposals 已注入该字段(proposal-engine.ts statusCounts())。
+    const lastResp = pager.getLastResponse() || {};
+    const statusCounts = (lastResp && lastResp.statusCounts) || {};
+    const countFor = (s) => {
+      const n = statusCounts[s];
+      return (typeof n === 'number') ? ' (' + n + ')' : '';
+    };
+
     const buttons = ['pending', 'accepted', 'dismissed', 'all'].map(s =>
       '<button class="tab ' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
-      + CO_ENGRAM.escapeHtml(statusLabel(s)) + '</button>'
+      + CO_ENGRAM.escapeHtml(statusLabel(s) + countFor(s)) + '</button>'
     ).join('');
 
     // 客户端虚拟分页(2026-07):与 engrams tab 同款翻页模式。
@@ -1074,16 +1089,27 @@ window.CO_ENGRAM_PROPOSALS = {
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.dismissAll', { n: visiblePending.length })) + '</button>'
       : '';
 
+    // Bug 6:已驳回 tab 显示「彻底清空(N)」按钮 —— 把 dismissed 提案从磁盘 proposals.json 物理删除
+    // 仅在 currentStatus=dismissed 且确实有 dismissed 提案时显示;物理删除不可恢复,需 confirm
+    const dismissedCount = (typeof statusCounts.dismissed === 'number') ? statusCounts.dismissed : 0;
+    const purgeBtn = (currentStatus === 'dismissed' && dismissedCount > 0)
+      ? '<button class="btn mini" style="margin-left:0.25rem" onclick="CO_ENGRAM_PROPOSALS.purgeDismissed()">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeDismissed', { n: dismissedCount })) + '</button>'
+      : '';
+
     let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
-      + batchBtns + '</div>';
+      + batchBtns + purgeBtn + '</div>';
     if (!items.length) {
       // pending 用 emptyHint（「系统在后台观察」教育性提示）；其他 tab 用 empty 反映 filter（如「没有 已采纳 提案」），避免 emptyHint 在 accepted/dismissed 下暗示「新提案会出现在这里」造成误导。
       const emptyText = currentStatus === 'pending'
         ? T.t('viewer.proposals.emptyHint')
         : T.t('viewer.proposals.empty', { status: statusLabel(currentStatus) });
+      // Bug 7(2026-07):空状态提示居中 —— 给 inner div 加 margin:0 auto,
+      // 让 max-width:480px 的盒子本身在 .empty 容器里水平居中(原来只对齐文字,
+      // 盒子在宽容器里仍贴左,视觉不居中)。
       html += '<div class="empty"><div class="icon">🌱</div>'
-        + '<div style="color:var(--fg-muted);font-size:0.95rem;max-width:480px;text-align:center">' + CO_ENGRAM.escapeHtml(emptyText) + '</div>'
+        + '<div style="color:var(--fg-muted);font-size:0.95rem;max-width:480px;margin:0 auto;text-align:center">' + CO_ENGRAM.escapeHtml(emptyText) + '</div>'
         + '</div>';
     } else {
       html += '<div class="grid cols-3">';
@@ -1260,6 +1286,7 @@ window.CO_ENGRAM_PROPOSALS = {
       CO_ENGRAM.closeDrawer();
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
+      if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
       const engramId = r && r.engramId ? r.engramId : '';
       alert(T.t('viewer.proposals.acceptedToast') + (engramId ? '\\n' + T.t('viewer.proposals.createdEngramToast', { id: engramId }) : ''));
     } catch (e) { alert(T.t('viewer.proposals.acceptFailed', { err: (e.message || e) })); }
@@ -1303,6 +1330,7 @@ window.CO_ENGRAM_PROPOSALS = {
     }
     CO_ENGRAM._proposalsLoaded = false;
     await this.render(document.getElementById('proposals-content'));
+    if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
     const summary = T.t('viewer.proposals.batch.acceptAllToast', { ok, fail })
       + (errors.length ? '\\n\\n' + errors.slice(0, 5).join('\\n') : '');
     alert(summary);
@@ -1339,9 +1367,39 @@ window.CO_ENGRAM_PROPOSALS = {
     }
     CO_ENGRAM._proposalsLoaded = false;
     await this.render(document.getElementById('proposals-content'));
+    if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
     const summary = T.t('viewer.proposals.batch.dismissAllToast', { ok, fail })
       + (errors.length ? '\\n\\n' + errors.slice(0, 5).join('\\n') : '');
     alert(summary);
+  },
+
+  /**
+   * 物理清空所有已驳回的 proposal(2026-07 新增 — Bug 6)
+   *
+   * 与 dismissAllLoaded 的关键差别:
+   *   - dismissAllLoaded:把 visible 内 pending 标记为 dismissed(软删除,proposals.json 仍保留)
+   *   - purgeDismissed:把所有 status=dismissed 的 proposal 从 proposals.json 物理删除
+   *
+   * 高 blast radius:物理删除不可恢复(audit log 保留),需 confirm 对话框。
+   * 调用后端 POST /api/proposals/purge-dismissed,后端走 proposalEngine.purgeDismissed()。
+   * 删除完成后 reload pager,trigger statusCounts 刷新(按钮上数字归零)。
+   */
+  async purgeDismissed() {
+    const T = CO_ENGRAM_T;
+    const lastResp = CO_ENGRAM._proposalsPager ? CO_ENGRAM._proposalsPager.getLastResponse() : null;
+    const dismissedCount = (lastResp && lastResp.statusCounts && typeof lastResp.statusCounts.dismissed === 'number')
+      ? lastResp.statusCounts.dismissed : 0;
+    if (!dismissedCount) { alert(T.t('viewer.proposals.batch.noDismissed')); return; }
+    if (!confirm(T.t('viewer.proposals.batch.purgeDismissedConfirm', { n: dismissedCount }))) return;
+
+    try {
+      const resp = await CO_ENGRAM.apiJson('/api/proposals/purge-dismissed', 'POST', {});
+      CO_ENGRAM._proposalsLoaded = false;
+      await this.render(document.getElementById('proposals-content'));
+      alert(T.t('viewer.proposals.batch.purgeDismissedToast', { n: resp.purgedCount || 0 }));
+    } catch (e) {
+      alert(T.t('viewer.proposals.batch.purgeDismissedFailed', { err: (e.message || e) }));
+    }
   },
 
   async dismissFromForm() {
@@ -1354,6 +1412,7 @@ window.CO_ENGRAM_PROPOSALS = {
       CO_ENGRAM.closeDrawer();
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
+      if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
     } catch (e) { alert(T.t('viewer.proposals.dismissFailed', { err: (e.message || e) })); }
   },
 
@@ -2419,7 +2478,6 @@ window.CO_ENGRAM_CONFIG = {
     const isPlugin = hostType === 'openclaw-plugin';
     const HOST_LABEL = isPlugin ? T.t('host.label.openclaw') : T.t('host.label.mcp');
     const HOST_PARENT = isPlugin ? T.t('host.process.openclaw') : T.t('host.process.mcp');
-    const HOST_SUPPORTS_RESTART = !isPlugin;
 
     const LANG_LABEL = { zh: T.t('viewer.common.langZh'), en: T.t('viewer.common.langEn') };
     const langOptions = Object.keys(LANG_LABEL).map(k => '<option value="' + k + '"' + (persisted.language === k ? ' selected' : '') + '>' + LANG_LABEL[k] + '</option>').join('');
@@ -2476,7 +2534,7 @@ window.CO_ENGRAM_CONFIG = {
 
     html += '<div class="config-section">';
     html += '<h3>' + T.t('viewer.config.sectionRuntime') + '</h3>';
-    html += '<div class="info-banner" style="margin-bottom:.8rem">' + T.t('viewer.config.runtimeSection.hint', { host: HOST_LABEL }) + (HOST_SUPPORTS_RESTART ? '' : T.t('viewer.config.runtimeSection.openclawExtra')) + '</div>';
+    html += '<div class="info-banner" style="margin-bottom:.8rem">' + T.t('viewer.config.runtimeSection.hint', { host: HOST_LABEL }) + (isPlugin ? T.t('viewer.config.runtimeSection.openclawExtra') : T.t('viewer.config.runtimeSection.mcpExtra')) + '</div>';
     html += toggle('cf-audit', T.t('viewer.config.runtime.audit'), T.t('viewer.config.runtime.audit.desc'), runtime.auditEnabled, persisted.audit?.enabled, true);
     html += toggle('cf-proposals', T.t('viewer.config.runtime.proposals'), T.t('viewer.config.runtime.proposals.desc'), runtime.proposalEnabled, persisted.proposals?.enabled, true);
     html += toggle('cf-maintenance', T.t('viewer.config.runtime.maintenance'), T.t('viewer.config.runtime.maintenance.desc'), runtime.maintenanceEnabled, persisted.maintenance?.enabled, true);

@@ -49,11 +49,17 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     : "";
   const authPlaceholder = t(language, "viewer.auth.placeholder");
 
-  const tabs = [
+  // 主导航:用户最高频使用,直接显示在 header 中部。
+  // proposals 带徽标:有待处理提案时显示数字,引导用户审批。
+  const primaryTabs = [
     ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
     ["engrams", t(language, "viewer.tab.engrams"), t(language, "viewer.tab.engrams.tip")],
     ["graph", t(language, "viewer.tab.graph"), t(language, "viewer.tab.graph.tip")],
     ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip")],
+  ] as const;
+
+  // 二级工具:低频但必要,折叠到右侧「更多」下拉,降低主页面心智负担。
+  const secondaryTabs = [
     ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip")],
     ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip")],
     ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip")],
@@ -62,12 +68,21 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip")],
   ] as const;
 
-  const tabButtons = tabs
+  const primaryTabButtons = primaryTabs
+    .map(([id, label, tip]) => {
+      if (id === "proposals") {
+        return `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}<span class="tab-badge" data-badge="proposals" hidden>0</span></button>`;
+      }
+      return `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}</button>`;
+    })
+    .join("\n      ");
+
+  const secondaryTabButtons = secondaryTabs
     .map(
       ([id, label, tip]) =>
         `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}</button>`,
     )
-    .join("\n      ");
+    .join("\n        ");
 
   return `<!DOCTYPE html>
 <html lang="${language}">
@@ -92,14 +107,25 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
         <span class="brand-slogan">${slogan}</span>
       </div>
     </div>
-    <nav>
-      ${tabButtons}
+    <nav class="primary-nav">
+      ${primaryTabButtons}
     </nav>
-    ${
-      options.tokenRequired
-        ? `<div class="auth-bar">${authPrompt} <input id="token-input" type="password" placeholder="${authPlaceholder}"/></div>`
-        : ""
-    }
+    <div class="header-tools">
+      <div class="more-menu" id="more-menu">
+        <button class="tab more-menu-trigger" id="more-menu-trigger" aria-haspopup="true" aria-expanded="false" title="${t(language, "viewer.tab.more.tip").replace(/"/g, "&quot;")}">
+          <span>${t(language, "viewer.tab.more")}</span>
+          <span class="more-menu-caret" aria-hidden="true">▾</span>
+        </button>
+        <div class="more-menu-dropdown" id="more-menu-dropdown" role="menu" hidden>
+          ${secondaryTabButtons}
+        </div>
+      </div>
+      ${
+        options.tokenRequired
+          ? `<div class="auth-bar">${authPrompt} <input id="token-input" type="password" placeholder="${authPlaceholder}"/></div>`
+          : ""
+      }
+    </div>
   </header>
 
   <main>
