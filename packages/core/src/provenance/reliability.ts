@@ -20,6 +20,7 @@
 import type { EngramRepository } from "../storage/repository.js";
 import type { VerificationStatus } from "../types/engram.js";
 import type { LearningOutcome } from "../learning/loop.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 单来源 reliability 派生结果 */
 export interface SourceReliability {
@@ -227,7 +228,7 @@ export function applyProvenanceSignal(
   options: { config?: Partial<ProvenanceConfig> } = {},
 ): ProvenanceSignalResult {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
   const cfg: ProvenanceConfig = {
     ...DEFAULT_PROVENANCE_CONFIG,

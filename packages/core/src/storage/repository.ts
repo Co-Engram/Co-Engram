@@ -130,6 +130,7 @@ import type { DigestLine } from "../index/types.js";
 import type { SearchFilter } from "../types/disclosure.js";
 import { deriveHalfLifeDays } from "../importance/dynamics.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** Repository 配置 */
 export interface RepositoryConfig {
@@ -634,10 +635,21 @@ export class EngramRepository {
     if (this.dataRebuildTimer) clearTimeout(this.dataRebuildTimer);
     this.dataRebuildTimer = setTimeout(() => {
       this.dataRebuildTimer = undefined;
+      // 删除方向:清理「index 有但文件被外部 rm」的孤儿 entry。
+      // 不依赖 externalMarkdownHook —— 索引一致性是基础保证。
+      // 必须放在 scanForExternalMarkdown 之前:若同一文件既被 rm 又被 cp
+      // 回来(罕见 race),先清孤儿再检测新增,顺序符合「先减后加」语义。
+      try {
+        this.scanForDeletedEngrams();
+      } catch {
+        // 扫描失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
+      }
+      // 新增方向:检测「.md 存在但 index 无」的新文件,通知 host 走提案审批。
+      // 依赖 externalMarkdownHook:无 hook 时 noop。
       try {
         this.scanForExternalMarkdown();
       } catch {
-        // 扫描失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
+        // 同上
       }
     }, 2000);
   }
@@ -697,6 +709,68 @@ export class EngramRepository {
         this.externalMarkdownHook({ absPath, relPath, raw, parsed });
       } catch {
         // hook 内部异常不影响其他文件的通知
+      }
+    }
+  }
+
+  /**
+   * 扫描 engram-index.json 中所有 entry,检测「index 有记录但磁盘文件已不存在」
+   * 的孤儿,逐条复用 deleteEngram 清理(engram-index.json + SQLite + synapse +
+   * truthPaths cache 一致更新)。
+   *
+   * 触发场景:用户 / 外部进程绕过 deleteEngram 直接删除 .md 文件
+   * (rm / git rm / rsync --delete / IDE 删除 等)。dataWatcher 监听到 .md 变化
+   * 后由 scheduleDataScan 触发本方法,2 秒 debounce 合并批量事件。
+   *
+   * 与 scanForExternalMarkdown 的对称关系:
+   *   - scanForExternalMarkdown:处理「新增」方向(.md 存在,index 无)→ 走
+   *     externalMarkdownHook 提案审批(安全:防止 untrusted .md 投毒)
+   *   - scanForDeletedEngrams:处理「删除」方向(index 有,.md 不存在)→
+   *     直接清,不需要 hook 审批(删除是减少,与新增方向相反,无投毒风险)
+   *
+   * 不依赖 externalMarkdownHook:即使 host 未启用外部提案(未设 hook),删除
+   * 同步依然生效。索引一致性是基础保证,不应因 host 配置缺失而破坏。
+   *
+   * 性能:O(|index|) existsSync 调用,1000 engram ~ 1-5ms。
+   * 失败语义:单条 deleteEngram 异常不阻塞其他孤儿,try/catch 静默吞错,
+   * 下次扫描重试。幂等:已清的 entry 下次扫描时不在 index 中,自然跳过。
+   *
+   * Bug 历史(2026-07 用户报告):用户从 shell 直接 rm 了 .md 文件后,
+   * viewer 列表/统计栏仍显示该 engram(SQLite indexDb 与 engram-index.json
+   * 均未同步),点击详情 404(走文件读取)。根因:dataWatcher 故意不写
+   * index(防 untrusted 投毒),只处理「新增」方向走 hook,「删除」方向
+   * 完全未处理。本方法补齐删除方向的自动同步。
+   */
+  private scanForDeletedEngrams(): void {
+    // 直接读 index.json(不调 getIndex —— getIndex 在 index.json 缺失时会
+    // 触发 rebuildIndex,把所有合法 .md 灌入,污染孤儿判定)。
+    // index.json 损坏时 readEngramIndex 抛错,catch 后跳过本次扫描。
+    let index: EngramIndexMap;
+    try {
+      index = readEngramIndex(this.config.rootPath);
+    } catch {
+      return;
+    }
+    const root = this.config.rootPath;
+    // 先收集 orphans 再清理:虽然这里 index 是 readEngramIndex 的快照,
+    // deleteEngram 不会修改它,但先收集让语义更清晰。
+    const orphans: StableEngramId[] = [];
+    for (const [id, entry] of index.entries) {
+      // path 校验:理论上是 trusted,但 doctor 自愈后可能含异常路径
+      if (!isPathWithinRoot(root, entry.path)) continue;
+      const absPath = safeJoinWithinRoot(root, entry.path);
+      if (!existsSync(absPath)) {
+        orphans.push(id);
+      }
+    }
+    for (const id of orphans) {
+      try {
+        // 复用 deleteEngram 的完整清理流程。deleteEngramFile 已 idempotent
+        // (existsSync 检查),文件不存在时 noop,后续 SQLite/synapse/cache
+        // 步骤照常执行。
+        this.deleteEngram(id);
+      } catch {
+        // 部分清理失败不阻塞其他孤儿,下次扫描重试
       }
     }
   }
@@ -924,7 +998,7 @@ export class EngramRepository {
   readEngram(stableId: string): Engram {
     const relativePath = this.resolvePath(stableId);
     if (!relativePath) {
-      throw new Error(`Engram not found: ${stableId}`);
+      throw notFoundError("Engram", stableId);
     }
     // resolvePath 已校验路径在 root 内,这里再防御一次
     const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
@@ -954,7 +1028,7 @@ export class EngramRepository {
   updateEngram(stableId: string, input: EngramUpdateInput): Engram {
     const relativePath = this.resolvePath(stableId);
     if (!relativePath) {
-      throw new Error(`Engram not found: ${stableId}`);
+      throw notFoundError("Engram", stableId);
     }
     const absolutePath = join(this.config.rootPath, relativePath);
     const oldFile = readEngramFile(absolutePath);
@@ -2091,7 +2165,7 @@ export class EngramRepository {
       (s) => s.id === synapseId,
     );
     if (!target) {
-      throw new Error(`Synapse not found: ${synapseId} (from ${fromId})`);
+      throw notFoundError("Synapse", synapseId, `from engram ${fromId}`);
     }
 
     const nextKind = input.kind ?? target.kind;
@@ -2317,7 +2391,7 @@ export class EngramRepository {
       (s) => s.id === synapseId,
     );
     if (!target) {
-      throw new Error(`Synapse not found: ${synapseId} (from ${fromId})`);
+      throw notFoundError("Synapse", synapseId, `from engram ${fromId}`);
     }
     const updated: Synapse = {
       ...target,
@@ -2345,7 +2419,7 @@ export class EngramRepository {
       (s) => s.id === synapseId,
     );
     if (!target) {
-      throw new Error(`Synapse not found: ${synapseId} (from ${fromId})`);
+      throw notFoundError("Synapse", synapseId, `from engram ${fromId}`);
     }
     const updated: Synapse = {
       ...target,
@@ -2373,7 +2447,7 @@ export class EngramRepository {
       (s) => s.id === synapseId,
     );
     if (!target) {
-      throw new Error(`Synapse not found: ${synapseId} (from ${fromId})`);
+      throw notFoundError("Synapse", synapseId, `from engram ${fromId}`);
     }
     const path = join(
       this.config.rootPath,

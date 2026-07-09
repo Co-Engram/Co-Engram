@@ -23,6 +23,7 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { EngramId, VerificationStatus } from "../types/engram.js";
 import type { VerificationEvidence } from "../generative/hypothesis.js";
 import { canTransition } from "./state-machine.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 升级条件配置 */
 export interface VerificationConditionConfig {
@@ -172,7 +173,7 @@ export function checkUpgradeEligibility(
   const nowIso = options.nowIso ?? new Date().toISOString();
 
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
 
   const engram = repo.readEngram(engramId);
@@ -357,7 +358,7 @@ export function upgradeVerification(
   } = {},
 ): UpgradeVerificationResult {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
 
   const engram = repo.readEngram(engramId);

@@ -24,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import type { EngramRepository } from "../storage/repository.js";
 import type { Engram, EngramId, VerificationStatus } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** collectSources 返回的精简结构(只含调用方实际使用的字段) */
 type SourceEngram = {
@@ -398,7 +399,7 @@ export function verifyHypothesis(
   options: { nowIso?: string } = {},
 ): VerifyHypothesisResult {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
   const nowIso = options.nowIso ?? new Date().toISOString();
   const engram = repo.readEngram(engramId);

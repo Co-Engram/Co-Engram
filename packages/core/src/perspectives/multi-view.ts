@@ -15,6 +15,7 @@
 import type { EngramRepository } from "../storage/repository.js";
 import type { EngramKind, EngramId } from "../types/engram.js";
 import type { SynapseResolutionState } from "../types/synapse.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 单条 contradicts 视图 */
 export interface ContradictingView {
@@ -59,7 +60,7 @@ export function gatherContradictingViews(
   engramId: EngramId,
 ): MultiViewBundle {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
 
   const views: ContradictingView[] = [];

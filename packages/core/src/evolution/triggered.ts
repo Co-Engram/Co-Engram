@@ -19,6 +19,7 @@
 import type { EngramRepository } from "../storage/repository.js";
 import type { EngramKind, EngramId } from "../types/engram.js";
 import { randomUUID } from "node:crypto";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 触发式进化的默认配置 */
 export interface TriggeredEvolutionConfig {
@@ -116,7 +117,7 @@ export function onEngramCreated(
 ): TriggeredEvolutionResult {
   const startMs = Date.now();
   if (!repo.exists(newEngramId)) {
-    throw new Error(`Engram not found: ${newEngramId}`);
+    throw notFoundError("Engram", newEngramId);
   }
   const cfg: TriggeredEvolutionConfig = {
     ...DEFAULT_TRIGGERED_CONFIG,

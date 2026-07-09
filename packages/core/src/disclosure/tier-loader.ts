@@ -28,6 +28,7 @@ import type {
 import type { Synapse } from "../types/synapse.js";
 import type { EngramRepository } from "../storage/repository.js";
 import { estimateTokens } from "./budget.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /**
  * 视图大小估算（单位：token）
@@ -81,12 +82,12 @@ export function loadView(
   switch (tier) {
     case "catalog": {
       const entry = repo.readCatalogEntry(id);
-      if (!entry) throw new Error(`Engram not found: ${id}`);
+      if (!entry) throw notFoundError("Engram", id);
       return { tier: "catalog", entry };
     }
     case "digest": {
       const digest = repo.readDigest(id);
-      if (!digest) throw new Error(`Engram not found: ${id}`);
+      if (!digest) throw notFoundError("Engram", id);
       return { tier: "digest", digest };
     }
     case "content": {
@@ -107,7 +108,7 @@ export function loadView(
     }
     case "synapses": {
       const entry = repo.readCatalogEntry(id);
-      if (!entry) throw new Error(`Engram not found: ${id}`);
+      if (!entry) throw notFoundError("Engram", id);
       const outgoingFile = repo.readSynapses(id);
       const incoming = collectIncoming(repo, id);
       const neighborDigests = collectNeighborDigests(

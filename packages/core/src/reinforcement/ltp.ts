@@ -23,6 +23,7 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { Engram } from "../types/engram.js";
 import { updateOnReinforce } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 export interface LtpResult {
   readonly id: string;
@@ -60,7 +61,7 @@ export function recordRetrievalSuccess(
     throw new Error(`effectiveness must be in [0,1], got ${effectiveness}`);
   }
   if (!repo.exists(id)) {
-    throw new Error(`Engram not found: ${id}`);
+    throw notFoundError("Engram", id);
   }
   const current = repo.readEngram(id).importance;
   const next = updateOnReinforce(current, effectiveness);
@@ -128,7 +129,7 @@ export function reinforceEngram(
   } = {},
 ): { id: string; importanceDelta: number; importance: number } {
   if (!repo.exists(id)) {
-    throw new Error(`Engram not found: ${id}`);
+    throw notFoundError("Engram", id);
   }
   if (amount < 0) {
     throw new Error(`amount must be >= 0, got ${amount}`);

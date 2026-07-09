@@ -28,6 +28,7 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { Engram } from "../types/engram.js";
 import { updateOnReportFailure } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 export interface LtdResult {
   readonly id: string;
@@ -62,7 +63,7 @@ export function recordRetrievalFailure(
   nowIso: string = new Date().toISOString(),
 ): LtdResult {
   if (!repo.exists(id)) {
-    throw new Error(`Engram not found: ${id}`);
+    throw notFoundError("Engram", id);
   }
   if (archiveThreshold < 1 || forgetThreshold < archiveThreshold) {
     throw new Error(

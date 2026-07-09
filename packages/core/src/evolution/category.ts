@@ -24,6 +24,7 @@
 
 import type { EngramKind } from "../types/engram.js";
 import type { EngramRepository } from "../storage/repository.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 // ============================================================
 // 进化链定义
@@ -238,7 +239,7 @@ export function upgradeEngramKind(
   input: UpgradeKindInput,
 ): UpgradeKindResult {
   if (!repo.exists(input.id)) {
-    throw new Error(`Engram not found: ${input.id}`);
+    throw notFoundError("Engram", input.id);
   }
   const old = repo.readEngram(input.id);
   if (!isUpgradeAllowed(old.kind, input.newKind)) {

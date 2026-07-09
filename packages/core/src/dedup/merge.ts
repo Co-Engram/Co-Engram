@@ -15,6 +15,7 @@
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { MergeHistoryEntry } from "./types.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 export interface MergeInput {
   readonly id: string;
@@ -46,7 +47,7 @@ export function mergeEngram(
   input: MergeInput,
 ): MergeResult {
   if (!repo.exists(input.id)) {
-    throw new Error(`Engram not found: ${input.id}`);
+    throw notFoundError("Engram", input.id);
   }
   const old = repo.readEngram(input.id);
   const newContent = input.newContent ?? old.content;

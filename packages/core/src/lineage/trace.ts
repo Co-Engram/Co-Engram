@@ -22,6 +22,7 @@
 import type { EngramRepository } from "../storage/repository.js";
 import type { EngramId, EngramKind } from "../types/engram.js";
 import type { SynapseKind } from "../types/synapse.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 血统 synapse kind 集合 */
 export const LINEAGE_KINDS: ReadonlySet<SynapseKind> = new Set<SynapseKind>([
@@ -140,7 +141,7 @@ export function getEvolutionLineage(
   options: GetLineageOptions = {},
 ): EvolutionLineage {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
 
   const direction = options.direction ?? "both";

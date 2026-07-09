@@ -30,6 +30,7 @@ import type { SynapseKind } from "../types/synapse.js";
 import type { AuditLog } from "../observability/audit-log.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
 import { reinforceEngram } from "./ltp.js"; // 无循环依赖：ltp.ts 不 import related.ts
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 不应该被强化的 synapse 类型（矛盾关系） */
 const NEGATIVE_KINDS: ReadonlySet<SynapseKind> = new Set<SynapseKind>([
@@ -84,7 +85,7 @@ export function reinforceRelated(
   options: ReinforceRelatedOptions = {},
 ): ReinforceRelatedResult {
   if (!repo.exists(engramId)) {
-    throw new Error(`Engram not found: ${engramId}`);
+    throw notFoundError("Engram", engramId);
   }
   if (baseImportanceDelta < 0) {
     // LTD 不应触发 Hebbian 强化（避免反向放大失败）
