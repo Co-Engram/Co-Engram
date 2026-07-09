@@ -266,4 +266,139 @@ describe("SqliteSearchOrchestrator", () => {
     // 罕见词 IDF 高,bm25 分数应该明显非零
     expect(results[0]!.score).toBeGreaterThan(0);
   });
+
+  // ============================================================
+  // AI-9 真正修复:score 归一化到 [0, 1]
+  // ============================================================
+  // 历史缺陷:sqlite-orchestrator.ts 直接透传 -bm25_value(正数,无上界),
+  // 实测 engram_search MCP 工具返回 score=26.6,违反 SimpleSearchResult
+  // 注释承诺的"严格 ∈ [0, 1]"。修复后,SQLite 路径除以本批 max,让 top hit = 1.0。
+  describe("AI-9 score 归一化到 [0, 1]", () => {
+    it("FTS 多命中:top hit score = 1.0,其他 ≤ 1.0", () => {
+      db.upsertEngram({
+        id: "high-bm25",
+        title: "唯一罕见词 alpha 出现在这里",
+        kind: "fact",
+        importance: 0.5,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "罕见词 alpha 内容",
+      });
+      db.upsertEngram({
+        id: "low-bm25",
+        title: "罕见词 alpha 也出现在这里但 IDF 低",
+        kind: "fact",
+        importance: 0.5,
+        confidence: 0.8,
+        updatedAt: 2,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "罕见词 alpha 重复 alpha alpha",
+      });
+      const orchestrator = new SqliteSearchOrchestrator({ db });
+      const { results } = orchestrator.search("罕见词 alpha");
+      expect(results.length).toBeGreaterThanOrEqual(2);
+      // top hit 归一化后应为 1.0(允许浮点误差)
+      expect(results[0]!.score).toBeCloseTo(1.0, 5);
+      // 所有 score ∈ [0, 1]
+      for (const r of results) {
+        expect(r.score).toBeGreaterThanOrEqual(0);
+        expect(r.score).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it("LIKE 兜底路径:所有 score = 0(无相关度信号,不归一化)", () => {
+      // 1-2 字符 query 走 LIKE,LIKE 不算 bm25,score 恒为 0
+      db.upsertEngram({
+        id: "short-query-hit",
+        title: "中",
+        kind: "fact",
+        importance: 0.5,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "",
+      });
+      const orchestrator = new SqliteSearchOrchestrator({ db });
+      const { results } = orchestrator.search("中");
+      if (results.length > 0) {
+        // LIKE 路径 maxScore=0,所有 score 保留 0
+        for (const r of results) {
+          expect(r.score).toBe(0);
+        }
+      }
+    });
+
+    it("单 hit:top hit score = 1.0(自己除自己)", () => {
+      db.upsertEngram({
+        id: "solo-hit",
+        title: "独特组合词xyz abc",
+        kind: "fact",
+        importance: 0.5,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "独特组合词xyz abc 内容",
+      });
+      const orchestrator = new SqliteSearchOrchestrator({ db });
+      const { results } = orchestrator.search("独特组合词xyz");
+      expect(results.length).toBe(1);
+      expect(results[0]!.score).toBeCloseTo(1.0, 5);
+    });
+
+    it("postFilter 过滤掉原 top hit:剩余结果按次高归一化", () => {
+      db.upsertEngram({
+        id: "top-but-filtered",
+        title: "独特查询词xyz 出现在 high importance",
+        kind: "fact",
+        importance: 0.9,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        // 用 domainTags 做过滤:这条 tag 不同,会被 postFilter 排除
+        domainTags: ["filtered-tag"],
+        summary: "",
+        contentTokens: "独特查询词xyz",
+      });
+      db.upsertEngram({
+        id: "second-best",
+        title: "独特查询词xyz 出现在另一条",
+        kind: "fact",
+        importance: 0.5,
+        confidence: 0.8,
+        updatedAt: 2,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: ["kept-tag"],
+        summary: "",
+        contentTokens: "独特查询词xyz",
+      });
+      const orchestrator = new SqliteSearchOrchestrator({ db });
+      const { results: filtered } = orchestrator.search("独特查询词xyz", {
+        filter: { domainTags: ["kept-tag"] },
+      });
+      expect(filtered.length).toBe(1);
+      // 过滤后 maxScore 基于 second-best 自己 → 归一化为 1.0
+      expect(filtered[0]!.score).toBeCloseTo(1.0, 5);
+    });
+  });
 });

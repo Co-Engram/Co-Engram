@@ -79,12 +79,32 @@ export class SqliteSearchOrchestrator {
 
     const filtered = this.applyPostFilter(rows, opts.filter);
 
+    // AI-9 真正修复:把 SQLite bm25 的 -bm25_value(正数,无上界)归一化到 [0, 1]。
+    //
+    // 历史缺陷:之前直接透传 -bm25_value,实测 engram_search 返回 score=26.6,
+    // 远超 SimpleSearchResult 注释承诺的"严格 ∈ [0, 1]"。这是 plan AI-9 硬门
+    // "score 归一化到 [0, 1]"的真未完成投影 —— in-memory SearchOrchestrator.search
+    // 已归一化,SQLite 路径跳过了。
+    //
+    // 归一化策略(与 in-memory 路径一致):除以本批 max,让 top hit = 1.0,
+    // 其他按比例缩放。排序不变(max 是 top hit,归一化后仍 = 1.0 ≥ 其他)。
+    //
+    // 边界:
+    //   - LIKE 路径所有 score=0 → maxScore=0 → 保留 0(无相关度信号,正确)
+    //   - FTS 召回 0 条 fallback 到 LIKE → 同上
+    //   - applyPostFilter 过滤掉原 top hit → 基于过滤后的次高归一化(正确)
+    //
+    // 语义损失:丢失 bm25 绝对强度信号(查询 A top=10 vs 查询 B top=2 归一化后
+    // 都 1.0)。换取:与 in-memory 路径行为一致 + 用户可读的 [0,1] 区间 + LLM
+    // 能跨查询比较"这条 top hit 比那条 top hit 相关度 0.9 vs 0.6"。
+    const maxScore = filtered.reduce(
+      (m, r) => (r.score > m ? r.score : m),
+      0,
+    );
+
     const results: SimpleSearchResult[] = filtered.map((r) => ({
       id: r.id,
-      // AI-9: SQLite bm25 返回的 score 是 -bm25_value(正数,无上界),
-      // 不在 [0, 1] 区间。当前 Phase 2 保留原始 bm25 数值(让排序语义清晰),
-      // 上层工具层负责 clamp/解释。后续 Phase 3 三因子融合后会归一化。
-      score: r.score,
+      score: maxScore > 0 ? r.score / maxScore : 0,
       entry: {
         id: r.id,
         title: r.title,
