@@ -20,6 +20,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   atomicWriteFile,
@@ -254,5 +255,54 @@ describe("verifyDerivedIntegrity", () => {
       graph: readFileSync(graphPath, "utf8"),
     };
     expect(after).toEqual(before);
+  });
+
+  // AI-2 ESM require 回归锁定(2026-07):countMarkdownFiles 历史用 require("node:fs")
+  // 在 ESM 运行时是 ReferenceError,被 try/catch 静默吞掉,返回 0。导致所有
+  // sourceFileCount > 0 的检查(missing_graph / missing_digest / count_drift)被跳过,
+  // verifyDerivedIntegrity 形同虚设。vitest 的 esbuild transform 对 require 做 CJS interop,
+  // 单元测试无法捕获 —— 此测试用 dynamic import 加载已构建的 dist,模拟生产 ESM 路径。
+  it("ESM 回归:dist/transactional-write.js 不含 require() 调用(纯 ESM)", async () => {
+    const distPath = fileURLToPath(
+      new URL("../dist/storage/transactional-write.js", import.meta.url),
+    );
+    if (!existsSync(distPath)) {
+      // dist 未构建时跳过(单元测试环境常如此)
+      console.warn("[skip] dist/storage/transactional-write.js 未构建,跳过 ESM 回归检查");
+      return;
+    }
+    const source = readFileSync(distPath, "utf8");
+    // 允许注释里出现 require,但禁止实际调用:require( 后跟 " 或 '
+    const requireCalls = source.match(/\brequire\s*\(\s*["']/g);
+    expect(requireCalls, `dist 含 require 调用:${requireCalls?.join(", ")}`).toBeNull();
+  });
+
+  it("ESM 回归:dist/transactional-write.js 能在纯 ESM 环境正确数 markdown 文件", async () => {
+    const distPath = fileURLToPath(
+      new URL("../dist/storage/transactional-write.js", import.meta.url),
+    );
+    if (!existsSync(distPath)) {
+      console.warn("[skip] dist 未构建,跳过 ESM 回归验证");
+      return;
+    }
+    // 在临时 dataRoot 下放 3 个 .md
+    const root = mkdtempSync(join(tmpdir(), "co-engram-esm-regression-"));
+    try {
+      writeFileSync(join(root, "a.md"), "---\ntitle: A\n---\nbody");
+      writeFileSync(join(root, "b.md"), "---\ntitle: B\n---\nbody");
+      mkdirSync(join(root, ".co-engram"), { recursive: true });
+      // dynamic import dist —— 触发 ESM 路径(而非 vitest 的 src transform)
+      const dist = await import(distPath);
+      const report = dist.verifyDerivedIntegrity(root);
+      // 修复前:sourceFileCount=0(require bug)→ status=ok(跳过所有 source>0 检查)
+      // 修复后:sourceFileCount=2 → 触发 missing_index / missing_digest / missing_graph warning
+      expect(report.sourceFileCount).toBe(2);
+      expect(report.status).toBe("warning");
+      expect(report.issues.some((i) => i.kind === "missing_index")).toBe(true);
+      expect(report.issues.some((i) => i.kind === "missing_digest")).toBe(true);
+      expect(report.issues.some((i) => i.kind === "missing_graph")).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
