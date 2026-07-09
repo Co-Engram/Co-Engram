@@ -817,6 +817,12 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.stats.total": "Total engrams",
   "viewer.health.stats.archived": "Archived",
   "viewer.health.stats.forgotten": "Forgotten",
+  "viewer.health.stats.totalTip":
+    "Total engrams in the warehouse (active + archived + forgotten). Shares the same data source as the Stats tab totalEngrams (/api/status -> computeStatus), so the numbers match. If you see different numbers on the two tabs it is usually a stale HTML in the browser cache (fixed via Cache-Control: no-store).",
+  "viewer.health.stats.archivedTip":
+    "Engrams in the archived status: no longer participate in retrieval but can still be restored to active. Source: demoted via dismiss/contradiction or long without reinforcement.",
+  "viewer.health.stats.forgottenTip":
+    "Engrams in the forgotten status: equivalent to a soft delete, visible in the trash, restorable or purge-able. The web UI delete button writes this status (no immediate physical delete).",
 
   // Health-tab warn/error meaning (viewer.health.why.<checkId>)
   "viewer.health.why.data_root_missing": "Data root does not exist; co-engram cannot read or write any memory. Every tool call will fail.",
@@ -870,6 +876,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.fixKind.missing_file": "Cleared stale index entry",
   "viewer.health.doctor.fixKind.obsidian_view_stale": "Synced Obsidian view",
   "viewer.health.doctor.fixKind.dangling_index_reference": "Cleaned dangling refs to deleted engrams in derived indexes",
+  "viewer.health.doctor.fixKind.invalid_frontmatter": "YAML syntax error in frontmatter",
+  "viewer.health.doctor.fixKind.invalid_field_value": "Invalid frontmatter field value",
+  "viewer.health.doctor.fixKind.derived_field_stale": "Recomputed stale derived field (content hash/size)",
   "viewer.search.placeholder": "Full-text search engrams...",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",
@@ -1081,6 +1090,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.stats.totalEngramsTip":
     "Total = active + archived + forgotten (all rows in main index). Restoring a forgotten/archived item from trash increments active count but leaves total unchanged — the engram was already in the repository.",
   "viewer.stats.activeEngrams": "active",
+  "viewer.stats.archivedCount": "archived/forgotten",
   "viewer.stats.totalSynapses": "Total synapses",
   "viewer.stats.pendingProposals": "Pending proposals",
   "viewer.stats.clickToViewAll": "Click to view all",

@@ -816,6 +816,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.stats.total": "记忆总数",
   "viewer.health.stats.archived": "已归档",
   "viewer.health.stats.forgotten": "已遗忘",
+  "viewer.health.stats.totalTip":
+    "仓库内全部记忆印迹数量(含活跃 + 已归档 + 已遗忘),与统计栏 totalEngrams 共享同一数据源 /api/status → computeStatus,数值一致。若你在两边看到不同数字,通常是浏览器缓存了旧 HTML(已加 Cache-Control: no-store 修复)。",
+  "viewer.health.stats.archivedTip":
+    "处于 archived 状态的记忆:不再参与检索,但仍可恢复为 active。来源:通过 dismiss/contradiction 或长时间未强化自动降级。",
+  "viewer.health.stats.forgottenTip":
+    "处于 forgotten 状态的记忆:相当于软删除,在回收站可见,可恢复或永久清空。Web UI 删除按钮即写入此状态(不立即物理删除)。",
 
   // 健康栏 warn/error 含义说明(viewer.health.why.<checkId>)
   "viewer.health.why.data_root_missing": "数据根目录不存在,co-engram 无法读写任何记忆。所有工具调用都会失败。",
@@ -869,6 +875,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.doctor.fixKind.missing_file": "已清除失效索引项",
   "viewer.health.doctor.fixKind.obsidian_view_stale": "已同步 Obsidian 视图",
   "viewer.health.doctor.fixKind.dangling_index_reference": "已清理派生索引中对已删 engram 的悬空引用",
+  "viewer.health.doctor.fixKind.invalid_frontmatter": "frontmatter 中存在 YAML 语法错误",
+  "viewer.health.doctor.fixKind.invalid_field_value": "frontmatter 字段值非法",
+  "viewer.health.doctor.fixKind.derived_field_stale": "已重算过期的派生字段(内容哈希/大小)",
   "viewer.search.placeholder": "全文检索记忆印迹...",
   "viewer.search.button": "搜索",
   "viewer.search.clear": "清空",
@@ -1074,6 +1083,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.totalEngramsTip":
     "总数 = 活跃 + 已归档 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已归档」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
   "viewer.stats.activeEngrams": "活跃",
+  "viewer.stats.archivedCount": "归档/遗忘",
   "viewer.stats.totalSynapses": "记忆突触总数",
   "viewer.stats.pendingProposals": "待审提案",
   "viewer.stats.clickToViewAll": "点击查看全部",

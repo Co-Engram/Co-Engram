@@ -152,6 +152,23 @@ function scheduleGraphRebuild(repo: EngramRepository): void {
 }
 
 /**
+ * 读 engram,失败返回 undefined(不抛)。
+ * 用于 post-check:updateLifecycle / deleteEngram 后校验状态是否真的变了,
+ * 任何异常(文件被外部 rm / parse 失败)都视为"状态没变"以触发 fail-loud。
+ */
+function safeReadEngram(
+  repo: EngramRepository,
+  id: string,
+): { status: string } | undefined {
+  try {
+    const e = repo.readEngram(id);
+    return e ? { status: e.status } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * 启动 Viewer HTTP server
  *
  * 端口解析优先级:
@@ -304,9 +321,15 @@ function handleRequest(
     if (path === "/" && req.method === "GET") {
       const html = renderSpaHtml({ tokenRequired: !!token, language });
       const buf = Buffer.from(html, "utf8");
+      // no-store:viewer HTML 内联所有 JS(build 后 ~1.2MB),浏览器默认 heuristic 会
+      // 缓存旧版,导致用户部署新 dist 后看到旧 UI(2026-07 多次反馈:audit 不显日志
+      // / 健康栏总数对不上,实测 API 数据均正常,根因是浏览器缓存)。强制每次校验。
       res.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
         "Content-Length": buf.length,
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        Pragma: "no-cache",
+        Expires: "0",
       });
       res.end(buf);
       return;
@@ -472,23 +495,35 @@ async function routeApi(
       return;
     }
     if (req.method === "DELETE") {
-      ctx.repository.deleteEngram(id);
-      // F1 fail-loud 契约(与 engram_delete 工具一致):post-check 验证删除生效。
-      // 防止跨进程 race / index 不一致时 deleteEngram 静默 noop 导致 viewer
-      // 谎报成功(用户报告的真实 bug:删除后网页仍显示该 engram)。
-      if (ctx.repository.exists(id)) {
-        respondJson(
-          res,
-          500,
-          {
-            error: `engram ${id} still exists after deleteEngram (race condition or index/file inconsistency — run engram_doctor to self-heal)`,
-          },
-        );
+      // 2026-07 改造:网页 DELETE 走 forget 路径(标 status=forgotten,文件保留),
+      // 而不是 deleteEngram(硬删)。用户期望"删除进回收站、可恢复";deleteEngram
+      // 直接删文件,既不进 .trash/,也不留 forgotten 状态,导致 listTrashedSimple
+      // (扫 .trash/ + 查 forgotten/archived 状态)看不到。走 forget 后,网页删除 =
+      // 软删除,可在回收站恢复;真硬删由回收站 purgeAll 负责。
+      if (!ctx.repository.exists(id)) {
+        respondJson(res, 404, { error: `Not found: ${id}` });
         return;
       }
-      // 删除后 graph.json 同步重建(节点减少)
+      ctx.repository.updateLifecycle(id, "forgotten", "forgotten");
+      // Fail-loud post-check:updateLifecycle 静默 noop(race / 不一致 / 被拦截)
+      // 时,engram 仍是 active 状态 → 不能返回伪成功。让用户知道要 engram_doctor。
+      const post = safeReadEngram(ctx.repository, id);
+      if (!post || post.status !== "forgotten") {
+        respondJson(res, 500, {
+          error:
+            "still exists as active after updateLifecycle — run `engram_doctor` to self-heal",
+          id,
+        });
+        return;
+      }
+      ctx.auditLog?.append({
+        actor: "user",
+        action: "forget",
+        engramId: id,
+        metadata: { reason: "viewer-delete" },
+      });
       scheduleGraphRebuild(ctx.repository);
-      respondJson(res, 200, { deleted: true, id });
+      respondJson(res, 200, { deleted: true, id, softDelete: true });
       return;
     }
     respondJson(res, 405, { error: `Method not allowed: ${req.method}` });
@@ -898,6 +933,9 @@ async function routeApi(
     partitionsRemoved.push(...sweptResult.partitionsRemoved);
 
     // (2) soft forgotten/archived
+    // 双路径:SQLite 可用时 O(N) 查询;不可用时(legacy / 旧 Node)走 readEngram 循环。
+    // listTrashedSimple 早有 readEngram fallback,但旧 DELETE 漏掉,导致无 indexDb
+    // 时 count=0(2026-07 用户反馈"永久清空全部"不生效,实测根因之一)。
     const softStatuses =
       partition === "forgotten"
         ? ["forgotten"]
@@ -906,12 +944,29 @@ async function routeApi(
           : (!partition || /^\d{4}-\d{2}$/.test(partition)
               ? ["forgotten", "archived"]
               : []);
-    if (softStatuses.length > 0 && ctx.repository.indexDb) {
-      const placeholder = softStatuses.map(() => "?").join(",");
-      const rows = ctx.repository.indexDb
-        .prepare(`SELECT id FROM engrams WHERE status IN (${placeholder})`)
-        .all(...softStatuses) as { id: string }[];
-      for (const r of rows) {
+    if (softStatuses.length > 0) {
+      let softRows: { id: string }[] = [];
+      if (ctx.repository.indexDb) {
+        const placeholder = softStatuses.map(() => "?").join(",");
+        softRows = ctx.repository.indexDb
+          .prepare(`SELECT id FROM engrams WHERE status IN (${placeholder})`)
+          .all(...softStatuses) as { id: string }[];
+      } else {
+        // legacy fallback:扫 listEngrams + readEngram 取 status
+        for (const entry of ctx.repository.listEngrams()) {
+          try {
+            const full = ctx.repository.readEngram(entry.id);
+            if (
+              softStatuses.includes(full.status as "forgotten" | "archived")
+            ) {
+              softRows.push({ id: entry.id });
+            }
+          } catch {
+            // 跳过读不出的项
+          }
+        }
+      }
+      for (const r of softRows) {
         if (dryRun) {
           purgedIds.push(r.id);
         } else {

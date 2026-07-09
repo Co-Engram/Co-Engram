@@ -66,17 +66,14 @@ CO_ENGRAM.on('stats', async function() {
   const contribArr = data.topContributors || [];
   const contribMax = contribArr.length ? Math.max(1, ...contribArr.map(c => c.total || 0)) : 1;
 
-  // 记忆印迹总数:活跃 + 归档/遗忘 同时显示,匹配用户心智
-  // (2026-07 修复:用户从回收站恢复一条 forgotten 后,活跃数 +1,总数不变;
-  // 之前只显示总数,用户误以为"恢复失效"。现在活跃数显式可见。)
+  // 记忆印迹总数:KPI 值只显总数(标签写的就是"总数",出现 769/914 双数字让用户
+  // 误以为格式坏了——2026-07 用户反馈)。活跃/归档拆解放到 sub,信息不丢但视觉干净。
   const totalEngrams = data.totalEngrams || 0;
   const activeEngrams = data.activeEngrams != null ? (data.activeEngrams || 0) : (data.byStatus?.active || 0);
   const archivedCount = (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
-  const engramsKpiValue = (archivedCount > 0)
-    ? activeEngrams + ' <span style="color:var(--fg-muted);font-size:0.85em">/ ' + totalEngrams + '</span>'
-    : String(totalEngrams);
+  const engramsKpiValue = String(totalEngrams);
   const engramsKpiSub = (archivedCount > 0)
-    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.clickToViewAll')
+    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.archivedCount') + ' ' + archivedCount + ' · ' + T.t('viewer.stats.clickToViewAll')
     : T.t('viewer.stats.clickToViewAll');
 
   let html = '<div class="kpi-grid">'
@@ -1329,7 +1326,7 @@ CO_ENGRAM.on('audit', async function() {
   const T = CO_ENGRAM_T;
   const filterBar = '<div class="filter-bar">'
     + '<label>' + T.t('viewer.audit.filter.actor') + ' <select id="audit-actor" onchange="CO_ENGRAM_AUDIT.applyFilter()">'
-    + '<option value="">' + T.t('viewer.audit.actorAll') + '</option><option value="user">' + T.t('viewer.audit.actorUser') + '</option><option value="llm">' + T.t('viewer.audit.actorLlm') + '</option><option value="system">' + T.t('viewer.audit.actorSystem') + '</option></select></label>'
+    + '<option value="">' + T.t('viewer.audit.actorAll') + '</option><option value="user" title="' + T.t('viewer.audit.actorTip.user') + '">' + T.t('viewer.audit.actorUser') + '</option><option value="llm" title="' + T.t('viewer.audit.actorTip.llm') + '">' + T.t('viewer.audit.actorLlm') + '</option><option value="system" title="' + T.t('viewer.audit.actorTip.system') + '">' + T.t('viewer.audit.actorSystem') + '</option></select></label>'
     + '<label>' + T.t('viewer.audit.filter.category') + ' <select id="audit-cat" onchange="CO_ENGRAM_AUDIT.applyFilter()">'
     + '<option value="">' + T.t('viewer.audit.catAll') + '</option>'
     + '<option value="state">' + T.t('viewer.audit.catState') + '</option>'
@@ -1459,43 +1456,98 @@ window.CO_ENGRAM_AUDIT = {
     const tl = document.getElementById('audit-timeline');
     if (!tl) return;
     if (!filtered.length) {
+      this._auditPage = 0;
       tl.innerHTML = '<div class="empty"><div class="icon">—</div>' + CO_ENGRAM_T.t('viewer.audit.empty') + '</div>';
       return;
     }
 
+    // 客户端虚拟分页(每页 50,与 engrams tab 一致),替代旧"加载更多"按钮。
+    // audit 数据量通常上千条,全量渲染会让 DOM 节点爆炸;分页 + 翻到边界自动扩容
+    // 是 engrams tab 已验证过的模式。详见 CO_ENGRAM_ENGRAMS 的 pager 实现。
+    const PAGE_SIZE = 50;
+    const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+    if (this._auditPage >= totalPages) this._auditPage = totalPages - 1;
+    if (this._auditPage < 0) this._auditPage = 0;
+    const currentPage = this._auditPage;
+    const startIdx = currentPage * PAGE_SIZE;
+    const pageItems = filtered.slice(startIdx, startIdx + PAGE_SIZE);
+
     const tFiltered = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
     const ACTOR_LETTER = { user: 'U', llm: 'L', system: 'S' };
-    // 把 _existingIds 提到外层一次性算好(2026-07 优化):
-    // 旧实现 renderRow 内每行都重新 'this._existingIds || new Set()',300 行 fallback
-    // 300 次 new Set(),触发 GC 压力。提到 applyFilter 顶层传闭包引用,每行 Set.has 是 O(1)。
+    // 把 _existingIds 提到外层一次性算好(2026-07 优化):每行 Set.has 是 O(1)。
     const existingIds = this._existingIds || new Set();
-    // renderRow 是 hot path:缓存最近的 N 条结果(同 row 在分页/过滤切换时复用)
-    // 但 audit entry 是 append-only + 不会重复渲染同一对象引用,memoize 收益小,
-    // 不引入。降级为直接调用,保证内存可预测。
-    let html = filtered.slice(0, 300).map(e => {
+    let html = pageItems.map(e => {
       return CO_ENGRAM_AUDIT.renderRow(e, ACTOR_LETTER, existingIds);
     }).join('');
     const tRendered = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    if (filtered.length > 300) {
-      html += '<div class="muted" style="text-align:center;padding:0.5rem">仅显示前 300 条过滤结果(共 ' + filtered.length + ' 条匹配,加载更多可扩大范围)</div>';
-    }
-    if (CO_ENGRAM._auditPager && CO_ENGRAM._auditPager.hasMore()) {
-      const items = CO_ENGRAM._auditPager.getItems();
-      const total = CO_ENGRAM._auditPager.getTotal();
-      html += '<div class="load-more-row" style="text-align:center;padding:1rem 0">'
-        + '<button class="btn" onclick="CO_ENGRAM_AUDIT.loadMore()">加载更多(已加载 ' + items.length + ' / 共 ' + total + ')</button></div>';
-    }
+
+    // pager nav:prev / 页码信息 / next。next 到边界时 nextPage 自动 await pager.loadMore() 扩容。
+    const hasMoreServer = !!(CO_ENGRAM._auditPager && CO_ENGRAM._auditPager.hasMore());
+    const atLastClientPage = currentPage >= totalPages - 1;
+    const hint = hasMoreServer ? ' ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.loadingHint')) : '';
+    const prevDisabled = currentPage === 0 ? ' disabled' : '';
+    const nextDisabled = (atLastClientPage && !hasMoreServer) ? ' disabled' : '';
+    html += '<div class="pager-nav" style="text-align:center;padding:1rem 0;display:flex;justify-content:center;align-items:center;gap:0.4rem;flex-wrap:wrap">'
+      + '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_AUDIT.prevPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.prev')) + '</button>'
+      + '<span class="pager-info" style="color:var(--muted,#666);font-size:0.85em">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.pageInfo', { current: currentPage + 1, total: totalPages, itemTotal: filtered.length })) + hint + '</span>'
+      + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_AUDIT.nextPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.next')) + '</button>'
+      + '</div>';
     tl.innerHTML = html;
     const tEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    // 显示 timing 到 #audit-timing(若存在),让用户能直接看到「filter Xms · render Yms · DOM Zms」
+    // timing instrument:默认隐藏,localStorage.auditDebug === '1' 才显示。
+    // 用户反馈"filter/render/DOM 意义不明",生产 UI 不该暴露这种内部性能指标。
+    const showTiming = (() => { try { return localStorage.getItem('auditDebug') === '1'; } catch { return false; } })();
     const timingEl = document.getElementById('audit-timing');
     if (timingEl) {
-      const filterMs = (tFiltered - tStart).toFixed(1);
-      const renderMs = (tRendered - tFiltered).toFixed(1);
-      const domMs = (tEnd - tRendered).toFixed(1);
-      timingEl.textContent = '⏱ filter ' + filterMs + 'ms · render ' + renderMs + 'ms · DOM ' + domMs + 'ms';
-      timingEl.style.display = 'inline-flex';
+      if (showTiming) {
+        const filterMs = (tFiltered - tStart).toFixed(1);
+        const renderMs = (tRendered - tFiltered).toFixed(1);
+        const domMs = (tEnd - tRendered).toFixed(1);
+        timingEl.textContent = '⏱ filter ' + filterMs + 'ms · render ' + renderMs + 'ms · DOM ' + domMs + 'ms';
+        timingEl.style.display = 'inline-flex';
+      } else {
+        timingEl.style.display = 'none';
+      }
     }
+  },
+
+  /** 上一页 */
+  prevPage() {
+    if (this._auditPage > 0) {
+      this._auditPage--;
+      this.applyFilter();
+    }
+  },
+
+  /**
+   * 下一页。若已到当前已加载 _cache 的边界,且 server pager 还有更多数据,
+   * 自动 await pager.loadMore() 扩容后再翻页。
+   */
+  async nextPage() {
+    const cache = this._cache || [];
+    const PAGE_SIZE = 50;
+    const totalPages = Math.max(1, Math.ceil(cache.length / PAGE_SIZE));
+    const atLastClientPage = this._auditPage >= totalPages - 1;
+    if (atLastClientPage) {
+      const pager = CO_ENGRAM._auditPager;
+      if (pager && pager.hasMore()) {
+        try { await pager.loadMore(); }
+        catch (e) { alert('加载更多失败:' + (e.message || e)); return; }
+        this._cache = pager.getItems().slice();
+        this._renderStats();
+      } else {
+        return;
+      }
+    }
+    this._auditPage++;
+    this.applyFilter();
+  },
+
+  /** action 按钮 label:i18n 翻译,缺翻译时 fallback 到原始 action 字符串 */
+  _actionLabel(action) {
+    const key = 'viewer.audit.actionLabel.' + action;
+    const t = CO_ENGRAM_T.t(key);
+    return t === key ? action : t;
   },
 
   /** 点击 action 标签 → 按该 action 精确过滤;再次点同一个 → 清除 */
@@ -1625,7 +1677,7 @@ window.CO_ENGRAM_AUDIT = {
     return '<div class="timeline-row audit-row">'
       + '<span class="ts" title="' + tsFull + '">' + ts + '</span>'
       + '<span class="actor-icon ' + e.actor + '" title="' + CO_ENGRAM.escapeHtml(actorTip) + '">' + actorLetter + '</span>'
-      + '<button type="button" class="' + actionBtnClass + '" title="' + CO_ENGRAM.escapeHtml(actionTip) + T.t('viewer.audit.filterActionHint') + '" onclick="CO_ENGRAM_AUDIT.filterByAction(\\'' + CO_ENGRAM.escapeHtml(e.action) + '\\')">' + CO_ENGRAM.escapeHtml(e.action) + '</button>'
+      + '<button type="button" class="' + actionBtnClass + '" title="' + CO_ENGRAM.escapeHtml(actionTip) + T.t('viewer.audit.filterActionHint') + '" onclick="CO_ENGRAM_AUDIT.filterByAction(\\'' + CO_ENGRAM.escapeHtml(e.action) + '\\')">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_AUDIT._actionLabel(e.action)) + '</button>'
       + targetCell
       + '<div class="metadata audit-meta-cell">' + metaHtml + '</div>'
       + '</div>';
@@ -1976,13 +2028,16 @@ window.CO_ENGRAM_TRASH = {
     const part = byPartition && filterSel ? filterSel.value : '';
     const scope = part ? T.t('viewer.trash.purgeAllScopePartition', { p: part }) : T.t('viewer.trash.purgeAllScopeAll');
     // 先 dryRun 看看会删多少条
+    // 注意:dryRun 走 GET /api/trash(GF 方式无副作用),返回 { total, results, nextCursor }
+    // 旧实现读 preview.count,但 GET 响应没有 count 字段 → 永远 0 → 提前 return "已空",
+    // 让"永久清空全部"按钮看起来无效(2026-07 用户多次反馈)。现按 total / results.length 兜底。
     let preview;
     try {
-      const url = '/api/trash?limit=500&dryRun=1' + (part ? '&partition=' + encodeURIComponent(part) : '');
+      const url = '/api/trash?limit=500' + (part ? '&partition=' + encodeURIComponent(part) : '');
       preview = await CO_ENGRAM.apiGet(url);
     } catch (e) { alert(T.t('viewer.trash.prescanFailed', { err: e.message || String(e) })); return; }
 
-    const n = preview.count || 0;
+    const n = preview.total ?? (preview.results && preview.results.length) ?? preview.count ?? 0;
     if (n === 0) { alert(T.t('viewer.trash.purgeEmpty')); return; }
     if (!confirm(T.t('viewer.trash.purgeConfirm1', { scope, n }))) return;
     if (!confirm(T.t('viewer.trash.purgeConfirm2', { scope, n }))) return;
@@ -2032,12 +2087,15 @@ CO_ENGRAM.on('health', async function() {
     + '<dt>' + CO_ENGRAM.escapeHtml(T.t('viewer.health.generatedAt')) + '</dt><dd>' + CO_ENGRAM.escapeHtml(snap.generatedAt) + '</dd>'
     + '</dl>';
 
-  // 统计快览
+  // 统计快览(2026-07 加 title 悬停说明:用户反馈"3 个数字意义不明 + 总数与统计栏对不上")
   if (snap.stats) {
+    const healthKpi = (label, value, tipKey) => '<div class="kpi" title="' + CO_ENGRAM.escapeHtml(T.t(tipKey)).replaceAll('"', '&quot;') + '">'
+      + '<div class="kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>'
+      + '<div class="kpi-value">' + (value ?? 0) + '</div></div>';
     html += '<div class="kpi-grid" style="margin-top:1rem">'
-      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.total')) + '</div><div class="kpi-value">' + (snap.stats.total ?? 0) + '</div></div>'
-      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.archived')) + '</div><div class="kpi-value">' + (snap.stats.archived ?? 0) + '</div></div>'
-      + '<div class="kpi"><div class="kpi-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.health.stats.forgotten')) + '</div><div class="kpi-value">' + (snap.stats.forgotten ?? 0) + '</div></div>'
+      + healthKpi(T.t('viewer.health.stats.total'), snap.stats.total, 'viewer.health.stats.totalTip')
+      + healthKpi(T.t('viewer.health.stats.archived'), snap.stats.archived, 'viewer.health.stats.archivedTip')
+      + healthKpi(T.t('viewer.health.stats.forgotten'), snap.stats.forgotten, 'viewer.health.stats.forgottenTip')
       + '</div>';
   }
   html += '</div>';

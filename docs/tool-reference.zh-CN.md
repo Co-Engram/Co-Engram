@@ -452,7 +452,10 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 | `orphan_markdown`  | ⚠️        | 没有 frontmatter 的 Markdown 文件。仓库约定文档(`README.md` / `LICENSE.md` / `CONTRIBUTING.md` / `CHANGELOG.md` / `CODE_OF_CONDUCT.md` / `SECURITY.md`,大小写不敏感)可豁免。其他文件请删除,或添加带有稳定 id 的 frontmatter。 |
 | `dangling_synapse` | ⚠️        | synapse 引用了一个已不存在的 engram;请人工清理或恢复该 engram。                                                                                                                                                               |
 | `duplicate_id`     | ⚠️        | 两个 engram 文件共用同一个 ULID。请人工为其中一个分配新的 ULID。                                                                                                                                                              |
-| `duplicate_engram` | ⚠️        | 两个 engram 的标题/内容非常相似;可考虑用 `consolidates` synapse 进行整合。                                                                                                                                                    |
+| `duplicate_engram`        | ⚠️        | 两个 engram 的标题/内容非常相似;可考虑用 `consolidates` synapse 进行整合。                                                                                                                                                    |
+| `invalid_frontmatter`     | ⚠️        | frontmatter 中存在 YAML 语法错误(与 `orphan_markdown` 分开报告)。需手动修复:重新解析该文件的 YAML。                                                                                                                          |
+| `invalid_field_value`     | ⚠️/✅     | frontmatter 字段值非法(类型错误/超范围/枚举值非法/格式畸形/必填缺失/未知字段)。部分子类自动修复(数值夹紧到 `[0,1]`、未知字段移除);其余需用 `engram_update` 修正对应字段。详见 `message` 与 `nextAction`。 |
+| `derived_field_stale`     | ✅        | `contentHash` / `contentSize` 相对正文已过期;已自动重算。                                                                                                                                                                     |
 
 所有 `message` 字符串均为英文(便于国际化)。LLM 看到的工具描述则通过 `LLM_TOOL_DESCRIPTIONS` 提供双语版本。
 
