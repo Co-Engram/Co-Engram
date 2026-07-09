@@ -43,6 +43,7 @@ import {
   type NecessityVerdict,
 } from "./necessity-evaluator.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -384,7 +385,7 @@ export class ProposalEngine {
     const proposals = this.readProposals();
     const target = proposals.find((p) => p.entityId === entityId);
     if (!target) {
-      throw new Error(`Proposal not found: ${entityId}`);
+      throw notFoundError("Proposal", entityId);
     }
 
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
@@ -811,7 +812,7 @@ export class ProposalEngine {
     const proposals = this.readProposals();
     const target = proposals.find((p) => p.entityId === entityId);
     if (!target) {
-      throw new Error(`Proposal not found: ${entityId}`);
+      throw notFoundError("Proposal", entityId);
     }
 
     const days = dismissDays ?? this.config.defaultDismissDays ?? 0;

@@ -27,6 +27,7 @@ import {
   DEFAULT_CONFIG,
   type ReinforcementConfig,
 } from "../reinforcement/config.js";
+import { notFoundError } from "../tools/error-schema.js";
 
 /** 使用结果分类 */
 export type LearningOutcome = "success" | "failure" | "partial";
@@ -110,7 +111,7 @@ export function closeLearningLoop(
   } = {},
 ): CloseLearningLoopResult {
   if (!repo.exists(input.engramId)) {
-    throw new Error(`Engram not found: ${input.engramId}`);
+    throw notFoundError("Engram", input.engramId);
   }
   const config = options.config ?? DEFAULT_CONFIG;
   const archiveThreshold =
