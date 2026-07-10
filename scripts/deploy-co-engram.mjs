@@ -4,10 +4,12 @@
  *
  * 起因(2026-07):co-engram 是跨宿主插件,改源码后部署链路长且易错:
  *   1. 删 tsbuildinfo(防半刷新)
- *   2. build core / viewer / openclaw-plugin
+ *   2. build core / viewer / openclaw-plugin / claude-code-mcp
  *   3. verify i18n dist 一致性(防 src/dict drift)
  *   4. cp dist 到 ~/.openclaw/npm/node_modules/@co-engram/{core,viewer,openclaw}/dist
  *      (openclaw sync-deps 在 real-copy 状态下 noop,不可靠)
+ *      + (--cli-global) cp 到 /opt/nodejs/lib/node_modules/@co-engram/claude-code/
+ *        {dist + node_modules/@co-engram/{core,viewer}/dist}
  *   5. openclaw gateway restart
  *   6. 等待加载完成 + 健康检查
  *
@@ -26,7 +28,7 @@
  * @module co-engram/scripts/deploy-co-engram
  */
 import { spawn } from "node:child_process";
-import { rm, readdir, stat, cp } from "node:fs/promises";
+import { rm, readdir, stat, cp, readFile, symlink, readlink, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -36,13 +38,23 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 const HOME = homedir();
 
+// buildAll: 全部参与 buildPackages()
+// openclawDeploy: 是否 cp 到 OpenClaw npm node_modules(claude-code-mcp 不部署到 OpenClaw,
+//   只走 CLI global 路径;但仍需 build 以保证 cli-global cp 拿到最新 dist)
 const PACKAGES = [
-  { name: "@co-engram/core", filter: "@co-engram/core", src: "packages/core" },
-  { name: "@co-engram/viewer", filter: "@co-engram/viewer", src: "packages/viewer" },
+  { name: "@co-engram/core", filter: "@co-engram/core", src: "packages/core", openclawDeploy: true },
+  { name: "@co-engram/viewer", filter: "@co-engram/viewer", src: "packages/viewer", openclawDeploy: true },
   {
     name: "@co-engram/openclaw",
     filter: "@co-engram/openclaw",
     src: "packages/openclaw-plugin",
+    openclawDeploy: true,
+  },
+  {
+    name: "@co-engram/claude-code",
+    filter: "@co-engram/claude-code", // 注意:package name 是 @co-engram/claude-code,目录是 claude-code-mcp
+    src: "packages/claude-code-mcp",
+    openclawDeploy: false,
   },
 ];
 
@@ -115,10 +127,18 @@ async function deleteTsbuildinfo() {
 }
 
 async function buildPackages() {
-  log("步骤 2/6: build core / viewer / openclaw-plugin...");
+  log("步骤 2/6: build core / viewer / openclaw-plugin / claude-code-mcp...");
   for (const pkg of PACKAGES) {
     log(`  → pnpm --filter ${pkg.filter} build`);
-    await run("pnpm", ["--filter", pkg.filter, "build"]);
+    const result = await run("pnpm", ["--filter", pkg.filter, "build"]);
+    // pnpm 在「No projects matched」时 exit 0(quirk),必须显式检查输出
+    // 否则 filter 名错会静默跳过 build,只看到旧 dist 存在就报成功(fail-silent 反模式)
+    const combined = result.stdout + result.stderr;
+    if (combined.includes("No projects matched")) {
+      throw new Error(
+        `${pkg.name}: pnpm filter "${pkg.filter}" 未匹配任何项目(检查 package.json 的 name 字段)`,
+      );
+    }
     const distPath = join(ROOT, pkg.src, "dist");
     if (!existsSync(distPath)) {
       throw new Error(`${pkg.name}: build 后 ${distPath} 不存在`);
@@ -142,6 +162,7 @@ async function cpDistToOpenclaw() {
     );
   }
   for (const pkg of PACKAGES) {
+    if (!pkg.openclawDeploy) continue; // claude-code-mcp 跳过
     const src = join(ROOT, pkg.src, "dist");
     // openclaw 包目录名:packages/openclaw-plugin 对应 @co-engram/openclaw,
     // 其他包名与目录名一致(core→core, viewer→viewer)
@@ -188,11 +209,54 @@ async function cpDistToCliGlobal() {
   ];
   for (const t of targets) {
     if (!existsSync(t.src)) {
-      throw new Error(`${t.label}: src 不存在 ${t.src}(是否忘了 build claude-code-mcp?)`);
+      throw new Error(`${t.label}: src 不存在 ${t.src}(buildPackages 应已构建,请检查)`);
     }
     await rm(t.dst, { recursive: true, force: true });
     await cp(t.src, t.dst, { recursive: true });
     log(`  ✓ ${t.label}`);
+  }
+  // sync bin symlinks:cp dist 不会触发 npm 重链接,新加的 bin(如 co-engram-mcp-daemon)
+  // 需手动创建 symlink,读 package.json bin 字段循环同步
+  const pkgJson = JSON.parse(
+    await readFile(join(ROOT, "packages", "claude-code-mcp", "package.json"), "utf8"),
+  );
+  const binField = pkgJson.bin || {};
+  const BIN_DIR = "/opt/nodejs/bin";
+  // 从 BIN_DIR 到 CLI_GLOBAL_ROOT/dist/<entry> 的相对路径
+  // BIN_DIR = /opt/nodejs/bin, CLI_GLOBAL_ROOT = /opt/nodejs/lib/node_modules/@co-engram/claude-code
+  // 相对:../lib/node_modules/@co-engram/claude-code/<entry>
+  for (const [binName, entry] of Object.entries(binField)) {
+    if (typeof entry !== "string") continue;
+    const entryRel = entry.replace(/^\.\//, "");
+    const symlinkPath = join(BIN_DIR, binName);
+    const target = join(
+      "..",
+      "lib",
+      "node_modules",
+      "@co-engram",
+      "claude-code",
+      entryRel,
+    );
+    let needCreate = false;
+    try {
+      const existing = await readlink(symlinkPath);
+      if (existing !== target) {
+        await rm(symlinkPath, { force: true });
+        needCreate = true;
+      }
+    } catch {
+      needCreate = true;
+    }
+    if (needCreate) {
+      await symlink(target, symlinkPath);
+      log(`  ✓ bin symlink: ${binName} → ${target}`);
+    }
+    // tsc 不保留 src 的 +x 权限,dist/*.js 默认 0644;bin 入口需要可执行
+    // npm publish 时会自动加 +x,但 cp dist 不触发 npm 机制,手动补
+    const targetAbs = join(CLI_GLOBAL_ROOT, entryRel);
+    if (existsSync(targetAbs)) {
+      await chmod(targetAbs, 0o755);
+    }
   }
 }
 
