@@ -36,14 +36,16 @@ import {
 export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
   name: "synapse_create",
   description:
-    '在两个 Engram 之间创建 Synapse（连接）。自动更新双方的 incoming/outgoing 缓存。createdBy 可选,缺省时回退到 ToolContext.defaultCreatedBy,再缺省回退到 "unknown"。',
+    '在两个 Engram 之间创建 Synapse(连接)。自动更新双方的 incoming/outgoing 缓存。createdBy 由系统从 git config 解析(与 engram_create 对齐),LLM 传入的值会被忽略。',
   inputSchema: SynapseCreateInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<SynapseCreateToolInput>(
       SynapseCreateInputSchema,
       input,
     );
-    const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+    // createdBy 完全由系统决定(2026-07 修复,与 engram_create 对齐)
+    void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
+    const createdBy = ctx.defaultCreatedBy ?? "unknown";
 
     // 校验端点存在
     if (!ctx.repository.exists(parsed.from)) {

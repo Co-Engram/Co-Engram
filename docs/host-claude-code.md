@@ -104,7 +104,7 @@ All optional. See the [Configuration section of the main README](../README.md#co
 Key ones:
 
 - `CO_ENGRAM_DATA_ROOT` — **must be absolute path** to the data Git repo
-- `CO_ENGRAM_DEFAULT_CREATED_BY` — default value for `engram_create.createdBy` / `synapse_create.createdBy` when the caller omits it. Priority: this env var > `team-memory.json`'s `defaultCreatedBy` field (written by `co-engram init`) > **local git identity (`user.name` → `user.email`)** > final fallback `'unknown'`. Set this to your username/email if you want to override the auto-detected git identity.
+- `CO_ENGRAM_DEFAULT_CREATED_BY` — fallback for `createdBy` (2026-07: `engram_create` / `synapse_create` / `engram_accept_proposal` etc. now **ignore the LLM-passed `createdBy`** to prevent self-filling host identifiers like `"claude-code"`). Resolution chain: **local git identity (`user.name` → `user.email`)** > `team-memory.json`'s `defaultCreatedBy` field (written by `co-engram init`) > this env var > final fallback `'unknown'`. Git is the authority; this env is an escape hatch when git is unavailable.
 - `CO_ENGRAM_MAINTENANCE=1` — enable the maintenance engine
 - `CO_ENGRAM_MAINTENANCE_LEARNING_RATE` — RPE learning rate (default 0.1)
 - `CO_ENGRAM_PROPOSALS_ENABLED=1` — enable implicit memory proposals

@@ -76,9 +76,9 @@ visibility: team
 decayHalfLifeDays: 30
 verificationStatus: unverified
 status: active
-createdBy: claude-code
+createdBy: Yang Yang
 createdAt: 2026-06-21T10:30:00.000Z
-updatedBy: claude-code
+updatedBy: Yang Yang
 updatedAt: 2026-06-21T11:45:00.000Z
 version: 3
 contentHash: sha256:...
@@ -206,7 +206,7 @@ evidence:
     addedAt: 2026-06-21T10:35:00.000Z
 resolutionState:
   status: pending # pending / resolved / escalated
-createdBy: claude-code
+createdBy: Yang Yang
 createdAt: 2026-06-21T10:35:00.000Z
 updatedAt: 2026-06-21T10:35:00.000Z
 retrievalWeight: 0.8

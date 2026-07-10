@@ -481,12 +481,15 @@ describe("defaultCreatedBy", () => {
     expect(ctx.defaultCreatedBy).toBe(expected);
   });
 
-  it("config.defaultCreatedBy 覆盖默认值", () => {
+  it("config.defaultCreatedBy 在 git 缺失时生效(git > config 优先级)", () => {
+    // 2026-07 修复:git 身份(user.name > user.email)是首选,config 是 git 缺失时的兜底。
+    // 测试机器若有 git 配置会优先用 git 身份;没有才用 config.defaultCreatedBy。
     const ctx = createCoEngramContext({
       dataRoot: tmpDir,
       defaultCreatedBy: "yang",
     });
-    expect(ctx.defaultCreatedBy).toBe("yang");
+    const expected = detectGitAuthor() ?? "yang";
+    expect(ctx.defaultCreatedBy).toBe(expected);
   });
 
   it("注入后 engram_create 不传 createdBy 时会回退", async () => {
@@ -511,6 +514,8 @@ describe("defaultCreatedBy", () => {
       defaultCreatedBy: "yang",
     });
     const engram = ctx.repository.readEngram(data.id);
-    expect(engram.createdBy).toBe("yang");
+    // git > config 优先级:有 git 用 git,没有才用 config
+    const expected = detectGitAuthor() ?? "yang";
+    expect(engram.createdBy).toBe(expected);
   });
 });

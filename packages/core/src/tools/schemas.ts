@@ -104,6 +104,16 @@ export const EngramCreateInputSchema = z.object({
   confidence: z.number().min(0).max(1).optional(),
   sourceType: EngramSourceTypeSchema.optional(),
   visibility: EngramVisibilitySchema.optional(),
+  /**
+   * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
+   * (user.name > user.email)解析,LLM 传入的值会被忽略。
+   *
+   * 这是「人类责任归属」字段,权威来源是本机 git 身份,不该让 LLM 自填
+   * host 标识(如 "claude-code")。自动生成情境(如「Claude Code 自动捕获」
+   * 「PR review」「调试 session」)请走 encodingContext 字段。
+   *
+   * 字段保留是为了向后兼容(老 LLM 调用不会因 schema 报错),但值不生效。
+   */
   createdBy: z.string().min(1).optional(),
   dedupe: z.boolean().default(true),
 });
@@ -376,6 +386,11 @@ export const SynapseCreateInputSchema = z.object({
   weight: z.number().min(0).max(1).default(0.5),
   direction: SynapseDirectionSchema.default("directional"),
   evidence: z.array(SynapseEvidenceInputSchema).optional(),
+  /**
+   * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config 解析,
+   * LLM 传入的值会被忽略(与 engram_create 对齐)。字段保留是为了向后兼容,
+   * 但值不生效。
+   */
   createdBy: z.string().min(1).optional(),
   sourceSemantic: z.string().optional(),
   targetSemantic: z.string().optional(),
@@ -503,12 +518,13 @@ export const EngramAcceptProposalInputSchema = z.object({
    */
   domainTags: z.array(z.string().min(1)).min(1).optional(),
   /**
-   * 可选：创建者标识。
+   * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
+   * (user.name > user.email)解析,LLM 传入的值会被忽略(与 engram_create 对齐)。
    *
-   * 留空时,工具层走与 engram_create 相同的解析链:
-   * ctx.defaultCreatedBy(MCP env / OpenClaw plugin config / git 身份) → 'unknown'。
-   * 修复前此处用 Zod `.default('proposal-engine')` 把该字段写死,
-   * 绕过了 ctx.defaultCreatedBy,导致采纳提案后的 engram 不走 git 身份解析。
+   * 自动生成情境请走 encodingContext(accept 不暴露此字段,
+   * 由 proposal.payload.encodingContext 在 proposal-engine.accept 内部继承)。
+   *
+   * 字段保留是为了向后兼容(老 LLM 调用不会因 schema 报错),但值不生效。
    */
   createdBy: z.string().min(1).optional(),
   /** 可选：engram kind(默认 fact;auto-memory 来源也可从 payload 兜底) */
@@ -555,7 +571,11 @@ export const EngramAcceptProposalsBySourceInputSchema = z
      * 因此不支持 batch accept(防止批量创建垃圾 engram)。
      */
     source: z.enum(["auto-memory", "external-markdown"]),
-    /** 可选:覆盖所有 accept 的 createdBy(缺省走 proposal.payload.createdBy → ctx.defaultCreatedBy) */
+    /**
+     * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
+     * (user.name > user.email)解析,LLM 传入的值会被忽略
+     * (与 engram_create / engram_accept_proposal 对齐)。
+     */
     createdBy: z.string().min(1).optional(),
     /** 可选:覆盖所有 accept 的 visibility(缺省走 proposal.payload.visibility → 默认 public) */
     visibility: EngramVisibilitySchema.optional(),
@@ -637,9 +657,9 @@ export const EngramSynthesizeInputSchema = z.object({
    */
   synthesisHints: z.string().max(500).optional(),
   /**
-   * 可选：综合产物的作者标识。
-   *
-   * 缺省时回退到 ctx.defaultCreatedBy,再缺省 "unknown"。
+   * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config 解析,
+   * LLM 传入的值会被忽略(与 engram_create 对齐)。字段保留是为了向后兼容,
+   * 但值不生效。
    */
   createdBy: z.string().min(1).optional(),
   /**

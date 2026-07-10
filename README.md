@@ -428,9 +428,9 @@ status: active
 verificationStatus: unverified
 decayHalfLifeDays: 30
 visibility: team
-createdBy: claude-code
+createdBy: Yang Yang
 createdAt: 2026-06-21T10:30:00.000Z
-updatedBy: claude-code
+updatedBy: Yang Yang
 updatedAt: 2026-06-21T11:45:00.000Z
 version: 3
 contentHash: sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
@@ -523,7 +523,7 @@ evidence:
     addedBy: claude-code
     confidence: 0.9
     addedAt: 2026-06-21T10:35:00.000Z
-createdBy: claude-code
+createdBy: Yang Yang
 createdAt: 2026-06-21T10:35:00.000Z
 updatedAt: 2026-06-21T10:35:00.000Z
 retrievalWeight: 0.8

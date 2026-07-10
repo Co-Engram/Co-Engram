@@ -36,7 +36,15 @@ beforeEach(() => {
   repo = new EngramRepository({ rootPath: tmpDir });
   search = new SearchOrchestrator();
   audit = new AuditLog(tmpDir);
-  ctx = { repository: repo, searchOrchestrator: search, auditLog: audit };
+  ctx = {
+    repository: repo,
+    searchOrchestrator: search,
+    auditLog: audit,
+    // 2026-07 修复后 createdBy 完全由系统决定(LLM 传值被忽略),
+    // 这里给 ctx 注入 defaultCreatedBy="alice",让测试里 LLM 传入的
+    // "alice" 与系统解析值一致,避免逐条改测试期望
+    defaultCreatedBy: "alice",
+  };
 });
 
 afterEach(() => {
@@ -216,8 +224,10 @@ describe("synapse_create audit content", () => {
       kind: "extends",
       weight: 0.7,
       direction: "directional",
-      createdBy: "alice",
     });
+    // createdBy 由 ctx.defaultCreatedBy 决定(2026-07 完全覆盖修复);
+    // 本测试关注 audit 记录的 synapse 结构字段,createdBy 行为
+    // 由 default-created-by.test.ts 覆盖,这里不断言具体值
   });
 
   it("contradicts → 额外写两条 contradicted audit(双方各一)", () => {

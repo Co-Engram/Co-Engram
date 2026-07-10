@@ -1035,15 +1035,18 @@ describe("engram_list", () => {
   });
 
   it("按 createdBy 过滤（真实数据，非硬编码）", () => {
+    // 2026-07 修复后 createdBy 完全由 ctx.defaultCreatedBy 决定（LLM 传值被忽略）。
+    // 用两个 ctx 创建不同作者的记忆，验证 filter 功能本身仍然工作。
+    const ctxAlice = { ...ctx, defaultCreatedBy: "alice" };
+    const ctxBob = { ...ctx, defaultCreatedBy: "bob" };
     engramCreateTool.execute(
       {
         title: "A",
         content: "a",
         kind: "fact",
         domainTags: ["t"],
-        createdBy: "alice",
       },
-      ctx,
+      ctxAlice,
     );
     engramCreateTool.execute(
       {
@@ -1051,9 +1054,8 @@ describe("engram_list", () => {
         content: "b",
         kind: "fact",
         domainTags: ["t"],
-        createdBy: "bob",
       },
-      ctx,
+      ctxBob,
     );
     const result = engramListTool.execute(
       { filter: { createdBy: ["alice"] }, limit: 100 },

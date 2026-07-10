@@ -405,7 +405,10 @@ export const engramSynthesizeTool: Tool<
     }
 
     // 3. 创建 pattern engram(dryRun=true 已在 execute 入口提前返回)
-    const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+    // createdBy 完全由系统决定(2026-07 修复,与 engram_create 对齐):
+    // 忽略 parsed.createdBy,走 ctx.defaultCreatedBy(host adapter 从 git config 解析)。
+    void parsed.createdBy;
+    const createdBy = ctx.defaultCreatedBy ?? "unknown";
     // 用户显式 domainTags 优先;否则用 LLM 推断的;再 fallback 到源 tags 的并集
     const domainTags =
       parsed.domainTags && parsed.domainTags.length > 0

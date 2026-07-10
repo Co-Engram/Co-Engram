@@ -99,9 +99,14 @@ export function createCoEngramContext(
     process.stderr.write(`[co-engram] ${w}\n`);
   }
 
-  // 当用户未在 plugin config 显式配置 defaultCreatedBy 时,尝试从本机 git 身份探测,
-  // 让默认作者绑定到当前 git 用户而非硬编码工具名。
-  // 解析链:plugin config.defaultCreatedBy(用户显式)> git user.name/email > undefined(由 core 工具层兜底 "unknown")
+  // 解析 defaultCreatedBy:首选本机 git 身份(user.name > user.email),
+  // 其次 plugin config.defaultCreatedBy(用户显式配置的团队默认,如 "AIOS团队"),
+  // 都没有时留 undefined(由 core 工具层兜底 "unknown")。
+  //
+  // git 优先的理由(2026-07 修复):createdBy 是「人类责任归属」字段,
+  // 当前操作者的 git 身份是最权威的来源。团队默认(config.defaultCreatedBy)
+  // 只在 git 不可用 / 未配置时兜底。这与 claude-code-mcp 的 resolveDefaultCreatedBy
+  // 对齐(git > config > env),让双宿主行为对称。
   const userSpecifiedCreatedBy =
     typeof config.defaultCreatedBy === "string"
       ? config.defaultCreatedBy
@@ -111,8 +116,8 @@ export function createCoEngramContext(
     ...DEFAULT_CONFIG,
     ...config,
     dataRoot: config.dataRoot ?? resolvedDataRoot,
-    ...((userSpecifiedCreatedBy ?? gitAuthor)
-      ? { defaultCreatedBy: userSpecifiedCreatedBy ?? gitAuthor }
+    ...((gitAuthor ?? userSpecifiedCreatedBy)
+      ? { defaultCreatedBy: gitAuthor ?? userSpecifiedCreatedBy }
       : {}),
   };
 

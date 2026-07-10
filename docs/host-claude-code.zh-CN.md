@@ -104,7 +104,7 @@ co-engram: ✓ Connected
 关键项:
 
 - `CO_ENGRAM_DATA_ROOT` —— 数据 Git 仓库的**绝对路径**
-- `CO_ENGRAM_DEFAULT_CREATED_BY` —— 当调用方未提供时,`engram_create.createdBy` / `synapse_create.createdBy` 的默认值。优先级:此环境变量 > `team-memory.json` 的 `defaultCreatedBy` 字段(由 `co-engram init` 写入)> **本机 git 身份(`user.name` → `user.email`)** > 最终回退为 `'unknown'`。若你想覆盖自动探测的 git 身份,可显式设为用户名/邮箱。
+- `CO_ENGRAM_DEFAULT_CREATED_BY` —— `createdBy` 的兜底值(2026-07:`engram_create` / `synapse_create` / `engram_accept_proposal` 等**已忽略 LLM 传入的 `createdBy`**,防止自填 host 标识如 `"claude-code"`)。解析链:**本机 git 身份(`user.name` → `user.email`)** > `team-memory.json` 的 `defaultCreatedBy` 字段(由 `co-engram init` 写入)> 此环境变量 > 最终回退 `'unknown'`。git 是权威源;此 env 仅在 git 不可用时作为逃生口。
 - `CO_ENGRAM_MAINTENANCE=1` —— 启用维护引擎
 - `CO_ENGRAM_MAINTENANCE_LEARNING_RATE` —— RPE 学习率(默认 0.1)
 - `CO_ENGRAM_PROPOSALS_ENABLED=1` —— 启用隐式记忆候选(proposals)

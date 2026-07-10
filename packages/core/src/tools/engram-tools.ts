@@ -139,14 +139,20 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
   {
     name: "engram_create",
     description:
-      '创建一个新的 Engram（记忆单元）。需要 title / content / kind / domainTags；createdBy 可选,缺省时回退到 ToolContext.defaultCreatedBy(MCP: CO_ENGRAM_DEFAULT_CREATED_BY 环境变量;OpenClaw: plugin config.defaultCreatedBy),再缺省回退到 "unknown"。默认开启智能去重（dedupe=true）：DUPLICATE 时强化原 engram 不重复创建；UPDATE 时合并；NEW 时正常创建。',
+      '创建一个新的 Engram（记忆单元）。需要 title / content / kind / domainTags。createdBy 由系统从 git config(user.name > user.email)解析(MCP 端 CO_ENGRAM_DEFAULT_CREATED_BY 环境变量兜底;OpenClaw 端 plugin config.defaultCreatedBy 兜底),LLM 传入的 createdBy 会被忽略——这是「人类责任归属」字段,权威来源是本机 git 身份,不该让 LLM 自填 host 标识(如 "claude-code")。自动生成情境(如「Claude Code 自动捕获」「PR review」「调试 session」)请走 encodingContext 字段。缺省时再回退到 "unknown"。默认开启智能去重(dedupe=true):DUPLICATE 时强化原 engram 不重复创建;UPDATE 时合并;NEW 时正常创建。',
     inputSchema: EngramCreateInputSchema,
     execute(input, ctx) {
       const parsed = validateInput<EngramCreateToolInput>(
         EngramCreateInputSchema,
         input,
       );
-      const createdBy = parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+      // createdBy 完全由系统决定(2026-07 修复):权威来源是本机 git 身份
+      // (user.name > user.email),由 host adapter 解析后注入 ctx.defaultCreatedBy。
+      // LLM 传入的 parsed.createdBy 一律忽略——这是「人类责任归属」字段,
+      // 不该让 LLM 自填 host 标识(如 "claude-code")。LLM 想表达自动生成情境
+      // (如"Claude Code 自动捕获")应走 encodingContext 字段(见 parsed.encodingContext)。
+      void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
+      const createdBy = ctx.defaultCreatedBy ?? "unknown";
       // P0-8 配套:检测 XSS 向量(非阻断),让调用方知道 viewer 会 sanitize
       const warnings = detectUnsafeEngramContent({
         title: parsed.title,

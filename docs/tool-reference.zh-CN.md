@@ -31,7 +31,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **可选:**
 
-- `createdBy: string` —— 若省略,回退到 `ToolContext.defaultCreatedBy`。解析链:调用方显式传值 → `CO_ENGRAM_DEFAULT_CREATED_BY` 环境变量(MCP)或插件配置 `defaultCreatedBy`(OpenClaw)→ 持久化的 team-memory 配置 → **本机 git 身份(`user.name` → `user.email`)** → `'unknown'`。
+- `createdBy: string` —— **已废弃(2026-07):传入的值会被忽略。** `createdBy` 现在完全由系统决定,防止 LLM 自填 host 标识(如 `"claude-code"`)污染团队记忆的作者归属。解析链:**本机 git 身份(`user.name` → `user.email`)** → 持久化的 team-memory 配置 → `CO_ENGRAM_DEFAULT_CREATED_BY` 环境变量(MCP)或插件配置 `defaultCreatedBy`(OpenClaw)→ `'unknown'`。LLM 若想记录自动捕获情境(如"由 Claude Code 自动捕获"),请用 `encodingContext` 字段——那是机器生成溯源的正确通道,`createdBy` 保持为人类责任归属字段。
 
 **返回值:**
 
@@ -185,7 +185,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **可选:**
 
-- `createdBy: string` —— 回退规则与 `engram_create.createdBy` 相同。
+- `createdBy: string` —— **已废弃(2026-07):值被忽略**,与 `engram_create.createdBy` 走相同的系统决定链。
 - `weight: number [0, 1]`(默认 0.5)
 - `direction: "directional" | "bidirectional"`(默认 `directional`)
 - `evidence: Evidence[]`
@@ -356,7 +356,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 - `content: string`(Markdown)
 - `domainTags: string[]`
 
-**可选:** `kind: EngramKind`(默认 `fact`)、`createdBy: string` —— 若省略,回退到 `ctx.defaultCreatedBy`(MCP env `CO_ENGRAM_DEFAULT_CREATED_BY` / OpenClaw 插件 config / 本机 git 身份)→ `'unknown'`。与 `engram_create` 走相同的解析链。
+**可选:** `kind: EngramKind`(默认 `fact`)、`createdBy: string` —— **已废弃(2026-07):值被忽略**,系统决定,走与 `engram_create.createdBy` 相同的解析链。例外:`external-markdown` 来源的 proposal 保留 `payload.createdBy`(外部文档原作者,从 frontmatter 解析——事实信息,非 LLM 自填)。
 
 **副作用:** 创建 engram、移除该 cluster、在审计日志中追加 `accept`。
 

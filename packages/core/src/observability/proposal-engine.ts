@@ -146,6 +146,20 @@ export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
 export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
+/**
+ * tombstone 文件的 unique entityId 上限,超过则触发 compact。
+ *
+ * 防止 append-only 文件无限增长(用户长期使用累积大量 dismissed entityId)。
+ * compact 把 readTombstones 已构建的 Map(entityId → dismissedUntil,同 entityId
+ * 后写覆盖前写)直接 dump 回 jsonl,自然 dedup 到 unique 数 × ~170 bytes/record。
+ *
+ * 阈值 1000 = 硬上限 ~170KB。实测每条 ~170B,1000 条 unique tombstone 覆盖
+ * 极端使用场景(用户每天 dismiss 10 条新 slug,~3 个月才达上限)。
+ * compact 触发频率:每次 appendTombstone 检查一次 O(1)(readTombstones 走
+ * mtime cache),只有超阈值才做实际 writeJsonl。
+ */
+export const TOMBSTONE_COMPACT_THRESHOLD = 1000;
+
 /** 由 slug 构造 auto-memory proposal 的 entityId */
 export function autoMemoryEntityId(slug: string): string {
   return `${AUTO_MEMORY_PROPOSAL_PREFIX}${slug}`;
@@ -444,7 +458,14 @@ export class ProposalEngine {
       content,
       kind,
       domainTags,
-      createdBy: input.createdBy ?? payload?.createdBy ?? "proposal-engine",
+      // 2026-07 修复:external-markdown 的 payload.createdBy 是外部文档原作者
+      // (从 frontmatter 解析,事实信息),保留;conversation/auto-memory 的
+      // payload.createdBy 是 LLM/host 自填(常误填 host 标识如 "claude-code"),
+      // 忽略,走 input.createdBy(工具层传的 ctx.defaultCreatedBy,即 host git author)。
+      createdBy:
+        target.source === "external-markdown" && payload?.createdBy
+          ? payload.createdBy
+          : (input.createdBy ?? "proposal-engine"),
       ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
       ...(payload?.contextTags !== undefined
         ? { contextTags: payload.contextTags }
@@ -1035,7 +1056,12 @@ export class ProposalEngine {
           content,
           kind,
           domainTags,
-          createdBy: input.createdBy ?? payload?.createdBy ?? "proposal-engine",
+          // 2026-07 修复(同 accept):external-markdown 保留 payload.createdBy
+          // (外部文档原作者),auto-memory 走 input.createdBy(host git author)。
+          createdBy:
+            p.source === "external-markdown" && payload?.createdBy
+              ? payload.createdBy
+              : (input.createdBy ?? "proposal-engine"),
           ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
           ...(payload?.contextTags !== undefined
             ? { contextTags: payload.contextTags }
@@ -1522,6 +1548,9 @@ export class ProposalEngine {
   /**
    * append 一条 tombstone 记录。append-only,不查重(同 entityId 多次 dismiss 时
    * 自然累积历史;readTombstones 用 Map 取最后状态)。
+   *
+   * 增长控制:append 后检查 unique entityId 数,超过 TOMBSTONE_COMPACT_THRESHOLD
+   * 触发 compact(dedup 同 entityId 多次写的记录,文件大小压到 unique × ~170B)。
    */
   private appendTombstone(
     entityId: string,
@@ -1552,6 +1581,43 @@ export class ProposalEngine {
     appendFileSync(this.tombstonesFile, JSON.stringify(record) + "\n", "utf8");
     // appendFileSync 后文件 mtime 必变,下次 readTombstones 会 statSync reload。
     // 这里直接 invalidate,让下次 read 走 statSync → parse。
+    this.tombstonesCache = null;
+
+    // 增长控制:unique entityId 超 threshold → compact(dedup + rewrite)
+    // readTombstones 走 mtime cache(刚才 invalidate 后会重新 statSync + parse
+    // 当前文件),返回的 Map.size 就是 unique entityId 数。compact 在同进程内
+    // 写回后立刻 invalidate cache,跨进程下次 read 自动 reload。
+    const after = this.readTombstones();
+    if (after.size > TOMBSTONE_COMPACT_THRESHOLD) {
+      this.compactTombstones(after);
+    }
+  }
+
+  /**
+   * 把 tombstone 文件 dedup 重写:同 entityId 取最新状态(Map 自然语义)。
+   *
+   * 触发:appendTombstone 后 unique entityId 超 TOMBSTONE_COMPACT_THRESHOLD。
+   * compact 后文件大小 = unique × ~170B(单条 record 大小,无重复历史)。
+   *
+   * 注意:compact 是 read-all + write-all,跨进程并发场景下可能出现 lost update
+   * (另一进程在我们 read 后 write 前也 append 了一条)。但 tombstone 是单调
+   * append 语义(只增不改状态语义),即使丢失最近一条 append,下次该 entityId
+   * 重新 dismiss 时会再写 —— 不影响正确性,只影响「最近一次 dismiss 时间戳」。
+   */
+  private compactTombstones(map: Map<string, string | null>): void {
+    // 保留最后状态(entityId → dismissedUntil),但 dismissedAt 等元数据无法从 Map
+    // 还原(我们 dedup 时只保留了 dismissedUntil)。compact 后的 record 只含
+    // entityId + dismissedUntil + compactedAt 标记,体积更小(~80B vs 原 170B)。
+    const compacted: ReadonlyArray<{
+      readonly entityId: string;
+      readonly dismissedUntil: string | null;
+      readonly compactedAt: string;
+    }> = Array.from(map.entries()).map(([entityId, until]) => ({
+      entityId,
+      dismissedUntil: until,
+      compactedAt: new Date().toISOString(),
+    }));
+    writeJsonl(this.tombstonesFile, compacted);
     this.tombstonesCache = null;
   }
 

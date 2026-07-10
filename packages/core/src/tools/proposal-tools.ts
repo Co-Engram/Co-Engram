@@ -252,21 +252,14 @@ export const engramAcceptProposalTool: Tool<
         "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
       );
     }
-    // createdBy 解析链(优先级):
-    //   1. 调用方显式传 parsed.createdBy
-    //   2. proposal.payload.createdBy(auto-memory / external-markdown 来源
-    //      自带的元数据,保留原始作者署名)
-    //   3. ctx.defaultCreatedBy(MCP env / OpenClaw plugin config / git 身份)
-    //   4. 'unknown'
-    // 第 2 步是 redesign 后新增:外部 .md / auto-memory 文件里 frontmatter
-    // 的 createdBy 不应被工具默认值覆盖。查 proposal 状态是 O(proposals.length)
-    // 简单扫描,proposal 数量典型 <100,可接受。
-    const targetProposal = ctx.proposalEngine
-      .listAll()
-      .find((p) => p.entityId === parsed.entityId);
-    const payloadCreatedBy = targetProposal?.payload?.createdBy;
-    const createdBy =
-      parsed.createdBy ?? payloadCreatedBy ?? ctx.defaultCreatedBy ?? "unknown";
+    // createdBy 完全由系统决定(2026-07 修复):忽略 parsed.createdBy 和
+    // proposal.payload.createdBy。前者是 LLM 自填(常误填 host 标识如 "claude-code"),
+    // 后者是 auto-memory / external-markdown 文件 frontmatter 的残留(同样是 host 标识)。
+    // 权威来源是 ctx.defaultCreatedBy(host adapter 从 git config user.name > user.email 解析)。
+    // LLM 想表达自动生成情境应走 encodingContext(accept 不暴露此字段,
+    // 由 proposal.payload.encodingContext 在 proposal-engine.accept 内部继承)。
+    void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
+    const createdBy = ctx.defaultCreatedBy ?? "unknown";
     const engramId = ctx.proposalEngine.accept(parsed.entityId, {
       ...(parsed.title !== undefined ? { title: parsed.title } : {}),
       ...(parsed.content !== undefined ? { content: parsed.content } : {}),
@@ -350,8 +343,10 @@ export const engramAcceptProposalsBySourceTool: Tool<
         "ProposalEngine is not injected into ToolContext — host adapter must wire it during bootstrap.",
       );
     }
-    const createdBy =
-      parsed.createdBy ?? ctx.defaultCreatedBy ?? "unknown";
+    // createdBy 完全由系统决定(2026-07 修复):忽略 parsed.createdBy,
+    // 走 ctx.defaultCreatedBy(host adapter 从 git config 解析)。
+    void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
+    const createdBy = ctx.defaultCreatedBy ?? "unknown";
     const result = ctx.proposalEngine.acceptBatch(
       {
         source: parsed.source,

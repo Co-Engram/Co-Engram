@@ -31,7 +31,7 @@ Create a new engram. With `dedupe: true` (default), duplicate content strengthen
 
 **Optional:**
 
-- `createdBy: string` — if omitted, falls back to `ToolContext.defaultCreatedBy`. Resolution chain: explicit caller value → `CO_ENGRAM_DEFAULT_CREATED_BY` env (MCP) or plugin config `defaultCreatedBy` (OpenClaw) → persisted team-memory config → **local git identity (`user.name` → `user.email`)** → `'unknown'`.
+- `createdBy: string` — **deprecated (2026-07): the value passed here is ignored.** `createdBy` is now fully system-decided to prevent the LLM from self-filling host identifiers (e.g. `"claude-code"`) that pollute team memory authorship. Resolution chain: **local git identity (`user.name` → `user.email`)** → persisted team-memory config → `CO_ENGRAM_DEFAULT_CREATED_BY` env (MCP) or plugin config `defaultCreatedBy` (OpenClaw) → `'unknown'`. If the LLM wants to record an auto-capture context (e.g. "captured by Claude Code"), use `encodingContext` instead — that field is the correct channel for machine-generated provenance, while `createdBy` stays a human-responsibility field.
 
 **Returns:**
 
@@ -185,7 +185,7 @@ Create a typed connection between two engrams. Updates both engrams' in/out cach
 
 **Optional:**
 
-- `createdBy: string` — same fallback rules as `engram_create.createdBy`.
+- `createdBy: string` — **deprecated (2026-07): value ignored**, same system-decided resolution as `engram_create.createdBy`.
 - `weight: number [0, 1]` (default 0.5)
 - `direction: "directional" | "bidirectional"` (default `directional`)
 - `evidence: Evidence[]`
@@ -356,7 +356,7 @@ Convert a proposal into a real engram.
 - `content: string` (Markdown)
 - `domainTags: string[]`
 
-**Optional:** `kind: EngramKind` (default `fact`), `createdBy: string` — if omitted, falls back to `ctx.defaultCreatedBy` (MCP env `CO_ENGRAM_DEFAULT_CREATED_BY` / OpenClaw plugin config / local git identity) → `'unknown'`. Same resolution chain as `engram_create`.
+**Optional:** `kind: EngramKind` (default `fact`), `createdBy: string` — **deprecated (2026-07): value ignored**, system-decided via the same resolution chain as `engram_create.createdBy`. Exception: `external-markdown` proposals preserve `payload.createdBy` (the external document's original author, parsed from frontmatter — a fact, not LLM self-fill).
 
 **Effect:** creates the engram, removes the cluster, appends `accept` to audit log.
 
