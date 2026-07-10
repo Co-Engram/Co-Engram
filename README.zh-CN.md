@@ -1,7 +1,11 @@
-# Co-Engram
-
-**基于神经科学的协同进化团队记忆系统。**
-[English](./README.md) | 中文
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/co-engram-logo-dark.svg">
+    <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="160">
+  </picture>
+  <h1>Co-Engram：协同自进化的团队记忆</h1>
+  <p><a href="./README.md">English</a> | 中文</p>
+</div>
 
 Co-Engram 是一个面向 AI agent 和团队的**自进化记忆系统**。与传统只做检索的向量库不同,Co-Engram 仿照大脑建模记忆:engram 在使用中被强化、在失效时被削弱、在"睡眠"中自动巩固、并通过元认知自我验证。
 

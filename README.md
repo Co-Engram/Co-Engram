@@ -1,7 +1,11 @@
-# Co-Engram
-
-**Team memory with neuroscience-inspired plasticity.**
-English | [中文](./README.zh-CN.md)
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/co-engram-logo-dark.svg">
+    <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="160">
+  </picture>
+  <h1>Co-Engram: Self-evolving Team Memory</h1>
+  <p>English | <a href="./README.zh-CN.md">中文</a></p>
+</div>
 
 Co-Engram is a self-evolving memory system for AI agents and teams. Unlike traditional vector stores that only retrieve, Co-Engram models memory after the brain: engrams strengthen with use, weaken when they fail, consolidate during sleep, and verify themselves through metacognition.
 
