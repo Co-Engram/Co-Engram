@@ -19,8 +19,8 @@ export const VIEWER_CSS = `
   --bg-elev: #0f1530;
   --fg: #e2e8f0;
   --fg-bright: #f8fafc;
-  --fg-muted: #6b7693;
-  --fg-dim: #4a5378;
+  --fg-muted: #9aa5b8;
+  --fg-dim: #6b7693;
   --border: rgba(94, 234, 212, 0.12);
   --border-strong: rgba(94, 234, 212, 0.28);
   --border-glow: rgba(94, 234, 212, 0.5);
@@ -137,7 +137,6 @@ header.app-header h1 {
   font-weight: 400;
   color: var(--fg-muted);
   letter-spacing: 0.04em;
-  opacity: 0.85;
   /* 不继承 h1 的渐变文字色 */
   -webkit-text-fill-color: var(--fg-muted);
 }
@@ -206,10 +205,10 @@ header.app-header nav.primary-nav {
   color: var(--accent);
 }
 .tab.active {
-  background: linear-gradient(135deg, rgba(94, 234, 212, 0.12), rgba(192, 132, 252, 0.08));
-  color: var(--accent);
+  background: linear-gradient(135deg, rgba(232, 230, 225, 0.06), rgba(232, 230, 225, 0.03));
+  color: var(--fg-bright);
   border-color: var(--border-strong);
-  box-shadow: inset 0 0 0 1px rgba(94, 234, 212, 0.15);
+  box-shadow: inset 0 0 0 1px var(--border-glow);
 }
 .tab.active::after {
   content: '';
