@@ -70,7 +70,7 @@ plugins:
           similarityThreshold: 0.75
         startViewer: false
         viewerConfig:
-          port: 18799
+          port: 18899
 ```
 
 **Fields:**
@@ -87,8 +87,8 @@ plugins:
 | `effectivenessEnabled` | boolean        | `true`              | Track retrieve_hit → effective/inconclusive                                                                     |
 | `proposalEnabled`      | boolean        | `false`             | Implicit memory proposal engine                                                                                 |
 | `proposalConfig`       | object         | (see below)         | Proposal engine tuning                                                                                          |
-| `startViewer`          | boolean        | `false`             | Start web viewer at 127.0.0.1:18799 (requires `@co-engram/claude-code`)                                         |
-| `viewerConfig`         | object         | `{ port: 18799 }`   | Viewer port and optional token                                                                                  |
+| `startViewer`          | boolean        | `false`             | Start web viewer at 127.0.0.1:18899 (requires `@co-engram/claude-code`)                                         |
+| `viewerConfig`         | object         | `{ port: 18899 }`   | Viewer port and optional token                                                                                  |
 
 ### Memory Capability & Self-Evolving Prompts
 
@@ -163,13 +163,13 @@ plugins:
       config:
         startViewer: true
         viewerConfig:
-          port: 18799
+          port: 18899
           token: mysecret # optional
 ```
 
 The plugin will dynamically import `@co-engram/claude-code` and start its viewer. If the package is missing, the plugin logs a warning and continues without the viewer.
 
-> **`viewerConfig.port` is deprecated.** Persisted `port` lives in `~/team-memory/.co-engram/config.json`, which is shared with the Claude Code host — setting it from both sides causes collisions. Prefer the env var `CO_ENGRAM_VIEWER_PORT` when running OpenClaw (default OpenClaw viewer port is `18899`, distinct from Claude Code's `18799`). The persisted value still works as a fallback for this release; the server prints a one-line warning at startup when it kicks in.
+> **`viewerConfig.port` is deprecated.** Persisted `port` lives in `~/team-memory/.co-engram/config.json`, which is shared with the Claude Code host — setting it from both sides causes collisions. Prefer the env var `CO_ENGRAM_VIEWER_PORT` when running OpenClaw. Since 2026-07 both hosts share a unified default port `18899` (the earlier host-specific defaults Claude Code=18799 / OpenClaw=18899 are deprecated; the URL is now a property of the dataRoot, not of whichever host won the holder lock). The persisted value still works as a fallback for this release; the server prints a one-line warning at startup when it kicks in.
 
 ### `maintenanceConfig` sub-fields
 

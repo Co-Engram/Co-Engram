@@ -233,15 +233,15 @@ All three are **zero-intervention** — the engine reads usage statistics from t
 Co-Engram ships a built-in SPA for visual exploration. Enable it when wiring:
 
 ```bash
-# Claude Code (MCP) — viewer defaults to 18799
+# Claude Code (MCP) — viewer defaults to 18899
 claude mcp add co-engram \
   -e CO_ENGRAM_VIEWER_ENABLED=1 \
   ... -- co-engram-mcp
 ```
 
-For OpenClaw, set `startViewer: true` in the plugin manifest — viewer defaults to 18899.
+For OpenClaw, set `startViewer: true` in the plugin manifest — viewer also defaults to 18899.
 
-Open **http://127.0.0.1:18799** (Claude Code) or **http://127.0.0.1:18899** (OpenClaw) in your browser. Override per-process with `CO_ENGRAM_VIEWER_PORT`.
+Open **http://127.0.0.1:18899** in your browser. Override per-process with `CO_ENGRAM_VIEWER_PORT`.
 
 | Tab | What you see |
 |-----|-------------|
@@ -754,14 +754,14 @@ If `~/.co-engram/config.json` is missing or its `dataRoot` field is unset, co-en
 
 ### Viewer ports (per host)
 
-The viewer runs on a host-specific default port so Claude Code and OpenClaw can run side-by-side on the same machine without port conflicts:
+The viewer runs on a unified default port (`18899`) shared by both hosts since 2026-07. The earlier host-specific defaults (Claude Code=18799 / OpenClaw=18899) are deprecated — they caused confusion when the holder-process flipped between hosts (users bookmarked `18799` but the viewer was on `18899`, or vice versa, and got `connection refused`). The unified port makes the URL a property of the dataRoot, not of whichever host won the holder lock.
 
 | Host             | Default port |
 | ---------------- | ------------ |
-| Claude Code MCP  | 18799        |
+| Claude Code MCP  | 18899        |
 | OpenClaw plugin  | 18899        |
 
-Override both hosts with the `CO_ENGRAM_VIEWER_PORT` env var (e.g., `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp`). The persisted `viewer.port` field in `~/team-memory/.co-engram/config.json` is deprecated and ignored — both hosts share the same persisted config, so a shared port would conflict.
+Override both hosts with the `CO_ENGRAM_VIEWER_PORT` env var (e.g., `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp`) — useful when running two separate dataRoots side-by-side. The persisted `viewer.port` field in `~/team-memory/.co-engram/config.json` is deprecated and ignored — both hosts share the same persisted config, so a shared port would conflict.
 
 ### Environment variables (Claude Code MCP server)
 
@@ -780,6 +780,9 @@ All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`                  | Set to `1` to move forgotten engrams to `.trash/` instead of deleting                                                               |
 | `CO_ENGRAM_TRASH_AFTER_DAYS`              | `30`                 | Days after `forgotten` before an engram enters `.trash/`                                                                            |
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`                | Days in `.trash/` before physical purge (`0` = never)                                                                               |
+| `CO_ENGRAM_DAEMON`                        | `1`                  | Single-daemon mode: each Claude Code session connects to a shared long-lived daemon (one `ToolContext` for all sessions). Set to `0` to fall back to one-process-per-session. |
+| `CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS`        | `1800000` (30 min)   | Daemon auto-shutdown when no clients are connected for this long                                                                     |
+| `CO_ENGRAM_DAEMON_SOCKET_DIR`             | `<tmpdir>/co-engram` | Override directory for daemon unix socket files                                                                                     |
 | `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                  | Claude Code only. `0` disables the watcher that mirrors `~/.claude/projects/*/memory/*.md` into **proposals** (pending your accept; see [host-claude-code.md](./docs/host-claude-code.md#auto-memory-sync-claude-code--co-engram-proposals)) |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | Override the auto-memory projects root (Claude Code only)                                                                           |
 | `CO_ENGRAM_SEARCH_ENGINE`                 | `sqlite`             | Search backend. `sqlite` = derived SQLite index with FTS5 trigram + LIKE fallback (default; scales to 5k+ engrams; requires Node 22.17+ — auto-falls back to `memory` on older Node or filesystem errors). `memory` = in-process FTS over digest lines (scales poorly past ~1k engrams; opt-out for restricted / read-only-fs / embedded deployments). Unknown values fall back to `sqlite` (fail-safe toward the stronger engine). See [docs/architecture.md](./docs/architecture.md#search-engine). |

@@ -237,7 +237,7 @@ const entry = {
         type: "object",
         additionalProperties: true,
         description:
-          "Viewer config (port / token). Default port 18799 unless overridden by openclaw.json.",
+          "Viewer config (port / token). Default port 18899 unless overridden by openclaw.json.",
       },
     },
   },

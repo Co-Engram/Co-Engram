@@ -282,7 +282,7 @@ All three are derived state. Deleting them is safe — already-recorded engrams 
 
 A loopback-only HTTP server for browsing the data repo in a browser. Disabled by default — enable via `CO_ENGRAM_VIEWER_ENABLED=1` (MCP) or `startViewer: true` (OpenClaw plugin).
 
-Default port: `18799`. Optional bearer token via `CO_ENGRAM_VIEWER_TOKEN`.
+Default port: `18899` (unified across both hosts since 2026-07). Optional bearer token via `CO_ENGRAM_VIEWER_TOKEN`.
 
 See [host-claude-code.md](./host-claude-code.md) and [host-openclaw.md](./host-openclaw.md) for setup details.
 

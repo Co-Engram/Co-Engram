@@ -1695,7 +1695,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Ports & data root =====
   "viewer.help.opsTitle": "Ports & data root",
   "viewer.help.opsPorts":
-    "<strong>Viewer port</strong>:Claude Code (MCP) defaults to <code>18799</code>,OpenClaw (plugin) defaults to <code>18899</code> — both hosts can run side-by-side without conflict. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides both. The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port).",
+    "<strong>Viewer port</strong>:both hosts (Claude Code MCP / OpenClaw plugin) share a single default <code>18899</code> since <code>2026-07</code> — bookmark one URL regardless of which host is the current holder. Env <code>CO_ENGRAM_VIEWER_PORT</code> overrides (use it when running two separate dataRoots). The persisted <code>viewer.port</code> is deprecated (both hosts share the persisted file and would race on the same port). Legacy host-specific defaults (MCP=18799 / OpenClaw=18899) are deprecated; users on the old ports should update bookmarks to <code>18899</code>.",
   "viewer.help.opsDataRoot":
     "<strong>Data root</strong>:the Config tab shows a welcome card on first open — click <code>~/team-memory</code> or <code>~/.co-engram-data</code> for a one-click setup, or type any custom path. If the directory already has files, the UI lists them and asks for confirmation — co-engram only creates a <code>.co-engram/</code> subfolder; your existing files stay untouched. CLI alternative: <code>co-engram config data-root &lt;path&gt;</code> (add <code>--force</code> to skip confirmation). Restart the current host to apply.",
 

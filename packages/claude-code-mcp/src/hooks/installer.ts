@@ -34,10 +34,11 @@ export const HOOK_MARKER = "observe.py";
 /**
  * observe hook 需要 viewer URL 才能找到 proposal engine 的 /api/observe。
  *
- * 默认 18799 与 viewer 默认端口对齐;若 viewer 启动在非默认端口,installer
- * 会把真实 URL 注入 settings.json 的 env 块,确保 hook 子进程能拿到。
+ * 默认 18899 与 viewer 统一默认端口对齐(2026-07 起两宿主共用 18899;
+ * 原 Claude Code 专属端口 18799 已弃用);若 viewer 启动在非默认端口,
+ * installer 会把真实 URL 注入 settings.json 的 env 块,确保 hook 子进程能拿到。
  */
-export const DEFAULT_VIEWER_URL = "http://127.0.0.1:18799";
+export const DEFAULT_VIEWER_URL = "http://127.0.0.1:18899";
 
 /**
  * 解析 hook 脚本的绝对路径(dist/hooks/observe.py)

@@ -121,8 +121,8 @@ export interface ViewerSectionConfig {
   /**
    * @deprecated 已废弃。两宿主(Claude Code / OpenClaw)共享同一 persisted config,
    * 若 viewer.port 在此设置会导致两宿主抢同一端口。改用 env `CO_ENGRAM_VIEWER_PORT`
-   * 覆盖,或接受 host-specific 默认(Claude Code=18799,OpenClaw=18899)。
-   * 此字段在 normalize 时会被丢弃。
+   * 覆盖,或接受统一默认 `18899`(2026-07 起两宿主共用;原 host-specific 默认
+   * Claude Code=18799 / OpenClaw=18899 已弃用)。此字段在 normalize 时会被丢弃。
    */
   readonly port?: number;
   /** viewer 对外可达 URL */

@@ -70,7 +70,7 @@ plugins:
           similarityThreshold: 0.75
         startViewer: false
         viewerConfig:
-          port: 18799
+          port: 18899
 ```
 
 **字段说明:**
@@ -87,8 +87,8 @@ plugins:
 | `effectivenessEnabled` | boolean        | `true`              | 跟踪 retrieve_hit → effective/inconclusive                                       |
 | `proposalEnabled`      | boolean        | `false`             | 隐式记忆候选引擎                                                                 |
 | `proposalConfig`       | object         | (见下文)            | 候选引擎调优                                                                     |
-| `startViewer`          | boolean        | `false`             | 在 127.0.0.1:18799 启动 web 查看器(需要 `@co-engram/claude-code`)                |
-| `viewerConfig`         | object         | `{ port: 18799 }`   | 查看器端口及可选 token                                                           |
+| `startViewer`          | boolean        | `false`             | 在 127.0.0.1:18899 启动 web 查看器(需要 `@co-engram/claude-code`)                |
+| `viewerConfig`         | object         | `{ port: 18899 }`   | 查看器端口及可选 token                                                           |
 
 ### memory 能力与自演化提示词
 
@@ -163,13 +163,13 @@ plugins:
       config:
         startViewer: true
         viewerConfig:
-          port: 18799
+          port: 18899
           token: mysecret # 可选
 ```
 
 插件会动态 import `@co-engram/claude-code` 并启动其查看器。若该包缺失,插件会记录告警并在没有查看器的情况下继续运行。
 
-> **`viewerConfig.port` 已废弃。** 持久化的 `port` 写在 `~/team-memory/.co-engram/config.json`,与 Claude Code 宿主共享 —— 两端都设端口会冲突。运行 OpenClaw 时建议用环境变量 `CO_ENGRAM_VIEWER_PORT`(OpenClaw 默认端口 `18899`,与 Claude Code 的 `18799` 区分开)。持久化值本次发布仍作 fallback 生效;server 启动时会打一行警告提示。
+> **`viewerConfig.port` 已废弃。** 持久化的 `port` 写在 `~/team-memory/.co-engram/config.json`,与 Claude Code 宿主共享 —— 两端都设端口会冲突。运行 OpenClaw 时建议用环境变量 `CO_ENGRAM_VIEWER_PORT`。自 2026-07 起两宿主共用统一默认端口 `18899`(原 host-specific 默认 Claude Code=18799 / OpenClaw=18899 已弃用;URL 现在是 dataRoot 的属性,而不是「哪个宿主当前持锁」的属性)。持久化值本次发布仍作 fallback 生效;server 启动时会打一行警告提示。
 
 ### `maintenanceConfig` 子字段
 

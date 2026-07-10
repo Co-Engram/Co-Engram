@@ -1635,7 +1635,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 端口与数据根目录 =====
   "viewer.help.opsTitle": "端口与数据根目录",
   "viewer.help.opsPorts":
-    "<strong>查看器端口</strong>:Claude Code(MCP)默认 <code>18799</code>,OpenClaw(plugin)默认 <code>18899</code>——两宿主同机运行不冲突。环境变量 <code>CO_ENGRAM_VIEWER_PORT</code> 可同时覆盖两宿主。持久化配置里的 <code>viewer.port</code> 已废弃(两宿主共享持久化文件会抢端口)。",
+    "<strong>查看器端口</strong>:两宿主(Claude Code MCP / OpenClaw plugin)自 <code>2026-07</code> 起统一默认 <code>18899</code>——浏览器只记一个 URL,无需关心当前 holder 是哪个宿主。环境变量 <code>CO_ENGRAM_VIEWER_PORT</code> 可覆盖(用户想跑两个独立 dataRoot 时用)。持久化配置里的 <code>viewer.port</code> 已废弃(两宿主共享持久化文件会抢端口)。原 host-specific 默认(MCP=18799 / OpenClaw=18899)已弃用,旧端口用户请改书签到 <code>18899</code>。",
   "viewer.help.opsDataRoot":
     "<strong>数据根目录</strong>:首次打开配置 tab 会看到欢迎卡片,点 <code>~/team-memory</code> 或 <code>~/.co-engram-data</code> 一键设置;也可输入任意自定义路径。若目录已有其他文件,UI 会列出这些文件并让你二次确认 —— co-engram 只在目录里创建 <code>.co-engram/</code> 子目录,不会改动你已有的文件。也可用 CLI <code>co-engram config data-root &lt;path&gt;</code>(加 <code>--force</code> 跳过二次确认)。修改后需重启当前宿主生效。",
 

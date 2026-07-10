@@ -98,7 +98,7 @@
       "startViewer": {
         "type": "boolean",
         "default": true,
-        "description": "Start the web viewer HTTP server on 127.0.0.1:18799 (requires @co-engram/claude-code installed)."
+        "description": "Start the web viewer HTTP server on 127.0.0.1:18899 (requires @co-engram/claude-code installed)."
       },
       "viewerConfig": {
         "type": "object",
@@ -107,7 +107,7 @@
           "port": { "type": "number" },
           "token": { "type": "string" }
         },
-        "description": "Viewer server config (port / token). Default port 18899 for openclaw-plugin host (18799 for claude-code-mcp). Env CO_ENGRAM_VIEWER_PORT overrides both."
+        "description": "Viewer server config (port / token). Default port 18899 (shared by both hosts since 2026-07; legacy Claude Code default 18799 is deprecated). Env CO_ENGRAM_VIEWER_PORT overrides."
       }
     }
   },
@@ -130,7 +130,7 @@
     },
     "startViewer": {
       "label": "Start Web Viewer",
-      "help": "Launch a local-only HTTP viewer on 127.0.0.1:18799 (requires @co-engram/claude-code)."
+      "help": "Launch a local-only HTTP viewer on 127.0.0.1:18899 (requires @co-engram/claude-code)."
     },
     "language": {
       "label": "Language",

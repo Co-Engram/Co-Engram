@@ -281,7 +281,7 @@ core 只定义 `LlmClient` 接口(`complete(prompt, opts) → string`),具体 pr
 
 一个仅绑定 loopback 的 HTTP 服务器,用于在浏览器中浏览数据仓库。默认关闭 —— 通过 `CO_ENGRAM_VIEWER_ENABLED=1`(MCP)或 `startViewer: true`(OpenClaw plugin)启用。
 
-默认端口:`18799`。可选 bearer token,通过 `CO_ENGRAM_VIEWER_TOKEN` 设置。
+默认端口:`18899`(2026-07 起两宿主统一)。可选 bearer token,通过 `CO_ENGRAM_VIEWER_TOKEN` 设置。
 
 设置细节参见 [host-claude-code.md](./host-claude-code.zh-CN.md) 和 [host-openclaw.md](./host-openclaw.zh-CN.md)。
 

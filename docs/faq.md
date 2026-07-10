@@ -232,10 +232,10 @@ The rule-based fallback keeps the proposal engine always-available, but you lose
 
 ### Q: Startup warns `viewer.port=... from persisted config is deprecated`
 
-The persisted `~/team-memory/.co-engram/config.json` is shared across both hosts — if you point Claude Code and OpenClaw at the same data repo and both read a hardcoded `viewer.port`, they collide. The deprecation nudges you toward host-specific overrides:
+The persisted `~/team-memory/.co-engram/config.json` is shared across both hosts — if you point Claude Code and OpenClaw at the same data repo and both read a hardcoded `viewer.port`, they collide. The deprecation nudges you toward env overrides:
 
-- **Claude Code**: set env `CO_ENGRAM_VIEWER_PORT=18799` (or leave unset to use the default)
-- **OpenClaw**: set env `CO_ENGRAM_VIEWER_PORT=18899` (distinct port, avoids collision when both hosts run simultaneously)
+- **Both hosts share a unified default `18899`** since 2026-07 (the earlier host-specific defaults Claude Code=18799 / OpenClaw=18899 are deprecated).
+- **Running two separate dataRoots side-by-side?** Set env `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp` (or any free port) on one of the hosts to avoid collision.
 
 The persisted value still works as a fallback for this release; the warning is informational, not a failure.
 

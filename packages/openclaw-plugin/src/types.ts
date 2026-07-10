@@ -260,7 +260,7 @@ export interface CoEngramPluginConfig {
 
 /** Viewer 配置 */
 export interface ViewerConfig {
-  /** 端口(默认 18799) */
+  /** 端口(默认 18899,2026-07 起两宿主共用) */
   readonly port?: number;
   /** Bearer token(可选) */
   readonly token?: string;

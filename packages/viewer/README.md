@@ -12,7 +12,7 @@ Both `@co-engram/claude-code` and `@co-engram/openclaw` import this package to s
 import { startViewerServer } from "@co-engram/viewer";
 
 const runtime = await startViewerServer(ctx, {
-  port: 18799, // optional, defaults to 18799 with auto-retry
+  port: 18899, // optional, defaults to 18899 (unified across both hosts since 2026-07) with auto-retry
   token: "optional", // optional bearer token
   language: "zh", // 'en' | 'zh'
 });

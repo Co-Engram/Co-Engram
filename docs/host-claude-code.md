@@ -109,7 +109,7 @@ Key ones:
 - `CO_ENGRAM_MAINTENANCE_LEARNING_RATE` — RPE learning rate (default 0.1)
 - `CO_ENGRAM_PROPOSALS_ENABLED=1` — enable implicit memory proposals
 - `ANTHROPIC_API_KEY` — Claude API key used by the proposal engine's Layer 2 necessity evaluator. Usually already set in the Claude Code environment; the adapter auto-detects it. When unset, Layer 2 falls back to the rule-based evaluator (zero LLM cost). See [observability two-layer filtering](./observability.md#proposal-engine).
-- `CO_ENGRAM_VIEWER_ENABLED=1` — start the web viewer at `http://127.0.0.1:18799`
+- `CO_ENGRAM_VIEWER_ENABLED=1` — start the web viewer at `http://127.0.0.1:18899`
 - `CO_ENGRAM_LANGUAGE` — language for tool descriptions / viewer / prompts (`en` | `zh`; default `en` or persisted team-memory config)
 - `CO_ENGRAM_TOOLS_PROFILE` — tool surface for the LLM: `minimal` (12 tools — 8 core read/write + 3 proposal triage + `engram_sync`, so the maintenance engine's auto-generated candidates can always be closed-loop handled), `standard` (19, default — adds learning loop, contradiction, self-healing, progressive disclosure, LLM synthesis, audit query), `full` (29, includes admin + internal management tools). Counts are derived from `PROFILE_TOOL_COUNTS` in source via `.size`, so they cannot silently drift. Invalid values warn and fall back to `standard`.
 
@@ -126,7 +126,7 @@ claude mcp add co-engram \
   -- co-engram-mcp
 ```
 
-Then open `http://127.0.0.1:18799` in your browser. If you set a token, the browser will prompt for it.
+Then open `http://127.0.0.1:18899` in your browser. If you set a token, the browser will prompt for it.
 
 > **`viewer.port` persisted config is deprecated.** If `port` is set in `~/team-memory/.co-engram/config.json`'s `viewer` block, the server prints a one-line warning at startup because the two hosts (Claude Code + OpenClaw) share that persisted config and would otherwise collide. Prefer the env var `CO_ENGRAM_VIEWER_PORT`. The persisted value still works as a fallback for this release.
 

@@ -232,10 +232,10 @@ grep '"necessity_rejected"' ~/team-memory/.co-engram/audit.jsonl | tail -10
 
 ### 问:启动时警告 `viewer.port=... from persisted config is deprecated`
 
-持久化的 `~/team-memory/.co-engram/config.json` 在两个宿主间共享 —— 如果你让 Claude Code 和 OpenClaw 同时指向同一个 data repo,且都读到一个硬编码的 `viewer.port`,就会冲突。这个废弃提示引导你改用宿主各自的覆盖方式:
+持久化的 `~/team-memory/.co-engram/config.json` 在两个宿主间共享 —— 如果你让 Claude Code 和 OpenClaw 同时指向同一个 data repo,且都读到一个硬编码的 `viewer.port`,就会冲突。这个废弃提示引导你改用环境变量覆盖:
 
-- **Claude Code**:设 env `CO_ENGRAM_VIEWER_PORT=18799`(或不设,用默认值)
-- **OpenClaw**:设 env `CO_ENGRAM_VIEWER_PORT=18899`(独立端口,避免两宿主同时运行时冲突)
+- **自 2026-07 起两宿主共用统一默认 `18899`**(原 host-specific 默认 Claude Code=18799 / OpenClaw=18899 已弃用)。
+- **想同时跑两个独立 dataRoot?** 在其中一端设 env `CO_ENGRAM_VIEWER_PORT=19000 co-engram-mcp`(或任意空闲端口)避免冲突。
 
 持久化值本次发布仍作 fallback 生效;这行警告只是提示,不是故障。
 

@@ -98,7 +98,7 @@ describe("Task 5.3: viewer.port persisted config deprecation warn", () => {
   });
 
   it("does not warn when config.port is absent (default port path)", async () => {
-    // 用 env 指定一个安全端口,避免 default 18799 在 CI 上碰撞
+    // 用 env 指定一个安全端口,避免 default 18899 在 CI 上碰撞
     process.env.CO_ENGRAM_VIEWER_PORT = "19345";
     const warns: string[] = [];
     const spy = vi.spyOn(console, "warn").mockImplementation((m) => {

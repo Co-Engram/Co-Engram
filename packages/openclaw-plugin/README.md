@@ -164,7 +164,7 @@ existing values (including `false`) are preserved. Recommended defaults:
 | ------------------ | ------ | -------------------------------------- |
 | `language`         | `"zh"` | Tool descriptions / viewer UI language |
 | `startMaintenance` | `true` | Run light/deep/rem auto-maintenance    |
-| `startViewer`      | `true` | HTTP viewer on `127.0.0.1:18799`       |
+| `startViewer`      | `true` | HTTP viewer on `127.0.0.1:18899`       |
 | `auditEnabled`     | `true` | Persist `.co-engram/audit.jsonl`       |
 
 Note: `startMaintenance` / `startViewer` / `auditEnabled` already default to

@@ -9,11 +9,11 @@ Claude Code hook → co-engram proposal engine 观察桥
 行为:
   - 从 stdin 读 hook JSON
   - 按 role 抽出对话内容
-  - POST 到本地 viewer 的 /api/observe(默认 http://127.0.0.1:18799)
+  - POST 到本地 viewer 的 /api/observe(默认 http://127.0.0.1:18899)
   - 永远 exit 0,不写 stdout,不阻塞 Claude Code
 
 环境变量:
-  CO_ENGRAM_VIEWER_URL   覆盖 viewer URL(默认 http://127.0.0.1:18799)
+  CO_ENGRAM_VIEWER_URL   覆盖 viewer URL(默认 http://127.0.0.1:18899)
   CO_ENGRAM_VIEWER_TOKEN Bearer token(viewer 启用 token 时必须)
   CO_ENGRAM_OBSERVE_DISABLED 设为 1/true 临时关闭本 hook(无侵入式开关)
 """
@@ -67,7 +67,7 @@ def main() -> int:
     if not content or not content.strip():
         return 0
 
-    base_url = os.environ.get("CO_ENGRAM_VIEWER_URL", "http://127.0.0.1:18799").rstrip("/")
+    base_url = os.environ.get("CO_ENGRAM_VIEWER_URL", "http://127.0.0.1:18899").rstrip("/")
     url = base_url + "/api/observe"
     token = os.environ.get("CO_ENGRAM_VIEWER_TOKEN", "")
 
