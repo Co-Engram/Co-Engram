@@ -15,6 +15,10 @@ coverage/
 .vscode/
 .idea/
 *.swp
+.obsidian/
+
+# Personal skill / brainstorm state(superpowers 跨项目个人产物,不入仓库)
+.superpowers/
 
 # OS
 .DS_Store
