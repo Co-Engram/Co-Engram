@@ -39,9 +39,14 @@ import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   RuleBasedNecessityEvaluator,
   prefilterMessage,
+  type LlmClient,
   type NecessityEvaluator,
   type NecessityVerdict,
 } from "./necessity-evaluator.js";
+import {
+  extractBareMarkdownDefaults,
+  extractEngramFieldsWithLlm,
+} from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
 import { notFoundError, validationError } from "../tools/error-schema.js";
 
@@ -740,61 +745,126 @@ export class ProposalEngine {
    * 同一份字段映射逻辑(避免漂移)。
    *
    * 行为:
-   *   - parsed 为 null → noop(裸 .md,不进入提案流程)
-   *   - frontmatter 缺 title 或 kind → noop(无法构成最小 engram)
+   *   - parsed 非 null + frontmatter 含 title + kind → 直接走原逻辑(从 frontmatter 提取)
+   *   - parsed 为 null(裸 .md,无 frontmatter)→ 异步提取:
+   *     - llmClient 提供 → LLM 智能提取 title/kind/domainTags/summary
+   *     - llmClient 未提供 或 LLM 失败 → 规则版降级(H1/文件名 → title, kind=observation, tags=["imported"])
+   *   - frontmatter 缺 title 或 kind → 同样走异步提取(等同裸 .md)
    *   - domainTags 缺失 → 默认 `["imported"]`,accept 时用户可调整
    *   - createdBy 缺失 → 不传(由 engram_create 走 defaultCreatedBy 兜底)
    *
+   * 异步处理:hook 同步签名,内部 fire-and-forget 异步任务,不阻塞 watcher 的
+   * 2s debounce。LLM 失败 / 超时 / JSON 解析错都降级到规则版,保证"用户友好"——
+   * 即使 LLM 不可用,裸 .md 仍能进入 proposal 流程。
+   *
+   * @param options.llmClient 可选,LLM 提取器;未提供时直接走规则版
+   * @param options.onLlmError 可选,LLM 失败回调(诊断用,默认 no-op)
+   *
    * @returns 符合 EngramRepository.setExternalMarkdownHook 签名的回调
    */
-  createExternalMarkdownHook(): (params: {
+  createExternalMarkdownHook(options?: {
+    readonly llmClient?: LlmClient;
+    readonly onLlmError?: (err: unknown, sourcePath: string) => void;
+  }): (params: {
     readonly absPath: string;
     readonly relPath: string;
     readonly raw: string;
     readonly parsed: { readonly frontmatter: { readonly [key: string]: unknown } } | null;
   }) => void {
     return (params) => {
-      const { parsed, relPath } = params;
-      if (!parsed) return;
-      const fm = parsed.frontmatter as {
-        title?: unknown;
-        kind?: unknown;
-        domainTags?: unknown;
-        summary?: unknown;
-        createdBy?: unknown;
-        sourceType?: unknown;
-        importance?: unknown;
-        visibility?: unknown;
-        encodingContext?: unknown;
-        contextTags?: unknown;
-        content?: unknown;
-      };
-      if (typeof fm.title !== "string" || typeof fm.kind !== "string") return;
-      const content =
-        typeof fm.content === "string" ? fm.content : params.raw;
-      this.proposeExternalMarkdown({
-        sourcePath: relPath,
-        title: fm.title,
-        content,
-        ...(typeof fm.summary === "string" ? { summary: fm.summary } : {}),
-        domainTags:
-          Array.isArray(fm.domainTags) && fm.domainTags.every((t) => typeof t === "string")
-            ? (fm.domainTags as readonly string[])
-            : ["imported"],
-        ...(typeof fm.createdBy === "string" ? { createdBy: fm.createdBy } : {}),
-        ...(typeof fm.sourceType === "string" ? { sourceType: fm.sourceType as never } : {}),
-        ...(typeof fm.importance === "number" ? { importance: fm.importance } : {}),
-        ...(typeof fm.visibility === "string" ? { visibility: fm.visibility as never } : {}),
-        ...(typeof fm.encodingContext === "string"
-          ? { encodingContext: fm.encodingContext }
-          : {}),
-        ...(Array.isArray(fm.contextTags) &&
-        fm.contextTags.every((t) => typeof t === "string")
-          ? { contextTags: fm.contextTags as readonly string[] }
-          : {}),
-        kind: fm.kind as EngramCreateInput["kind"],
-      });
+      const { parsed, relPath, raw } = params;
+
+      // 路径 1:合法 engram(有 frontmatter 且含 title + kind)→ 现有同步逻辑
+      if (parsed) {
+        const fm = parsed.frontmatter as {
+          title?: unknown;
+          kind?: unknown;
+          domainTags?: unknown;
+          summary?: unknown;
+          createdBy?: unknown;
+          sourceType?: unknown;
+          importance?: unknown;
+          visibility?: unknown;
+          encodingContext?: unknown;
+          contextTags?: unknown;
+          content?: unknown;
+        };
+        if (typeof fm.title === "string" && typeof fm.kind === "string") {
+          const content =
+            typeof fm.content === "string" ? fm.content : raw;
+          this.proposeExternalMarkdown({
+            sourcePath: relPath,
+            title: fm.title,
+            content,
+            ...(typeof fm.summary === "string" ? { summary: fm.summary } : {}),
+            domainTags:
+              Array.isArray(fm.domainTags) && fm.domainTags.every((t) => typeof t === "string")
+                ? (fm.domainTags as readonly string[])
+                : ["imported"],
+            ...(typeof fm.createdBy === "string" ? { createdBy: fm.createdBy } : {}),
+            ...(typeof fm.sourceType === "string" ? { sourceType: fm.sourceType as never } : {}),
+            ...(typeof fm.importance === "number" ? { importance: fm.importance } : {}),
+            ...(typeof fm.visibility === "string" ? { visibility: fm.visibility as never } : {}),
+            ...(typeof fm.encodingContext === "string"
+              ? { encodingContext: fm.encodingContext }
+              : {}),
+            ...(Array.isArray(fm.contextTags) &&
+            fm.contextTags.every((t) => typeof t === "string")
+              ? { contextTags: fm.contextTags as readonly string[] }
+              : {}),
+            kind: fm.kind as EngramCreateInput["kind"],
+          });
+          return;
+        }
+        // frontmatter 缺关键字段 → fall through 到裸 .md 路径
+      }
+
+      // 路径 2:裸 .md(无 frontmatter 或 frontmatter 不完整)→ fire-and-forget 异步提取
+      // 不阻塞 watcher 同步签名;LLM 失败自动降级到规则版
+      this.proposeBareMarkdownAsync(relPath, raw, options?.llmClient).catch(
+        (err) => {
+          options?.onLlmError?.(err, relPath);
+        },
+      );
     };
+  }
+
+  /**
+   * 异步处理裸 .md:LLM 提取 → proposeExternalMarkdown
+   *
+   * 降级链:
+   *   1. llmClient 提供 → LLM 提取 title/kind/domainTags/summary(精准)
+   *   2. llmClient 未提供 或 LLM 抛错 → 规则版(H1/文件名 → title, kind=observation, tags=["imported"])
+   *
+   * 无论哪条路径都调用 proposeExternalMarkdown,让裸 .md 进入 proposal 审批流程。
+   * 幂等性由 proposeExternalMarkdown 自身负责(同 entityId 的 pending/accepted/dismissed 都 no-change)。
+   */
+  private async proposeBareMarkdownAsync(
+    sourcePath: string,
+    raw: string,
+    llmClient?: LlmClient,
+  ): Promise<void> {
+    let fields;
+    if (llmClient) {
+      try {
+        fields = await extractEngramFieldsWithLlm(raw, llmClient);
+      } catch {
+        // LLM 失败 → 降级到规则版(不抛错,保证用户能拿到 proposal)
+        fields = extractBareMarkdownDefaults(sourcePath, raw);
+      }
+    } else {
+      // 未配置 LLM → 直接规则版
+      fields = extractBareMarkdownDefaults(sourcePath, raw);
+    }
+
+    this.proposeExternalMarkdown({
+      sourcePath,
+      title: fields.title,
+      content: fields.content,
+      kind: fields.kind,
+      domainTags: fields.domainTags,
+      ...(fields.summary !== undefined ? { summary: fields.summary } : {}),
+    });
   }
 
   /**

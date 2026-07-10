@@ -402,7 +402,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     }
     if (proposalEngine) {
       ctx.repository.setExternalMarkdownHook(
-        proposalEngine.createExternalMarkdownHook(),
+        proposalEngine.createExternalMarkdownHook({
+          ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        }),
       );
     }
     ctx.repository.startWatching();

@@ -999,7 +999,7 @@ describe("ProposalEngine.proposeExternalMarkdown", () => {
 // ============================================================
 
 describe("ProposalEngine.createExternalMarkdownHook", () => {
-  it("parsed=null → noop,不创建 proposal(裸 .md 不进入提案流程)", () => {
+  it("parsed=null(裸 .md)→ 走规则版提取,创建 proposal,字段默认填充", () => {
     const hook = engine.createExternalMarkdownHook();
     hook({
       absPath: "/tmp/foo.md",
@@ -1007,10 +1007,16 @@ describe("ProposalEngine.createExternalMarkdownHook", () => {
       raw: "无 frontmatter 的裸 markdown",
       parsed: null,
     });
-    expect(engine.listAll()).toHaveLength(0);
+    const all = engine.listAll();
+    expect(all).toHaveLength(1);
+    const p = all[0]!.payload!;
+    // 规则版:title 取 H1,无 H1 时 fallback 文件名(去 .md)
+    expect(p.title).toBe("foo");
+    expect(p.kind).toBe("observation");
+    expect(p.domainTags).toEqual(["imported"]);
   });
 
-  it("frontmatter 缺 title 或 kind → noop(无法构成最小 engram)", () => {
+  it("frontmatter 缺 title 或 kind → 同样走规则版提取(等同裸 .md)", () => {
     const hook = engine.createExternalMarkdownHook();
     hook({
       absPath: "/tmp/foo.md",
@@ -1019,11 +1025,16 @@ describe("ProposalEngine.createExternalMarkdownHook", () => {
       parsed: {
         frontmatter: {
           title: "有 title",
-          // 缺 kind
+          // 缺 kind → fall through 到裸 .md 路径
         },
       },
     });
-    expect(engine.listAll()).toHaveLength(0);
+    const all = engine.listAll();
+    expect(all).toHaveLength(1);
+    // raw="..." 无 H1,规则版 fallback 文件名
+    expect(all[0]!.payload!.title).toBe("foo");
+    expect(all[0]!.payload!.kind).toBe("observation");
+    expect(all[0]!.payload!.domainTags).toEqual(["imported"]);
   });
 
   it("合法 frontmatter → 创建 pending proposal,sourcePath 来自 relPath", () => {

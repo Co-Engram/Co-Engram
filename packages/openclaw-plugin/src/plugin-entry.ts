@@ -566,7 +566,9 @@ export function registerCoEngramTools(
     }
     if (ctx.proposalEngine) {
       ctx.repository.setExternalMarkdownHook(
-        ctx.proposalEngine.createExternalMarkdownHook(),
+        ctx.proposalEngine.createExternalMarkdownHook({
+          ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        }),
       );
     }
     ctx.repository.startWatching();
@@ -694,7 +696,9 @@ export function registerCoEngramTools(
   if (processLock.isHolder) {
     if (ctx.proposalEngine) {
       ctx.repository.setExternalMarkdownHook(
-        ctx.proposalEngine.createExternalMarkdownHook(),
+        ctx.proposalEngine.createExternalMarkdownHook({
+          ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        }),
       );
     }
     ctx.repository.startWatching();
