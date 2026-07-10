@@ -102,6 +102,9 @@ export interface GraphEdge {
   readonly evidenceCount?: number;
   /** contradiction 裁决状态(仅 contradicts 边),viewer 染色用 */
   readonly resolutionStatus?: string;
+  /** 创建者(synapse.createdBy),viewer 统计「贡献者排名·印迹+突触合计」用;
+   *  旧 graph.json 可能缺此字段,stats 聚合时 fallback 到 0(2026-07 加,plan AI-2 子集) */
+  readonly createdBy?: string;
 }
 
 /** Graph 索引文件结构 */

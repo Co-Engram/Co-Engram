@@ -1111,6 +1111,65 @@ export class ProposalEngine {
     return { dismissedIds, failures: [], skipped };
   }
 
+  /**
+   * 按 status 统计 proposal 数量(viewer UI「已采纳(N) / 已驳回(M) / ...」按钮计数用)。
+   *
+   * 2026-07 加:之前 viewer 按钮无数字,用户无法判断各状态规模。
+   * pending 计数与 listPending() 同源(过滤 dismissedUntil 未过期)。
+   */
+  statusCounts(): {
+    readonly pending: number;
+    readonly accepted: number;
+    readonly dismissed: number;
+    readonly all: number;
+  } {
+    const all = this.readProposals();
+    let pending = 0;
+    let accepted = 0;
+    let dismissed = 0;
+    const nowIso = new Date().toISOString();
+    for (const p of all) {
+      if (p.status === "accepted") {
+        accepted += 1;
+      } else if (p.status === "dismissed") {
+        dismissed += 1;
+      } else if (p.status === "pending") {
+        // 与 listPending 同源:dismissedUntil 未过期则不算 pending
+        if (p.dismissedUntil && p.dismissedUntil > nowIso) continue;
+        pending += 1;
+      }
+    }
+    return { pending, accepted, dismissed, all: all.length };
+  }
+
+  /**
+   * 物理删除所有 status=dismissed 的 proposal(用户「已驳回清空」操作)。
+   *
+   * 与 dismiss/dismissBatch 的差异:
+   *   - dismiss 把 status 改为 dismissed(保留记录,dismissDays 后可重新激活)
+   *   - purgeDismissed 永久删除行(只在用户主动清空「已驳回」时调用)
+   *
+   * 不删 accepted(已转 engram,删除 proposal 不影响 engram,但保留 proposal 用于审计)。
+   * 不删 pending(用户应通过 dismiss 主动处理,而非 purge)。
+   *
+   * @returns 被删除的 entityId 列表(供 audit / UI toast 显示)
+   */
+  purgeDismissed(): readonly string[] {
+    const all = this.readProposals();
+    const dismissedIds: string[] = [];
+    const remaining: Proposal[] = [];
+    for (const p of all) {
+      if (p.status === "dismissed") {
+        dismissedIds.push(p.entityId);
+      } else {
+        remaining.push(p);
+      }
+    }
+    if (dismissedIds.length === 0) return [];
+    this.writeProposals(remaining);
+    return dismissedIds;
+  }
+
   /** 清理过期/已处理数据(测试用) */
   clear(): void {
     for (const f of [this.clustersFile, this.proposalsFile]) {

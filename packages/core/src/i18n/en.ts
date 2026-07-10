@@ -1167,10 +1167,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.batch.dismissAllToast": "Batch dismiss done: ${ok} succeeded, ${fail} failed",
   "viewer.proposals.batch.noPending": "No pending proposals in current view to batch-operate",
   "viewer.proposals.batch.purgeDismissed": "Purge (${n})",
-  "viewer.proposals.batch.purgeDismissedConfirm": "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
-  "viewer.proposals.batch.purgeDismissedToast": "Purged ${n} dismissed proposals",
-  "viewer.proposals.batch.purgeDismissedFailed": "Purge failed: ${err}",
-  "viewer.proposals.batch.noDismissed": "No dismissed proposals to purge",
+  "viewer.proposals.batch.purgeConfirm": "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
+  "viewer.proposals.batch.purgeToast": "Purged ${n} dismissed proposals",
+  "viewer.proposals.batch.purgeFailed": "Purge failed: ${err}",
+  "viewer.proposals.batch.purgeNoDismissed": "No dismissed proposals to purge",
 
   // ===== Audit panel (viewer.audit.*) =====
   "viewer.audit.filter.actor": "Actor",
@@ -1684,6 +1684,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "On repository inconsistency, call <code>engram_doctor</code> from the agent for a self-healing scan.",
   "viewer.help.tip5":
     "Numeric fields like <code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> show a band label (high / medium / low; thresholds ≥0.7 / ≥0.3 / <0.3) next to the raw 2-decimal value. The band is language-neutral in storage; the UI localizes it.",
+  "viewer.help.tip6":
+    "In the Proposals tab, \"Dismiss all\" and \"Purge\" are two different operations: <strong>dismiss</strong> marks candidates as dismissed (soft delete; proposals.json retains them; audit-traceable), while <strong>purge</strong> physically deletes all dismissed candidates from disk (irreversible; audit log retained). The counts on status buttons 「Accepted (N) / Dismissed (N) / All (N)」 reflect the live proposal-store composition.",
 
   // ===== Memory visibility =====
   "viewer.help.visibilityTitle": "Memory visibility & risk recognition",
@@ -1774,7 +1776,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "host.gateway.mcp": "MCP server",
 
   // ===== Tooltip strings (tip.*) =====
-  "tip.stats.topTags": "Top domain tags: counts how often each domainTag appears across active engrams, top 10. Each engram usually has multiple domainTags (many-to-many), so the sum of all tag counts exceeds the total engram count — this is expected, not a bug.",
+  "tip.stats.topTagsTip": "Top domain tags: counts how often each domainTag appears across active engrams, top 10. Each engram usually has multiple domainTags (many-to-many), so the sum of all tag counts exceeds the total engram count — this is expected, not a bug.",
   "tip.kind.fact":
     "Fact: a confirmed, independently verifiable objective statement. Example: \"The project uses PostgreSQL 14\".",
   "tip.kind.observation":

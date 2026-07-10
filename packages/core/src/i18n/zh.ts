@@ -1158,10 +1158,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.batch.dismissAllToast": "批量驳回完成:成功 ${ok} 条,失败 ${fail} 条",
   "viewer.proposals.batch.noPending": "当前没有待审提案可批量操作",
   "viewer.proposals.batch.purgeDismissed": "彻底清空(${n})",
-  "viewer.proposals.batch.purgeDismissedConfirm": "确认从磁盘物理删除 ${n} 条已驳回提案?\n\n物理删除不可恢复(audit log 仍保留)。该操作只影响 status=dismissed 的提案,不影响 pending / accepted。",
-  "viewer.proposals.batch.purgeDismissedToast": "已物理清空 ${n} 条已驳回提案",
-  "viewer.proposals.batch.purgeDismissedFailed": "清空失败:${err}",
-  "viewer.proposals.batch.noDismissed": "当前没有已驳回提案可清空",
+  "viewer.proposals.batch.purgeConfirm": "确认从磁盘物理删除 ${n} 条已驳回提案?\n\n物理删除不可恢复(audit log 仍保留)。该操作只影响 status=dismissed 的提案,不影响 pending / accepted。",
+  "viewer.proposals.batch.purgeToast": "已物理清空 ${n} 条已驳回提案",
+  "viewer.proposals.batch.purgeFailed": "清空失败:${err}",
+  "viewer.proposals.batch.purgeNoDismissed": "当前没有已驳回提案可清空",
 
   // ===== Audit 面板(viewer.audit.*) =====
   "viewer.audit.filter.actor": "发起者",
@@ -1624,6 +1624,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "遇到仓库不一致,可在 agent 中调 <code>engram_doctor</code> 自愈扫描。",
   "viewer.help.tip5":
     "<code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> 等数值字段会在 2 位小数原始值旁显示等级标签(高 / 中 / 低;阈值 ≥0.7 / ≥0.3 / <0.3)。等级在存储层语言中立,由 UI 本地化。",
+  "viewer.help.tip6":
+    "提案 tab 的「全部驳回」与「彻底清空」是两层操作:<strong>驳回</strong>把候选标记为 dismissed(软删除,proposals.json 仍保留,审计可追),<strong>清空</strong>从磁盘物理删除所有已驳回候选(不可恢复,审计 log 保留)。状态按钮上的计数「已采纳(N) / 已驳回(N) / 全部(N)」实时反映当前提案库构成。",
 
   // ===== 记忆可见性 =====
   "viewer.help.visibilityTitle": "记忆可见性与风险识别",
@@ -1712,7 +1714,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== Tooltip 文案(tip.*)—— viewer 运行时通过 T.tip(key) 查询 =====
   // 注意:这部分中文很长,但与 viewer 运行时挂载的 TOOLTIPS 对象一一对应。
   // viewer app.ts 中 TOOLTIPS 仍是固定中文对象,后续若要做 tooltip i18n 可读这里。
-  "tip.stats.topTags": "高频领域标签:统计所有 active engram 的 domainTags 出现次数,取前 10。一个 engram 通常有多个 domainTags(多对多),所以这里所有 tag 的 count 之和会大于 engram 总数 —— 这是正常的,不是 bug。",
+  "tip.stats.topTagsTip": "高频领域标签:统计所有 active engram 的 domainTags 出现次数,取前 10。一个 engram 通常有多个 domainTags(多对多),所以这里所有 tag 的 count 之和会大于 engram 总数 —— 这是正常的,不是 bug。",
   "tip.kind.fact":
     "事实 (fact):被确认成立、可独立验证的客观陈述。例:「项目使用 PostgreSQL 14」。",
   "tip.kind.observation":

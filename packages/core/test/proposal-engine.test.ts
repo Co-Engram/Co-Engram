@@ -1673,3 +1673,73 @@ describe("ProposalEngine.acceptBatch / dismissBatch · 返回 shape 对称性 (A
     expect(r).toHaveProperty("skipped");
   });
 });
+
+describe("statusCounts / purgeDismissed · viewer 按钮计数与清空(Bug 5/6 守护)", () => {
+  beforeEach(() => {
+    // 3 pending(auto-memory source) + 2 accepted + 2 dismissed 混合
+    engine.proposeAutoMemory({
+      slug: "st-p1", title: "P1", content: "c1",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.proposeAutoMemory({
+      slug: "st-p2", title: "P2", content: "c2",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.proposeAutoMemory({
+      slug: "st-p3", title: "P3", content: "c3",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.proposeAutoMemory({
+      slug: "st-a1", title: "A1", content: "c4",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.accept("am:st-a1", { title: "A1", content: "c4", domainTags: ["t"], kind: "fact", createdBy: "u" });
+    engine.proposeAutoMemory({
+      slug: "st-a2", title: "A2", content: "c5",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.accept("am:st-a2", { title: "A2", content: "c5", domainTags: ["t"], kind: "fact", createdBy: "u" });
+    engine.proposeAutoMemory({
+      slug: "st-d1", title: "D1", content: "c6",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.dismiss("am:st-d1", "test");
+    engine.proposeAutoMemory({
+      slug: "st-d2", title: "D2", content: "c7",
+      domainTags: ["t"], kind: "fact",
+    });
+    engine.dismiss("am:st-d2", "test");
+  });
+
+  it("statusCounts 返回 pending/accepted/dismissed/all 四个字段,值与 listAll 状态分布一致", () => {
+    const counts = engine.statusCounts();
+    expect(counts).toHaveProperty("pending");
+    expect(counts).toHaveProperty("accepted");
+    expect(counts).toHaveProperty("dismissed");
+    expect(counts).toHaveProperty("all");
+    expect(counts.pending).toBe(3);
+    expect(counts.accepted).toBe(2);
+    expect(counts.dismissed).toBe(2);
+    expect(counts.all).toBe(7);
+  });
+
+  it("purgeDismissed 只删除 dismissed,保留 pending/accepted;返回被清空的 entityId 列表", () => {
+    const before = engine.statusCounts();
+    expect(before.dismissed).toBe(2);
+
+    const purgedIds = engine.purgeDismissed();
+    expect(purgedIds.length).toBe(2);
+
+    const after = engine.statusCounts();
+    expect(after.dismissed).toBe(0);
+    expect(after.pending).toBe(3);
+    expect(after.accepted).toBe(2);
+    expect(after.all).toBe(5);
+  });
+
+  it("purgeDismissed 在没有 dismissed 时返回空数组(no-op)", () => {
+    engine.purgeDismissed();
+    const again = engine.purgeDismissed();
+    expect(again).toEqual([]);
+  });
+});

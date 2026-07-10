@@ -78,6 +78,7 @@ export class GraphBuilder {
         ...(synapse.resolutionState?.status
           ? { resolutionStatus: synapse.resolutionState.status }
           : {}),
+        ...(synapse.createdBy ? { createdBy: synapse.createdBy } : {}),
       });
       outgoingAdjacency[fromId]!.push(synapse.id);
       incomingAdjacency[synapse.to]!.push(synapse.id);

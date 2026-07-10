@@ -119,7 +119,7 @@ CO_ENGRAM.on('stats', async function() {
   }
 
   if (tagArr.length) {
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTags') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
+    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTagsTip') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
     tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#c084fc'); });
     html += '</div>';
   }
@@ -1389,16 +1389,16 @@ window.CO_ENGRAM_PROPOSALS = {
     const lastResp = CO_ENGRAM._proposalsPager ? CO_ENGRAM._proposalsPager.getLastResponse() : null;
     const dismissedCount = (lastResp && lastResp.statusCounts && typeof lastResp.statusCounts.dismissed === 'number')
       ? lastResp.statusCounts.dismissed : 0;
-    if (!dismissedCount) { alert(T.t('viewer.proposals.batch.noDismissed')); return; }
-    if (!confirm(T.t('viewer.proposals.batch.purgeDismissedConfirm', { n: dismissedCount }))) return;
+    if (!dismissedCount) { alert(T.t('viewer.proposals.batch.purgeNoDismissed')); return; }
+    if (!confirm(T.t('viewer.proposals.batch.purgeConfirm', { n: dismissedCount }))) return;
 
     try {
       const resp = await CO_ENGRAM.apiJson('/api/proposals/purge-dismissed', 'POST', {});
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
-      alert(T.t('viewer.proposals.batch.purgeDismissedToast', { n: resp.purgedCount || 0 }));
+      alert(T.t('viewer.proposals.batch.purgeToast', { n: resp.purgedCount || 0 }));
     } catch (e) {
-      alert(T.t('viewer.proposals.batch.purgeDismissedFailed', { err: (e.message || e) }));
+      alert(T.t('viewer.proposals.batch.purgeFailed', { err: (e.message || e) }));
     }
   },
 
@@ -3040,6 +3040,7 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tip3') + '</li>'
       + '<li>' + T.t('viewer.help.tip4') + '</li>'
       + '<li>' + T.t('viewer.help.tip5') + '</li>'
+      + '<li>' + T.t('viewer.help.tip6') + '</li>'
       + '</ul>'
 
       + '<h3>' + T.t('viewer.help.visibilityTitle') + '</h3>'

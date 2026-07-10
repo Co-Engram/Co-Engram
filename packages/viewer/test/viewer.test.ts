@@ -1469,3 +1469,207 @@ describe("Task 4: 详情页 visibility 快捷切换 UI (字符串断言)", () =>
     });
   }
 });
+
+// ============================================================
+// 守护测试(Bug 3/4/5/6) — viewer 4 个回归 bug 的不变量
+//
+// Bug 3: topContributors 必须统计 synapse 作者(不只 engram 作者)
+// Bug 4: topTags sum > totalEngrams 是合法的多对多关系(防止未来"修复"破坏此语义)
+// Bug 5: /api/proposals 返回 statusCounts,viewer 按钮显示 (N)
+// Bug 6: POST /api/proposals/purge-dismissed 清空 dismissed
+// ============================================================
+
+describe("守护 · Bug 3: topContributors 合计 engram + synapse 作者", () => {
+  it("synapse-only 作者出现在 topContributors 里,且 total 等于 engram+synapse", async () => {
+    const ctx = makeCtx(tmpDir);
+    // alice 创建 1 个 engram;bob 只创建 synapse(不创建任何 engram)
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    const b = ctx.repository.createEngram({
+      title: "B", content: "b", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    // synapse.createdBy = bob(只在 synapse 出现,不在 engram 出现)
+    const syn: Synapse = {
+      ...makeSynapse(a.id, b.id, "extends"),
+      createdBy: "bob",
+    };
+    ctx.repository.addOutgoingSynapse(a.id, syn);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      const bob = data.topContributors.find((c: { actor: string }) => c.actor === "bob");
+      const alice = data.topContributors.find((c: { actor: string }) => c.actor === "alice");
+      // bob 是 synapse-only 作者,旧版(只统计 engram.created_by)会漏掉 → 必须出现
+      expect(bob, "synapse-only 作者必须出现在 topContributors").toBeDefined();
+      expect(bob.synapseCount).toBe(1);
+      expect(bob.engramCount).toBe(0);
+      expect(bob.total).toBe(1);
+      // alice 有 2 engram + 0 synapse
+      expect(alice).toBeDefined();
+      expect(alice.engramCount).toBe(2);
+      expect(alice.synapseCount).toBe(0);
+      expect(alice.total).toBe(2);
+    });
+  });
+
+  it("topContributors 合计 ≤ totalEngrams + totalSynapses(天花板守护)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    const b = ctx.repository.createEngram({
+      title: "B", content: "b", kind: "fact",
+      domainTags: ["t"], createdBy: "bob",
+    });
+    const c = ctx.repository.createEngram({
+      title: "C", content: "c", kind: "fact",
+      domainTags: ["t"], createdBy: "carol",
+    });
+    ctx.repository.addOutgoingSynapse(a.id, { ...makeSynapse(a.id, b.id, "extends"), createdBy: "dave" });
+    ctx.repository.addOutgoingSynapse(b.id, { ...makeSynapse(b.id, c.id, "extends"), createdBy: "dave" });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      const sumTotal = data.topContributors.reduce(
+        (s: number, c: { total: number }) => s + c.total,
+        0,
+      );
+      // 3 engrams + 2 synapses = 5(天花板);topContributors 是按 actor 分组后的合计,
+      // 因为没有作者跨 engram/synapse 重复,dave 的 synapseCount=2 算 2 条
+      expect(sumTotal).toBeLessThanOrEqual(data.totalEngrams + data.totalSynapses);
+      expect(sumTotal).toBe(5); // alice 1 + bob 1 + carol 1 + dave 2
+    });
+  });
+});
+
+describe("守护 · Bug 4: topTags sum > totalEngrams 是合法多对多语义", () => {
+  it("一条 engram 带 3 个 domainTags,topTags sum = 3,totalEngrams = 1", async () => {
+    const ctx = makeCtx(tmpDir);
+    ctx.repository.createEngram({
+      title: "X", content: "x", kind: "fact",
+      domainTags: ["a", "b", "c"], createdBy: "u",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      expect(data.totalEngrams).toBe(1);
+      const sum = data.topTags.reduce(
+        (s: number, t: { count: number }) => s + t.count,
+        0,
+      );
+      // 多对多:一条 engram 带 3 个 tag → sum=3 > totalEngrams=1 是合法语义
+      expect(sum).toBe(3);
+      expect(sum).toBeGreaterThan(data.totalEngrams);
+    });
+  });
+
+  it("tip.stats.topTagsTip 在 zh/en 都有翻译(防止用户误解 sum > total 为 bug)", () => {
+    expect(zh["tip.stats.topTagsTip"], "zh.tip.stats.topTagsTip 缺翻译").toBeTruthy();
+    expect(en["tip.stats.topTagsTip"], "en.tip.stats.topTagsTip 缺翻译").toBeTruthy();
+  });
+});
+
+describe("守护 · Bug 5: /api/proposals 返回 statusCounts", () => {
+  it("statusCounts.pending/accepted/dismissed/all 四个字段齐全,值与全量一致", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 造一条 pending
+    await ctx.proposalEngine.observe({
+      role: "user",
+      content: "some unique content for statusCounts test xyz123",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/proposals?status=all");
+      const data = JSON.parse(res.body);
+      expect(data.statusCounts).toBeDefined();
+      expect(data.statusCounts).toHaveProperty("pending");
+      expect(data.statusCounts).toHaveProperty("accepted");
+      expect(data.statusCounts).toHaveProperty("dismissed");
+      expect(data.statusCounts).toHaveProperty("all");
+      // pending ≥ 1(刚 observe 的那条),accepted/dismissed = 0(空仓库)
+      expect(data.statusCounts.pending).toBeGreaterThanOrEqual(1);
+      expect(data.statusCounts.accepted).toBe(0);
+      expect(data.statusCounts.dismissed).toBe(0);
+      // all = pending + accepted + dismissed
+      const sum = data.statusCounts.pending + data.statusCounts.accepted + data.statusCounts.dismissed;
+      expect(data.statusCounts.all).toBe(sum);
+    });
+  });
+});
+
+describe("守护 · Bug 6: POST /api/proposals/purge-dismissed", () => {
+  it("purge-dismissed 删除所有 dismissed,保留 pending/accepted", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 造两条 pending,然后 dismiss
+    await ctx.proposalEngine.observe({
+      role: "user",
+      content: "first unique proposal content abc111",
+    });
+    await ctx.proposalEngine.observe({
+      role: "user",
+      content: "second unique proposal content def222",
+    });
+    const pending = ctx.proposalEngine.listPending();
+    expect(pending.length).toBeGreaterThanOrEqual(2);
+    // dismiss 全部
+    for (const p of pending) {
+      ctx.proposalEngine.dismiss(p.entityId, "test purge");
+    }
+    expect(ctx.proposalEngine.statusCounts().dismissed).toBe(pending.length);
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/proposals/purge-dismissed", {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.ok).toBe(true);
+      expect(data.purgedCount).toBe(pending.length);
+      expect(Array.isArray(data.purgedIds)).toBe(true);
+      expect(data.purgedIds.length).toBe(pending.length);
+
+      // 验证 dismissed 已清空
+      const afterRes = await makeRequest(port, "/api/proposals?status=all");
+      const afterData = JSON.parse(afterRes.body);
+      expect(afterData.statusCounts.dismissed).toBe(0);
+      expect(afterData.statusCounts.all).toBe(0);
+    });
+  });
+
+  it("purge-dismissed 在没有 dismissed 时返回 purgedCount=0(no-op)", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/proposals/purge-dismissed", {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.ok).toBe(true);
+      expect(data.purgedCount).toBe(0);
+      expect(data.purgedIds).toEqual([]);
+    });
+  });
+});
+
+describe("守护 · Bug 5/6: i18n keys 中英文一致", () => {
+  const keys = [
+    "viewer.proposals.batch.purgeDismissed",
+    "viewer.proposals.batch.purgeConfirm",
+    "viewer.proposals.batch.purgeToast",
+    "viewer.proposals.batch.purgeNoDismissed",
+  ] as const;
+  for (const key of keys) {
+    it(`zh.${key} 有翻译`, () => {
+      expect(zh[key], `zh.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`en.${key} 有翻译`, () => {
+      expect(en[key], `en.${key} 缺翻译`).toBeTruthy();
+    });
+    it(`zh 与 en 的 ${key} 翻译不同(防复制粘贴漏改)`, () => {
+      expect(zh[key]).not.toBe(en[key]);
+    });
+  }
+});

@@ -77,8 +77,13 @@ export interface ViewerServerConfig {
   /**
    * 端口(可选)
    *
-   * 优先级:env `CO_ENGRAM_VIEWER_PORT` > `config.port` > host-specific 默认
-   * (Claude Code=18799,OpenClaw=18899)。
+   * 优先级:env `CO_ENGRAM_VIEWER_PORT` > `config.port` > 统一默认 `18899`。
+   *
+   * 2026-07 起 viewer 端口从「宿主分叉默认」(Claude Code=18799 /
+   * OpenClaw=18899)收敛为单一 `18899`。理由:viewer 是 dataRoot 维度的
+   * 资源(holder gating 全局唯一),端口也应是 dataRoot 维度的常量;
+   * 宿主分叉会让用户从 Claude Code 启动却得到 OpenClaw 端口(或反之),
+   * 浏览器访问 connection refused。
    *
    * @deprecated persisted `viewer.port` 已废弃(两宿主共享 persisted config 会冲突)。
    * 显式传入仍有效,但建议用 env `CO_ENGRAM_VIEWER_PORT` 覆盖。
@@ -115,8 +120,20 @@ export interface ViewerRuntime {
   readonly stop: () => Promise<void>;
 }
 
-const DEFAULT_PORT_CLAUDE_CODE = 18799;
-const DEFAULT_PORT_OPENCLAW = 18899;
+/**
+ * Viewer 统一默认端口。
+ *
+ * 2026-07 起两宿主(Claude Code MCP / OpenClaw plugin)共用 18899。
+ * 设计动机:viewer 是 dataRoot 维度的资源(holder gating 全局唯一),
+ * 端口也应是 dataRoot 维度常量。原 host-specific 默认(Claude Code=18799 /
+ * OpenClaw=18899)会让用户看到的端口取决于「谁是 holder」而非「用户用哪个
+ * 宿主」,造成 connection refused 体验。统一后用户只记一个 URL。
+ *
+ * 旧端口 18799(Claude Code)弃用;已部署用户改书签到 18899。
+ * env `CO_ENGRAM_VIEWER_PORT` 覆盖路径不变(用户想跑两个独立 dataRoot
+ * 时仍可隔离)。
+ */
+const DEFAULT_PORT = 18899;
 const DEFAULT_MAX_RETRIES = 5;
 
 /**
@@ -172,9 +189,11 @@ function safeReadEngram(
  * 启动 Viewer HTTP server
  *
  * 端口解析优先级:
- *   1. env `CO_ENGRAM_VIEWER_PORT`(覆盖两宿主,高级用户/测试用)
- *   2. `config.port`(显式传入)
- *   3. host-specific 默认:Claude Code=18799,OpenClaw=18899
+ *   1. env `CO_ENGRAM_VIEWER_PORT`(覆盖默认,高级用户/测试用)
+ *   2. `config.port`(显式传入;@deprecated)
+ *   3. 统一默认 `18899`
+ *
+ * hostType 仅用于 UI 文字适配(显示宿主名等),不再影响端口选择。
  *
  * 不抛——端口冲突时自动重试 maxRetries 次。
  */
@@ -183,10 +202,6 @@ export function startViewerServer(
   config: ViewerServerConfig = {},
 ): Promise<ViewerRuntime> {
   const hostType = config.hostType ?? detectHostType();
-  const defaultPort =
-    hostType === "openclaw-plugin"
-      ? DEFAULT_PORT_OPENCLAW
-      : DEFAULT_PORT_CLAUDE_CODE;
   const envPortRaw = process.env.CO_ENGRAM_VIEWER_PORT;
   const envPort = envPortRaw
     ? Number.parseInt(envPortRaw, 10)
@@ -208,7 +223,7 @@ export function startViewerServer(
   }
   const startPort = (envPortValid ? envPort : undefined) ??
     config.port ??
-    defaultPort;
+    DEFAULT_PORT;
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const token = config.token;
   const language = config.language ?? DEFAULT_LANGUAGE;
@@ -297,8 +312,8 @@ function handleRequest(
   hostType: "mcp-server" | "openclaw-plugin",
 ): void {
   try {
-    // CORS:仅本机
-    res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:18799");
+    // CORS:仅本机(viewer 自身同源;env 覆盖到其他端口时也允许本机任意端口)
+    res.setHeader("Access-Control-Allow-Origin", "http://127.0.0.1:18899");
     res.setHeader(
       "Access-Control-Allow-Methods",
       "GET, POST, PATCH, DELETE, OPTIONS",
@@ -643,13 +658,60 @@ async function routeApi(
       filter: status === "all" ? undefined : (p) => p.status === status,
     });
 
+    // statusCounts:让前端按钮显示「已采纳(N) / 已驳回(N) / 全部(N)」。
+    // 与上面分页 result 独立 —— statusCounts 反映全量 proposals.jsonl 状态分布,
+    // 而 result 只反应当前 status filter 下的当前页。
+    const statusCounts = ctx.proposalEngine.statusCounts();
+
     respondJson(res, 200, {
       results: result.results,
       total: result.total,
       nextCursor: result.nextCursor,
       enabled: true,
+      statusCounts,
     });
     return;
+  }
+
+  // /api/proposals/purge-dismissed
+  //
+  // 清空所有 status=dismissed 的 proposal,释放 .co-engram/proposals.jsonl 空间。
+  // 用户场景:dismissed 列表累积到几百条后,人工逐条审查已无意义,直接清空更高效。
+  // 返回被清空的 entityId 列表(审计 + UI 反馈用)。
+  if (
+    path === "/api/proposals/purge-dismissed" &&
+    req.method === "POST"
+  ) {
+    if (!ctx.proposalEngine) {
+      respondJson(res, 503, {
+        error: "Proposal engine not enabled",
+        enabled: false,
+      });
+      return;
+    }
+    try {
+      const purgedIds = ctx.proposalEngine.purgeDismissed();
+      // 审计留痕(便于追溯清空动作)
+      for (const entityId of purgedIds) {
+        ctx.auditLog?.append({
+          actor: "user",
+          action: "dismiss",
+          engramId: entityId,
+          metadata: { purged: true, source: "purge-dismissed" },
+        });
+      }
+      respondJson(res, 200, {
+        ok: true,
+        purgedCount: purgedIds.length,
+        purgedIds,
+      });
+      return;
+    } catch (err) {
+      respondJson(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
   }
 
   // /api/proposals/:entityId/accept | /dismiss
@@ -1591,23 +1653,42 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
   ).all() as { domain: string; n: number }[];
   const topTags = tagRows.map((r) => ({ tag: r.domain, count: r.n }));
 
-  // 4. topContributors:v3 schema 加了 created_by 列,直接 SQL GROUP BY。
-  //    彻底消除 readEngram loop(之前 26 条 readEngram × assembleEngram 卡 24s,
-  //    根因是 assembleEngram 内部 listSynapsesForEngram 扫 1826 synapse 文件)。
-  const contributorRows = db.prepare(
+  // 4. topContributors:engram 作者走 SQLite GROUP BY(毫秒级);
+  //    synapse 作者走 graph.json edges 的 createdBy 字段(GraphBuilder 2026-07 加)。
+  //    修复 Bug 3(2026-07):之前 synapseCount 写死 0,「印迹+突触合计」标题误导用户。
+  //    旧 graph.json 缺 createdBy 字段时,该 synapse 不计入(下次 graph rebuild 后补齐)。
+  const engramContributorRows = db.prepare(
     `SELECT created_by AS actor, count(*) AS n
      FROM engrams
      WHERE created_by != ''
-     GROUP BY created_by
-     ORDER BY n DESC
-     LIMIT 10`,
+     GROUP BY created_by`,
   ).all() as { actor: string; n: number }[];
-  const topContributors = contributorRows.map((r) => ({
-    actor: r.actor,
-    engramCount: r.n,
-    synapseCount: 0,
-    total: r.n,
-  }));
+
+  const contributorMap = new Map<string, { engram: number; synapse: number }>();
+  for (const r of engramContributorRows) {
+    contributorMap.set(r.actor, { engram: r.n, synapse: 0 });
+  }
+  // 从 graph.json edges 聚合 synapse createdBy(graph cache 已在 step 2 读)
+  for (const edge of graph.edges) {
+    const edgeWithCreatedBy = edge as { createdBy?: string };
+    const actor = edgeWithCreatedBy.createdBy;
+    if (!actor) continue; // 旧 graph.json 缺字段,跳过
+    const entry = contributorMap.get(actor);
+    if (entry) {
+      entry.synapse += 1;
+    } else {
+      contributorMap.set(actor, { engram: 0, synapse: 1 });
+    }
+  }
+  const topContributors = Array.from(contributorMap.entries())
+    .map(([actor, counts]) => ({
+      actor,
+      engramCount: counts.engram,
+      synapseCount: counts.synapse,
+      total: counts.engram + counts.synapse,
+    }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 10);
 
   return {
     totalEngrams,
