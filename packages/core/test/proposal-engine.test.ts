@@ -797,6 +797,68 @@ describe("ProposalEngine.proposeAutoMemory", () => {
     });
     expect(action).toBe("no-change");
   });
+
+  // ============================================================
+  // tombstone:dismiss 后 purgeDismissed 清掉行,propose 不应复活
+  // (fixes 2026-07 dismiss-复活 bug:用户 dismiss + purge 后,
+  //  AutoMemorySyncEngine 重新扫描不应把同 slug 的 proposal 重建为 pending)
+  // ============================================================
+
+  it("dismiss + purgeDismissed + 重新 propose → no-change(tombstone 生效,不复活)", () => {
+    engine.proposeAutoMemory({
+      slug: "purge-resurrection-slug",
+      title: "v1",
+      content: "body v1",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(engine.listAll()).toHaveLength(1);
+
+    engine.dismiss("am:purge-resurrection-slug", "not relevant");
+    expect(engine.listAll()[0]!.status).toBe("dismissed");
+
+    // 用户点「清空已驳回」→ proposals.jsonl 中 dismissed 行被物理删除
+    const purged = engine.purgeDismissed();
+    expect(purged).toEqual(["am:purge-resurrection-slug"]);
+    expect(engine.listAll()).toHaveLength(0); // proposals.jsonl 已空
+
+    // 此时 AutoMemorySyncEngine 重新扫描,文件仍在磁盘 → 调 proposeAutoMemory
+    // bug 行为:走「新建」分支,proposal 复活为 pending
+    // 修复后:tombstone 命中 → no-change
+    const action = engine.proposeAutoMemory({
+      slug: "purge-resurrection-slug",
+      title: "v1",
+      content: "body v1",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()).toHaveLength(0); // 仍未创建
+    expect(engine.listPending()).toHaveLength(0);
+  });
+
+  it("dismiss(days=7) + purge + 7 天内重新 propose → no-change(tombstone 仍在冷却期)", () => {
+    engine.proposeAutoMemory({
+      slug: "timed-purge-slug",
+      title: "v1",
+      content: "body",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    engine.dismiss("am:timed-purge-slug", undefined, 7);
+    engine.purgeDismissed();
+    expect(engine.listAll()).toHaveLength(0);
+
+    // 7 天内:即使源文件变化,proposeAutoMemory 也应被 tombstone 拦截
+    const action = engine.proposeAutoMemory({
+      slug: "timed-purge-slug",
+      title: "v2",
+      content: "body v2",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+  });
 });
 
 // ============================================================
@@ -991,6 +1053,33 @@ describe("ProposalEngine.proposeExternalMarkdown", () => {
     expect(action).toBe("no-change");
     expect(engine.listAll()[0]!.status).toBe("accepted");
     expect(engine.listAll()[0]!.payload?.title).toBe("原标题");
+  });
+
+  it("dismiss + purgeDismissed + 重新 propose → no-change(tombstone 生效)", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "purge-resurrect.md",
+      title: "v1",
+      content: "body v1",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+    engine.dismiss(entityId, "not relevant");
+    engine.purgeDismissed();
+    expect(engine.listAll()).toHaveLength(0);
+
+    // 文件仍存在 → 扫描器再次触发 proposeExternalMarkdown
+    // bug 行为:走「新建」分支,proposal 复活
+    // 修复后:tombstone 命中 → no-change
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "purge-resurrect.md",
+      title: "v2",
+      content: "body v2",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("no-change");
+    expect(engine.listAll()).toHaveLength(0);
   });
 });
 

@@ -216,6 +216,7 @@ export class ProposalEngine {
   private readonly config: Required<ProposalEngineConfig>;
   private readonly clustersFile: string;
   private readonly proposalsFile: string;
+  private readonly tombstonesFile: string;
   private readonly necessityEvaluator: NecessityEvaluator;
   /**
    * readProposals / readClusters 的 mtime-based cache。
@@ -233,6 +234,28 @@ export class ProposalEngine {
    */
   private proposalsCache: { mtime: number; data: Proposal[] } | null = null;
   private clustersCache: { mtime: number; data: TopicCluster[] } | null = null;
+  /**
+   * dismissed-tombstones 的 mtime-based cache。
+   *
+   * 背景(2026-07 dismiss-复活 bug):用户 dismiss auto-memory proposal 后,
+   * 若再点「清空已驳回」(purgeDismissed),proposals.jsonl 中的 dismissed 行被
+   * 物理删除。但 ~/.claude/.../memory/*.md 仍在磁盘,AutoMemorySyncEngine 下次
+   * 扫描调 proposeAutoMemory 时,readProposals 找不到 existing → 走「新建」分支,
+   * 用户驳回过的 proposal 全部复活为 pending。
+   *
+   * tombstone 是 dismiss 时的 append-only 永久记录,独立于 proposals.jsonl,
+   * 即使 proposals 行被 purge,tombstone 仍生效。三个 propose 入口
+   * (proposeAutoMemory / proposeExternalMarkdown / maybePromoteToProposal)
+   * 在 existing 检查后,额外查 isTombstoned —— 命中则返回 no-change。
+   *
+   * dismissedUntil 语义保留:null = 永久屏蔽;ISO string = 屏蔽到该时刻。
+   * readTombstones 用 Map(entityId → dismissedUntil),同 entityId 多次 dismiss
+   * 时后写覆盖前写,自然取最新状态。
+   */
+  private tombstonesCache: {
+    mtime: number;
+    data: Map<string, string | null>;
+  } | null = null;
 
   constructor(deps: {
     readonly repository: EngramRepository;
@@ -258,6 +281,11 @@ export class ProposalEngine {
       "topic-clusters.jsonl",
     );
     this.proposalsFile = join(deps.dataRoot, ".co-engram", "proposals.jsonl");
+    this.tombstonesFile = join(
+      deps.dataRoot,
+      ".co-engram",
+      "dismissed-tombstones.jsonl",
+    );
     this.necessityEvaluator =
       deps.necessityEvaluator ?? new RuleBasedNecessityEvaluator();
   }
@@ -568,6 +596,12 @@ export class ProposalEngine {
       return "no-change";
     }
 
+    // tombstone 检查:用户曾 dismiss 且 proposals.jsonl 中该行已被 purge 清掉。
+    // 此时 existing=undefined,但 tombstone 仍记录「曾被驳回」 → 不复活。
+    if (this.isTombstoned(entityId)) {
+      return "no-change";
+    }
+
     if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
       // payload 未变化 —— 不动 proposal,只刷新 lastSeenAt 也无意义(无样本聚合)
       return "no-change";
@@ -692,6 +726,11 @@ export class ProposalEngine {
 
     if (existing?.status === "dismissed") {
       // 永久驳回(或仍在 dismissDays 冷却期):源文件即使变化也不再重开
+      return "no-change";
+    }
+
+    // tombstone 检查(同 proposeAutoMemory,fixes purge-dismissed 后 external-markdown 复活)
+    if (this.isTombstoned(entityId)) {
       return "no-change";
     }
 
@@ -900,6 +939,13 @@ export class ProposalEngine {
     this.writeProposals(
       proposals.map((p) => (p.entityId === entityId ? updated : p)),
     );
+
+    // tombstone:即使之后用户点「清空已驳回」purge 掉 proposals.jsonl 中这行,
+    // proposeAutoMemory / proposeExternalMarkdown / maybePromoteToProposal 仍能
+    // 通过 tombstone 知道该 entityId 曾被 dismiss,不会因 source 文件仍存在就
+    // 重新创建 pending proposal(fixes 2026-07 dismiss-复活 bug)。
+    // dismissedUntil: null = 永久屏蔽;ISO string = 屏蔽到该时刻(过期失效)。
+    this.appendTombstone(entityId, dismissedUntil, target);
 
     this.auditLog.append({
       actor: "user",
@@ -1285,6 +1331,13 @@ export class ProposalEngine {
       }
     }
 
+    // tombstone 检查:dismissed 行被 purgeDismissed 清掉后,proposals.jsonl 找不到 existing,
+    // 但 tombstone 仍记录「曾被 dismiss」。dismissibleUntil 未过期 → 不复活;null/永久 → 不复活。
+    // 注意:若 dismissedUntil 已过期(原"暂时屏蔽 N 天"语义允许复活),isTombstoned 返回 false,放行。
+    if (this.isTombstoned(cluster.id, now)) {
+      return;
+    }
+
     // Layer 2:必要性评估
     const existingTitles = this.repository.listEngrams().map((e) => e.title);
     const verdict = await this.necessityEvaluator.evaluate({
@@ -1431,6 +1484,91 @@ export class ProposalEngine {
   private writeProposals(proposals: readonly Proposal[]): void {
     writeJsonl(this.proposalsFile, proposals);
     this.proposalsCache = null;
+  }
+
+  /**
+   * 读取 dismissed-tombstones,返回 entityId → dismissedUntil 的 Map。
+   *
+   * - 文件不存在 / 空 → 空 Map
+   * - 同 entityId 多次 dismiss → 后写覆盖前写(Map 自然语义)
+   * - dismissedUntil 字段:null/缺省 = 永久屏蔽;ISO string = 屏蔽到该时刻
+   *
+   * mtime cache 与 readProposals 同模式:statSync 极快,只在 mtime 变化时重新解析。
+   */
+  private readTombstones(): Map<string, string | null> {
+    if (!existsSync(this.tombstonesFile)) return new Map();
+    let mtime: number;
+    try {
+      mtime = statSync(this.tombstonesFile).mtimeMs;
+    } catch {
+      return this.tombstonesCache?.data ?? new Map();
+    }
+    if (this.tombstonesCache && this.tombstonesCache.mtime === mtime) {
+      return this.tombstonesCache.data;
+    }
+    const raw = readJsonl(this.tombstonesFile) as Array<{
+      readonly entityId: string;
+      readonly dismissedUntil?: string | null;
+    }>;
+    const map = new Map<string, string | null>();
+    for (const r of raw) {
+      if (!r?.entityId) continue;
+      map.set(r.entityId, r.dismissedUntil ?? null);
+    }
+    this.tombstonesCache = { mtime, data: map };
+    return map;
+  }
+
+  /**
+   * append 一条 tombstone 记录。append-only,不查重(同 entityId 多次 dismiss 时
+   * 自然累积历史;readTombstones 用 Map 取最后状态)。
+   */
+  private appendTombstone(
+    entityId: string,
+    dismissedUntil: string | undefined,
+    target: Proposal,
+  ): void {
+    const dir = dirname(this.tombstonesFile);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
+    const record: {
+      readonly entityId: string;
+      readonly dismissedUntil: string | null;
+      readonly dismissedAt: string;
+      readonly source?: string;
+      readonly slug?: string;
+      readonly sourcePath?: string;
+    } = {
+      entityId,
+      dismissedUntil: dismissedUntil ?? null,
+      dismissedAt: new Date().toISOString(),
+      ...(target.source !== undefined ? { source: target.source } : {}),
+      ...(target.slug !== undefined ? { slug: target.slug } : {}),
+      ...(target.sourcePath !== undefined
+        ? { sourcePath: target.sourcePath }
+        : {}),
+    };
+    appendFileSync(this.tombstonesFile, JSON.stringify(record) + "\n", "utf8");
+    // appendFileSync 后文件 mtime 必变,下次 readTombstones 会 statSync reload。
+    // 这里直接 invalidate,让下次 read 走 statSync → parse。
+    this.tombstonesCache = null;
+  }
+
+  /**
+   * 检查 entityId 是否处于 tombstone 屏蔽期。
+   *
+   * - 不在 tombstone → false(放行 propose)
+   * - dismissedUntil=null → true(永久屏蔽)
+   * - dismissedUntil > now → true(仍在 dismiss 期)
+   * - dismissedUntil <= now → false(dismiss 期已过,允许复活 —— 与 maybePromoteToProposal
+   *   现有「dismissedUntil 过期后允许重新 propose」语义一致)
+   */
+  private isTombstoned(entityId: string, now: string = new Date().toISOString()): boolean {
+    const until = this.readTombstones().get(entityId);
+    if (until === undefined) return false; // 不在 tombstone
+    if (until === null) return true; // 永久
+    return until > now;
   }
 }
 
