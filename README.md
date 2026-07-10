@@ -1,7 +1,7 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/co-engram-logo-dark.svg">
-    <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="160">
+    <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="320">
   </picture>
   <h1>Co-Engram: Self-evolving Team Memory</h1>
   <p>English | <a href="./README.zh-CN.md">中文</a></p>
