@@ -128,6 +128,36 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     </div>
   </header>
 
+  <section class="hero" aria-hidden="true">
+    <div class="hero-orb">
+      <svg class="hero-orb-svg" viewBox="0 0 200 200" role="img" aria-label="co-engram neuron">
+        <g stroke="var(--accent)" stroke-width="0.6" fill="none" opacity="0.55" stroke-linecap="round">
+          <line x1="100" y1="100" x2="100" y2="20"/>
+          <line x1="100" y1="100" x2="156" y2="44"/>
+          <line x1="100" y1="100" x2="180" y2="100"/>
+          <line x1="100" y1="100" x2="156" y2="156"/>
+          <line x1="100" y1="100" x2="100" y2="180"/>
+          <line x1="100" y1="100" x2="44" y2="156"/>
+          <line x1="100" y1="100" x2="20" y2="100"/>
+          <line x1="100" y1="100" x2="44" y2="44"/>
+        </g>
+        <g fill="var(--accent)" opacity="0.75">
+          <circle cx="100" cy="20" r="2.4"/>
+          <circle cx="156" cy="44" r="2.4"/>
+          <circle cx="180" cy="100" r="2.4"/>
+          <circle cx="156" cy="156" r="2.4"/>
+          <circle cx="100" cy="180" r="2.4"/>
+          <circle cx="44" cy="156" r="2.4"/>
+          <circle cx="20" cy="100" r="2.4"/>
+          <circle cx="44" cy="44" r="2.4"/>
+        </g>
+        <circle cx="100" cy="100" r="7" fill="var(--accent)" opacity="0.95"/>
+        <circle cx="100" cy="100" r="11" fill="none" stroke="var(--accent)" stroke-width="0.5" opacity="0.4"/>
+      </svg>
+    </div>
+    <p class="hero-tagline serif">${t(language, "viewer.hero.tagline")}</p>
+  </section>
+
   <main>
     <!-- Stats -->
     <section class="tab-panel" data-tab="stats">

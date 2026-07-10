@@ -249,6 +249,45 @@ header.app-header nav.primary-nav {
   align-items: center;
   gap: 0.75rem;
 }
+
+/* === Hero section(神经元进化主题)===
+ * header 与 main 之间的中央神经节点装饰区,纯视觉无交互逻辑。
+ *   - 中央神经节(8 条放射突触 + 8 个外圈节点 + 中央实心点 + 脉动光晕)
+ *   - 标语:衬线 italic 月白,中文用思源宋体,英文用 Iowan/Baskerville
+ *   - 大量负空间:整体上下 padding 1.2rem,克制信息密度
+ * 响应 prefers-reduced-motion:orb-pulse 关闭,只剩静态 SVG。
+ */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.2rem 1rem 0.6rem;
+  position: relative;
+  z-index: 1;
+}
+.hero-orb {
+  width: 84px;
+  height: 84px;
+  animation: orb-pulse 6s ease-in-out infinite;
+}
+.hero-orb-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hero-tagline {
+  margin: 0;
+  font-size: 0.92rem;
+  font-style: italic;
+  color: var(--fg-muted);
+  letter-spacing: 0.02em;
+  text-align: center;
+  opacity: 0.85;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-orb { animation: none; }
+}
 .tab {
   background: transparent;
   border: 1px solid transparent;
