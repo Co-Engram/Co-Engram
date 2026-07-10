@@ -321,8 +321,10 @@ describe("Bug #4: DELETE /api/trash 真实清空 soft-deleted", () => {
     // 旧实现:const n = preview.count || 0;
     // 新实现:const n = preview.total ?? ... preview.results.length ?? preview.count ?? 0;
     // 回归:count 不再是主路径(可作 fallback,但 total 必须优先)
-    const lineMatch = TABS_RUNTIME.match(/const n = ([^;]+);/);
-    expect(lineMatch, "找不到 n 的赋值").not.toBeNull();
+    // regex 必须定位到 preview.* 那一处:tabs.ts 里 `const n = ...` 不止一处
+    // (statusCounts[s] 也是此形式),`.match()` 无 g flag 只抓第一个 → 假阴性
+    const lineMatch = TABS_RUNTIME.match(/const n = ([^;]*preview\.[^;]+);/);
+    expect(lineMatch, "找不到 n 的 preview.* 赋值").not.toBeNull();
     const expr = lineMatch![1]!;
     expect(expr.includes("preview.total"), "应优先读 preview.total").toBe(true);
   });
