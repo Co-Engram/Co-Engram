@@ -132,6 +132,9 @@ All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 | `CO_ENGRAM_MAINTENANCE_DEEP_INTERVAL_MS`  | `3600000` (1 hour)   | Deep stage interval                                                                                                                 |
 | `CO_ENGRAM_MAINTENANCE_REM_INTERVAL_MS`   | `604800000` (7 days) | REM stage interval                                                                                                                  |
 | `CO_ENGRAM_MAINTENANCE_LEARNING_RATE`     | `0.1`                | RPE learning rate                                                                                                                   |
+| `CO_ENGRAM_DAEMON`                        | `1`                  | Single-daemon mode: each Claude Code session connects to a shared long-lived daemon (one `ToolContext` for all sessions). Set to `0` to fall back to one-process-per-session. |
+| `CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS`        | `1800000` (30 min)   | Daemon auto-shutdown when no clients are connected for this long                                                                     |
+| `CO_ENGRAM_DAEMON_SOCKET_DIR`             | `<tmpdir>/co-engram` | Override directory for daemon unix socket files                                                                                     |
 
 ### OpenClaw manifest config
 

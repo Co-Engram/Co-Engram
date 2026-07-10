@@ -50,7 +50,7 @@
  *
  * Viewer 相关环境变量（M2 新增）：
  *   CO_ENGRAM_VIEWER_ENABLED=0                 关闭 web viewer（默认跟随 proposal engine）
- *   CO_ENGRAM_VIEWER_PORT=N                    端口(覆盖默认;Claude Code 默认 18799,OpenClaw 默认 18899)
+ *   CO_ENGRAM_VIEWER_PORT=N                    端口(覆盖默认;两宿主共用默认 18899)
  *   CO_ENGRAM_VIEWER_TOKEN=secret              可选 bearer token
  *
  * @module @co-engram/claude-code
@@ -61,6 +61,11 @@ import { execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createCoEngramMcpServer } from "./register.js";
+import {
+  ensureDaemon,
+  isDaemonDisabledByEnv,
+  runThinLauncher,
+} from "./daemon/index.js";
 import { startViewerServer, type ViewerRuntime } from "@co-engram/viewer";
 import { resolveNecessityEvaluator, resolveLlmClient } from "./llm-client.js";
 import { resolveProfile, PROFILE_TOOL_COUNTS } from "./tool-profile.js";
@@ -150,6 +155,34 @@ export function buildLocalizedProposalPrompt(
 }
 
 async function main(): Promise<void> {
+  // === 阶段 0:daemon 模式分支(AI-4 单一 daemon + thin client) ===
+  //
+  // Claude Code 配置零变更:仍用 `command: co-engram-mcp`,但内部优先尝试连接
+  // 已运行的 daemon(共享 ToolContext),失败时 fallback 到 in-process(原有逻辑)。
+  //
+  // 默认开启(low-friction-defaults)。env CO_ENGRAM_DAEMON=0 显式禁用,用于
+  // 调试 / 受限环境 / 性能对比测试。
+  //
+  // 即使 daemon 启动失败(spawn 错误 / 超时 / socket 不可连),也 fallback 到
+  // 当前 in-process main,零回归保证。
+  if (!isDaemonDisabledByEnv()) {
+    try {
+      const daemonDataRoot = await resolveBootstrapDataRoot();
+      const socketPath = await ensureDaemon({
+        dataRoot: daemonDataRoot.dataRoot,
+      });
+      // thin launcher 模式:阻塞转发 stdin↔socket,直到连接关闭
+      const exitCode = await runThinLauncher({ socketPath });
+      process.exit(exitCode);
+      return; // unreachable(process.exit 已退出)
+    } catch (err) {
+      process.stderr.write(
+        `[co-engram] daemon mode failed, falling back to in-process: ${err instanceof Error ? err.message : String(err)}\n`,
+      );
+      // 继续 in-process 流程(下方代码)
+    }
+  }
+
   // === 阶段 1:bootstrap dataRoot 解析(单一权威入口) ===
   // 从 ~/.co-engram/config.json 读取 dataRoot;文件不存在/损坏时 fallback 到默认。
   // 不再支持 env CO_ENGRAM_DATA_ROOT / desiredDataRoot redirect(已废弃,统一由
@@ -394,13 +427,14 @@ async function main(): Promise<void> {
   // config.viewer?.enabled 可显式覆盖(true 强制开 / false 强制关)。
   // VIEWER_TOKEN 仍由 env 提供(敏感信息不进 config.json)。
   // 端口:不再读 persistedConfig.viewer.port(已废弃,避免两宿主共享 persisted config 时冲突)。
-  // 由 viewer 内部按 hostType 决定默认(Claude Code=18799),或 env CO_ENGRAM_VIEWER_PORT 覆盖。
+  // 由 viewer 内部统一默认 18899(2026-07 起两宿主共用;原 host-specific 默认 18799/18899 已弃用),
+  // 或 env CO_ENGRAM_VIEWER_PORT 覆盖。
   //
   // holder gating(2026-07 修复):只有 holder 启 viewer。理由:
-  //   - viewer 绑定 known port(18799/18899),non-holder 启 viewer 会 EADDRINUSE
+  //   - viewer 绑定 known port(18899),non-holder 启 viewer 会 EADDRINUSE
   //     重试到其他端口,但客户端不知道新端口 → 等于没用
-  //   - Claude Code observe hook 写在 settings.json 里,URL 固定 18799,
-  //     non-holder 进程的 hook 也发到 18799(holder 的 viewer 收)
+  //   - Claude Code observe hook 写在 settings.json 里,URL 固定 18899,
+  //     non-holder 进程的 hook 也发到 18899(holder 的 viewer 收)
   //   - 失去锁时关 viewer,让新 holder 启自己的 viewer(配合 ProcessLock.onLost)
   const viewerEnabled = persistedConfig.viewer?.enabled ?? proposalEnabled;
   // viewer 启动封装为闭包,便于两处复用:

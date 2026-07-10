@@ -587,8 +587,11 @@ function extractZodShape(tool: Tool): Record<string, any> | undefined {
  * - totalEngrams / pendingProposals 由调用方从 in-memory repository/proposalEngine 取
  * - topTags / lowConfidenceTopics / missedTopics 从 prompt-signals.json 读
  *   (light stage 周期性生成;首次启动或文件缺失时降级为空数组)
+ *
+ * Export 用于 daemon-entry.ts 在 per-connection McpServer 实例化时复用同一份 session state
+ * 装配逻辑(避免代码重复)。
  */
-function buildInstructionSessionState(
+export function buildInstructionSessionState(
   totalEngrams: number,
   pendingProposals: number,
   dataRoot: string,

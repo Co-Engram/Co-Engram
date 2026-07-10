@@ -38,6 +38,7 @@
   "types": "./dist/index.d.ts",
   "bin": {
     "co-engram-mcp": "./dist/mcp-server.js",
+    "co-engram-mcp-daemon": "./dist/daemon/daemon-entry.js",
     "co-engram": "./dist/cli.js"
   },
   "scripts": {
