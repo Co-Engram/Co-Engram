@@ -736,7 +736,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.tagsLabel')) + '</label><input id="ef-tags" type="text" value="' + CO_ENGRAM.escapeHtml((d.domainTags || []).join(', ')) + '"></div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.ctxTagsLabel')) + '</label><input id="ef-ctx-tags" type="text" value="' + CO_ENGRAM.escapeHtml((d.contextTags || []).join(', ')) + '"></div>'
       + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibilityLabel')) + '</label><select id="ef-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select>'
-      + '<div class="kpi-sub"' + CO_ENGRAM.tip('engram.visibilityEdit') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.tip.visibilityEdit')) + '</div>'
+      + '<div class="kpi-sub"' + CO_ENGRAM.tip('engram.visibilityEdit') + '>' + CO_ENGRAM.escapeHtml(T.t('tip.engram.visibilityEdit')) + '</div>'
       + '</div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.contentLabel')) + ' '
       + '<button type="button" class="btn secondary mini" id="ef-preview-toggle" onclick="CO_ENGRAM_ENGRAMS.togglePreview()">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.preview')) + '</button>'

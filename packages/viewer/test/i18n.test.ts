@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { zh, en } from "@co-engram/core";
 import { renderSpaHtml } from "../src/index.js";
@@ -296,6 +296,63 @@ describe("viewer i18n / 源码-字典一致性(自动扫描)", () => {
         `en.enum.${category}.* 至少有 1 个值(源码调用了 enumLabel('${category}', ...))`,
       ).toBeGreaterThan(0);
     }
+  });
+
+  // ============================================================
+  // T.t('xxx', ...) 调用扫描
+  //
+  // 起因:记忆提案「已驳回 → 彻底清空」的 confirm() 对话框里显示原始
+  // key `viewer.proposals.batch.purgeConfirm`。某次 rename(commit
+  // 53e3b04)把字典 key 从 purgeDismissedConfirm 改成 purgeConfirm,
+  // tabs.ts 调用点同步了,但运行中的 dist 没重新部署 → 字典里仍是旧
+  // 名,新名找不到翻译,fallback 返回 key 本身。
+  //
+  // 源码-字典一致性扫描此前只覆盖 fieldLabel/enumLabel 两种调用模式,
+  // 而 viewer 里绝大多数 i18n 调用是 T.t() —— 这是结构性盲点。
+  // 此扫描自动捕获 viewer runtime 所有 T.t('字面量', ...) 调用,
+  // 断言字典里有对应翻译。任何 T.t('foo') 调用若字典漏 foo,
+  // CI 当场失败。
+  // ============================================================
+
+  const RUNTIME_FILES = ["tabs.ts", "app.ts", "graph.ts", "decay.ts", "i18n.ts"]
+    .map((f) => join(VIEWER_SRC_DIR, "runtime", f))
+    .map((p) => ({ name: basename(p), src: readFileSync(p, "utf8") }));
+
+  const T_LITERAL_CALLS = RUNTIME_FILES.flatMap(({ name, src }) => {
+    // regex 要求字面量后紧跟 , 或 ) —— 排除 T.t('prefix.' + var) 这种
+    // 动态拼接,它们不是完整 key,应由 enumLabel/enumLabel-like 扫描覆盖。
+    const re = /T\.t\(['"]([^'"]+)['"]\s*[,)]/g;
+    const out: { file: string; key: string }[] = [];
+    for (const m of src.matchAll(re)) out.push({ file: name, key: m[1] });
+    return out;
+  });
+
+  it("扫描器至少捕获到 100 个 T.t('literal') 调用(防 regex 失效静默通过)", () => {
+    expect(T_LITERAL_CALLS.length).toBeGreaterThan(100);
+  });
+
+  it("每个 T.t('xxx', ...) 调用,字典里都有 xxx 翻译(zh + en)", () => {
+    const seen = new Set<string>();
+    for (const { file, key } of T_LITERAL_CALLS) {
+      seen.add(key);
+      const zhVal = zh[key as keyof typeof zh];
+      const enVal = en[key as keyof typeof en];
+      expect(
+        zhVal,
+        `zh.${key} 缺翻译(源码 ${file} 调用了 T.t('${key}'))`,
+      ).toBeTruthy();
+      expect(
+        enVal,
+        `en.${key} 缺翻译(源码 ${file} 调用了 T.t('${key}'))`,
+      ).toBeTruthy();
+      expect(zhVal, `zh.${key} 误填成 key 本身`).not.toBe(key);
+      expect(enVal, `en.${key} 误填成 key 本身`).not.toBe(key);
+    }
+    // sanity:扫描覆盖到本次 bug 的 sentinel key —— 防扫描器误抓别名而漏抓真名
+    expect(
+      seen.has("viewer.proposals.batch.purgeConfirm"),
+      "T.t('viewer.proposals.batch.purgeConfirm') 应被源码调用",
+    ).toBe(true);
   });
 });
 

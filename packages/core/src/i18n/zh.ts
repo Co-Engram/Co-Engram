@@ -1555,6 +1555,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>重要性(importance)与置信度(confidence)</strong>",
   "viewer.help.conceptImportanceDesc":
     "两个独立的 0-1 数值。重要性由强化信号 + 时间衰减派生,影响召回权重;置信度反映该记忆成立的可信程度(元认知评分),与重要性解耦。",
+  "viewer.help.conceptVector":
+    "<strong>概念向量(concept vector)</strong>",
+  "viewer.help.conceptVectorDesc":
+    "每条 engram 经 embedding 模型生成的数值向量,用于语义相似度计算。检索时按向量余弦相似度召回;对话流聚类时按相似度归簇,达到阈值后触发提案引擎。",
   "viewer.help.conceptLifecycle":
     "<strong>生命周期</strong>",
   "viewer.help.conceptLifecycleDesc":

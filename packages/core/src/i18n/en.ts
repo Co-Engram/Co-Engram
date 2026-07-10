@@ -1615,6 +1615,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>Importance & confidence</strong>",
   "viewer.help.conceptImportanceDesc":
     "Two independent 0-1 numbers. Importance is derived from reinforcement signals + time decay and affects retrieval weight; confidence reflects how trustworthy the memory is (a metacognition score) and is decoupled from importance.",
+  "viewer.help.conceptVector":
+    "<strong>Concept vector</strong>",
+  "viewer.help.conceptVectorDesc":
+    "A numeric vector produced by an embedding model for each engram, used for semantic similarity. Retrieval recalls by cosine similarity; conversation-flow clustering groups messages by similarity and promotes to a proposal once the threshold is met.",
   "viewer.help.conceptLifecycle":
     "<strong>Lifecycle</strong>",
   "viewer.help.conceptLifecycleDesc":
