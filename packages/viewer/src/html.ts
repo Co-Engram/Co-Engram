@@ -128,36 +128,6 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     </div>
   </header>
 
-  <section class="hero" aria-hidden="true">
-    <div class="hero-orb">
-      <svg class="hero-orb-svg" viewBox="0 0 200 200" role="img" aria-label="co-engram neuron">
-        <g stroke="var(--accent)" stroke-width="0.6" fill="none" opacity="0.55" stroke-linecap="round">
-          <line x1="100" y1="100" x2="100" y2="20"/>
-          <line x1="100" y1="100" x2="156" y2="44"/>
-          <line x1="100" y1="100" x2="180" y2="100"/>
-          <line x1="100" y1="100" x2="156" y2="156"/>
-          <line x1="100" y1="100" x2="100" y2="180"/>
-          <line x1="100" y1="100" x2="44" y2="156"/>
-          <line x1="100" y1="100" x2="20" y2="100"/>
-          <line x1="100" y1="100" x2="44" y2="44"/>
-        </g>
-        <g fill="var(--accent)" opacity="0.75">
-          <circle cx="100" cy="20" r="2.4"/>
-          <circle cx="156" cy="44" r="2.4"/>
-          <circle cx="180" cy="100" r="2.4"/>
-          <circle cx="156" cy="156" r="2.4"/>
-          <circle cx="100" cy="180" r="2.4"/>
-          <circle cx="44" cy="156" r="2.4"/>
-          <circle cx="20" cy="100" r="2.4"/>
-          <circle cx="44" cy="44" r="2.4"/>
-        </g>
-        <circle cx="100" cy="100" r="7" fill="var(--accent)" opacity="0.95"/>
-        <circle cx="100" cy="100" r="11" fill="none" stroke="var(--accent)" stroke-width="0.5" opacity="0.4"/>
-      </svg>
-    </div>
-    <p class="hero-tagline serif">${t(language, "viewer.hero.tagline")}</p>
-  </section>
-
   <main>
     <!-- Stats -->
     <section class="tab-panel" data-tab="stats">
@@ -198,54 +168,54 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
           ${[
             {
               family: "structural",
-              familyColor: "#5DECD9",
+              familyColor: "#3b82f6",
               label: t(language, "viewer.graph.familyGroupStructural"),
               desc: t(language, "viewer.graph.familyDesc.structural"),
               kinds: [
-                ["extends", t(language, "enum.synapseKind.extends"), "#5DECD9", t(language, "viewer.graph.synapseDesc.extends")],
-                ["part_of", t(language, "enum.synapseKind.part_of"), "#93f3e7", t(language, "viewer.graph.synapseDesc.part_of")],
-                ["similar_to", t(language, "enum.synapseKind.similar_to"), "#5DECD9", t(language, "viewer.graph.synapseDesc.similar_to")],
+                ["extends", t(language, "enum.synapseKind.extends"), "#3b82f6", t(language, "viewer.graph.synapseDesc.extends")],
+                ["part_of", t(language, "enum.synapseKind.part_of"), "#60a5fa", t(language, "viewer.graph.synapseDesc.part_of")],
+                ["similar_to", t(language, "enum.synapseKind.similar_to"), "#1e40af", t(language, "viewer.graph.synapseDesc.similar_to")],
               ],
             },
             {
               family: "causal",
-              familyColor: "#93f3e7",
+              familyColor: "#f97316",
               label: t(language, "viewer.graph.familyGroupCausal"),
               desc: t(language, "viewer.graph.familyDesc.causal"),
               kinds: [
-                ["depends_on", t(language, "enum.synapseKind.depends_on"), "#93f3e7", t(language, "viewer.graph.synapseDesc.depends_on")],
-                ["causes", t(language, "enum.synapseKind.causes"), "#93f3e7", t(language, "viewer.graph.synapseDesc.causes")],
-                ["follows", t(language, "enum.synapseKind.follows"), "#93f3e7", t(language, "viewer.graph.synapseDesc.follows")],
+                ["depends_on", t(language, "enum.synapseKind.depends_on"), "#f97316", t(language, "viewer.graph.synapseDesc.depends_on")],
+                ["causes", t(language, "enum.synapseKind.causes"), "#fb923c", t(language, "viewer.graph.synapseDesc.causes")],
+                ["follows", t(language, "enum.synapseKind.follows"), "#c2410c", t(language, "viewer.graph.synapseDesc.follows")],
               ],
             },
             {
               family: "evidential",
-              familyColor: "#5DECD9",
+              familyColor: "#10b981",
               label: t(language, "viewer.graph.familyGroupEvidential"),
               desc: t(language, "viewer.graph.familyDesc.evidential"),
               kinds: [
-                ["derives_from", t(language, "enum.synapseKind.derives_from"), "#5DECD9", t(language, "viewer.graph.synapseDesc.derives_from")],
-                ["exemplifies", t(language, "enum.synapseKind.exemplifies"), "#3a9c8f", t(language, "viewer.graph.synapseDesc.exemplifies")],
-                ["contradicts", t(language, "enum.synapseKind.contradicts"), "#b8405a", t(language, "viewer.graph.synapseDesc.contradicts")],
+                ["derives_from", t(language, "enum.synapseKind.derives_from"), "#10b981", t(language, "viewer.graph.synapseDesc.derives_from")],
+                ["exemplifies", t(language, "enum.synapseKind.exemplifies"), "#6ee7b7", t(language, "viewer.graph.synapseDesc.exemplifies")],
+                ["contradicts", t(language, "enum.synapseKind.contradicts"), "#ef4444", t(language, "viewer.graph.synapseDesc.contradicts")],
               ],
             },
             {
               family: "temporal",
-              familyColor: "#c0c8d4",
+              familyColor: "#8b5cf6",
               label: t(language, "viewer.graph.familyGroupTemporal"),
               desc: t(language, "viewer.graph.familyDesc.temporal"),
               kinds: [
-                ["supersedes", t(language, "enum.synapseKind.supersedes"), "#c0c8d4", t(language, "viewer.graph.synapseDesc.supersedes")],
-                ["consolidates", t(language, "enum.synapseKind.consolidates"), "#c0c8d4", t(language, "viewer.graph.synapseDesc.consolidates")],
+                ["supersedes", t(language, "enum.synapseKind.supersedes"), "#8b5cf6", t(language, "viewer.graph.synapseDesc.supersedes")],
+                ["consolidates", t(language, "enum.synapseKind.consolidates"), "#c4b5fd", t(language, "viewer.graph.synapseDesc.consolidates")],
               ],
             },
             {
               family: "modulatory",
-              familyColor: "#6b7693",
+              familyColor: "#6b7280",
               label: t(language, "viewer.graph.familyGroupModulatory"),
               desc: t(language, "viewer.graph.familyDesc.modulatory"),
               kinds: [
-                ["contextualizes", t(language, "enum.synapseKind.contextualizes"), "#6b7693", t(language, "viewer.graph.synapseDesc.contextualizes")],
+                ["contextualizes", t(language, "enum.synapseKind.contextualizes"), "#6b7280", t(language, "viewer.graph.synapseDesc.contextualizes")],
               ],
             },
           ]
@@ -269,11 +239,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
           <div class="group-title">${t(language, "viewer.graph.engramKindsTitle")}</div>
           <div class="group kind-grid">
             ${[
-              ["fact", t(language, "enum.kind.fact"), "#5DECD9", t(language, "viewer.graph.kindDesc.fact")],
-              ["observation", t(language, "enum.kind.observation"), "#5DECD9", t(language, "viewer.graph.kindDesc.observation")],
-              ["pattern", t(language, "enum.kind.pattern"), "#c0c8d4", t(language, "viewer.graph.kindDesc.pattern")],
-              ["procedure", t(language, "enum.kind.procedure"), "#d4af37", t(language, "viewer.graph.kindDesc.procedure")],
-              ["hypothesis", t(language, "enum.kind.hypothesis"), "#b8405a", t(language, "viewer.graph.kindDesc.hypothesis")],
+              ["fact", t(language, "enum.kind.fact"), "#10b981", t(language, "viewer.graph.kindDesc.fact")],
+              ["observation", t(language, "enum.kind.observation"), "#3b82f6", t(language, "viewer.graph.kindDesc.observation")],
+              ["pattern", t(language, "enum.kind.pattern"), "#8b5cf6", t(language, "viewer.graph.kindDesc.pattern")],
+              ["procedure", t(language, "enum.kind.procedure"), "#f97316", t(language, "viewer.graph.kindDesc.procedure")],
+              ["hypothesis", t(language, "enum.kind.hypothesis"), "#ef4444", t(language, "viewer.graph.kindDesc.hypothesis")],
             ]
               .map(
                 ([k, label, color, desc]) =>

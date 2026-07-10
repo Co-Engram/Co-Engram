@@ -34,20 +34,20 @@ const CO_ENGRAM = (function() {
   };
 
   const FAMILY_COLOR = {
-    structural: '#5DECD9',
-    causal: '#93f3e7',
-    evidential: '#5DECD9',
-    temporal: '#c0c8d4',
-    modulatory: '#6b7693'
+    structural: '#3b82f6',
+    causal: '#f97316',
+    evidential: '#10b981',
+    temporal: '#8b5cf6',
+    modulatory: '#6b7280'
   };
-  const CONTRADICTS_COLOR = '#b8405a';
+  const CONTRADICTS_COLOR = '#ef4444';
 
   const KIND_COLOR = {
-    fact: '#5DECD9',
-    observation: '#93f3e7',
-    pattern: '#c0c8d4',
-    procedure: '#d4af37',
-    hypothesis: '#b8405a'
+    fact: '#10b981',
+    observation: '#3b82f6',
+    pattern: '#8b5cf6',
+    procedure: '#f97316',
+    hypothesis: '#ef4444'
   };
 
   // 12 种 synapse kind 各自独立的颜色(同族保持色调相近,但明度不同以便区分)
@@ -55,23 +55,23 @@ const CO_ENGRAM = (function() {
   // 防止渲染时取不到颜色 - 颜色是显示层细节,不影响类型/schema 严格性。
   const SYNAPSE_KIND_COLOR = {
     // 结构族 · 蓝色系
-    extends: '#5DECD9',      // 主蓝
-    part_of: '#93f3e7',      // 浅蓝
-    similar_to: '#5DECD9',   // 深蓝
+    extends: '#3b82f6',      // 主蓝
+    part_of: '#60a5fa',      // 浅蓝
+    similar_to: '#1e40af',   // 深蓝
     // 因果族 · 橙色系
-    depends_on: '#93f3e7',   // 主橙
-    causes: '#93f3e7',       // 浅橙
-    follows: '#93f3e7',      // 深橙
+    depends_on: '#f97316',   // 主橙
+    causes: '#fb923c',       // 浅橙
+    follows: '#c2410c',      // 深橙
     // 证据族 · 绿色系(contradicts 独立红色)
-    derives_from: '#5DECD9', // 主绿
-    exemplifies: '#3a9c8f',  // 浅绿
-    contradicts: '#b8405a',  // 红(高优先级)
+    derives_from: '#10b981', // 主绿
+    exemplifies: '#6ee7b7',  // 浅绿
+    contradicts: '#ef4444',  // 红(高优先级)
     // 时间族 · 紫色系
-    supersedes: '#c0c8d4',   // 主紫
-    consolidates: '#c0c8d4', // 浅紫
+    supersedes: '#8b5cf6',   // 主紫
+    consolidates: '#c4b5fd', // 浅紫
     // 调节族 · 灰色系
-    contextualizes: '#6b7693', // 灰
-    related_to: '#6b7693'      // 浅灰(历史数据 fallback,非正式族成员)
+    contextualizes: '#6b7280', // 灰
+    related_to: '#9ca3af'      // 浅灰(历史数据 fallback,非正式族成员)
   };
 
   // === 术语提示(鼠标悬停时显示) ===
@@ -118,7 +118,7 @@ const CO_ENGRAM = (function() {
     return FAMILY_COLOR[family] || FAMILY_COLOR.modulatory;
   }
   function kindColor(kind) {
-    return KIND_COLOR[kind] || '#6b7693';
+    return KIND_COLOR[kind] || '#6b7280';
   }
   function edgeColor(kind) {
     // 优先用 12 种独立颜色,让每种 kind 视觉上可区分
