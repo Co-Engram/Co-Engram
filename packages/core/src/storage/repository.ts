@@ -3040,6 +3040,36 @@ export class EngramRepository {
       });
     }
 
+    // 4.6 SQLite ghost 清理(plan AI-2 derived atomic 校验的核心子集)
+    //
+    // 历史盲区(2026-07 用户报告 630 ghost):runDoctor 原本只比对
+    // engram-index.json vs markdown,不覆盖 SQLite vs markdown。SQLite ghost 来源:
+    //   - 历史负载测试残留 / deleteEngram 调用中途失败 / 双写竞态
+    //
+    // 修复:以 freshIndex(markdown 全量重建)为唯一真相,清理 SQLite 里任何
+    // markdown 不存在的条目。复用 indexDb.deleteEngram 的级联清理(FTS /
+    // engram_domains / synapses 由外键 ON DELETE CASCADE 自动清)。
+    if (this.indexDb) {
+      const rows = this.indexDb
+        .prepare("SELECT id FROM engrams")
+        .all() as unknown as readonly { readonly id: string }[];
+      for (const row of rows) {
+        if (!freshIndex.entries.has(row.id as StableEngramId)) {
+          try {
+            this.indexDb.deleteEngram(row.id);
+            fixes.push({
+              kind: "sqlite_ghost",
+              stableId: row.id as StableEngramId,
+              message: `SQLite engrams row without markdown source: ${row.id} (cascade cleaned: FTS / engram_domains / synapses)`,
+              autoFixed: true,
+            });
+          } catch {
+            // 单条失败不阻塞其他 ghost,下次 doctor 重试
+          }
+        }
+      }
+    }
+
     // 4.5 2026-07 archived → frozen migration
     //
     // EngramStatus 枚举改名(archived → frozen)。旧数据 frontmatter 里仍是
