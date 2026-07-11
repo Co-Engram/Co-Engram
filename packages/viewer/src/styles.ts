@@ -368,6 +368,58 @@ header.app-header nav.primary-nav {
   box-shadow: 0 0 0 2px rgba(93, 236, 217, 0.15);
 }
 
+/* ===== Hero section(header 下方独立区,非 tab) =====
+   中央神经节点 SVG + 衬线 tagline,营造"记忆网络中心跳"的视觉锚点。 */
+.hero {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 2.2rem 1.5rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+.hero-orb {
+  width: 88px;
+  height: 88px;
+  animation: orb-pulse 6s ease-in-out infinite;
+  filter: drop-shadow(0 0 12px rgba(93, 236, 217, 0.25));
+}
+.hero-orb-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.hero-orb-core {
+  animation: node-breathe 4s ease-in-out infinite;
+  transform-origin: 100px 100px;
+  transform-box: fill-box;
+}
+.hero-tagline {
+  font-family: 'Iowan Old Style', 'Apple Garamond', 'Baskerville',
+               'Source Han Serif CN', 'Songti SC', 'STSong',
+               'Noto Serif CJK SC', serif;
+  font-weight: 400;
+  font-size: 1.05rem;
+  letter-spacing: 0.04em;
+  color: var(--fg);
+  opacity: 0.78;
+  margin: 0;
+  line-height: 1.6;
+}
+@media (max-width: 640px) {
+  .hero { padding: 1.4rem 1rem 0.8rem; }
+  .hero-orb { width: 64px; height: 64px; }
+  .hero-tagline { font-size: 0.92rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .hero-orb { animation: none; }
+  .hero-orb-core { animation: none; }
+}
+
 main {
   max-width: 1400px;
   margin: 0 auto;

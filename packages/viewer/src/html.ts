@@ -129,6 +129,37 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     </div>
   </header>
 
+  <section class="hero" aria-label="${t(language, "viewer.hero.tagline")}">
+    <div class="hero-orb" aria-hidden="true">
+      <svg viewBox="0 0 200 200" class="hero-orb-svg" preserveAspectRatio="xMidYMid meet">
+        <g stroke="var(--accent)" stroke-width="0.6" fill="none" opacity="0.55" stroke-linecap="round">
+          <line x1="100" y1="100" x2="180" y2="100"/>
+          <line x1="100" y1="100" x2="156.57" y2="156.57"/>
+          <line x1="100" y1="100" x2="100" y2="180"/>
+          <line x1="100" y1="100" x2="43.43" y2="156.57"/>
+          <line x1="100" y1="100" x2="20" y2="100"/>
+          <line x1="100" y1="100" x2="43.43" y2="43.43"/>
+          <line x1="100" y1="100" x2="100" y2="20"/>
+          <line x1="100" y1="100" x2="156.57" y2="43.43"/>
+        </g>
+        <g fill="var(--accent)" opacity="0.85">
+          <circle cx="180" cy="100" r="2.5"/>
+          <circle cx="156.57" cy="156.57" r="2.5"/>
+          <circle cx="100" cy="180" r="2.5"/>
+          <circle cx="43.43" cy="156.57" r="2.5"/>
+          <circle cx="20" cy="100" r="2.5"/>
+          <circle cx="43.43" cy="43.43" r="2.5"/>
+          <circle cx="100" cy="20" r="2.5"/>
+          <circle cx="156.57" cy="43.43" r="2.5"/>
+        </g>
+        <circle cx="100" cy="100" r="6" fill="var(--accent)" class="hero-orb-core"/>
+        <circle cx="100" cy="100" r="11" fill="none" stroke="var(--accent)" stroke-width="0.4" opacity="0.35"/>
+        <circle cx="100" cy="100" r="17" fill="none" stroke="var(--accent)" stroke-width="0.3" opacity="0.18"/>
+      </svg>
+    </div>
+    <p class="hero-tagline">${t(language, "viewer.hero.tagline")}</p>
+  </section>
+
   <main>
     <!-- Stats -->
     <section class="tab-panel" data-tab="stats">
