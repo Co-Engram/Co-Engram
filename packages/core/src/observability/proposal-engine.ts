@@ -149,14 +149,20 @@ export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 /**
  * tombstone 文件的 unique entityId 上限,超过则触发 compact。
  *
- * 防止 append-only 文件无限增长(用户长期使用累积大量 dismissed entityId)。
- * compact 把 readTombstones 已构建的 Map(entityId → dismissedUntil,同 entityId
- * 后写覆盖前写)直接 dump 回 jsonl,自然 dedup 到 unique 数 × ~170 bytes/record。
+ * 防止 append-only 文件无限增长。compact 三步压缩(方案 C):
+ * 1. **TTL**:删 dismissedUntil <= now(已过冷却期,与 isTombstoned 判定语义等价)
+ * 2. **dedup**:同 entityId 保留最后一条(Map 自然语义)
+ * 3. **FIFO**:若 unique 数仍 > threshold,按 dismissedAt ?? compactedAt 降序保留最新 N 条
  *
- * 阈值 1000 = 硬上限 ~170KB。实测每条 ~170B,1000 条 unique tombstone 覆盖
- * 极端使用场景(用户每天 dismiss 10 条新 slug,~3 个月才达上限)。
- * compact 触发频率:每次 appendTombstone 检查一次 O(1)(readTombstones 走
- * mtime cache),只有超阈值才做实际 writeJsonl。
+ * 硬上限:compact 后 unique ≤ 1000 × ~90 bytes(仅 entityId + dismissedUntil + compactedAt)
+ * = **~90 KB**(实测,无论用户行为如何都不会超)。TTL 删过期是「自然衰减」,FIFO 砍超额是
+ * 「硬兜底」 —— 大量永久 dismiss 累积导致 TTL 无能为力时,FIFO 保证文件大小有界。
+ *
+ * 被 FIFO 砍掉的 entityId 下次 propose 时会复活,等价于「这个 slug 已很久没被
+ * 用户驳回,允许重新进入候选池」 —— 产品语义合理(用户偏好可能已变化)。
+ *
+ * 触发频率:每次 appendTombstone 检查一次 O(1)(readTombstones 走 mtime cache),
+ * 只有 unique > 1000 才做实际 readJsonl + writeJsonl。
  */
 export const TOMBSTONE_COMPACT_THRESHOLD = 1000;
 
@@ -1583,38 +1589,85 @@ export class ProposalEngine {
     // 这里直接 invalidate,让下次 read 走 statSync → parse。
     this.tombstonesCache = null;
 
-    // 增长控制:unique entityId 超 threshold → compact(dedup + rewrite)
+    // 增长控制:unique entityId 超 threshold → compact(TTL + FIFO + dedup)
     // readTombstones 走 mtime cache(刚才 invalidate 后会重新 statSync + parse
     // 当前文件),返回的 Map.size 就是 unique entityId 数。compact 在同进程内
     // 写回后立刻 invalidate cache,跨进程下次 read 自动 reload。
     const after = this.readTombstones();
     if (after.size > TOMBSTONE_COMPACT_THRESHOLD) {
-      this.compactTombstones(after);
+      this.compactTombstones();
     }
   }
 
   /**
-   * 把 tombstone 文件 dedup 重写:同 entityId 取最新状态(Map 自然语义)。
+   * 三步压缩(方案 C:TTL + FIFO + dedup)。
    *
-   * 触发:appendTombstone 后 unique entityId 超 TOMBSTONE_COMPACT_THRESHOLD。
-   * compact 后文件大小 = unique × ~170B(单条 record 大小,无重复历史)。
+   * 1. **TTL**:删除 dismissedUntil != null && dismissedUntil <= now(已过冷却期)。
+   *    与 [isTombstoned] 语义完全等价 —— 过期的 tombstone 本来也不会屏蔽,删除零行为变化。
+   * 2. **dedup**:同 entityId 保留最后一条(文件顺序,后写覆盖前写)。
+   * 3. **FIFO**:若 unique 数仍 > TOMBSTONE_COMPACT_THRESHOLD,按时间降序保留最新 N 条。
    *
-   * 注意:compact 是 read-all + write-all,跨进程并发场景下可能出现 lost update
-   * (另一进程在我们 read 后 write 前也 append 了一条)。但 tombstone 是单调
-   * append 语义(只增不改状态语义),即使丢失最近一条 append,下次该 entityId
-   * 重新 dismiss 时会再写 —— 不影响正确性,只影响「最近一次 dismiss 时间戳」。
+   * 硬上限:compact 后 unique ≤ TOMBSTONE_COMPACT_THRESHOLD × ~90B = **~90 KB**(实测)。
+   * TTL 是「自然衰减」(删过期),FIFO 是「硬兜底」(砍超额) —— 大量永久 dismiss
+   * 累积导致 TTL 无能为力时,FIFO 保证文件大小始终有界。
+   *
+   * FIFO 兜底语义:被砍掉的 entityId 下次 propose 时会复活,等价于「这个 slug 已
+   * 很久没被用户驳回,允许重新进入候选池」 —— 用户偏好可能已变化,合理。
+   *
+   * 触发频率:每次新 entityId(使 unique > threshold)触发一次。读 raw + 写 raw,
+   * 但 compact 是低频操作(日常几乎不触发),性能不敏感。
+   *
+   * 并发:read-all + write-all,跨进程并发存在 lost update 风险(另一进程在
+   * 我们 read 后 write 前 append 了一条)。tombstone 单调 append 语义,
+   * 即使丢一条,下次该 entityId 重新 dismiss 会再写 —— 不影响屏蔽正确性,
+   * 只影响「最近一次 dismiss 时间戳」。
    */
-  private compactTombstones(map: Map<string, string | null>): void {
-    // 保留最后状态(entityId → dismissedUntil),但 dismissedAt 等元数据无法从 Map
-    // 还原(我们 dedup 时只保留了 dismissedUntil)。compact 后的 record 只含
-    // entityId + dismissedUntil + compactedAt 标记,体积更小(~80B vs 原 170B)。
+  private compactTombstones(now: string = new Date().toISOString()): void {
+    const raw = readJsonl(this.tombstonesFile) as Array<{
+      readonly entityId: string;
+      readonly dismissedUntil?: string | null;
+      readonly dismissedAt?: string;
+      readonly compactedAt?: string;
+    }>;
+
+    // Step 1 + 2: TTL 删过期 + dedup 保留最后(一遍扫完)
+    // 文件顺序就是写入顺序,后写覆盖前写 —— Map 自然语义
+    const latest = new Map<
+      string,
+      {
+        entityId: string;
+        dismissedUntil: string | null;
+        timestamp: string; // dismissedAt ?? compactedAt,用于 FIFO 排序
+      }
+    >();
+    for (const r of raw) {
+      if (!r?.entityId) continue;
+      const until = r.dismissedUntil ?? null;
+      // Step 1: TTL —— 已过冷却期的跳过(等价于该 tombstone 失效)
+      if (until !== null && until <= now) continue;
+      // Step 2: dedup —— 后写覆盖前写
+      latest.set(r.entityId, {
+        entityId: r.entityId,
+        dismissedUntil: until,
+        timestamp: r.dismissedAt ?? r.compactedAt ?? now,
+      });
+    }
+
+    // Step 3: FIFO —— TTL 删完后仍超阈值,按时间降序保留最新 N 条
+    let entries = Array.from(latest.values());
+    if (entries.length > TOMBSTONE_COMPACT_THRESHOLD) {
+      entries.sort((a, b) => b.timestamp.localeCompare(a.timestamp));
+      entries = entries.slice(0, TOMBSTONE_COMPACT_THRESHOLD);
+    }
+
+    // 写回 —— 标记 compactedAt(原始 dismissedAt 已不可考)
     const compacted: ReadonlyArray<{
       readonly entityId: string;
       readonly dismissedUntil: string | null;
       readonly compactedAt: string;
-    }> = Array.from(map.entries()).map(([entityId, until]) => ({
-      entityId,
-      dismissedUntil: until,
+    }> = entries.map((e) => ({
+      entityId: e.entityId,
+      dismissedUntil: e.dismissedUntil,
       compactedAt: new Date().toISOString(),
     }));
     writeJsonl(this.tombstonesFile, compacted);

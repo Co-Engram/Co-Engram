@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from "node:fs";
+import { dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -911,6 +912,209 @@ describe("ProposalEngine.proposeAutoMemory", () => {
       kind: "observation",
     });
     expect(action).toBe("no-change");
+  });
+
+  // ============================================================
+  // compact 三步压缩(方案 C:TTL + FIFO + dedup)
+  // ============================================================
+
+  it("compact Step 1 (TTL):删除已过冷却期,保留永久 + 未过期", () => {
+    const tombFile = join(tmpDir, ".co-engram", "dismissed-tombstones.jsonl");
+    const now = Date.now();
+    const past = new Date(now - 86_400_000).toISOString(); // 1 天前(已过期)
+    const future = new Date(now + 86_400_000).toISOString(); // 1 天后(未过期)
+
+    type TombRecord = {
+      entityId: string;
+      dismissedUntil: string | null;
+      dismissedAt: string;
+      source: string;
+      slug: string;
+    };
+    const records: TombRecord[] = [];
+    // 600 条已过期 → TTL 应删除
+    for (let i = 0; i < 600; i++) {
+      records.push({
+        entityId: `am:expired-${i}`,
+        dismissedUntil: past,
+        dismissedAt: past,
+        source: "auto-memory",
+        slug: `expired-${i}`,
+      });
+    }
+    // 300 条永久(null)→ TTL 不动
+    for (let i = 0; i < 300; i++) {
+      records.push({
+        entityId: `am:perm-${i}`,
+        dismissedUntil: null,
+        dismissedAt: past,
+        source: "auto-memory",
+        slug: `perm-${i}`,
+      });
+    }
+    // 150 条未过期(future)→ TTL 不动
+    for (let i = 0; i < 150; i++) {
+      records.push({
+        entityId: `am:active-${i}`,
+        dismissedUntil: future,
+        dismissedAt: past,
+        source: "auto-memory",
+        slug: `active-${i}`,
+      });
+    }
+    // unique 1050 > 1000,但没有新 dismiss 不会触发 compact
+    mkdirSync(dirname(tombFile), { recursive: true });
+    writeFileSync(
+      tombFile,
+      records.map((r) => JSON.stringify(r)).join("\n") + "\n",
+      "utf8",
+    );
+
+    // trigger:proposeAutoMemory + dismiss 写一条新 tombstone → unique 1051 → 触发 compact
+    engine.proposeAutoMemory({
+      slug: "trigger",
+      title: "trigger title",
+      content: "trigger body",
+      domainTags: ["test"],
+      kind: "observation",
+    });
+    engine.dismiss("am:trigger", "trigger compact");
+
+    // 验证:TTL 删除 600 条过期,剩 300 永久 + 150 未过期 + 1 trigger = 451
+    const after = readFileSync(tombFile, "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l)) as Array<{ entityId?: string }>;
+    expect(after.length).toBe(451);
+    expect(after.filter((r) => r.entityId?.startsWith("am:expired-")).length).toBe(0);
+    expect(after.filter((r) => r.entityId?.startsWith("am:perm-")).length).toBe(300);
+    expect(after.filter((r) => r.entityId?.startsWith("am:active-")).length).toBe(150);
+    expect(after.find((r) => r.entityId === "am:trigger")).toBeTruthy();
+  });
+
+  it("compact Step 3 (FIFO):TTL 无能为力时,按时间降序保留最新 N 条", () => {
+    const tombFile = join(tmpDir, ".co-engram", "dismissed-tombstones.jsonl");
+    const now = Date.now();
+
+    type TombRecord = {
+      entityId: string;
+      dismissedUntil: string | null;
+      dismissedAt: string;
+      source: string;
+      slug: string;
+    };
+    const records: TombRecord[] = [];
+    // 1050 条全部永久 dismiss(null),TTL 无能为力,FIFO 必须砍 50 条
+    for (let i = 0; i < 1050; i++) {
+      // dismissedAt 递增:i 越大时间越晚(最新)
+      const at = new Date(now - (1050 - i) * 1000).toISOString();
+      records.push({
+        entityId: `am:perm-${i}`,
+        dismissedUntil: null,
+        dismissedAt: at,
+        source: "auto-memory",
+        slug: `perm-${i}`,
+      });
+    }
+    mkdirSync(dirname(tombFile), { recursive: true });
+    writeFileSync(
+      tombFile,
+      records.map((r) => JSON.stringify(r)).join("\n") + "\n",
+      "utf8",
+    );
+
+    // trigger:加一条最新的 dismiss(trigger 的 dismissedAt = now,比 perm-1049 还晚)
+    engine.proposeAutoMemory({
+      slug: "trigger",
+      title: "trigger title",
+      content: "trigger body",
+      domainTags: ["test"],
+      kind: "observation",
+    });
+    engine.dismiss("am:trigger", "trigger compact");
+
+    // 验证:FIFO 砍到 1000 条
+    // 总 entries = 1050 + 1 trigger = 1051;FIFO 保留最新 1000,砍掉最旧 51
+    // trigger 是最新的(dismissedAt = now),占一个名额;perm-1049 是次新,排第 2
+    // 排序结果:trigger, perm-1049, perm-1048, ..., perm-51(共 1000 条)
+    // 砍掉:perm-50, perm-49, ..., perm-0(共 51 条)
+    const after = readFileSync(tombFile, "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l)) as Array<{ entityId?: string }>;
+    expect(after.length).toBe(1000);
+    // 最早的 51 条被砍(trigger 占了名额)
+    expect(after.find((r) => r.entityId === "am:perm-0")).toBeUndefined();
+    expect(after.find((r) => r.entityId === "am:perm-50")).toBeUndefined();
+    // 第 51 条及之后保留
+    expect(after.find((r) => r.entityId === "am:perm-51")).toBeTruthy();
+    expect(after.find((r) => r.entityId === "am:perm-1049")).toBeTruthy();
+    // trigger 最新,必保留
+    expect(after.find((r) => r.entityId === "am:trigger")).toBeTruthy();
+  });
+
+  it("compact 混合:TTL 优先衰减,FIFO 不触发(TTL 后 unique < threshold)", () => {
+    const tombFile = join(tmpDir, ".co-engram", "dismissed-tombstones.jsonl");
+    const now = Date.now();
+    const past = new Date(now - 86_400_000).toISOString();
+
+    type TombRecord = {
+      entityId: string;
+      dismissedUntil: string | null;
+      dismissedAt: string;
+      source: string;
+      slug: string;
+    };
+    const records: TombRecord[] = [];
+    // 100 条过期 + 950 条永久 = 1050 unique
+    // TTL 删 100 过期 → 剩 950 < 1000,FIFO 不触发
+    for (let i = 0; i < 100; i++) {
+      records.push({
+        entityId: `am:expired-${i}`,
+        dismissedUntil: past,
+        dismissedAt: past,
+        source: "auto-memory",
+        slug: `expired-${i}`,
+      });
+    }
+    for (let i = 0; i < 950; i++) {
+      const at = new Date(now - (950 - i) * 1000).toISOString();
+      records.push({
+        entityId: `am:perm-${i}`,
+        dismissedUntil: null,
+        dismissedAt: at,
+        source: "auto-memory",
+        slug: `perm-${i}`,
+      });
+    }
+    mkdirSync(dirname(tombFile), { recursive: true });
+    writeFileSync(
+      tombFile,
+      records.map((r) => JSON.stringify(r)).join("\n") + "\n",
+      "utf8",
+    );
+
+    engine.proposeAutoMemory({
+      slug: "trigger",
+      title: "trigger title",
+      content: "trigger body",
+      domainTags: ["test"],
+      kind: "observation",
+    });
+    engine.dismiss("am:trigger", "trigger compact");
+
+    // 验证:TTL 删 100 过期,剩 950 永久 + 1 trigger = 951,没触发 FIFO
+    const after = readFileSync(tombFile, "utf8")
+      .split("\n")
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l)) as Array<{ entityId?: string }>;
+    expect(after.length).toBe(951);
+    expect(after.filter((r) => r.entityId?.startsWith("am:expired-")).length).toBe(0);
+    expect(after.filter((r) => r.entityId?.startsWith("am:perm-")).length).toBe(950);
+    // 950 条永久全保留(没有 FIFO 砍任何一条)
+    for (let i = 0; i < 950; i++) {
+      expect(after.find((r) => r.entityId === `am:perm-${i}`)).toBeTruthy();
+    }
   });
 });
 
