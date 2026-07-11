@@ -1673,3 +1673,113 @@ describe("守护 · Bug 5/6: i18n keys 中英文一致", () => {
     });
   }
 });
+
+// ============================================================
+// GET /api/maintenance-state(方案 A viewer tab)
+// ============================================================
+
+describe("GET /api/maintenance-state", () => {
+  it("无 state 文件 → 返回 EMPTY_STATE + 默认 intervals", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/maintenance-state");
+      const data = JSON.parse(res.body);
+      expect(data.enabled).toBe(true);
+      expect(data.state.stages.rem).toBeUndefined();
+      expect(data.state.stages.light).toBeUndefined();
+      expect(data.intervals.rem).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(data.intervals.daily).toBe(24 * 60 * 60 * 1000);
+      expect(data.intervals.deep).toBe(60 * 60 * 1000);
+      expect(data.intervals.light).toBe(5 * 60 * 1000);
+    });
+  });
+
+  it("有 state 文件 → 返回 lastRunAt / lastResult / updatedBy", async () => {
+    const ctx = makeCtx(tmpDir);
+    const { MaintenanceEngine, MemorySignalSink } = await import("@co-engram/core");
+    const sink = new MemorySignalSink();
+    const engine = new MaintenanceEngine(
+      {
+        repository: ctx.repository,
+        signalSink: sink,
+        dataRoot: tmpDir,
+        host: "smoke-host",
+      },
+      { enabledStages: ["daily"] },
+    );
+    await engine.runDaily();
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/maintenance-state");
+      const data = JSON.parse(res.body);
+      expect(data.enabled).toBe(true);
+      expect(data.state.stages.daily).toBeDefined();
+      expect(data.state.stages.daily.lastResult.decayed).toBe(0);
+      expect(data.state.updatedBy).toBe("smoke-host");
+    });
+  });
+
+  it("renderSpaHtml 含 maintenance tab 按钮 + panel + runtime handler", () => {
+    const html = renderSpaHtml({ tokenRequired: false, language: "zh" });
+    expect(html).toContain('data-tab="maintenance"');
+    expect(html).toContain('id="maintenance-content"');
+    expect(html).toContain("CO_ENGRAM_MAINTENANCE");
+    expect(html).toContain("CO_ENGRAM.on('maintenance',");
+    expect(html).toContain("维护");
+  });
+
+  it("zh 与 en 的 maintenance i18n key 集合一致", () => {
+    const keys = [
+      "viewer.tab.maintenance",
+      "viewer.tab.maintenance.tip",
+      "viewer.maintenance.loading",
+      "viewer.maintenance.disabledHint",
+      "viewer.maintenance.title",
+      "viewer.maintenance.intro",
+      "viewer.maintenance.never",
+      "viewer.maintenance.justNow",
+      "viewer.maintenance.minutesAgo",
+      "viewer.maintenance.hoursAgo",
+      "viewer.maintenance.daysAgo",
+      "viewer.maintenance.lastWrite",
+      "viewer.maintenance.explainerTitle",
+      "viewer.maintenance.explainerBody",
+      "viewer.maintenance.stage.rem",
+      "viewer.maintenance.stage.daily",
+      "viewer.maintenance.stage.deep",
+      "viewer.maintenance.stage.light",
+      "viewer.maintenance.stageIcon.rem",
+      "viewer.maintenance.stageIcon.daily",
+      "viewer.maintenance.stageIcon.deep",
+      "viewer.maintenance.stageIcon.light",
+      "viewer.maintenance.stageSubtitle.rem",
+      "viewer.maintenance.stageSubtitle.daily",
+      "viewer.maintenance.stageSubtitle.deep",
+      "viewer.maintenance.stageSubtitle.light",
+      "viewer.maintenance.stageTip.rem",
+      "viewer.maintenance.stageTip.daily",
+      "viewer.maintenance.stageTip.deep",
+      "viewer.maintenance.stageTip.light",
+      "viewer.maintenance.dreamBadge",
+      "viewer.maintenance.dreamBadgeTip",
+      "viewer.maintenance.status.healthy",
+      "viewer.maintenance.status.soon",
+      "viewer.maintenance.status.overdue",
+      "viewer.maintenance.status.never",
+      "viewer.maintenance.statusTip.healthy",
+      "viewer.maintenance.statusTip.soon",
+      "viewer.maintenance.statusTip.overdue",
+      "viewer.maintenance.statusTip.never",
+      "viewer.maintenance.progressBarTip",
+      "viewer.maintenance.progressBarTipOverdue",
+      "viewer.maintenance.resultLabel",
+      "viewer.maintenance.errorLabel",
+    ] as const;
+    for (const key of keys) {
+      expect(zh[key], `zh.${key} 缺翻译`).toBeTruthy();
+      expect(en[key], `en.${key} 缺翻译`).toBeTruthy();
+      expect(zh[key], `zh.${key} 误填成 key 本身`).not.toBe(key);
+      expect(en[key], `en.${key} 误填成 key 本身`).not.toBe(key);
+    }
+  });
+});

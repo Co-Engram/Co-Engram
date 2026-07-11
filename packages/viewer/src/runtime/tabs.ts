@@ -3062,4 +3062,199 @@ window.CO_ENGRAM_HELP = {
       + '</div>';
   }
 };
+
+// ============================================================
+// Maintenance — REM/daily/light/deep 维护阶段状态(方案 A viewer tab)
+// ============================================================
+CO_ENGRAM.on('maintenance', async function() {
+  const root = document.getElementById('maintenance-content');
+  if (!root) return;
+  if (CO_ENGRAM._maintenanceLoaded) return;
+  CO_ENGRAM._maintenanceLoaded = true;
+  await CO_ENGRAM_MAINTENANCE.render(root);
+});
+
+window.CO_ENGRAM_MAINTENANCE = {
+  async render(root) {
+    const T = CO_ENGRAM_T;
+    root.innerHTML = '<div class="loading">' + T.t('viewer.maintenance.loading') + '</div>';
+    let payload;
+    try {
+      payload = await CO_ENGRAM.apiGet('/api/maintenance-state');
+    } catch (e) {
+      root.innerHTML = '<div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>';
+      return;
+    }
+    if (!payload.enabled) {
+      root.innerHTML = '<div class="empty">' + T.t('viewer.maintenance.disabledHint') + '</div>';
+      return;
+    }
+    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals);
+  },
+
+  renderHtml(state, intervals) {
+    const T = CO_ENGRAM_T;
+    const STAGES = ['rem', 'daily', 'deep', 'light'];
+    const now = Date.now();
+
+    function relTime(iso) {
+      if (!iso) return T.t('viewer.maintenance.never');
+      const t = new Date(iso).getTime();
+      const diff = now - t;
+      if (diff < 60 * 1000) return T.t('viewer.maintenance.justNow');
+      if (diff < 60 * 60 * 1000) return T.t('viewer.maintenance.minutesAgo', { n: Math.floor(diff / 60000) });
+      if (diff < 24 * 60 * 60 * 1000) return T.t('viewer.maintenance.hoursAgo', { n: Math.floor(diff / 3600000) });
+      return T.t('viewer.maintenance.daysAgo', { n: Math.floor(diff / 86400000) });
+    }
+
+    // 把毫秒差值格式化为「N 天 / N 小时 / N 分钟」的可读时长
+    function humanizeDuration(ms) {
+      const abs = Math.abs(ms);
+      if (abs < 60 * 1000) return Math.floor(abs / 1000) + 's';
+      if (abs < 60 * 60 * 1000) return Math.floor(abs / 60000) + 'min';
+      if (abs < 24 * 60 * 60 * 1000) return Math.floor(abs / 3600000) + 'h';
+      return Math.floor(abs / 86400000) + 'd';
+    }
+
+    function pct(elapsed, interval) {
+      if (!interval) return 0;
+      return Math.min(100, (elapsed / interval) * 100).toFixed(1);
+    }
+
+    function statusKind(stage, lastRunAt, interval) {
+      if (!lastRunAt) return stage === 'rem' || stage === 'daily' ? 'overdue' : 'never';
+      const elapsed = now - new Date(lastRunAt).getTime();
+      if (elapsed > interval) return 'overdue';
+      if (elapsed > interval * 0.9) return 'soon';
+      return 'healthy';
+    }
+
+    // 把 statusKind 翻译成 statusTip(含动态参数 n / pct)
+    function statusTip(stage, kind, lastRunAt, interval) {
+      if (kind === 'never') {
+        return T.t('viewer.maintenance.statusTip.never');
+      }
+      const elapsed = lastRunAt ? now - new Date(lastRunAt).getTime() : 0;
+      if (kind === 'healthy') {
+        const remain = interval - elapsed;
+        return T.t('viewer.maintenance.statusTip.healthy', { n: humanizeDuration(remain) });
+      }
+      if (kind === 'soon') {
+        return T.t('viewer.maintenance.statusTip.soon', { pct: pct(elapsed, interval) });
+      }
+      // overdue
+      const over = elapsed - interval;
+      return T.t('viewer.maintenance.statusTip.overdue', { n: humanizeDuration(over) });
+    }
+
+    function stageRow(stage) {
+      const interval = intervals[stage];
+      const stageState = state.stages[stage];
+      const lastRunAt = stageState ? stageState.lastRunAt : null;
+      const elapsed = lastRunAt ? now - new Date(lastRunAt).getTime() : null;
+      const kind = statusKind(stage, lastRunAt, interval);
+      const statusLabel = T.t('viewer.maintenance.status.' + kind);
+      const statusTipText = statusTip(stage, kind, lastRunAt, interval);
+      const lastResult = stageState ? stageState.lastResult : null;
+      const lastError = stageState ? stageState.lastError : null;
+      const icon = T.t('viewer.maintenance.stageIcon.' + stage);
+      const subtitle = T.t('viewer.maintenance.stageSubtitle.' + stage);
+      const stageTipText = T.t('viewer.maintenance.stageTip.' + stage);
+      const stageName = T.t('viewer.maintenance.stage.' + stage);
+
+      // 进度条 tooltip
+      let progressBarTip;
+      const progressPctNum = elapsed ? Number(pct(elapsed, interval)) : 0;
+      if (kind === 'overdue') {
+        const overPct = ((elapsed - interval) / interval * 100).toFixed(1);
+        progressBarTip = T.t('viewer.maintenance.progressBarTipOverdue', {
+          pct: overPct,
+          remain: humanizeDuration(elapsed - interval),
+        });
+      } else if (elapsed !== null) {
+        const remain = interval - elapsed;
+        progressBarTip = T.t('viewer.maintenance.progressBarTip', {
+          pct: progressPctNum.toFixed(1),
+          remain: humanizeDuration(remain),
+        });
+      } else {
+        progressBarTip = T.t('viewer.maintenance.statusTip.never');
+      }
+
+      // 产物摘要:downstreamSummary 嵌套对象 → key=value 列表
+      const parts = [];
+      if (lastResult) {
+        for (const k of Object.keys(lastResult)) {
+          const v = lastResult[k];
+          if (v !== null && typeof v === 'object') {
+            for (const sk of Object.keys(v)) {
+              parts.push(CO_ENGRAM.escapeHtml(sk) + '=' + CO_ENGRAM.escapeHtml(String(v[sk])));
+            }
+          } else {
+            parts.push(CO_ENGRAM.escapeHtml(k) + '=' + CO_ENGRAM.escapeHtml(String(v)));
+          }
+        }
+      }
+      const summaryHtml = parts.length > 0
+        ? '<div class="kpi-sub" style="margin-top:0.4rem"><span style="opacity:0.6">' + T.t('viewer.maintenance.resultLabel') + ':</span> ' + parts.join(' · ') + '</div>'
+        : '';
+
+      const errorHtml = lastError
+        ? '<div class="kpi-sub" style="margin-top:0.3rem;color:#b8405a"><span style="opacity:0.7">' + T.t('viewer.maintenance.errorLabel') + ':</span> ⚠ ' + CO_ENGRAM.escapeHtml(lastError) + '</div>'
+        : '';
+
+      // REM 加「梦睡眠」徽章(独特语义,需要明显视觉提示)
+      const dreamBadge = stage === 'rem'
+        ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(94,234,212,0.15));color:var(--accent,#5eead4);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
+        : '';
+
+      // 顶部行:图标(带 tip)+ stage 名 + dream 徽章 + 状态徽章 + 时间
+      // 图标用 emoji,加 title 属性提供 hover tip,无 JS 依赖
+      const headerHtml =
+          '<div class="bar-label" style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">'
+        + '<span class="stage-icon" title="' + CO_ENGRAM.escapeHtml(stageTipText) + '" style="font-size:1.4rem;cursor:help;line-height:1">' + icon + '</span>'
+        + '<div style="flex:1;min-width:0">'
+        + '<div><strong>' + CO_ENGRAM.escapeHtml(stageName) + '</strong>' + dreamBadge
+        + ' <span class="maintenance-status status-badge-' + kind + '" title="' + CO_ENGRAM.escapeHtml(statusTipText) + '" style="cursor:help;margin-left:0.4rem;padding:1px 6px;border-radius:8px;font-size:0.72rem;border:1px solid var(--border-strong,rgba(94,234,212,0.22))">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span></div>'
+        + '<div style="font-size:0.78rem;opacity:0.65;line-height:1.35;margin-top:2px">' + CO_ENGRAM.escapeHtml(subtitle) + '</div>'
+        + '</div>'
+        + '<div class="bar-value" style="white-space:nowrap;text-align:right">' + relTime(lastRunAt) + '</div>'
+        + '</div>';
+
+      const barHtml = '<div class="bar-track" title="' + CO_ENGRAM.escapeHtml(progressBarTip) + '" style="margin-top:0.45rem;cursor:help"><div class="bar-fill" style="width:' + (elapsed ? pct(elapsed, interval) : 0) + '%"></div></div>';
+
+      return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(94,234,212,0.1));border-radius:8px">'
+        + headerHtml
+        + barHtml
+        + summaryHtml
+        + errorHtml
+        + '</div>';
+    }
+
+    let html = '<div class="panel">';
+    html += '<div class="panel-header"><h2>' + T.t('viewer.maintenance.title') + '</h2></div>';
+    html += '<p class="panel-hint">' + T.t('viewer.maintenance.intro') + '</p>';
+    html += '<div class="maintenance-list">';
+    for (const stage of STAGES) {
+      html += stageRow(stage);
+    }
+    html += '</div>';
+
+    if (state.updatedAt) {
+      html += '<div class="metadata" style="margin-top:1.2rem;font-size:0.85rem;color:var(--fg-muted)">';
+      html += T.t('viewer.maintenance.lastWrite', {
+        at: relTime(state.updatedAt),
+        by: CO_ENGRAM.escapeHtml(state.updatedBy || 'unknown'),
+      });
+      html += '</div>';
+    }
+
+    html += '<details style="margin-top:1rem"><summary>' + T.t('viewer.maintenance.explainerTitle') + '</summary>';
+    html += '<div style="margin-top:0.5rem;line-height:1.6">' + T.t('viewer.maintenance.explainerBody') + '</div>';
+    html += '</details>';
+
+    html += '</div>';
+    return html;
+  }
+};
 `;

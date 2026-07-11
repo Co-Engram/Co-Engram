@@ -63,6 +63,11 @@ import {
   isGitRepo,
   GraphBuilder,
   defaultCachePath,
+  readMaintenanceState,
+  DEFAULT_LIGHT_INTERVAL_MS,
+  DEFAULT_DEEP_INTERVAL_MS,
+  DEFAULT_REM_INTERVAL_MS,
+  DEFAULT_DAILY_INTERVAL_MS,
   type EngramRepository,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
@@ -904,6 +909,30 @@ async function routeApi(
       windowMs: safeWindowDays * 24 * 60 * 60 * 1000,
     });
     respondJson(res, 200, { enabled: true, stats, windowDays: safeWindowDays });
+    return;
+  }
+
+  // /api/maintenance-state — 方案 A viewer tab:展示 light/deep/rem/daily 运行状态
+  //
+  // 返回 maintenance-state.json 内容 + 默认 interval(让 UI 计算 "是否已过期")。
+  // 文件不存在 / 损坏 → { enabled: true, state: EMPTY_STATE }(tab 显示 "从未跑过")。
+  // ctx.repository 缺失 → { enabled: false }(viewer 在无 repo 模式下不展示此 tab)。
+  if (path === "/api/maintenance-state" && req.method === "GET") {
+    if (!ctx.repository) {
+      respondJson(res, 200, { enabled: false, state: null });
+      return;
+    }
+    const state = await readMaintenanceState(ctx.repository.rootPath);
+    respondJson(res, 200, {
+      enabled: true,
+      state,
+      intervals: {
+        light: DEFAULT_LIGHT_INTERVAL_MS,
+        deep: DEFAULT_DEEP_INTERVAL_MS,
+        rem: DEFAULT_REM_INTERVAL_MS,
+        daily: DEFAULT_DAILY_INTERVAL_MS,
+      },
+    });
     return;
   }
 

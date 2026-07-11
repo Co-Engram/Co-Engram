@@ -62,6 +62,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const secondaryTabs = [
     ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip")],
     ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip")],
+    ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip")],
     ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip")],
     ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip")],
     ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip")],
@@ -271,6 +272,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <!-- Audit -->
     <section class="tab-panel" data-tab="audit">
       <div id="audit-content"></div>
+    </section>
+
+    <!-- Maintenance (REM/daily/light/deep 状态) -->
+    <section class="tab-panel" data-tab="maintenance">
+      <div id="maintenance-content"></div>
     </section>
 
     <!-- Trash -->
