@@ -1,11 +1,11 @@
 /**
- * Viewer v2 CSS — 科幻神经元风格。
+ * Viewer v2 CSS — 神经元进化主题。
  *
  * 设计理念:
- * - 深邃的太空背景 + 神经元脉冲光晕
- * - 玻璃态卡片(backdrop-filter blur + 半透明)
- * - 青色主色 (#5eead4) + 紫色辅色 (#c084fc),代表 AI + 神经元
- * - 信号感发光、流光边框
+ * - 深空背景 + 神经元星图(替换原网格)
+ * - 单色相:神经青 #5DECD9 主色,月白/雾灰中性,朱砂仅用于 contradicts
+ * - 衬线高雅:标题用系统衬线栈,正文 Inter Light 300
+ * - 动效贯穿:呼吸/放电/数字浮现扩到 KPI、tab、节点
  *
  * @module @co-engram/claude-code/viewer
  */
@@ -13,85 +13,120 @@
 export const VIEWER_CSS = `
 :root {
   color-scheme: dark;
-  /* 基础色 */
+  /* 基础 - 深空 */
   --bg-deep: #050816;
   --bg: #0a0e1f;
   --bg-elev: #0f1530;
-  --fg: #e2e8f0;
+
+  /* 前景 - 月白/雾灰(去蓝化,显高雅) */
+  --fg: #e8e6e1;
   --fg-bright: #f8fafc;
-  --fg-muted: #9aa5b8;
-  --fg-dim: #6b7693;
-  --border: rgba(94, 234, 212, 0.12);
-  --border-strong: rgba(94, 234, 212, 0.28);
-  --border-glow: rgba(94, 234, 212, 0.5);
-  --accent: #5eead4;       /* 青绿 - 神经元电信号 */
-  --accent-2: #c084fc;     /* 紫色 - AI 智慧感 */
-  --accent-warm: #fbbf24;  /* 琥珀 - 能量、提醒 */
+  --fg-muted: #8b92a8;
+  --fg-dim: #4a5378;
+
+  /* 主色 - 神经青单色 + 边框同源派生 */
+  --accent: #5DECD9;        /* 神经青 - 神经元电信号 */
+  --accent-soft: rgba(93, 236, 217, 0.18);
+  --accent-warm: #d4af37;   /* 古金 - 能量、提醒 */
   --accent-fg: #050816;
+  --border: rgba(93, 236, 217, 0.10);
+  --border-strong: rgba(93, 236, 217, 0.22);
+  --border-glow: rgba(93, 236, 217, 0.45);
+
+  /* 兼容别名(commit 2 替换所有引用后删除) */
+  --accent-2: var(--accent);
+  --glow-purple: 0 0 20px rgba(93, 236, 217, 0.3);
+
+  /* 面板/卡片底 */
   --panel-bg: rgba(15, 21, 48, 0.55);
   --panel-bg-solid: #0f1530;
-  --panel-bg-alt: rgba(94, 234, 212, 0.04);
-  --chip-bg: rgba(94, 234, 212, 0.08);
-  --shadow: 0 0 0 1px rgba(94,234,212,.06), 0 2px 8px rgba(0,0,0,.3);
-  --shadow-lift: 0 0 0 1px rgba(94,234,212,.15), 0 12px 32px rgba(0,0,0,.5), 0 0 32px rgba(94,234,212,.05);
-  --glow-cyan: 0 0 16px rgba(94, 234, 212, 0.35);
-  --glow-purple: 0 0 20px rgba(192, 132, 252, 0.3);
+  --panel-bg-alt: rgba(93, 236, 217, 0.04);
+  --chip-bg: rgba(93, 236, 217, 0.08);
+
+  /* Shadow/Glow - 神经青统一 */
+  --shadow: 0 0 0 1px rgba(93,236,217,.06), 0 2px 8px rgba(0,0,0,.3);
+  --shadow-lift: 0 0 0 1px rgba(93,236,217,.15), 0 12px 32px rgba(0,0,0,.5), 0 0 32px rgba(93,236,217,.08);
+  --glow-cyan: 0 0 16px rgba(93, 236, 217, 0.35);
+
   --radius: 6px;
   --radius-lg: 12px;
 
-  /* SynapseFamily 配色 */
-  --fam-structural: #60a5fa;
-  --fam-causal: #fb923c;
-  --fam-evidential: #34d399;
-  --fam-temporal: #a78bfa;
-  --fam-modulatory: #94a3b8;
-  --fam-contradicts: #f43f5e;
+  /* SynapseFamily - 神经青明度阶 + contradicts 朱砂 */
+  --fam-structural: #5DECD9;
+  --fam-causal: #93f3e7;
+  --fam-evidential: #3a9c8f;
+  --fam-temporal: #c0c8d4;
+  --fam-modulatory: #6b7693;
+  --fam-contradicts: #b8405a;
 
-  /* EngramKind 配色 */
-  --kind-fact: #34d399;
-  --kind-observation: #60a5fa;
-  --kind-pattern: #a78bfa;
-  --kind-procedure: #fb923c;
-  --kind-hypothesis: #f43f5e;
+  /* EngramKind - 同色阶 */
+  --kind-fact: #5DECD9;
+  --kind-observation: #93f3e7;
+  --kind-pattern: #c0c8d4;
+  --kind-procedure: #d4af37;
+  --kind-hypothesis: #b8405a;
 
   /* Audit action 类别配色 */
-  --audit-state: #60a5fa;
-  --audit-effective: #34d399;
-  --audit-contradicted: #f43f5e;
-  --audit-proposal: #a78bfa;
+  --audit-state: #93f3e7;
+  --audit-effective: #5DECD9;
+  --audit-contradicted: #b8405a;
+  --audit-proposal: #c0c8d4;
 }
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 300;
   margin: 0;
   color: var(--fg);
-  line-height: 1.55;
+  line-height: 1.65;
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
   background:
-    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(94, 234, 212, 0.08), transparent 60%),
-    radial-gradient(ellipse 60% 50% at 80% 100%, rgba(192, 132, 252, 0.08), transparent 60%),
+    radial-gradient(ellipse 80% 50% at 20% 0%, rgba(93, 236, 217, 0.08), transparent 60%),
+    radial-gradient(ellipse 60% 50% at 80% 100%, rgba(93, 236, 217, 0.05), transparent 60%),
     radial-gradient(ellipse 100% 60% at 50% 50%, rgba(15, 21, 48, 0.4), transparent 70%),
     var(--bg-deep);
   background-attachment: fixed;
   min-height: 100vh;
 }
 
-/* 神经元网格背景(微妙) */
+/* 神经元星图背景:多个微小光点 + 缓慢漂移,模拟神经元分布 */
 body::before {
   content: '';
   position: fixed;
   inset: 0;
-  background-image:
-    linear-gradient(rgba(94, 234, 212, 0.025) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(94, 234, 212, 0.025) 1px, transparent 1px);
-  background-size: 40px 40px;
   pointer-events: none;
   z-index: 0;
-  mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
-  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+  background:
+    radial-gradient(1px 1px at 12% 24%, rgba(93, 236, 217, 0.7), transparent 60%),
+    radial-gradient(1px 1px at 28% 68%, rgba(93, 236, 217, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 47% 12%, rgba(232, 230, 225, 0.4), transparent 60%),
+    radial-gradient(1.5px 1.5px at 63% 84%, rgba(93, 236, 217, 0.6), transparent 60%),
+    radial-gradient(1px 1px at 76% 35%, rgba(139, 146, 168, 0.5), transparent 60%),
+    radial-gradient(1px 1px at 88% 72%, rgba(93, 236, 217, 0.45), transparent 60%),
+    radial-gradient(1px 1px at 8% 92%, rgba(232, 230, 225, 0.35), transparent 60%),
+    radial-gradient(2px 2px at 38% 48%, rgba(93, 236, 217, 0.35), transparent 60%),
+    radial-gradient(1px 1px at 55% 60%, rgba(139, 146, 168, 0.4), transparent 60%),
+    radial-gradient(1px 1px at 22% 84%, rgba(93, 236, 217, 0.4), transparent 60%),
+    radial-gradient(1px 1px at 92% 18%, rgba(232, 230, 225, 0.3), transparent 60%),
+    radial-gradient(1px 1px at 70% 8%, rgba(93, 236, 217, 0.4), transparent 60%);
+  background-size: 720px 540px;
+  background-repeat: repeat;
+  opacity: 0.6;
+  animation: stars-drift 180s linear infinite;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 90%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 90%);
+}
+@keyframes stars-drift {
+  0%   { background-position: 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0, 0 0; }
+  100% { background-position: 720px 540px, -720px 540px, 720px -540px,
+                              -720px -540px, 0 540px, 720px 0, -720px 0,
+                              360px 270px, -360px -270px, 540px 360px, -540px 360px, 360px -540px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  body::before { animation: none; }
 }
 
 /* === Layout === */
@@ -112,9 +147,9 @@ header.app-header {
 header.app-header h1 {
   margin: 0;
   font-size: 1.5rem;
-  font-weight: 500;
+  font-weight: 400;
   display: inline-block;
-  background: linear-gradient(90deg, #bec7d2 0%, #b8941d 100%);
+  background: linear-gradient(90deg, #e8e6e1 0%, #5DECD9 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -213,13 +248,13 @@ header.app-header nav.primary-nav {
 .tab.active::after {
   content: '';
   position: absolute;
-  left: 50%;
+  left: 10%;
+  right: 10%;
   bottom: -1px;
-  transform: translateX(-50%);
-  width: 30%;
   height: 1px;
-  background: var(--accent);
-  box-shadow: 0 0 8px var(--accent);
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform-origin: center;
+  animation: synapse-pulse 3s ease-in-out infinite;
 }
 
 /* === Proposals tab badge ===
@@ -652,6 +687,7 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+  animation: digit-aurora 4s ease-in-out infinite;
 }
 .kpi-sub {
   font-size: 0.7rem;
@@ -2194,5 +2230,51 @@ div.vis-tooltip {
 .health-doctor-nextaction code {
   color: #5eead4;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+/* === 神经元进化主题:字体栈 + 贯穿动效 ===
+ * 标题用系统衬线(Iowan / Baskerville / 思源宋体),正文 Inter Light 300 瘦身显气质。
+ * 呼吸/放电/浮现不再仅 logo 专属,扩到 KPI、tab 下划线、节点。
+ * 循环动画周期 ≥ 3s,hover scale ≤ 1.02,克制不刺眼。
+ */
+h1, h2, h3, .serif {
+  font-family: 'Iowan Old Style', 'Apple Garamond', 'Baskerville',
+               'Source Han Serif CN', 'Songti SC', 'STSong',
+               'Noto Serif CJK SC', 'Times New Roman', serif;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+}
+
+/* 节点呼吸:卡片/节点轻微脉动(暂未应用到 .kpi 以避免与 hover box-shadow 冲突,commit 2 重构后启用) */
+@keyframes node-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 var(--accent-soft); }
+  50%      { box-shadow: 0 0 12px 2px rgba(93, 236, 217, 0.18); }
+}
+
+/* 突触放电:active tab 下划线伸缩 + 亮度变化 */
+@keyframes synapse-pulse {
+  0%, 100% { transform: scaleX(0.5); opacity: 0.4; }
+  50%      { transform: scaleX(1);   opacity: 1; }
+}
+
+/* 数字浮现:KPI value 辉光呼吸(filter:drop-shadow 因 -webkit-text-fill-color: transparent 屏蔽了 text-shadow) */
+@keyframes digit-aurora {
+  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
+  50%      { filter: drop-shadow(0 0 6px rgba(93, 236, 217, 0.4)); }
+}
+
+/* 中央神经节点:hero orb 缩放 + 辉光呼吸(commit 4 hero section 应用) */
+@keyframes orb-pulse {
+  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 8px rgba(93, 236, 217, 0.3)); }
+  50%      { transform: scale(1.05); filter: drop-shadow(0 0 24px rgba(93, 236, 217, 0.6)); }
+}
+
+/* 全局动效关闭:尊重 prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 `;
