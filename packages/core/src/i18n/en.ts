@@ -1261,6 +1261,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "merge_llm_arbitrated_escalated: LLM arbitration escalated, manual review required",
   "viewer.audit.actionTip.merge_llm_arbitrated_failed":
     "merge_llm_arbitrated_failed: LLM arbitration failed, manual intervention required",
+  "viewer.audit.actionTip.maintenance_run":
+    "maintenance_run: maintenance stage fired (rem/daily), system-run memory consolidation/decay",
   // Short action labels for timeline buttons. When translation missing,
   // _actionLabel falls back to the raw action string — but to keep the audit
   // timeline locale-consistent we cover every emitted action here.
@@ -1291,6 +1293,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actionLabel.merge_llm_arbitrated": "LLM",
   "viewer.audit.actionLabel.merge_llm_arbitrated_escalated": "Escalated",
   "viewer.audit.actionLabel.merge_llm_arbitrated_failed": "LLM Fail",
+  "viewer.audit.actionLabel.maintenance_run": "Maintenance",
   // audit pager (bottom paginator of audit timeline; mirrors engrams.pager).
   // Long-missing — UI used to show raw key strings. Added 2026-07.
   "viewer.audit.pager.prev": "« Prev",

@@ -23,6 +23,7 @@ import type { SignalRule } from "../signals/extract.js";
 import type { DreamingScheduler } from "../dreaming/scheduler.js";
 import type { EffectivenessTracker } from "../observability/effectiveness-tracker.js";
 import type { LlmClient } from "../observability/necessity-evaluator.js";
+import type { AuditLog } from "../observability/audit-log.js";
 import { DEFAULT_RPE_LEARNING_RATE } from "../signals/rpe.js";
 
 /** 维护阶段名 */
@@ -94,6 +95,18 @@ export interface MaintenanceDeps {
    * 与 ToolContext.llmClient(engram_synthesize 工具用)共享同一份配置,避免重复建连。
    */
   readonly llmClient?: LlmClient;
+  /**
+   * 审计日志(可选,rem/daily 阶段完成时写 maintenance_run 事件)。
+   *
+   * 如果注入,rem/daily stage 完成后会写一条 `maintenance_run` audit entry
+   * (action=`maintenance_run`、actor=`system`、host=当前 host、metadata含 stage/
+   * durationMs/errorCount/关键产物计数),让用户能通过 `engram_audit_query` 工具
+   * 或 viewer audit tab 查到 "REM 跑过吗?上次啥时候?产物是啥?"。
+   *
+   * light/deep 频率太高(5min/1h),不写 audit,避免噪音淹没审计日志。
+   * 不注入时跳过 audit 写入(向后兼容,适用于测试场景)。
+   */
+  readonly auditLog?: AuditLog;
 }
 
 /** 默认配置常量 */

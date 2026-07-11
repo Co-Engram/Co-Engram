@@ -66,6 +66,8 @@ const AUDIT_ACTIONS = [
   "merge_llm_arbitrated",
   "merge_llm_arbitrated_escalated",
   "merge_llm_arbitrated_failed",
+  // maintenance
+  "maintenance_run",
 ] as const satisfies readonly AuditAction[];
 
 export const EngramAuditQueryInputSchema = z

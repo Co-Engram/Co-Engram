@@ -570,4 +570,169 @@ describe("maintenance state 持久化(方案 A)", () => {
       expect(state.updatedBy).toBe("old-host");
     });
   });
+
+  // ============================================================
+  // audit log:maintenance_run 事件(方案 A 第 3 步)
+  // ============================================================
+  describe("audit log maintenance_run", () => {
+    it("rem stage 完成 → 写 maintenance_run audit entry(含 stage/duration/errorCount)", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+      const { AuditLog } = await import("../src/observability/audit-log.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const auditLog = new AuditLog(tmpDir);
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: { clustersProcessed: 3, patternsProposed: 2 },
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "test-host",
+          auditLog,
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        { enabledStages: ["rem"] },
+      );
+
+      await engine.runRem();
+
+      const events = auditLog.query({ action: "maintenance_run" });
+      expect(events.length).toBe(1);
+      const entry = events[0];
+      expect(entry.actor).toBe("system");
+      expect(entry.action).toBe("maintenance_run");
+      expect(entry.host).toBe("test-host");
+      expect(entry.metadata?.stage).toBe("rem");
+      expect(typeof entry.metadata?.durationMs).toBe("number");
+      expect(entry.metadata?.errorCount).toBe(0);
+      // downstreamReport 被 extractAuditSummary 压成标量 + count
+      // (dream 嵌套对象被丢弃,只保留 metacognition* 标量)
+      expect(entry.metadata?.downstreamSummary).toMatchObject({
+        metacognitionApplied: 0,
+        metacognitionTotal: 0,
+      });
+    });
+
+    it("daily stage 完成 → 写 maintenance_run audit entry(含 decayed)", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+      const { AuditLog } = await import("../src/observability/audit-log.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const auditLog = new AuditLog(tmpDir);
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "test-host",
+          auditLog,
+        },
+        { enabledStages: ["daily"] },
+      );
+
+      await engine.runDaily();
+
+      const events = auditLog.query({ action: "maintenance_run" });
+      expect(events.length).toBe(1);
+      const entry = events[0];
+      expect(entry.metadata?.stage).toBe("daily");
+      expect(entry.metadata?.decayed).toBe(0); // 空 repo,无 engram 可衰减
+    });
+
+    it("light stage 完成 → 不写 maintenance_run(避免高频噪音)", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+      const { AuditLog } = await import("../src/observability/audit-log.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const auditLog = new AuditLog(tmpDir);
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "test-host",
+          auditLog,
+        },
+        { enabledStages: ["light"] },
+      );
+
+      await engine.runLight();
+
+      const events = auditLog.query({ action: "maintenance_run" });
+      expect(events.length).toBe(0); // light 不写 audit
+    });
+
+    it("未注入 auditLog → 跳过 audit 写入(stage 正常完成)", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "test-host",
+          // auditLog 不注入
+        },
+        { enabledStages: ["daily"] },
+      );
+
+      // 不应抛错
+      const report = await engine.runDaily();
+      expect(report.stage).toBe("daily");
+    });
+
+    it("rem stage 失败 → 写 maintenance_run audit entry(含 errorMessage)", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+      const { AuditLog } = await import("../src/observability/audit-log.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const auditLog = new AuditLog(tmpDir);
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "test-host",
+          auditLog,
+          // dreamingScheduler 不注入 → runRem 抛 configError
+        },
+        { enabledStages: ["rem"] },
+      );
+
+      await engine.runRem();
+
+      const events = auditLog.query({ action: "maintenance_run" });
+      expect(events.length).toBe(1);
+      const entry = events[0];
+      expect(entry.metadata?.stage).toBe("rem");
+      expect(entry.metadata?.errorCount).toBe(1);
+      expect(typeof entry.metadata?.errorMessage).toBe("string");
+    });
+  });
 });

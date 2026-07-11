@@ -497,8 +497,11 @@ export class MaintenanceEngine {
     const finishedAt = Date.now();
     const durationMs = finishedAt - startedAt;
 
-    // 阶段触发本身不写 audit —— 避免每 5 分钟一条噪音。
-    // 下游任务(sweep_to_trash / reinforce / forget / refute 等)自己写状态变更 audit。
+    // 阶段触发 audit 策略:
+    //   - light/deep 频率高(5min/1h),写 audit 会变噪音,跳过
+    //   - rem/daily 频率低(7d/24h),且用户关心"REM 跑过吗",写 audit
+    //   - 下游任务(sweep_to_trash / reinforce / forget / refute 等)自己写状态变更 audit
+    const shouldWriteAudit = stage === "rem" || stage === "daily";
 
     const report: MaintenanceReport = {
       stage,
@@ -530,6 +533,66 @@ export class MaintenanceEngine {
       }
     }
 
+    // 方案 A:rem/daily 完成后写 audit log(让用户可查 "REM 跑过吗")。
+    // 失败/成功都写,metadata 含 stage / durationMs / errorCount / 关键产物。
+    if (shouldWriteAudit && this.deps.auditLog) {
+      try {
+        this.deps.auditLog.append({
+          actor: "system",
+          action: "maintenance_run",
+          host: this.deps.host,
+          metadata: {
+            stage,
+            durationMs,
+            errorCount: errors.length,
+            ...(errors.length > 0
+              ? { errorMessage: errors[0]?.message }
+              : {}),
+            ...(report.signalsProcessed !== undefined
+              ? { signalsProcessed: report.signalsProcessed }
+              : {}),
+            ...(report.rpeUpdates !== undefined
+              ? { rpeUpdates: report.rpeUpdates }
+              : {}),
+            ...(report.decayed !== undefined
+              ? { decayed: report.decayed }
+              : {}),
+            ...(report.downstreamReport !== undefined
+              ? { downstreamSummary: extractAuditSummary(report.downstreamReport) }
+              : {}),
+          },
+        });
+      } catch {
+        // audit 写失败不阻塞 stage
+      }
+    }
+
     return report;
   }
+}
+
+/**
+ * 从 downstreamReport(可能很大,如聚类矩阵 / 候选 pattern 列表)提取 audit log
+ * 友好的 summary:仅保留标量字段 + 数组 count,与 state.ts extractReportSummary 同策略。
+ *
+ * audit entry 一行 ~200B,downstreamReport 不压会撑爆 audit.jsonl。
+ */
+function extractAuditSummary(
+  downstream: unknown,
+): Readonly<Record<string, unknown>> {
+  if (!downstream || typeof downstream !== "object") return {};
+  const ds = downstream as Record<string, unknown>;
+  const summary: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(ds)) {
+    if (
+      typeof v === "number" ||
+      typeof v === "string" ||
+      typeof v === "boolean"
+    ) {
+      summary[k] = v;
+    } else if (Array.isArray(v)) {
+      summary[`${k}Count`] = v.length;
+    }
+  }
+  return summary;
 }

@@ -1227,6 +1227,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.audit.actionTip.merge_llm_arbitrated": "merge_llm_arbitrated:LLM 仲裁合并冲突",
   "viewer.audit.actionTip.merge_llm_arbitrated_escalated": "merge_llm_arbitrated_escalated:LLM 仲裁结果升级,需人工复核",
   "viewer.audit.actionTip.merge_llm_arbitrated_failed": "merge_llm_arbitrated_failed:LLM 仲裁失败,需人工介入",
+  "viewer.audit.actionTip.maintenance_run": "maintenance_run:维护阶段触发(rem/daily),系统自动执行的记忆巩固/衰减",
   // audit action 短标签(时间线按钮用)。缺翻译时回退到原 action 字符串,
   // 但中文化场景下应覆盖全部 emit 的 action,避免 accept/dismiss 等英文漏到 UI。
   // 与 actionTip 区别:tip 是 hover 提示长句,label 是按钮内短词。
@@ -1257,6 +1258,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.audit.actionLabel.merge_llm_arbitrated": "LLM 裁决",
   "viewer.audit.actionLabel.merge_llm_arbitrated_escalated": "裁决升级",
   "viewer.audit.actionLabel.merge_llm_arbitrated_failed": "裁决失败",
+  "viewer.audit.actionLabel.maintenance_run": "维护",
   // audit pager(审计栏底部分页器,与 engrams.pager 同结构,允许跨页 cursor loadMore)
   // 长期漏译导致 UI 显示 "viewer.audit.pager.prev" 等 key 本身,2026-07 补齐
   "viewer.audit.pager.prev": "« 上一页",

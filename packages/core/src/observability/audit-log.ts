@@ -12,6 +12,7 @@
  *   - git merge driver 事件: merge_resolved(driver 自动解决冲突)/
  *                           merge_backup_failed(输方备份落盘失败)/
  *                           merge_conflict_escalated(driver 留 marker 升级人工)
+ *   - maintenance 触发: maintenance_run(仅 rem/daily 写入,供用户查 "REM 跑过吗")
  *
  * 不再写入的事件(避免淹没 audit.jsonl,详见 effectiveness-tracker.ts):
  *   - noise_filtered(Layer 1 入口拒绝,每条对话消息都会产生)
@@ -77,7 +78,9 @@ export type AuditAction =
   // git merge driver LLM 仲裁事件(Phase 3 起,spec §5.5)
   | "merge_llm_arbitrated"
   | "merge_llm_arbitrated_escalated"
-  | "merge_llm_arbitrated_failed";
+  | "merge_llm_arbitrated_failed"
+  // maintenance 阶段触发(仅 rem/daily 低频 stage 写入;light/deep 太频繁会变噪音)
+  | "maintenance_run";
 
 /** 审计行为者 */
 export type AuditActor = "user" | "llm" | "system";
@@ -447,4 +450,6 @@ const HIGH_VALUE_ACTIONS: ReadonlySet<AuditAction> = new Set<AuditAction>([
   "learning_loop_success",
   "learning_loop_partial",
   "learning_loop_failure",
+  // maintenance 触发
+  "maintenance_run",
 ]);
