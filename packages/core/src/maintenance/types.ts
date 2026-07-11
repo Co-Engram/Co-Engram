@@ -28,6 +28,21 @@ import { DEFAULT_RPE_LEARNING_RATE } from "../signals/rpe.js";
 /** 维护阶段名 */
 export type MaintenanceStage = "light" | "deep" | "rem" | "daily";
 
+/**
+ * ProcessLock 持有者抽象(用于 maintenance 写 state.json 前 check)。
+ *
+ * 抽象为接口而非直接依赖 ProcessLock 类,便于:
+ *   - 测试 mock
+ *   - 不同宿主(claude-code-mcp / openclaw-plugin)注入自己的实现
+ *
+ * 持锁语义:processLock.isHolder = true 时,当前进程是 dataRoot 的唯一持锁者,
+ * 可以独占写 maintenance-state.json。non-holder 跳过写入(避免与 holder 冲突)。
+ */
+export interface ProcessLockHolder {
+  /** 当前进程是否持有 maintenance 锁(只有持锁者可写 state.json) */
+  readonly isHolder: boolean;
+}
+
 /** 维护引擎依赖（注入式,便于测试） */
 export interface MaintenanceDeps {
   readonly repository: EngramRepository;
@@ -50,8 +65,25 @@ export interface MaintenanceDeps {
    * 如果注入,每次 light 阶段会扫描所有 engram 的 domainTags,
    * 生成 PromptSignalSnapshot 写入 `<dataRoot>/.co-engram/prompt-signals.json`。
    * promptBuilder 读取这份 snapshot 实现自进化提示词。
+   *
+   * 同时也是 maintenance-state.json 的写入根路径(方案 A:catch-up 调度所需)。
    */
   readonly dataRoot?: string;
+  /**
+   * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。
+   *
+   * 如果注入,runStage 写 state.json 前会 check isHolder,
+   * 防止持锁丢失期间残留写入(多 host 共享 dataRoot 场景)。
+   * 如果不注入,视为「无条件持锁」(向后兼容,适用于单 host / 测试场景)。
+   */
+  readonly processLock?: ProcessLockHolder;
+  /**
+   * 当前 host 标识(可选,state.json updatedBy 字段用)。
+   *
+   * 建议值:`"claude-code-mcp"` / `"openclaw-plugin"` 等。
+   * 不注入时默认 `"unknown"`。
+   */
+  readonly host?: string;
   /**
    * LLM 客户端(可选,REM 阶段做语义模式抽象用)。
    *

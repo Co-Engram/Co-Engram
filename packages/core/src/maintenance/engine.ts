@@ -51,6 +51,7 @@ import {
   writePromptSignals,
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
+import { writeStageState } from "./state.js";
 
 /**
  * Maintenance Engine
@@ -407,7 +408,7 @@ export class MaintenanceEngine {
     // 阶段触发本身不写 audit —— 避免每 5 分钟一条噪音。
     // 下游任务(sweep_to_trash / reinforce / forget / refute 等)自己写状态变更 audit。
 
-    return {
+    const report: MaintenanceReport = {
       stage,
       startedAt,
       finishedAt,
@@ -420,5 +421,23 @@ export class MaintenanceEngine {
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
     };
+
+    // 方案 A:写 maintenance-state.json(只在 dataRoot 注入 + 持锁时)。
+    // processLock 未注入视为「无条件持锁」(向后兼容,适用于单 host / 测试)。
+    // 写失败不阻塞 stage(state 是辅助,丢失下次启动会触发 catch-up 重做)。
+    if (this.deps.dataRoot && this.deps.processLock?.isHolder !== false) {
+      try {
+        await writeStageState(
+          this.deps.dataRoot,
+          stage,
+          report,
+          this.deps.host ?? "unknown",
+        );
+      } catch {
+        // state 写失败不阻塞 stage
+      }
+    }
+
+    return report;
   }
 }
