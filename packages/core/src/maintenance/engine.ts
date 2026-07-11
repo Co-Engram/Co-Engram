@@ -51,7 +51,7 @@ import {
   writePromptSignals,
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
-import { writeStageState } from "./state.js";
+import { writeStageState, readMaintenanceState } from "./state.js";
 
 /**
  * Maintenance Engine
@@ -324,6 +324,15 @@ export class MaintenanceEngine {
     if (this.running) return;
     this.running = true;
 
+    // 方案 A:启动时检查 catch-up(异步,不阻塞 start 返回)。
+    // 读 maintenance-state.json,若某 stage 的 now - lastRunAt > intervalMs,
+    // 或低频 stage(rem/daily)从未跑过,立即触发一次。
+    // 低频优先(rem → daily → deep → light):确保最贵的 REM 不被前面 stage 卡住。
+    // 串行执行,避免 stage 间互相干扰。
+    this.scheduleCatchUp().catch(() => {
+      // catch-up 失败不影响后续 setInterval;下次启动会再次尝试
+    });
+
     const stages = new Set(this.resolvedConfig.enabledStages);
     if (stages.has("light")) {
       this.lightTimer = setInterval(() => {
@@ -350,6 +359,89 @@ export class MaintenanceEngine {
         this.runDaily().catch(() => {});
       }, this.resolvedConfig.dailyIntervalMs);
       this.dailyTimer.unref?.();
+    }
+  }
+
+  /**
+   * 启动 catch-up:检查 maintenance-state.json,触发已过期或从未跑过的 stage。
+   *
+   * 触发条件:
+   *   - 有 lastRunAt 且 now - lastRunAt > intervalMs(已过周期)
+   *   - 无 lastRunAt + 低频 stage(rem/daily):首次启动立即跑,避免 setInterval 永远不到
+   *   - 无 lastRunAt + 高频 stage(light/deep):setInterval 会很快触发,不立即跑
+   *
+   * 顺序:低频优先(rem → daily → deep → light),串行执行。
+   *
+   * 不触发条件(直接返回):
+   *   - 未注入 dataRoot(无 state 可读)
+   *   - processLock 注入且 isHolder=false(non-holder 不跑 maintenance)
+   */
+  private async scheduleCatchUp(): Promise<void> {
+    if (!this.deps.dataRoot) return;
+    if (this.deps.processLock?.isHolder === false) return;
+
+    const state = await readMaintenanceState(this.deps.dataRoot);
+    const now = Date.now();
+    const enabledStages = new Set(this.resolvedConfig.enabledStages);
+
+    // 低频优先顺序
+    const order: readonly MaintenanceStage[] = [
+      "rem",
+      "daily",
+      "deep",
+      "light",
+    ];
+    for (const stage of order) {
+      if (!enabledStages.has(stage)) continue;
+      const intervalMs = this.getIntervalMs(stage);
+      const last = state.stages[stage]?.lastRunAt;
+      if (!last) {
+        // 从未跑过:仅低频 stage(rem/daily)立即触发(否则 setInterval 永远到不了)。
+        // 高频 stage(light/deep) 等 setInterval 很快就会跑,无需 catch-up。
+        if (!(stage === "rem" || stage === "daily")) continue;
+      } else {
+        // 跑过:仅当过期才 catch-up
+        const elapsed = now - new Date(last).getTime();
+        if (elapsed <= intervalMs) continue;
+      }
+
+      try {
+        await this.runStageByName(stage);
+      } catch {
+        // 单 stage catch-up 失败不阻塞下一个;错误已在 report 内记录
+      }
+    }
+  }
+
+  /** 按 stage 名取调度间隔(便于 catch-up 复用) */
+  private getIntervalMs(stage: MaintenanceStage): number {
+    switch (stage) {
+      case "light":
+        return this.resolvedConfig.lightIntervalMs;
+      case "deep":
+        return this.resolvedConfig.deepIntervalMs;
+      case "rem":
+        return this.resolvedConfig.remIntervalMs;
+      case "daily":
+        return this.resolvedConfig.dailyIntervalMs;
+    }
+  }
+
+  /** 按 stage 名触发 run*(便于 catch-up 复用) */
+  private async runStageByName(stage: MaintenanceStage): Promise<void> {
+    switch (stage) {
+      case "light":
+        await this.runLight();
+        return;
+      case "deep":
+        await this.runDeep();
+        return;
+      case "rem":
+        await this.runRem();
+        return;
+      case "daily":
+        await this.runDaily();
+        return;
     }
   }
 

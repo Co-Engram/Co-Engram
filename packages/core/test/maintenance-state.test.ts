@@ -314,4 +314,260 @@ describe("maintenance state 持久化(方案 A)", () => {
       expect(state.updatedBy).toBe("legacy-host");
     });
   });
+
+  // ============================================================
+  // scheduleCatchUp(方案 A 第 2 步)
+  // ============================================================
+  describe("scheduleCatchUp", () => {
+    /**
+     * 直接调用 private scheduleCatchUp(通过类型断言绕过),
+     * 避免 start() 的 setInterval 副作用干扰测试。
+     */
+    async function callCatchUp(engine: {
+      scheduleCatchUp: () => Promise<void>;
+    }): Promise<void> {
+      await engine.scheduleCatchUp();
+    }
+
+    /** 写一个 lastRunAt 已过期的 state.json,模拟「REM 已超期」场景 */
+    async function seedExpiredState(
+      dataRoot: string,
+      stage: MaintenanceStage,
+      daysAgo: number,
+    ): Promise<void> {
+      const lastRunAt = new Date(
+        Date.now() - daysAgo * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const state = {
+        version: 1 as const,
+        stages: {
+          light: undefined,
+          deep: undefined,
+          rem: undefined,
+          daily: undefined,
+          [stage]: {
+            lastRunAt,
+            lastDurationMs: 100,
+            lastResult: {},
+            lastError: null,
+          },
+        } as Record<MaintenanceStage, unknown>,
+        updatedAt: lastRunAt,
+        updatedBy: "old-host",
+      };
+      mkdirSync(join(dataRoot, ".co-engram"), { recursive: true });
+      writeFileSync(
+        maintenanceStatePath(dataRoot),
+        JSON.stringify(state, null, 2) + "\n",
+        "utf8",
+      );
+    }
+
+    it("REM 已过期(8 天前):catch-up 立即触发,更新 state.json", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine, DEFAULT_REM_INTERVAL_MS } = await import(
+        "../src/maintenance/index.js"
+      );
+
+      // sanity:8 天 > 7 天 default REM interval
+      expect(DEFAULT_REM_INTERVAL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      // 注入 mock dreamingScheduler,让 runRem 不抛错
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: { clustersProcessed: 0 },
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "new-host",
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        // 只启用 rem,避免 daily/light 互相干扰断言
+        { enabledStages: ["rem"] },
+      );
+
+      await seedExpiredState(tmpDir, "rem", 8);
+      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+
+      const state = await readMaintenanceState(tmpDir);
+      expect(state.stages.rem).toBeDefined();
+      // updatedBy 从 "old-host" 变成 "new-host"(说明被新 host 的 catch-up 重写)
+      expect(state.updatedBy).toBe("new-host");
+      // lastRunAt 应该是 catch-up 触发时刻(刚刚),不再是 8 天前
+      const newRunAt = new Date(state.stages.rem!.lastRunAt).getTime();
+      expect(Date.now() - newRunAt).toBeLessThan(10_000); // < 10 秒前
+    });
+
+    it("REM 未到周期(6 天前):catch-up 不触发,state.json 不被改写", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: {},
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "new-host",
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        { enabledStages: ["rem"] },
+      );
+
+      await seedExpiredState(tmpDir, "rem", 6); // 6 < 7,未到周期
+      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+
+      const state = await readMaintenanceState(tmpDir);
+      // updatedBy 应保持 "old-host"(未被 catch-up 改写)
+      expect(state.updatedBy).toBe("old-host");
+      // lastRunAt 应仍是 6 天前
+      const runAt = new Date(state.stages.rem!.lastRunAt).getTime();
+      expect(Date.now() - runAt).toBeGreaterThan(5 * 24 * 60 * 60 * 1000);
+    });
+
+    it("从未跑过 + 低频 stage(rem/daily):catch-up 立即触发", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: {},
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "fresh-host",
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        // 全启用,验证只有 rem + daily 立即跑,light/deep 不跑
+        { enabledStages: ["rem", "daily", "deep", "light"] },
+      );
+
+      // state.json 不存在(全新环境)
+      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+
+      const state = await readMaintenanceState(tmpDir);
+      expect(state.stages.rem).toBeDefined(); // 立即触发
+      expect(state.stages.daily).toBeDefined(); // 立即触发
+      expect(state.stages.deep).toBeUndefined(); // 不立即跑(setInterval 会触发)
+      expect(state.stages.light).toBeUndefined(); // 不立即跑
+    });
+
+    it("低频优先顺序:rem 在 daily 之前被触发", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: {},
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "order-host",
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        { enabledStages: ["rem", "daily"] },
+      );
+
+      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+
+      const state = await readMaintenanceState(tmpDir);
+      // 两个都触发了
+      expect(state.stages.rem).toBeDefined();
+      expect(state.stages.daily).toBeDefined();
+      // rem 的 lastRunAt <= daily 的 lastRunAt(rem 先跑)
+      const remAt = new Date(state.stages.rem!.lastRunAt).getTime();
+      const dailyAt = new Date(state.stages.daily!.lastRunAt).getTime();
+      expect(remAt).toBeLessThanOrEqual(dailyAt);
+    });
+
+    it("processLock.isHolder=false:不触发任何 catch-up", async () => {
+      const { EngramRepository } = await import("../src/storage/repository.js");
+      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
+      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
+
+      const repo = new EngramRepository({ rootPath: tmpDir });
+      const sink = new MemorySignalSink();
+      const mockScheduler = {
+        trigger: () => ({
+          stage: "rem" as const,
+          at: new Date().toISOString(),
+          result: {},
+        }),
+        start: () => {},
+        stop: () => {},
+        onRun: () => () => {},
+      };
+      const engine = new MaintenanceEngine(
+        {
+          repository: repo,
+          signalSink: sink,
+          dataRoot: tmpDir,
+          host: "non-holder",
+          processLock: { isHolder: false },
+          // @ts-expect-error mock minimal scheduler
+          dreamingScheduler: mockScheduler,
+        },
+        { enabledStages: ["rem", "daily", "deep", "light"] },
+      );
+
+      await seedExpiredState(tmpDir, "rem", 30); // 远过期
+      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+
+      const state = await readMaintenanceState(tmpDir);
+      // 不持锁 → 不触发 catch-up → updatedBy 仍是 "old-host"
+      expect(state.updatedBy).toBe("old-host");
+    });
+  });
 });
