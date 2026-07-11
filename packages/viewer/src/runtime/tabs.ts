@@ -49,7 +49,7 @@ CO_ENGRAM.on('stats', async function() {
 
   const barRow = (label, count, max, color, onclick, tipAttr) => '<div class="bar-row">'
     + '<div class="bar-label"' + (tipAttr || '') + (onclick ? ' onclick="' + onclick + '"' : '') + '>' + CO_ENGRAM.escapeHtml(label) + '</div>'
-    + '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100) : 0).toFixed(1) + '%;background:' + (color || '#5eead4') + '"></div></div>'
+    + '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100) : 0).toFixed(1) + '%;background:' + (color || '#5DECD9') + '"></div></div>'
     + '<div class="bar-value">' + count + '</div></div>';
 
   const kindMap = data.byKind || {};
@@ -91,7 +91,7 @@ CO_ENGRAM.on('stats', async function() {
 
   html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('status.active') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.statusDistribution')) + '</h3>';
   if (!statusKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-  else statusKeys.forEach(k => html += barRow(T.enumLabel('status', k), statusMap[k], statusMax, '#94a3b8', '', CO_ENGRAM.tip('status.' + k)));
+  else statusKeys.forEach(k => html += barRow(T.enumLabel('status', k), statusMap[k], statusMax, '#8b92a8', '', CO_ENGRAM.tip('status.' + k)));
   html += '</div>';
 
   // 记忆突触区(独立一块,与印迹分开)
@@ -111,7 +111,7 @@ CO_ENGRAM.on('stats', async function() {
         + '<td><code>' + CO_ENGRAM.escapeHtml(c.actor) + '</code></td>'
         + '<td>' + c.engramCount + '</td>'
         + '<td>' + c.synapseCount + '</td>'
-        + '<td><div class="bar-track" style="min-width:120px"><div class="bar-fill" style="width:' + pct + '%;background:#5eead4"></div></div> <span style="margin-left:.4rem">' + c.total + '</span></td>'
+        + '<td><div class="bar-track" style="min-width:120px"><div class="bar-fill" style="width:' + pct + '%;background:#5DECD9"></div></div> <span style="margin-left:.4rem">' + c.total + '</span></td>'
         + '</tr>';
     });
     html += '</tbody></table>';
@@ -120,7 +120,7 @@ CO_ENGRAM.on('stats', async function() {
 
   if (tagArr.length) {
     html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTagsTip') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
-    tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#c084fc'); });
+    tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#93f3e7'); });
     html += '</div>';
   }
 
@@ -357,7 +357,7 @@ window.CO_ENGRAM_ENGRAMS = {
     let pageButtonsHtml = '';
     for (const p of pageList) {
       if (p === 'ellipsis') {
-        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--fg-muted)">…</span>';
       } else if (p === currentPage) {
         pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
       } else {
@@ -369,7 +369,7 @@ window.CO_ENGRAM_ENGRAMS = {
       '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_ENGRAMS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.prev')) + '</button>'
       + pageButtonsHtml
       + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_ENGRAMS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.next')) + '</button>'
-      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>';
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--fg-muted);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>';
     body.appendChild(navRow);
   },
 
@@ -1145,10 +1145,10 @@ window.CO_ENGRAM_PROPOSALS = {
           html += '<div class="card-meta" style="margin-bottom:0.3rem">' + tagsHtml + '</div>';
         }
         if (p.status === 'accepted' && p.acceptedEngramId) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(16,185,129,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="background:rgba(93,236,217,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
         }
         if (p.status === 'dismissed' && p.dismissReason) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="background:rgba(184,64,90,.12);color:#b8405a">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
         }
         html += '</div>';
       }
@@ -1174,7 +1174,7 @@ window.CO_ENGRAM_PROPOSALS = {
       let pageButtonsHtml = '';
       for (const p of pageList) {
         if (p === 'ellipsis') {
-          pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+          pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--fg-muted)">…</span>';
         } else if (p === currentPage) {
           pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
         } else {
@@ -1187,7 +1187,7 @@ window.CO_ENGRAM_PROPOSALS = {
         + '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_PROPOSALS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.prev')) + '</button>'
         + pageButtonsHtml
         + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_PROPOSALS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.next')) + '</button>'
-        + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>'
+        + '<span class="pager-info" style="margin-left:.6rem;color:var(--fg-muted);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>'
         + '</div>';
     }
     root.innerHTML = html;
@@ -1525,10 +1525,10 @@ window.CO_ENGRAM_AUDIT = {
     const kpi = (label, n, color) => '<div class="kpi"><div class="kpi-label">' + label + '</div>'
       + '<div class="kpi-value" style="color:' + color + '">' + n + '</div></div>';
     el.innerHTML = kpi(T.t('viewer.audit.kpi.total'), cache.length, 'var(--fg)')
-      + kpi(T.t('viewer.audit.kpi.state'), cat.state, '#3b82f6')
-      + kpi(T.t('viewer.audit.kpi.effective'), cat.effective, '#10b981')
-      + kpi(T.t('viewer.audit.kpi.contradicted'), cat.contradicted, '#ef4444')
-      + kpi(T.t('viewer.audit.kpi.proposal'), cat.proposal, '#8b5cf6');
+      + kpi(T.t('viewer.audit.kpi.state'), cat.state, '#93f3e7')
+      + kpi(T.t('viewer.audit.kpi.effective'), cat.effective, '#5DECD9')
+      + kpi(T.t('viewer.audit.kpi.contradicted'), cat.contradicted, '#b8405a')
+      + kpi(T.t('viewer.audit.kpi.proposal'), cat.proposal, '#c0c8d4');
   },
 
   applyFilter() {
@@ -1627,7 +1627,7 @@ window.CO_ENGRAM_AUDIT = {
     let pageButtonsHtml = '';
     for (const p of pageList) {
       if (p === 'ellipsis') {
-        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--fg-muted)">…</span>';
       } else if (p === currentPage + 1) {
         pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
       } else {
@@ -1639,7 +1639,7 @@ window.CO_ENGRAM_AUDIT = {
       + '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_AUDIT.prevPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.prev')) + '</button>'
       + pageButtonsHtml
       + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_AUDIT.nextPage()">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.next')) + '</button>'
-      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:0.85em">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.pageInfo', { current: currentPage + 1, total: totalPages, itemTotal: filtered.length })) + hint + '</span>'
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--fg-muted);font-size:0.85em">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.audit.pager.pageInfo', { current: currentPage + 1, total: totalPages, itemTotal: filtered.length })) + hint + '</span>'
       + '</div>';
     tl.innerHTML = html;
     const tEnd = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
@@ -1916,7 +1916,7 @@ window.CO_ENGRAM_MERGES = {
     const bar = (label, count, max, color) =>
       '<div class="bar-row">' +
       '<div class="bar-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
-      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5eead4') + '"></div></div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5DECD9') + '"></div></div>' +
       '<div class="bar-value">' + count + '</div>' +
       '</div>';
 
@@ -1946,7 +1946,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byStrategy') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [name, count] of strategies.slice(0, 8)) {
-        html += bar(name, count, max, '#5eead4');
+        html += bar(name, count, max, '#5DECD9');
       }
       html += '</div>';
     }
@@ -1958,7 +1958,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.hotPaths') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [p, count] of paths.slice(0, 8)) {
-        html += bar(p, count, max, '#fbbf24');
+        html += bar(p, count, max, '#d4af37');
       }
       html += '</div>';
     }
@@ -1970,7 +1970,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byDay') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [day, count] of days) {
-        html += bar(day, count, max, '#60a5fa');
+        html += bar(day, count, max, '#93f3e7');
       }
       html += '</div>';
     }
@@ -2072,8 +2072,8 @@ window.CO_ENGRAM_TRASH = {
     for (const t of items) {
       const part = t.partition || '';
       const sourceBadge = t.source === 'soft'
-        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
-        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
+        ? '<span class="chip" style="background:rgba(212,175,55,0.12);color:#d4af37;border-color:rgba(212,175,55,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
+        : '<span class="chip" style="background:rgba(93,236,217,0.12);color:#5DECD9;border-color:rgba(93,236,217,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
       const titleCell = t.title
         ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
         : '<span style="color:var(--fg-dim)">—</span>';
@@ -2142,9 +2142,9 @@ window.CO_ENGRAM_TRASH = {
     const status = fm.status ? T.enumLabel('status', fm.status) : '';
     const source = fm.sourceType ? T.enumLabel('sourceType', fm.sourceType) : '';
     const sourceBadge = d.source === 'soft'
-      ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
+      ? '<span class="chip" style="background:rgba(212,175,55,0.12);color:#d4af37;border-color:rgba(212,175,55,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
       : (d.source === 'swept'
-        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
+        ? '<span class="chip" style="background:rgba(93,236,217,0.12);color:#5DECD9;border-color:rgba(93,236,217,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
         : '');
 
     // 分区显示:软删走 enumLabel,物理清空加 (swept) 后缀
@@ -2487,7 +2487,7 @@ window.CO_ENGRAM_CONFIG = {
 
     // 运行时提示:在每个持久化配置项下方显示当前运行时实际值
     const runtimeHint = (runtimeVal) => {
-      return '<span style="font-size:.75rem;color:var(--text-muted);margin-left:.4rem">' + T.t('viewer.config.runtimeHintPrefix') + CO_ENGRAM.escapeHtml(String(runtimeVal)) + T.t('viewer.config.runtimeHintSuffix') + '</span>';
+      return '<span style="font-size:.75rem;color:var(--fg-muted);margin-left:.4rem">' + T.t('viewer.config.runtimeHintPrefix') + CO_ENGRAM.escapeHtml(String(runtimeVal)) + T.t('viewer.config.runtimeHintSuffix') + '</span>';
     };
 
     // 持久化配置:可编辑,保存后重启生效.
@@ -2549,14 +2549,14 @@ window.CO_ENGRAM_CONFIG = {
     // 首次用户(dataRoot=null)展示欢迎引导卡片,推荐常用路径 + 解释 .co-engram/ 子目录
     // 已设置过 dataRoot 的用户跳过引导,只看下面的输入框
     if (!data.dataRoot) {
-      html += '<div class="info-banner" style="margin:0 0 .8rem 0;padding:1rem;border-left:3px solid var(--accent,#4a90e2)">'
+      html += '<div class="info-banner" style="margin:0 0 .8rem 0;padding:1rem;border-left:3px solid var(--accent,#5DECD9)">'
         + '<h4 style="margin:0 0 .5rem 0">' + T.t('viewer.config.dataRootWelcomeTitle') + '</h4>'
         + '<div style="font-size:.92em">' + T.t('viewer.config.dataRootWelcomeBody') + '</div>'
         + '<div style="margin-top:.6rem;display:flex;flex-direction:column;gap:.4rem">'
         + '<button class="btn" onclick="CO_ENGRAM_CONFIG.suggestDataRoot(1)">' + T.t('viewer.config.dataRootWelcomeSuggestHome') + '</button>'
         + '<button class="btn secondary" onclick="CO_ENGRAM_CONFIG.suggestDataRoot(2)">' + T.t('viewer.config.dataRootWelcomeSuggestHidden') + '</button>'
         + '</div>'
-        + '<div style="margin-top:.6rem;font-size:.85em;color:var(--muted,#666)">' + T.t('viewer.config.dataRootWelcomeCustom') + '</div>'
+        + '<div style="margin-top:.6rem;font-size:.85em;color:var(--fg-muted)">' + T.t('viewer.config.dataRootWelcomeCustom') + '</div>'
         + '</div>';
     }
     html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.dataRoot') + '<span class="desc">' + T.t('viewer.config.field.dataRoot.desc') + '</span></div>'
@@ -2625,7 +2625,7 @@ window.CO_ENGRAM_CONFIG = {
         const total = typeof resp.existingCount === 'number' ? resp.existingCount : list.length;
         const shown = list.slice(0, 10).map(f => '<code>' + CO_ENGRAM.escapeHtml(f) + '</code>').join('、');
         const more = total > list.length
-          ? '<div style="margin-top:.4rem;font-size:.85em;color:var(--muted,#666)">' + T.t('viewer.config.dataRootNonEngramMore', { count: total - list.length }) + '</div>'
+          ? '<div style="margin-top:.4rem;font-size:.85em;color:var(--fg-muted)">' + T.t('viewer.config.dataRootNonEngramMore', { count: total - list.length }) + '</div>'
           : '';
         const fileList = shown
           ? '<div style="margin:.4rem 0">' + T.t('viewer.config.dataRootNonEngramExistingList', { count: total, files: shown }) + more + '</div>'
@@ -2859,7 +2859,7 @@ window.CO_ENGRAM_SYNAPSES = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('family.' + family) + '>' + T.t('viewer.detail.familyField') + '</span><span class="chip dot" style="color:' + CO_ENGRAM.familyColor(family) + '">' + CO_ENGRAM.escapeHtml(familyLabel) + '</span></div>'
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('synapseDirection.' + (d.direction || 'directional')) + '>' + T.t('viewer.detail.directionField') + '</span>' + CO_ENGRAM.escapeHtml(dirLabel) + '</div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.weightField') + '</span>' + (d.weight != null ? Number(d.weight).toFixed(2) : '—') + '</div>'
-      + (d.resolutionStatus ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('resolution.' + d.resolutionStatus) + '>' + T.t('viewer.detail.resolutionField') + '</span><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.enumLabel('resolution', d.resolutionStatus) || d.resolutionStatus) + '</span></div>' : '')
+      + (d.resolutionStatus ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('resolution.' + d.resolutionStatus) + '>' + T.t('viewer.detail.resolutionField') + '</span><span class="chip" style="background:rgba(184,64,90,.12);color:#b8405a">' + CO_ENGRAM.escapeHtml(T.enumLabel('resolution', d.resolutionStatus) || d.resolutionStatus) + '</span></div>' : '')
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + id + '</code></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.sourceToTargetField') + '</span><span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.from) + '">' + CO_ENGRAM.escapeHtml(d.from) + '</span> → <span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.to) + '">' + CO_ENGRAM.escapeHtml(d.to) + '</span></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(d.createdBy || '')
@@ -3205,7 +3205,7 @@ window.CO_ENGRAM_MAINTENANCE = {
 
       // REM 加「梦睡眠」徽章(独特语义,需要明显视觉提示)
       const dreamBadge = stage === 'rem'
-        ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(94,234,212,0.15));color:var(--accent,#5eead4);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
+        ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(93,236,217,0.18));color:var(--accent,#5DECD9);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
         : '';
 
       // 顶部行:图标(带 tip)+ stage 名 + dream 徽章 + 状态徽章 + 时间
@@ -3215,7 +3215,7 @@ window.CO_ENGRAM_MAINTENANCE = {
         + '<span class="stage-icon" title="' + CO_ENGRAM.escapeHtml(stageTipText) + '" style="font-size:1.4rem;cursor:help;line-height:1">' + icon + '</span>'
         + '<div style="flex:1;min-width:0">'
         + '<div><strong>' + CO_ENGRAM.escapeHtml(stageName) + '</strong>' + dreamBadge
-        + ' <span class="maintenance-status status-badge-' + kind + '" title="' + CO_ENGRAM.escapeHtml(statusTipText) + '" style="cursor:help;margin-left:0.4rem;padding:1px 6px;border-radius:8px;font-size:0.72rem;border:1px solid var(--border-strong,rgba(94,234,212,0.22))">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span></div>'
+        + ' <span class="maintenance-status status-badge-' + kind + '" title="' + CO_ENGRAM.escapeHtml(statusTipText) + '" style="cursor:help;margin-left:0.4rem;padding:1px 6px;border-radius:8px;font-size:0.72rem;border:1px solid var(--border-strong,rgba(93,236,217,0.22))">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span></div>'
         + '<div style="font-size:0.78rem;opacity:0.65;line-height:1.35;margin-top:2px">' + CO_ENGRAM.escapeHtml(subtitle) + '</div>'
         + '</div>'
         + '<div class="bar-value" style="white-space:nowrap;text-align:right">' + relTime(lastRunAt) + '</div>'
@@ -3223,7 +3223,7 @@ window.CO_ENGRAM_MAINTENANCE = {
 
       const barHtml = '<div class="bar-track" title="' + CO_ENGRAM.escapeHtml(progressBarTip) + '" style="margin-top:0.45rem;cursor:help"><div class="bar-fill" style="width:' + (elapsed ? pct(elapsed, interval) : 0) + '%"></div></div>';
 
-      return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(94,234,212,0.1));border-radius:8px">'
+      return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(93,236,217,0.1));border-radius:8px">'
         + headerHtml
         + barHtml
         + summaryHtml

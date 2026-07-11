@@ -2,14 +2,14 @@
   <title>co-engram</title>
   <defs>
     <linearGradient id="coengramCurveDark" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#D8DFE6"/>
-      <stop offset="50%" stop-color="#D6D4BC"/>
-      <stop offset="100%" stop-color="#D4A838"/>
+      <stop offset="0%" stop-color="#c0f7ed"/>
+      <stop offset="50%" stop-color="#93f3e7"/>
+      <stop offset="100%" stop-color="#5DECD9"/>
     </linearGradient>
     <linearGradient id="coengramCoreDark" x1="0%" y1="0%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#D8DFE6"/>
-      <stop offset="50%" stop-color="#D6D4BC"/>
-      <stop offset="100%" stop-color="#D4A838"/>
+      <stop offset="0%" stop-color="#c0f7ed"/>
+      <stop offset="50%" stop-color="#93f3e7"/>
+      <stop offset="100%" stop-color="#5DECD9"/>
     </linearGradient>
   </defs>
   <path d="M 85 200 C 95 135, 160 135, 200 200 C 240 265, 305 265, 315 200 C 305 135, 240 135, 200 200 C 160 265, 95 265, 85 200 Z"
@@ -17,7 +17,7 @@
         stroke="url(#coengramCurveDark)"
         stroke-width="7.5"
         stroke-linecap="round"/>
-  <circle cx="85" cy="200" r="16" fill="#D8DFE6"/>
+  <circle cx="85" cy="200" r="16" fill="#c0c8d4"/>
   <circle cx="200" cy="200" r="16" fill="url(#coengramCoreDark)"/>
-  <circle cx="315" cy="200" r="16" fill="#D4A838"/>
+  <circle cx="315" cy="200" r="16" fill="#93f3e7"/>
 </svg>

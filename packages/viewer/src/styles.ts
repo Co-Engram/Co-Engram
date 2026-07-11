@@ -185,15 +185,15 @@ header.app-header h1 {
   display: block;
   animation: brand-breathe 4s ease-in-out infinite;
 }
-/* 呼吸灯效果:opacity + 金色 drop-shadow 同步脉动,模拟"记忆印迹在呼吸" */
+/* 呼吸灯效果:opacity + 神经青 drop-shadow 同步脉动,模拟"记忆印迹在呼吸" */
 @keyframes brand-breathe {
   0%, 100% {
     opacity: 0.82;
-    filter: drop-shadow(0 0 3px rgba(184, 148, 29, 0.25)) drop-shadow(0 0 6px rgba(190, 199, 210, 0.15));
+    filter: drop-shadow(0 0 3px rgba(93, 236, 217, 0.25)) drop-shadow(0 0 6px rgba(147, 243, 231, 0.15));
   }
   50% {
     opacity: 1;
-    filter: drop-shadow(0 0 8px rgba(184, 148, 29, 0.55)) drop-shadow(0 0 16px rgba(212, 168, 56, 0.4));
+    filter: drop-shadow(0 0 8px rgba(93, 236, 217, 0.55)) drop-shadow(0 0 16px rgba(93, 236, 217, 0.4));
   }
 }
 @media (prefers-reduced-motion: reduce) {
