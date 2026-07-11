@@ -10,6 +10,7 @@ import {
 
 // visibilityRisk section 是常驻段(基线 +11 行:空行 + 标题 + 空 + guidance + 空
 // + 5 个列表项 + 空 + template + 空 + principle),所有"基础行数"断言都 +11。
+// exclusivity section 也是常驻段(基线 +2 行:title + rule),所有"基础行数"断言再 +2。
 
 // ============================================================
 // helpers
@@ -54,7 +55,7 @@ describe("buildCoEngramMemoryPrompt / 基础行为", () => {
       availableTools: makeTools(["engram_search"]),
       language: "en",
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 
   it("engram_get 单独注册也触发注入", () => {
@@ -62,20 +63,20 @@ describe("buildCoEngramMemoryPrompt / 基础行为", () => {
       availableTools: makeTools(["engram_get"]),
       language: "en",
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 });
 
 describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", () => {
-  it("英文基础段含 15 行(4 基础 + 11 visibilityRisk)", () => {
+  it("英文基础段含 17 行(4 基础 + 11 visibilityRisk + 2 exclusivity)", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       language: "en",
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 
-  it("中文基础段同样 15 行,但内容不同", () => {
+  it("中文基础段同样 17 行,但内容不同", () => {
     const enLines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       language: "en",
@@ -84,7 +85,7 @@ describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", ()
       availableTools: makeTools(["memory_search"]),
       language: "zh",
     });
-    expect(zhLines.length).toBe(15);
+    expect(zhLines.length).toBe(17);
     expect(enLines).not.toEqual(zhLines);
   });
 
@@ -98,6 +99,22 @@ describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", ()
     });
     expect(zhImplicit).toEqual(zhExplicit);
   });
+
+  it("exclusivity section 常驻注入(声明唯一记忆入口,zh/en 都有)", () => {
+    const en = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "en",
+    });
+    const zh = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    });
+    expect(en.some((l) => l.includes("Exclusive memory store"))).toBe(true);
+    expect(en.some((l) => l.includes("memory write path"))).toBe(true);
+    expect(zh.some((l) => l.includes("唯一记忆系统"))).toBe(true);
+    expect(zh.some((l) => l.includes("唯一"))).toBe(true);
+    expect(zh.some((l) => l.includes("engram_create"))).toBe(true);
+  });
 });
 
 // ============================================================
@@ -105,7 +122,7 @@ describe("buildCoEngramMemoryPrompt / 基础 section(无 signals/proposals)", ()
 // ============================================================
 
 describe("buildCoEngramMemoryPrompt / signals 注入", () => {
-  it("空 signals(全空数组)只输出基础 15 行", () => {
+  it("空 signals(全空数组)只输出基础 17 行", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({
@@ -114,7 +131,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
         missedTopics: [],
       }),
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 
   it("topTags 非空时增加 1 行(frequent_topics)", () => {
@@ -122,7 +139,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ topTags: ["api", "design"] }),
     });
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
     expect(lines.some((l) => l.includes("api") && l.includes("design"))).toBe(
       true,
     );
@@ -133,7 +150,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ lowConfidenceTopics: ["risky-topic"] }),
     });
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
     expect(lines.some((l) => l.includes("risky-topic"))).toBe(true);
   });
 
@@ -142,7 +159,7 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
       availableTools: makeTools(["memory_search"]),
       signals: makeSnapshot({ missedTopics: ["missed-one"] }),
     });
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
     expect(lines.some((l) => l.includes("missed-one"))).toBe(true);
   });
 
@@ -155,14 +172,14 @@ describe("buildCoEngramMemoryPrompt / signals 注入", () => {
         missedTopics: ["c"],
       }),
     });
-    expect(lines.length).toBe(18);
+    expect(lines.length).toBe(20);
   });
 
   it("signals=undefined 跳过 signals section", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 });
 
@@ -176,7 +193,7 @@ describe("buildCoEngramMemoryPrompt / proposal 提醒", () => {
       availableTools: makeTools(["memory_search"]),
       proposalCount: 0,
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 
   it("proposalCount>0 注入提醒", () => {
@@ -184,14 +201,14 @@ describe("buildCoEngramMemoryPrompt / proposal 提醒", () => {
       availableTools: makeTools(["memory_search"]),
       proposalCount: 3,
     });
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
   });
 
   it("未传 proposalCount 默认 0", () => {
     const lines = buildCoEngramMemoryPrompt({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 });
 
@@ -208,7 +225,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
     const lines = builder({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
     expect(lines.some((l) => l.includes("调试"))).toBe(true);
   });
 
@@ -225,7 +242,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
       availableTools: makeTools(["memory_search"]),
     });
     expect(callCount).toBe(1);
-    expect(lines.length).toBe(16);
+    expect(lines.length).toBe(18);
   });
 
   it("proposalCountProvider 返回 0 不注入", () => {
@@ -236,7 +253,7 @@ describe("createPromptBuilder / 工厂闭包", () => {
     const lines = builder({
       availableTools: makeTools(["memory_search"]),
     });
-    expect(lines.length).toBe(15);
+    expect(lines.length).toBe(17);
   });
 
   it("工具未注册时 builder 返回空,即使 signals 非空", () => {

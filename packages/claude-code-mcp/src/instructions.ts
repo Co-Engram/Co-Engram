@@ -88,7 +88,7 @@ export function buildServerInstructions(
 function buildEn(profile: ToolProfile): string {
   const profileNote = {
     minimal:
-      `Minimal profile: ${PROFILE_TOOL_SETS.minimal.size} tools exposed — engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal / engram_sync. Proposal triage is included so the maintenance engine never produces "visible but unactionable" candidates. Self-healing (\`engram_doctor\`), progressive disclosure (\`engram_list_paths\`), and loop-closing tools are NOT exposed — switch to standard or full profile to enable them.`,
+      `Minimal profile: ${PROFILE_TOOL_SETS.minimal.size} tools exposed — core (engram_search / engram_create / engram_get) + update / synapse / reinforce / list / proposal triage / sync. Self-healing (\`engram_doctor\`) and progressive disclosure (\`engram_list_paths\`) NOT exposed — switch to standard or full profile to enable them.`,
     standard:
       `Standard profile: ${PROFILE_TOOL_SETS.standard.size} tools for read, write, learning loop, proposal triage, self-healing (\`engram_doctor\`), progressive disclosure (\`engram_list_paths\`), and LLM synthesis (\`engram_synthesize\`). Use \`engram_list_proposals\` periodically to review pending captures.`,
     full: `Full profile: all ${PROFILE_TOOL_SETS.full.size} tools visible, including internal/admin tools, experimental self-healing/path-tree tools, and LLM synthesis. Use only if you understand the maintenance/verification internals.`,
@@ -119,6 +119,10 @@ Call \`engram_create\` when the user:
 
 Do NOT capture trivial, throwaway, or already-documented information.
 
+## Memory write path
+
+co-engram is the **single** memory write path this session. Do NOT write \`~/.claude/projects/<cwd>/memory/*.md\` (Claude Code auto-memory) — it gets mirrored as pending proposals with visibility lost. Call \`engram_create\` directly.
+
 ## Learning loop
 
 ${learningLoop}
@@ -133,7 +137,7 @@ ${profileNote}`;
 function buildZh(profile: ToolProfile): string {
   const profileNote = {
     minimal:
-      `当前为 minimal profile:暴露 ${PROFILE_TOOL_SETS.minimal.size} 个工具 —— engram_search / engram_get / engram_create / engram_update / engram_list / synapse_create / engram_reinforce / engram_report_failure / engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal / engram_sync。proposal 处理三件套包含在内,保证维护引擎产生的待审核候选始终能闭环。自愈扫描(\`engram_doctor\`)、渐进式披露(\`engram_list_paths\`)、闭环工具等未暴露,需要切换到 standard 或 full profile 后启用。`,
+      `当前为 minimal profile:暴露 ${PROFILE_TOOL_SETS.minimal.size} 个工具,核心为 engram_search / engram_create / engram_get,另含 update / synapse / reinforce / list / proposal 审批 / sync。自愈扫描(\`engram_doctor\`)与渐进式披露(\`engram_list_paths\`)未暴露,需切换到 standard 或 full profile 启用。`,
     standard:
       `当前为 standard profile:${PROFILE_TOOL_SETS.standard.size} 个工具,涵盖读写、学习回路、候选审批,自愈扫描(\`engram_doctor\`)、渐进式披露(\`engram_list_paths\`),以及 LLM 综合(\`engram_synthesize\`)。可定期调用 \`engram_list_proposals\` 审核待处理记忆。`,
     full: `当前为 full profile:暴露全部 ${PROFILE_TOOL_SETS.full.size} 个工具(含内部/管理工具 + 实验性自愈/路径树工具 + LLM 综合)。仅在了解维护/验证机制时使用。`,
@@ -163,6 +167,10 @@ function buildZh(profile: ToolProfile): string {
 - 分享 bug 教训("这个失败因为 Z")
 
 不要捕获琐碎、一次性或已文档化的信息。
+
+## 记忆写入路径
+
+co-engram 是本会话**唯一**记忆写入入口。不要写 \`~/.claude/projects/<cwd>/memory/*.md\`(Claude Code auto-memory)——它会被镜像为待审批 proposal,visibility 归属丢失。直接调 \`engram_create\`。
 
 ## 学习回路
 

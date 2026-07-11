@@ -63,6 +63,25 @@ function buildVisibilityRiskSection(language: Language): readonly string[] {
 }
 
 /**
+ * 构建"唯一记忆系统"声明 section(常驻,Task:机制层强制 LLM 走 engram_create)
+ *
+ * 声明 co-engram 是本会话唯一的持久化记忆写入入口,引导 LLM 不要写
+ * Claude Code auto-memory(`~/.claude/projects/<cwd>/memory/*.md`),直接调
+ * engram_create。
+ *
+ * 紧凑注入:仅 title + rule 两行,无起始空行分隔。visibility judgment
+ * 由工具自身 description + visibilityRisk section 处理,此处不重复。
+ *
+ * 行数契约由 prompt-builder.test.ts 固化(base N + 11 visibilityRisk + 2 exclusivity)。
+ */
+function buildExclusivitySection(language: Language): readonly string[] {
+  return [
+    translatePrompt(language, "prompt.exclusivity.title"),
+    translatePrompt(language, "prompt.exclusivity.rule"),
+  ];
+}
+
+/**
  * 构建基础 memory section(常驻部分)
  *
  * 包含:
@@ -191,6 +210,7 @@ export function buildCoEngramMemoryPrompt(
   const sections: readonly (readonly string[])[] = [
     buildBaseSection(language, input.availableTools, input.pathOverview),
     buildVisibilityRiskSection(language),
+    buildExclusivitySection(language),
     buildSignalsSection(input.signals, language),
     buildProposalSection(input.proposalCount ?? 0, language),
   ];

@@ -155,7 +155,7 @@ Claude Code surfaces this in the session banner. The LLM can then triage with th
 
 ### Auto-Memory Sync (Claude Code → Co-Engram Proposals)
 
-Claude Code maintains its own auto-memory under `~/.claude/projects/<encoded-cwd>/memory/*.md` (typed: `user` / `feedback` / `project` / `reference` / `pattern`). Co-Engram watches this directory and **mirrors every memory into the team repo as a pending proposal** — not directly as an engram. The user (or LLM) then triages via `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`, exactly the same path as conversation-cluster proposals. This keeps auto-memory subject to the same review gate as every other capture path.
+Claude Code maintains its own auto-memory under `~/.claude/projects/<encoded-cwd>/memory/*.md` (typed: `user` / `feedback` / `project` / `reference` / `pattern`). Once co-engram is loaded, the LLM-facing prompts (`## Exclusive memory store` in system instructions + the `engram_create` description) **direct agents to call `engram_create` directly** — auto-memory is a fallback for agents that don't adopt co-engram's native tools. Whatever the capture entry point, co-engram watches the directory and **mirrors every file into the team repo as a pending proposal** — not directly as an engram. The user (or LLM) then triages via `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal`, exactly the same path as conversation-cluster proposals. This keeps auto-memory subject to the same review gate as every other capture path.
 
 **On by default** (low-friction). Disable with:
 

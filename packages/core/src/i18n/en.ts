@@ -124,7 +124,9 @@ WHEN TO CALL: durable preference, design decision with rationale, bug lesson, or
 
 WHEN NOT TO CALL: trivial info / already in CLAUDE.md / just asking (use engram_search).
 
-⚠️ visibility='private' for credentials/paths/device-specific info (gitignored under private/). Do NOT write to ~/.claude/projects/.../memory/ — AutoMemorySyncEngine mirrors as pending proposals (visibility lost).
+⚠️ visibility='private' for credentials/paths/device-specific info (gitignored under private/).
+
+⚠️ This tool is the **single** durable memory write path this session. Do NOT write ~/.claude/projects/<cwd>/memory/*.md — AutoMemorySyncEngine mirrors it as pending proposals with visibility lost. All memories go through this tool.
 
 RETURNS: engram ID + version. Duplicates auto-detected.`,
   "tool.engram_update.agent": `Update an existing memory when its content needs refinement (not contradiction).
@@ -757,6 +759,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Template: \"This memory contains [category] (example: ...). Suggest setting visibility: private (local-only, not in team repo). Approve?\"",
   "prompt.visibilityRisk.principle":
     "**Better to over-ask than under-detect**. When uncertain, default to asking. One redundant ask costs far less than one credential leak.",
+
+  // ===== Prompt · Exclusive memory store (Task: mechanism-layer enforcement of engram_create) =====
+  "prompt.exclusivity.title": "## Exclusive memory store",
+  "prompt.exclusivity.rule":
+    "co-engram is the **single** memory write path this session. Do NOT write ~/.claude/projects/<cwd>/memory/*.md (Claude Code auto-memory) — it gets mirrored as pending proposals with visibility lost. Call engram_create directly.",
 
   // ===== Viewer UI strings =====
   "viewer.title": "Co-Engram",

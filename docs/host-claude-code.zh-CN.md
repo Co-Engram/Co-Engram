@@ -155,7 +155,7 @@ Claude Code 会在会话 banner 中显示此消息。随后 LLM 可借助三个�
 
 ### Auto-Memory 同步(Claude Code → Co-Engram Proposal)
 
-Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护它自己的 auto-memory(类型:`user` / `feedback` / `project` / `reference` / `pattern`)。Co-Engram 会监听这个目录,**把每条记忆镜像成团队仓库里的待审批 proposal(候选)** —— 而不是直接生成 engram。用户(或 LLM)随后通过 `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal` 分诊,与对话聚类 proposal 走的是同一条审批路径。这样 auto-memory 与其他捕获入口一视同仁,必须经过审批才能入库。
+Claude Code 在 `~/.claude/projects/<encoded-cwd>/memory/*.md` 下维护它自己的 auto-memory(类型:`user` / `feedback` / `project` / `reference` / `pattern`)。加载 co-engram 后,LLM 系统提示(`## 唯一记忆系统` 章节)+ `engram_create` 工具说明**引导 agent 直接调 `engram_create`** —— auto-memory 作为未接入 co-engram 原生工具的 agent 的兜底入口。无论从哪个入口写入,co-engram 都会监听该目录,**把每个文件镜像成团队仓库里的待审批 proposal(候选)** —— 而不是直接生成 engram。用户(或 LLM)随后通过 `engram_list_proposals` / `engram_accept_proposal` / `engram_dismiss_proposal` 分诊,与对话聚类 proposal 走的是同一条审批路径。这样 auto-memory 与其他捕获入口一视同仁,必须经过审批才能入库。
 
 **默认开启**(开箱即用)。关闭方式:
 

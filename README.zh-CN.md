@@ -787,7 +787,7 @@ viewer 自 2026-07 起使用统一默认端口(`18899`),两宿主共用。早先
 | `CO_ENGRAM_DAEMON`                        | `1`                 | 单守护进程模式:每个 Claude Code 会话连接到一个共享的常驻守护进程(所有会话共用一份 `ToolContext`)。设为 `0` 退回每会话一进程模式。 |
 | `CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS`        | `1800000`(30 分钟) | 守护进程在所有客户端断开后,空闲超过该时长自动退出                                                                       |
 | `CO_ENGRAM_DAEMON_SOCKET_DIR`             | `<tmpdir>/co-engram`| 守护进程 unix socket 文件目录(覆盖默认)                                                                                |
-| `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                 | 仅 Claude Code。设为 `0` 关闭监听器 —— 该监听器把 `~/.claude/projects/*/memory/*.md` 镜像成 **待审批 proposal**(需 accept 才成为 engram;详见 [host-claude-code.md](./docs/host-claude-code.zh-CN.md#auto-memory-同步claude-code--co-engram-proposal)) |
+| `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                 | 仅 Claude Code。设为 `0` 关闭监听器 —— 该监听器把 `~/.claude/projects/*/memory/*.md` 镜像成 **待审批 proposal**(需 accept 才成为 engram;详见 [host-claude-code.md](./docs/host-claude-code.zh-CN.md#auto-memory-同步claude-code--co-engram-proposal))。co-engram 提示词仍会引导 LLM agent 直接调 `engram_create` —— auto-memory 作为未接入 co-engram 原生工具的 agent 的兜底入口。 |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | 覆盖 auto-memory 项目根目录(仅 Claude Code)                                                                              |
 | `CO_ENGRAM_SEARCH_ENGINE`                 | `sqlite`            | 搜索后端。`sqlite` = 派生 SQLite 索引,FTS5 trigram 分词 + LIKE 回退(默认;支持 5k+ engram 规模;需 Node 22.17+——旧 Node 或文件系统错误时自动回退到 `memory`)。`memory` = 进程内 FTS(基于 digest 行,engram 数超过 ~1k 性能下降;适用于受限环境 / 只读 fs / 嵌入式部署的显式 opt-out)。未知值回退到 `sqlite`(fail-safe 走向更强引擎)。详见 [architecture.md](./docs/architecture.zh-CN.md#搜索引擎)。 |
 

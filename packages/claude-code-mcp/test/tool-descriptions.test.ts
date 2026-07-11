@@ -196,4 +196,12 @@ describe("resolveLlmDescription", () => {
     expect(en).not.toBe(zh);
     expect(zh).toContain("何时调用");
   });
+
+  it("engram_create 声明唯一记忆入口(zh 含 '唯一',en 含 'memory write path')", () => {
+    const t = makeTool("engram_create", "fallback");
+    const en = resolveLlmDescription(t, "en");
+    const zh = resolveLlmDescription(t, "zh");
+    expect(en.toLowerCase()).toContain("memory write path");
+    expect(zh).toContain("唯一");
+  });
 });

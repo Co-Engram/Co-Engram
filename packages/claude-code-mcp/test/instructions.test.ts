@@ -67,26 +67,25 @@ describe("buildServerInstructions", () => {
     expect(zh).toContain("engram_report_failure");
   });
 
-  it("minimal profile 文本列出全部 11 个工具(避免误导 agent 调用未暴露的工具)", () => {
+  it("minimal profile 文本列出核心工具作锚点(避免误导 agent 调用未暴露的工具)", () => {
     const en = buildServerInstructions("en", "minimal");
     const zh = buildServerInstructions("zh", "minimal");
-    // PROFILE_TOOL_SETS.minimal 的 11 个工具都必须出现在说明里
-    for (const name of [
-      "engram_search",
-      "engram_get",
-      "engram_create",
-      "engram_update",
-      "engram_list",
-      "synapse_create",
-      "engram_reinforce",
-      "engram_report_failure",
-      "engram_list_proposals",
-      "engram_accept_proposal",
-      "engram_dismiss_proposal",
-    ]) {
+    // PROFILE_TOOL_SETS.minimal 的核心 3 个工具作为锚点出现,其余工具名可省略
+    // (完整枚举会让 instructions 超 2KB;精简版本节省字节,工具列表以 tools/list 为准)
+    for (const name of ["engram_search", "engram_create", "engram_get"]) {
       expect(en, `EN missing ${name}`).toContain(name);
       expect(zh, `ZH missing ${name}`).toContain(name);
     }
+  });
+
+  it("提及唯一记忆系统机制(强制 LLM 走 engram_create,不写 auto-memory)", () => {
+    const en = buildServerInstructions("en", "standard");
+    const zh = buildServerInstructions("zh", "standard");
+    expect(en).toContain("Memory write path");
+    expect(en).toContain("engram_create");
+    expect(zh).toContain("记忆写入路径");
+    expect(zh).toContain("唯一");
+    expect(zh).toContain("engram_create");
   });
 
   it("minimal profile body 不直接指挥 agent 调用 close_learning_loop(该工具未暴露)", () => {

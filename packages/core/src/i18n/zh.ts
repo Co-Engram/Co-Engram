@@ -126,7 +126,7 @@ export const zh = {
 
 ⚠️ visibility='private' 用于个人凭据/路径/设备特定信息(ADB 序列号、token、本机偏好),落 private/ 子目录被 .gitignore 隔离。
 
-⚠️ 不要写到 ~/.claude/projects/.../memory/ —— AutoMemorySyncEngine 会镜像为待审批 proposal(visibility 归属丢失),请直接用本工具。
+⚠️ 本工具是本会话**唯一**的持久化记忆写入路径。不要写 ~/.claude/projects/<cwd>/memory/*.md —— AutoMemorySyncEngine 会把它镜像为待审批 proposal(visibility 归属丢失)。所有记忆都通过本工具入库。
 
 返回:engram ID + 版本号,自动检测重复。`,
   "tool.engram_update.agent": `当已有记忆的内容需要细化(不是矛盾)时更新。
@@ -756,6 +756,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "询问模板:\"这条记忆含 [类别](示例:...)。建议设为 private(仅本地,不入团队仓库)。是否?\"",
   "prompt.visibilityRisk.principle":
     "**宁可多问,不可漏检**。不确定时默认询问。一次多余的询问代价远低于一次凭据泄漏。",
+
+  // ===== Prompt · 唯一记忆系统(Task:机制层强制 LLM 走 engram_create) =====
+  "prompt.exclusivity.title": "## 唯一记忆系统",
+  "prompt.exclusivity.rule":
+    "co-engram 是本会话**唯一**记忆写入入口。不要写 ~/.claude/projects/<cwd>/memory/*.md(Claude Code auto-memory)——它会被镜像为待审批 proposal,visibility 归属丢失。直接调 engram_create。",
 
   // ===== 查看器 UI =====
   "viewer.title": "Co-Engram",
