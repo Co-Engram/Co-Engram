@@ -17,15 +17,20 @@
  * 解决长期运行后 graph.json 反映历史峰值、SQLite synapse 表 = 0 行、
  * 磁盘只剩 15 个 synapse 文件 这类三源脱钩。
  *
+ * 2026-07 二次升级(index-no-truth 修复):count match 但内容 drift
+ * (createdBy / weight / kind 等字段级变化)检测不到。改为 **总是重建**:
+ * 只要 doctor 被触发,就重建 graph.json + SQLite synapse 表。
+ * cost 可接受(graph 重建 ~60ms / 1000 synapse,doctor 不频繁)。
+ *
  * 设计:
  *   - 纯函数,不持有状态;接受 repo + dataRoot
  *   - 失败不抛错(返回空 fixes),让上层 doctor 主流程继续
- *   - 幂等(无问题时连跑两次,第二次不重建)
+ *   - 幂等(连跑两次,第二次产生相同 graph.json + SQLite 行)
  *
  * @module @co-engram/core/storage
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { resolveMergeDriverBundle } from "../merge/auto-onboard.js";
@@ -45,9 +50,8 @@ export interface InfraDoctorResult {
  *
  * 检查范围:
  *   1. 派生索引(digest.jsonl / graph.json / SQLite synapse 表):
- *      - 文件缺失 → 全量重建
- *      - 文件存在但 graph.json edges 数 ≠ 磁盘 synapse 数(stale)→ 全量重建
- *      - 文件存在且一致 → 保持幂等,不重建
+ *      - digest.jsonl 缺失 → 全量重建
+ *      - graph.json 缺失或存在 → 总是重建(覆盖字段级 drift,详见上文注释)
  *   2. merge driver 未配置(且 dataRoot 在 git repo 内)→ autoOnboardMergeDriver
  *
  * 不检查(留给 runDoctor 或人工):
@@ -63,13 +67,18 @@ export function runInfraDoctor(params: {
   const fixes: DoctorIssue[] = [];
   const cachePath = defaultCachePath(dataRoot);
 
-  // 1. 派生索引:文件缺失或 stale graph → 全量重建。
+  // 1. 派生索引:digest 缺失或 graph 任意状态 → 全量重建。
+  //   - digest 缺失:增量逻辑无法启动,必须 fullRebuild
+  //   - graph 缺失:必须 rebuild
+  //   - graph 存在:总是 rebuild 覆盖字段级 drift(index-no-truth 修复)
+  // 性能:fullRebuild 含 digest + graph + SQLite synapse 三层,~200ms/1000 engram。
   const digestPath = join(cachePath, "digest.jsonl");
   const graphPath = join(cachePath, "graph.json");
   const digestMissing = !existsSync(digestPath);
   const graphMissing = !existsSync(graphPath);
-  const staleGraph = !graphMissing && isGraphStale(repo, graphPath);
-  if (digestMissing || graphMissing || staleGraph) {
+  // graph.json 存在时也总是重建(覆盖 count 一致但字段 drift 的场景)
+  const graphNeedsRebuild = true;
+  if (digestMissing || graphMissing || graphNeedsRebuild) {
     try {
       const orchestrator = new IndexOrchestrator(repo, cachePath);
       const result = orchestrator.fullRebuild();
@@ -79,10 +88,9 @@ export function runInfraDoctor(params: {
       }
       if (graphMissing) {
         parts.push(`graph.json (${result.graph.nodes} nodes, ${result.graph.edges} edges)`);
-      }
-      if (staleGraph) {
+      } else {
         parts.push(
-          `stale graph.json rebuilt (${result.graph.nodes} nodes / ${result.graph.edges} edges)`,
+          `graph.json resynced (${result.graph.nodes} nodes / ${result.graph.edges} edges, index-no-truth 防护)`,
         );
       }
       if (result.synapses) {
@@ -124,26 +132,4 @@ export function runInfraDoctor(params: {
   }
 
   return { fixes };
-}
-
-/**
- * 检测 graph.json 是否与磁盘 synapse 真相脱钩。
- *
- * 判定:graph.json 中 edges 数 ≠ collectAllSynapses 扫盘数 → stale。
- * 长期运行后,DELETE/cascade 路径边界可能让 graph.json 反映历史峰值
- * (例:edges=1827),而磁盘实际只剩少数 synapse 文件(例:15)。
- * 读 graph.json 的 cost 是一次 JSON.parse(~50ms),collectAllSynapses 走
- * 进程内 cache(扫盘只发生一次),整体廉价。
- */
-function isGraphStale(repo: EngramRepository, graphPath: string): boolean {
-  try {
-    const raw = readFileSync(graphPath, "utf8");
-    const graph = JSON.parse(raw) as { edges?: unknown[] };
-    const graphEdgeCount = Array.isArray(graph.edges) ? graph.edges.length : 0;
-    const diskSynapseCount = repo.collectAllSynapses().length;
-    return graphEdgeCount !== diskSynapseCount;
-  } catch {
-    // graph.json 损坏或不可读 → 视为 stale,让上层触发重建
-    return true;
-  }
 }

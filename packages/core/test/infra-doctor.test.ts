@@ -85,7 +85,7 @@ describe("runInfraDoctor / 派生索引缺失", () => {
     expect(result.fixes[0]!.message).toContain("graph.json");
   });
 
-  it("派生索引都已存在 → 无 index_rebuilt fix", async () => {
+  it("派生索引都已存在 → 仍重建 graph.json(2026-07 index-no-truth 防护:覆盖字段级 drift)", async () => {
     await initWarehouse(tmpDir);
     const repo = new EngramRepository({ rootPath: tmpDir });
     writeFileSync(join(tmpDir, ".co-engram", "digest.jsonl"), "");
@@ -93,8 +93,12 @@ describe("runInfraDoctor / 派生索引缺失", () => {
 
     const result = runInfraDoctor({ repo, dataRoot: tmpDir });
 
+    // 2026-07 index-no-truth 修复:graph.json 即使存在也总是重建,
+    // 防止「edge count 一致但 createdBy / weight 等字段 drift」长期累积。
+    // digest.jsonl 已存在则不重建(增量,不强制)。
     const indexFix = result.fixes.find((f) => f.kind === "index_rebuilt");
-    expect(indexFix).toBeUndefined();
+    expect(indexFix).toBeDefined();
+    expect(indexFix!.message).toContain("resynced");
   });
 });
 
@@ -127,7 +131,7 @@ describe("runInfraDoctor / merge driver 安装", () => {
 });
 
 describe("runInfraDoctor / 幂等性", () => {
-  it("连跑两次:第二次无 index_rebuilt fix(索引已存在)", async () => {
+  it("连跑两次:第二次仍重建 graph.json(2026-07 index-no-truth:总是重建覆盖字段 drift)", async () => {
     await initWarehouse(tmpDir);
     const repo = new EngramRepository({ rootPath: tmpDir });
     repo.createEngram({
@@ -141,7 +145,12 @@ describe("runInfraDoctor / 幂等性", () => {
     const first = runInfraDoctor({ repo, dataRoot: tmpDir });
     expect(first.fixes.some((f) => f.kind === "index_rebuilt")).toBe(true);
 
+    // 2026-07 index-no-truth 修复:graph.json 总是重建(不依赖 isGraphStale count check)。
+    // 第二次跑仍会触发 index_rebuilt,但 message 含 "resynced" 标识非首次构建。
+    // 性能保证:每次重建 ~60ms / 1000 synapse,doctor 不频繁,可接受。
     const second = runInfraDoctor({ repo, dataRoot: tmpDir });
-    expect(second.fixes.some((f) => f.kind === "index_rebuilt")).toBe(false);
+    expect(second.fixes.some((f) => f.kind === "index_rebuilt")).toBe(true);
+    const secondFix = second.fixes.find((f) => f.kind === "index_rebuilt");
+    expect(secondFix!.message).toContain("resynced");
   });
 });

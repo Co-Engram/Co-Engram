@@ -253,6 +253,19 @@ export class EngramRepository {
   private readonly invalidateListeners: Array<() => void> = [];
 
   /**
+   * Synapse 变更 listeners — 在 .yaml 文件被外部修改(git pull / Edit / cp 等)
+   * 触发 dataWatcher 时调用。
+   *
+   * 主要用途:让 host adapter(mcp / plugin)在 .yaml 变化时重建 graph.json +
+   * SQLite synapse 表(派生层与真理层重新对齐)。
+   *
+   * 设计动机:index-no-truth 架构缺陷修复 —— 原本 .yaml watcher 只清 synapseCache,
+   * 不重建 graph.json / SQLite synapse 表,导致 viewer 贡献者排名(读 graph.json
+   * edges[].createdBy)长期陈旧。
+   */
+  private readonly synapseChangeListeners: Array<() => void> = [];
+
+  /**
    * fs.watch 句柄(可选)。启动后,外部进程修改 engram-index.json
    * 会立即触发缓存失效,无需等下次 getIndex 的 mtime 兜底检查。
    */
@@ -275,6 +288,12 @@ export class EngramRepository {
 
   /** dataWatcher debounce 定时器。git pull 一次性触发大量事件,合并为一次扫描。 */
   private dataRebuildTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /**
+   * .yaml watcher debounce 定时器。synapse 文件批量变化时合并为一次重建通知,
+   * 让 host adapter 一次性重建 graph.json + SQLite synapse 表,避免逐文件扫盘。
+   */
+  private synapseRebuildTimer: ReturnType<typeof setTimeout> | undefined;
 
   /**
    * 外部 .md 检测钩子(由 host 适配层设置)。
@@ -614,8 +633,11 @@ export class EngramRepository {
           // filename 跨平台可能为 null,不可靠时宁可多触发一次扫描也不要漏事件。
           if (typeof filename === "string") {
             if (filename.endsWith(".yaml") || filename.endsWith(".yml")) {
-              // synapse 文件变化 → 失效 synapseCache(可能是另一进程写入)
+              // synapse 文件变化 → 失效 synapseCache + debounce 通知 host
+              // adapter 重建 graph.json / SQLite synapse 表(派生层与真理层对齐)。
+              // 历史盲区:原版只清 cache,graph.json 长期陈旧 → viewer 贡献者排名错。
               this.invalidateSynapseCache();
+              this.scheduleSynapseRebuild();
               return;
             }
             if (!filename.endsWith(".md")) return;
@@ -653,12 +675,42 @@ export class EngramRepository {
       } catch {
         // 扫描失败不能阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
       }
+      // 修改方向:已 tracked 的 .md 被外部编辑(Edit / git pull / IDE 写入),
+      // mtime 变但文件仍在 index 中 → 重读 frontmatter 同步到 SQLite 派生层。
+      // 解决 index-no-truth:外部编辑不经过 mutateFrontmatter,SQLite 字段
+      // (createdBy / importance 等)长期陈旧 → viewer 贡献者排名错。
+      try {
+        this.scanForModifiedEngrams();
+      } catch {
+        // 同上
+      }
       // 新增方向:检测「.md 存在但 index 无」的新文件,通知 host 走提案审批。
       // 依赖 externalMarkdownHook:无 hook 时 noop。
       try {
         this.scanForExternalMarkdown();
       } catch {
         // 同上
+      }
+    }, 2000);
+  }
+
+  /**
+   * Debounce synapse 派生层重建通知。
+   *
+   * .yaml 文件批量变化(git pull / rsync)合并为一次 listener 调用,
+   * 让 host adapter 一次性重建 graph.json + SQLite synapse 表,避免逐文件
+   * 全量扫盘。listener 自身负责幂等(运行中触发的新事件不会重复重建)。
+   */
+  private scheduleSynapseRebuild(): void {
+    if (this.synapseRebuildTimer) clearTimeout(this.synapseRebuildTimer);
+    this.synapseRebuildTimer = setTimeout(() => {
+      this.synapseRebuildTimer = undefined;
+      for (const cb of this.synapseChangeListeners) {
+        try {
+          cb();
+        } catch {
+          // listener 内部异常不影响其他 listener 与 repository 主流程
+        }
       }
     }, 2000);
   }
@@ -784,6 +836,65 @@ export class EngramRepository {
     }
   }
 
+  /**
+   * 扫描 engram-index.json 中所有 entry,检测「文件 mtime 比 index entry 新」
+   * 的已 tracked engram → 重读 frontmatter + syncEngramToIndex 把派生层
+   * (SQLite engrams 表)字段(createdBy / importance / status 等)同步到最新。
+   *
+   * 触发场景:用户 / 外部进程通过 Edit / IDE / sed 等绕过 mutateFrontmatter
+   * 直接改 .md frontmatter 字段(典型:改 `创建者` / `重要性` 等)。dataWatcher
+   * 监听到 .md 变化后由 scheduleDataScan 触发本方法。
+   *
+   * 与 scanForDeletedEngrams / scanForExternalMarkdown 的对称关系:
+   *   - scanForDeletedEngrams:删除方向(index 有,.md 不存在)
+   *   - scanForExternalMarkdown:新增方向(.md 存在,index 无,走 hook 审批)
+   *   - scanForModifiedEngrams:**修改方向**(index 有,.md 也有但 mtime 更新)
+   *     → 直接同步,不需 hook 审批(文件已 trusted,只是字段刷新)
+   *
+   * 不依赖 externalMarkdownHook:索引一致性是基础保证。无 indexDb 时 noop
+   * (无 SQLite 派生层需要同步,文件本身就是 truth)。
+   *
+   * 性能:O(|index|) statSync 调用,1000 engram ~ 5ms。mtime 未变的跳过
+   * (覆盖 99% false-positive watcher 事件,例如 ls / cat 不改 mtime)。
+   * 失败语义:单条 syncEngramToIndex 异常不阻塞其他 entry,try/catch 静默吞错,
+   * 下次扫描重试。幂等:同一文件多次同步写同样的字段值(SQLite upsert)。
+   *
+   * Bug 历史(2026-07 用户报告):用户用 Edit 工具改 8 个 .md 的 `创建者` 字段
+   * 后,viewer 贡献者排名仍显示旧作者。根因:dataWatcher 收到 .md 事件后,
+   * scanForExternalMarkdown 看到文件已 tracked 直接 noop,SQLite engrams.created_by
+   * 长期陈旧。本方法补齐修改方向的自动同步。
+   */
+  private scanForModifiedEngrams(): void {
+    if (!this.indexDb) return; // 无 SQLite 派生层 → 无需同步,文件即 truth
+    // 直接读 index.json(不调 getIndex —— 同 scanForDeletedEngrams 的考量)
+    let index: EngramIndexMap;
+    try {
+      index = readEngramIndex(this.config.rootPath);
+    } catch {
+      return;
+    }
+    const root = this.config.rootPath;
+    for (const [, entry] of index.entries) {
+      if (!isPathWithinRoot(root, entry.path)) continue;
+      const absPath = safeJoinWithinRoot(root, entry.path);
+      let stat;
+      try {
+        stat = statSync(absPath);
+      } catch {
+        continue; // 文件不存在或不可读 → 留给 scanForDeletedEngrams 处理
+      }
+      // mtime 没变 → 跳过(false-positive watcher 事件 / ls / cat 等)
+      if (stat.mtimeMs === entry.mtime) continue;
+      // mtime 变了 → 重读 frontmatter,触发 SQLite 同步
+      try {
+        const file = readEngramFile(absPath);
+        this.syncEngramToIndex(file.frontmatter, file.content);
+      } catch {
+        // 文件损坏(parse 错)留给 doctor 处理,下次扫描重试
+      }
+    }
+  }
+
   /** 停止 watcher(主要用于测试隔离) */
   stopWatching(): void {
     if (this.indexWatcher) {
@@ -805,6 +916,10 @@ export class EngramRepository {
     if (this.dataRebuildTimer) {
       clearTimeout(this.dataRebuildTimer);
       this.dataRebuildTimer = undefined;
+    }
+    if (this.synapseRebuildTimer) {
+      clearTimeout(this.synapseRebuildTimer);
+      this.synapseRebuildTimer = undefined;
     }
   }
 
@@ -835,6 +950,26 @@ export class EngramRepository {
     return () => {
       const idx = this.invalidateListeners.indexOf(cb);
       if (idx >= 0) this.invalidateListeners.splice(idx, 1);
+    };
+  }
+
+  /**
+   * 注册 synapse 变更 listener — 在 .yaml 文件被外部修改(git pull / Edit 等)
+   * 触发 dataWatcher 后,经 2s debounce 被调用。
+   *
+   * 主要用途:host adapter 在此 listener 中触发 IndexOrchestrator 重建
+   * graph.json + SQLite synapse 表,让派生层与 .yaml 真相层重新对齐。
+   *
+   * 跨进程:plugin 进程改 .yaml → mcp 进程 dataWatcher 触发 → listener
+   * 重建派生层。listener 内部应自行处理跨进程竞态(SQLite WAL 幂等保护)。
+   *
+   * @returns 取消注册函数(用于测试隔离或资源释放)
+   */
+  addSynapseChangeListener(cb: () => void): () => void {
+    this.synapseChangeListeners.push(cb);
+    return () => {
+      const idx = this.synapseChangeListeners.indexOf(cb);
+      if (idx >= 0) this.synapseChangeListeners.splice(idx, 1);
     };
   }
 
@@ -3134,6 +3269,42 @@ export class EngramRepository {
         message: `Obsidian derived wikilinks regenerated (target=filename, display=title·kind)`,
         autoFixed: true,
       });
+    }
+
+    // 6. SQLite engrams 表全量重投(派生层 → 真相层对齐)
+    //
+    // 历史盲区(2026-07 index-no-truth 修复):runDoctor 原本只清理 SQLite ghost
+    // 行(4.6 节),不覆盖「行存在但字段陈旧」场景。典型路径:
+    //   - 用户用 Edit 工具改 .md frontmatter 的 `创建者` / `重要性` 等字段
+    //   - watcher.scanForModifiedEngrams 实时同步(覆盖 90%)
+    //   - 但 watcher 漏事件(NFS / Docker / 进程未启动)时,SQLite 字段长期陈旧
+    //   - viewer /api/stats 贡献者排名、/api/engrams 排序读 SQLite → 错
+    //
+    // 兜底策略:doctor 结尾强制全量重投,确保 SQLite engrams 表所有字段
+    // (createdBy / importance / status / freshness 等)与 frontmatter 一致。
+    // 性能:O(|freshIndex|) readEngramFile + syncEngramToIndex,1000 engram ~ 200ms。
+    // 幂等:upsert 同一字段值,多次跑 doctor 不累积副作用。
+    if (this.indexDb) {
+      let resynced = 0;
+      for (const [id, entry] of freshIndex.entries) {
+        if (!isPathWithinRoot(this.config.rootPath, entry.path)) continue;
+        const absPath = safeJoinWithinRoot(this.config.rootPath, entry.path);
+        try {
+          const file = readEngramFile(absPath);
+          this.syncEngramToIndex(file.frontmatter, file.content);
+          resynced++;
+        } catch {
+          // 单条失败不阻塞,留给下次 doctor
+        }
+      }
+      if (resynced > 0) {
+        fixes.push({
+          kind: "sqlite_resynced",
+          path: this.config.rootPath,
+          message: `SQLite engrams table resynced from frontmatter truth (${resynced} rows updated)`,
+          autoFixed: true,
+        });
+      }
     }
 
     // Task 3.4 Phase B:doctor 完成后 emit(doctor 可能 sweep/forget,engram 集合变化)

@@ -123,6 +123,33 @@ export class IndexOrchestrator {
   }
 
   /**
+   * 只重建 synapse 派生层(graph.json + SQLite synapse 表),不动 digest.jsonl
+   * 也不重投 SQLite engrams 表。
+   *
+   * 使用场景:dataWatcher 收到 .yaml 变化时,host adapter 通过
+   * `repo.addSynapseChangeListener` 注册的回调调用本方法。只重建 synapse
+   * 派生层而非 fullRebuild,因为:
+   *   - digest.jsonl / engrams 表不依赖 .yaml,无需重建
+   *   - 全量 rebuild 走 collectAllSynapses(~50ms/1000 synapse)+ SQL transaction
+   *     (~10ms),相比 fullRebuild(含 digest build,200ms+)快很多
+   *   - 频繁触发不影响 engram 检索性能
+   *
+   * 幂等:同一磁盘状态多次调用产生相同的 graph.json + SQLite 行。
+   * 失败语义:任一步抛错向上传递,host adapter 的 listener 包装 try/catch。
+   */
+  rebuildSynapseLayer(): {
+    graph: { nodes: number; edges: number };
+    synapses?: { inserted: number; skippedDangling: number };
+  } {
+    const graphResult = this.graphBuilder.rebuild();
+    if (this.repo.indexDb) {
+      const synapseResult = this.rebuildSynapseTableFromDisk();
+      return { graph: graphResult, synapses: synapseResult };
+    }
+    return { graph: graphResult };
+  }
+
+  /**
    * 增量更新（不强制全量）
    */
   incrementalUpdate(): IndexBuildResult {

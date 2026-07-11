@@ -36,6 +36,8 @@ import {
   DEFAULT_AUDIT_CONFIG,
   acquireProcessLock,
   verifyDerivedIntegrity,
+  IndexOrchestrator,
+  defaultCachePath,
   type ProcessLock,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -410,6 +412,17 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {
       rebuildSearchIndex(searchOrchestrator, repository);
+    });
+    // .yaml 外部修改(git pull / Edit)→ debounce 重建 graph.json + SQLite synapse 表。
+    // 解决 index-no-truth:原版 .yaml watcher 只清 synapseCache,派生层长期陈旧。
+    ctx.repository.addSynapseChangeListener(() => {
+      try {
+        const cachePath = defaultCachePath(repository.rootPath);
+        const orchestrator = new IndexOrchestrator(repository, cachePath);
+        orchestrator.rebuildSynapseLayer();
+      } catch {
+        // listener 异常不阻塞 repository 主流程;下次 .yaml 变化再次触发
+      }
     });
   };
   if (processLock.isHolder) {

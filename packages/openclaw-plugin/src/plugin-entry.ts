@@ -59,6 +59,8 @@ import {
   DEFAULT_AUDIT_CONFIG,
   acquireProcessLock,
   verifyDerivedIntegrity,
+  IndexOrchestrator,
+  defaultCachePath,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -585,6 +587,17 @@ export function registerCoEngramTools(
         );
       }
     });
+    // .yaml 外部修改(git pull / Edit)→ debounce 重建 graph.json + SQLite synapse 表。
+    // 解决 index-no-truth:原版 .yaml watcher 只清 synapseCache,派生层长期陈旧。
+    ctx.repository.addSynapseChangeListener(() => {
+      try {
+        const cachePath = defaultCachePath(ctx.repository.rootPath);
+        const orchestrator = new IndexOrchestrator(ctx.repository, cachePath);
+        orchestrator.rebuildSynapseLayer();
+      } catch {
+        // listener 异常不阻塞 repository 主流程;下次 .yaml 变化再次触发
+      }
+    });
   });
 
   // P2.7: 自动 onboard git merge driver(默认开启,匹配零手动步骤原则)
@@ -713,6 +726,17 @@ export function registerCoEngramTools(
           ctx.searchOrchestrator,
           ctx.repository,
         );
+      }
+    });
+    // .yaml 外部修改(git pull / Edit)→ debounce 重建 graph.json + SQLite synapse 表。
+    // 解决 index-no-truth:原版 .yaml watcher 只清 synapseCache,派生层长期陈旧。
+    ctx.repository.addSynapseChangeListener(() => {
+      try {
+        const cachePath = defaultCachePath(ctx.repository.rootPath);
+        const orchestrator = new IndexOrchestrator(ctx.repository, cachePath);
+        orchestrator.rebuildSynapseLayer();
+      } catch {
+        // listener 异常不阻塞 repository 主流程;下次 .yaml 变化再次触发
       }
     });
   }

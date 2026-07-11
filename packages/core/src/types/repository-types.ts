@@ -117,7 +117,8 @@ export interface DoctorIssue {
     | "derived_field_stale" // contentHash/contentSize 与实际 content 不符(可自动修)
     | "status_renamed" // 2026-07 archived→frozen 重命名:doctor 自动迁移旧 frontmatter
     | "dangling_synapse_cleaned" // synapse 的 from/to 引用不存在的 engram,doctor 自动删除
-    | "sqlite_ghost"; // SQLite engrams 表有 entry 但 markdown 源文件不存在,doctor 自动级联清理
+    | "sqlite_ghost" // SQLite engrams 表有 entry 但 markdown 源文件不存在,doctor 自动级联清理
+    | "sqlite_resynced"; // SQLite engrams 表字段与 frontmatter 真相不一致,doctor 全量重投对齐(index-no-truth 修复)
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;
