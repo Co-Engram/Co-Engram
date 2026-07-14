@@ -34,44 +34,44 @@ const CO_ENGRAM = (function() {
   };
 
   const FAMILY_COLOR = {
-    structural: '#5DECD9',
-    causal: '#93f3e7',
-    evidential: '#3a9c8f',
-    temporal: '#c0c8d4',
-    modulatory: '#6b7693'
+    structural: '#3b82f6',
+    causal: '#f97316',
+    evidential: '#10b981',
+    temporal: '#8b5cf6',
+    modulatory: '#6b7280'
   };
-  const CONTRADICTS_COLOR = '#b8405a';
+  const CONTRADICTS_COLOR = '#ef4444';
 
   const KIND_COLOR = {
-    fact: '#5DECD9',
-    observation: '#93f3e7',
-    pattern: '#c0c8d4',
-    procedure: '#d4af37',
-    hypothesis: '#b8405a'
+    fact: '#10b981',
+    observation: '#3b82f6',
+    pattern: '#8b5cf6',
+    procedure: '#f97316',
+    hypothesis: '#ef4444'
   };
 
-  // 12 种 synapse kind 单色相映射:同族共用神经青明度阶,跨族以中性色区分。
-  // related_to 不属于神经科学 5 族,历史数据 fallback 给浅雾灰。
-  // contradicts 独占朱砂作为唯一对比语义。
+  // 12 种 synapse kind 各自独立的颜色(同族保持色调相近,但明度不同以便区分)
+  // related_to 不属于神经科学 5 族,但历史数据中存在;这里给一个浅灰 fallback
+  // 防止渲染时取不到颜色 - 颜色是显示层细节,不影响类型/schema 严格性。
   const SYNAPSE_KIND_COLOR = {
-    // 结构族 · 神经青主阶
-    extends: '#5DECD9',
-    part_of: '#93f3e7',
-    similar_to: '#3a9c8f',
-    // 因果族 · 神经青浅阶
-    depends_on: '#93f3e7',
-    causes: '#5DECD9',
-    follows: '#3a9c8f',
-    // 证据族 · 神经青深阶(contradicts 独立朱砂)
-    derives_from: '#3a9c8f',
-    exemplifies: '#93f3e7',
-    contradicts: '#b8405a',
-    // 时间族 · 中性银
-    supersedes: '#c0c8d4',
-    consolidates: '#8b92a8',
-    // 调节族 · 雾灰
-    contextualizes: '#6b7693',
-    related_to: '#8b92a8'
+    // 结构族 · 蓝色系
+    extends: '#3b82f6',      // 主蓝
+    part_of: '#60a5fa',      // 浅蓝
+    similar_to: '#1e40af',   // 深蓝
+    // 因果族 · 橙色系
+    depends_on: '#f97316',   // 主橙
+    causes: '#fb923c',       // 浅橙
+    follows: '#c2410c',      // 深橙
+    // 证据族 · 绿色系(contradicts 独立红色)
+    derives_from: '#10b981', // 主绿
+    exemplifies: '#6ee7b7',  // 浅绿
+    contradicts: '#ef4444',  // 红(高优先级)
+    // 时间族 · 紫色系
+    supersedes: '#8b5cf6',   // 主紫
+    consolidates: '#c4b5fd', // 浅紫
+    // 调节族 · 灰色系
+    contextualizes: '#6b7280', // 灰
+    related_to: '#9ca3af'      // 浅灰(历史数据 fallback,非正式族成员)
   };
 
   // === 术语提示(鼠标悬停时显示) ===
@@ -118,7 +118,7 @@ const CO_ENGRAM = (function() {
     return FAMILY_COLOR[family] || FAMILY_COLOR.modulatory;
   }
   function kindColor(kind) {
-    return KIND_COLOR[kind] || '#6b7693';
+    return KIND_COLOR[kind] || '#6b7280';
   }
   function edgeColor(kind) {
     // 优先用 12 种独立颜色,让每种 kind 视觉上可区分

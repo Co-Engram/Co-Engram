@@ -878,7 +878,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.doctor.nextAction": "建议下一步",
   "viewer.health.doctor.noPending": "无待人工审核的问题。",
   "viewer.health.doctor.fixKind.index_rebuilt": "已重建派生索引",
-  "viewer.health.doctor.fixKind.sqlite_resynced": "已按 frontmatter 真理层重投 SQLite 投影表",
   "viewer.health.doctor.fixKind.merge_driver_installed": "已配置 git merge driver",
   "viewer.health.doctor.fixKind.moved_file": "已修正文件路径",
   "viewer.health.doctor.fixKind.title_changed": "已根据新标题重命名",
@@ -1591,9 +1590,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.common.unknown": "(未知)",
   "viewer.common.langZh": "中文",
   "viewer.common.langEn": "English",
-
-  // ===== Hero tagline(header 下方独立区,非 tab) =====
-  "viewer.hero.tagline": "记忆,自进化 · 每一次召回都是一次重塑",
 
   // ===== Help 面板(viewer.help.*) =====
   "viewer.help.title": "Co-Engram · 自进化的团队记忆",

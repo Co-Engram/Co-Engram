@@ -452,7 +452,7 @@ describe("Bug #2(真): related_to i18n 显示兼容", () => {
       "utf8",
     );
     expect(appSrc).toContain("related_to: 'modulatory'");
-    expect(appSrc).toContain("related_to: '#8b92a8'");
+    expect(appSrc).toContain("related_to: '#9ca3af'");
   });
 });
 

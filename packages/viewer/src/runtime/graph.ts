@@ -290,7 +290,7 @@ async function renderGraphInner(container) {
           html += '<div class="field" style="padding-left:0.5rem">'
             + '<span class="chip synapse-link" data-synapse-id="' + CO_ENGRAM.escapeHtml(e.id) + '" style="background:' + CO_ENGRAM.edgeColor(e.kind) + '22;color:' + CO_ENGRAM.edgeColor(e.kind) + ';cursor:pointer">' + kindLabel + '</span> '
             + '<span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(other) + '">' + CO_ENGRAM.escapeHtml(other) + '</span>'
-            + (e.resolutionStatus ? ' <span class="chip" style="background:rgba(184,64,90,.15);color:#b8405a">' + (T.enumLabel('resolution', e.resolutionStatus) || e.resolutionStatus) + '</span>' : '')
+            + (e.resolutionStatus ? ' <span class="chip" style="background:rgba(239,68,68,.15);color:#ef4444">' + (T.enumLabel('resolution', e.resolutionStatus) || e.resolutionStatus) + '</span>' : '')
             + '</div>';
         }
       }

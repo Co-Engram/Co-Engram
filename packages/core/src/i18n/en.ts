@@ -881,7 +881,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.nextAction": "Suggested next step",
   "viewer.health.doctor.noPending": "No issues pending manual review.",
   "viewer.health.doctor.fixKind.index_rebuilt": "Rebuilt derived index",
-  "viewer.health.doctor.fixKind.sqlite_resynced": "Re-synced SQLite projection with frontmatter truth",
   "viewer.health.doctor.fixKind.merge_driver_installed": "Configured git merge driver",
   "viewer.health.doctor.fixKind.moved_file": "Updated file path",
   "viewer.health.doctor.fixKind.title_changed": "Renamed to match new title",
@@ -1654,9 +1653,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.common.unknown": "(unknown)",
   "viewer.common.langZh": "中文",
   "viewer.common.langEn": "English",
-
-  // ===== Hero tagline (standalone strip below header, not a tab) =====
-  "viewer.hero.tagline": "Memory, self-evolving · Every recall reshapes the path",
 
   // ===== Help panel (viewer.help.*) =====
   "viewer.help.title": "Co-Engram · Self-evolving team memory",
