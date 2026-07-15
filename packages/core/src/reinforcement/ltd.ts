@@ -25,6 +25,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import { applyConfidenceSignal } from "./confidence.js";
 import type { Engram } from "../types/engram.js";
 import { updateOnReportFailure } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
@@ -85,6 +86,12 @@ export function recordRetrievalFailure(
     importanceDelta: delta,
     lastRetrievedAt: nowIso,
   });
+  // failure 信号 → confidence 缓降(A3 −0.05)。ltd 是 failure 的唯一入口,
+  // 在此接入覆盖所有调用点(loop/tools)。
+  repo.updateConfidence(
+    id,
+    applyConfidenceSignal(before.confidence, "failure"),
+  );
 
   const updated = repo.readEngram(id);
   return {

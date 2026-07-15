@@ -20,6 +20,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import { applyConfidenceSignal } from "./confidence.js";
 import type { Engram } from "../types/engram.js";
 import { updateOnReinforce } from "../importance/dynamics.js";
 import { DEFAULT_CONFIG, type ReinforcementConfig } from "./config.js";
@@ -81,6 +82,9 @@ export function recordRetrievalSuccess(
     lastRetrievedAt: nowIso,
     lastEffectiveAt: nowIso,
   });
+  // effective 信号 → confidence 缓升(A3 +0.05)。ltp 是 effective 的唯一入口,
+  // 在此接入覆盖所有调用点(loop/tools/dreaming)。
+  repo.updateConfidence(id, applyConfidenceSignal(confidence, "effective"));
   const updated = repo.readEngram(id);
   return {
     id,
