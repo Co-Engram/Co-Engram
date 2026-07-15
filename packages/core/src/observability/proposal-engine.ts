@@ -70,7 +70,10 @@ export interface TopicCluster {
 }
 
 /** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 */
-export type ProposalSource = "conversation" | "auto-memory" | "external-markdown";
+export type ProposalSource =
+  | "conversation"
+  | "auto-memory"
+  | "external-markdown";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -590,13 +593,17 @@ export class ProposalEngine {
     const payload: ProposalPayload = {
       title: normalized.title,
       content: normalized.content,
-      ...(normalized.summary !== undefined ? { summary: normalized.summary } : {}),
+      ...(normalized.summary !== undefined
+        ? { summary: normalized.summary }
+        : {}),
       domainTags: normalized.domainTags,
       ...(normalized.contextTags !== undefined
         ? { contextTags: normalized.contextTags }
         : {}),
       kind: normalized.kind,
-      ...(normalized.createdBy !== undefined ? { createdBy: normalized.createdBy } : {}),
+      ...(normalized.createdBy !== undefined
+        ? { createdBy: normalized.createdBy }
+        : {}),
       ...(normalized.sourceType !== undefined
         ? { sourceType: normalized.sourceType }
         : {}),
@@ -629,7 +636,11 @@ export class ProposalEngine {
       return "no-change";
     }
 
-    if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
+    if (
+      existing &&
+      existing.payload &&
+      payloadEqual(existing.payload, payload)
+    ) {
       // payload 未变化 —— 不动 proposal,只刷新 lastSeenAt 也无意义(无样本聚合)
       return "no-change";
     }
@@ -722,13 +733,17 @@ export class ProposalEngine {
     const payload: ProposalPayload = {
       title: normalized.title,
       content: normalized.content,
-      ...(normalized.summary !== undefined ? { summary: normalized.summary } : {}),
+      ...(normalized.summary !== undefined
+        ? { summary: normalized.summary }
+        : {}),
       domainTags: normalized.domainTags,
       ...(normalized.contextTags !== undefined
         ? { contextTags: normalized.contextTags }
         : {}),
       kind: normalized.kind,
-      ...(normalized.createdBy !== undefined ? { createdBy: normalized.createdBy } : {}),
+      ...(normalized.createdBy !== undefined
+        ? { createdBy: normalized.createdBy }
+        : {}),
       ...(normalized.sourceType !== undefined
         ? { sourceType: normalized.sourceType }
         : {}),
@@ -761,7 +776,11 @@ export class ProposalEngine {
       return "no-change";
     }
 
-    if (existing && existing.payload && payloadEqual(existing.payload, payload)) {
+    if (
+      existing &&
+      existing.payload &&
+      payloadEqual(existing.payload, payload)
+    ) {
       return "no-change";
     }
 
@@ -799,7 +818,11 @@ export class ProposalEngine {
     this.auditLog.append({
       actor: "system",
       action: "propose",
-      metadata: { entityId, source: "external-markdown", sourcePath: input.sourcePath },
+      metadata: {
+        entityId,
+        source: "external-markdown",
+        sourcePath: input.sourcePath,
+      },
     });
     return "proposed";
   }
@@ -835,7 +858,9 @@ export class ProposalEngine {
     readonly absPath: string;
     readonly relPath: string;
     readonly raw: string;
-    readonly parsed: { readonly frontmatter: { readonly [key: string]: unknown } } | null;
+    readonly parsed: {
+      readonly frontmatter: { readonly [key: string]: unknown };
+    } | null;
   }) => void {
     return (params) => {
       const { parsed, relPath, raw } = params;
@@ -856,21 +881,29 @@ export class ProposalEngine {
           content?: unknown;
         };
         if (typeof fm.title === "string" && typeof fm.kind === "string") {
-          const content =
-            typeof fm.content === "string" ? fm.content : raw;
+          const content = typeof fm.content === "string" ? fm.content : raw;
           this.proposeExternalMarkdown({
             sourcePath: relPath,
             title: fm.title,
             content,
             ...(typeof fm.summary === "string" ? { summary: fm.summary } : {}),
             domainTags:
-              Array.isArray(fm.domainTags) && fm.domainTags.every((t) => typeof t === "string")
+              Array.isArray(fm.domainTags) &&
+              fm.domainTags.every((t) => typeof t === "string")
                 ? (fm.domainTags as readonly string[])
                 : ["imported"],
-            ...(typeof fm.createdBy === "string" ? { createdBy: fm.createdBy } : {}),
-            ...(typeof fm.sourceType === "string" ? { sourceType: fm.sourceType as never } : {}),
-            ...(typeof fm.importance === "number" ? { importance: fm.importance } : {}),
-            ...(typeof fm.visibility === "string" ? { visibility: fm.visibility as never } : {}),
+            ...(typeof fm.createdBy === "string"
+              ? { createdBy: fm.createdBy }
+              : {}),
+            ...(typeof fm.sourceType === "string"
+              ? { sourceType: fm.sourceType as never }
+              : {}),
+            ...(typeof fm.importance === "number"
+              ? { importance: fm.importance }
+              : {}),
+            ...(typeof fm.visibility === "string"
+              ? { visibility: fm.visibility as never }
+              : {}),
             ...(typeof fm.encodingContext === "string"
               ? { encodingContext: fm.encodingContext }
               : {}),
@@ -1068,7 +1101,9 @@ export class ProposalEngine {
             p.source === "external-markdown" && payload?.createdBy
               ? payload.createdBy
               : (input.createdBy ?? "proposal-engine"),
-          ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
+          ...(payload?.summary !== undefined
+            ? { summary: payload.summary }
+            : {}),
           ...(payload?.contextTags !== undefined
             ? { contextTags: payload.contextTags }
             : {}),
@@ -1126,9 +1161,7 @@ export class ProposalEngine {
 
       // 移除已转化的 cluster(conversation proposal 的 cluster id = entityId;
       // auto-memory/external-markdown proposal 无对应 cluster,filter 是 noop)
-      const updatedClusters = allClusters.filter(
-        (c) => !acceptedMap.has(c.id),
-      );
+      const updatedClusters = allClusters.filter((c) => !acceptedMap.has(c.id));
       this.writeClusters(updatedClusters); // 1次写
 
       // audit + emit:逐条(auditLog.append 是 O(1) 追加)
@@ -1491,7 +1524,16 @@ export class ProposalEngine {
   }
 
   private writeClusters(clusters: readonly TopicCluster[]): void {
-    writeJsonl(this.clustersFile, clusters);
+    // cap:防 topic-clusters.jsonl 无限增长。保留 occurrences 最高的 N 个
+    // (重要聚类优先;低 occurrences 的旧聚类可被 proposal 重新聚类重建)。
+    const MAX_CLUSTERS = 500;
+    const capped =
+      clusters.length > MAX_CLUSTERS
+        ? [...clusters]
+            .sort((a, b) => b.occurrences - a.occurrences)
+            .slice(0, MAX_CLUSTERS)
+        : clusters;
+    writeJsonl(this.clustersFile, capped);
     // invalidate cache:writeJsonl 后下次 readClusters 会重新 statSync + parse。
     // 不在这里重建 cache —— 写后通常立即有 read,让 read 路径按需重建。
     this.clustersCache = null;
@@ -1683,7 +1725,10 @@ export class ProposalEngine {
    * - dismissedUntil <= now → false(dismiss 期已过,允许复活 —— 与 maybePromoteToProposal
    *   现有「dismissedUntil 过期后允许重新 propose」语义一致)
    */
-  private isTombstoned(entityId: string, now: string = new Date().toISOString()): boolean {
+  private isTombstoned(
+    entityId: string,
+    now: string = new Date().toISOString(),
+  ): boolean {
     const until = this.readTombstones().get(entityId);
     if (until === undefined) return false; // 不在 tombstone
     if (until === null) return true; // 永久
