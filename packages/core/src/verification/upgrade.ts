@@ -20,6 +20,7 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import { applyConfidenceSignal } from "../reinforcement/confidence.js";
 import type { EngramId, VerificationStatus } from "../types/engram.js";
 import type { VerificationEvidence } from "../generative/hypothesis.js";
 import { canTransition } from "./state-machine.js";
@@ -412,6 +413,11 @@ export function upgradeVerification(
 
   // 落盘 verificationStatus
   repo.updateVerificationStatus(engramId, newStatus);
+  // 独立验证支撑 → confidence 上升(A3 verify +0.2,上限 0.95)
+  repo.updateConfidence(
+    engramId,
+    applyConfidenceSignal(repo.readEngram(engramId).confidence, "verify"),
+  );
 
   // 追加 evidence 到所有 derives_from synapse（如果有）
   const nowIso = options.nowIso ?? new Date().toISOString();
@@ -499,7 +505,8 @@ export function summarizeVerificationStatus(
   const allIds = entries.map((e) => e.id);
   const digests = repo.readDigestBatch(allIds);
   for (const digest of digests) {
-    const status = (digest.verificationStatus ?? "unverified") as VerificationStatus;
+    const status = (digest.verificationStatus ??
+      "unverified") as VerificationStatus;
     byStatus[status] += 1;
     total += 1;
   }
