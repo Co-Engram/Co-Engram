@@ -52,21 +52,65 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   // 主导航:用户最高频使用,直接显示在 header 中部。
   // proposals 带徽标:有待处理提案时显示数字,引导用户审批。
   const primaryTabs = [
-    ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
-    ["engrams", t(language, "viewer.tab.engrams"), t(language, "viewer.tab.engrams.tip")],
-    ["graph", t(language, "viewer.tab.graph"), t(language, "viewer.tab.graph.tip")],
-    ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip")],
+    [
+      "stats",
+      t(language, "viewer.tab.stats"),
+      t(language, "viewer.tab.stats.tip"),
+    ],
+    [
+      "engrams",
+      t(language, "viewer.tab.engrams"),
+      t(language, "viewer.tab.engrams.tip"),
+    ],
+    [
+      "graph",
+      t(language, "viewer.tab.graph"),
+      t(language, "viewer.tab.graph.tip"),
+    ],
+    [
+      "proposals",
+      t(language, "viewer.tab.proposals"),
+      t(language, "viewer.tab.proposals.tip"),
+    ],
+    [
+      "maintenance",
+      t(language, "viewer.tab.maintenance"),
+      t(language, "viewer.tab.maintenance.tip"),
+    ],
   ] as const;
 
   // 二级工具:低频但必要,折叠到右侧「更多」下拉,降低主页面心智负担。
   const secondaryTabs = [
-    ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip")],
-    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip")],
-    ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip")],
-    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip")],
-    ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip")],
-    ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip")],
-    ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip")],
+    [
+      "merges",
+      t(language, "viewer.tab.merges"),
+      t(language, "viewer.tab.merges.tip"),
+    ],
+    [
+      "audit",
+      t(language, "viewer.tab.audit"),
+      t(language, "viewer.tab.audit.tip"),
+    ],
+    [
+      "trash",
+      t(language, "viewer.tab.trash"),
+      t(language, "viewer.tab.trash.tip"),
+    ],
+    [
+      "health",
+      t(language, "viewer.tab.health"),
+      t(language, "viewer.tab.health.tip"),
+    ],
+    [
+      "config",
+      t(language, "viewer.tab.config"),
+      t(language, "viewer.tab.config.tip"),
+    ],
+    [
+      "help",
+      t(language, "viewer.tab.help"),
+      t(language, "viewer.tab.help.tip"),
+    ],
   ] as const;
 
   const primaryTabButtons = primaryTabs
@@ -173,9 +217,24 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
               label: t(language, "viewer.graph.familyGroupStructural"),
               desc: t(language, "viewer.graph.familyDesc.structural"),
               kinds: [
-                ["extends", t(language, "enum.synapseKind.extends"), "#3b82f6", t(language, "viewer.graph.synapseDesc.extends")],
-                ["part_of", t(language, "enum.synapseKind.part_of"), "#60a5fa", t(language, "viewer.graph.synapseDesc.part_of")],
-                ["similar_to", t(language, "enum.synapseKind.similar_to"), "#1e40af", t(language, "viewer.graph.synapseDesc.similar_to")],
+                [
+                  "extends",
+                  t(language, "enum.synapseKind.extends"),
+                  "#3b82f6",
+                  t(language, "viewer.graph.synapseDesc.extends"),
+                ],
+                [
+                  "part_of",
+                  t(language, "enum.synapseKind.part_of"),
+                  "#60a5fa",
+                  t(language, "viewer.graph.synapseDesc.part_of"),
+                ],
+                [
+                  "similar_to",
+                  t(language, "enum.synapseKind.similar_to"),
+                  "#1e40af",
+                  t(language, "viewer.graph.synapseDesc.similar_to"),
+                ],
               ],
             },
             {
@@ -184,9 +243,24 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
               label: t(language, "viewer.graph.familyGroupCausal"),
               desc: t(language, "viewer.graph.familyDesc.causal"),
               kinds: [
-                ["depends_on", t(language, "enum.synapseKind.depends_on"), "#f97316", t(language, "viewer.graph.synapseDesc.depends_on")],
-                ["causes", t(language, "enum.synapseKind.causes"), "#fb923c", t(language, "viewer.graph.synapseDesc.causes")],
-                ["follows", t(language, "enum.synapseKind.follows"), "#c2410c", t(language, "viewer.graph.synapseDesc.follows")],
+                [
+                  "depends_on",
+                  t(language, "enum.synapseKind.depends_on"),
+                  "#f97316",
+                  t(language, "viewer.graph.synapseDesc.depends_on"),
+                ],
+                [
+                  "causes",
+                  t(language, "enum.synapseKind.causes"),
+                  "#fb923c",
+                  t(language, "viewer.graph.synapseDesc.causes"),
+                ],
+                [
+                  "follows",
+                  t(language, "enum.synapseKind.follows"),
+                  "#c2410c",
+                  t(language, "viewer.graph.synapseDesc.follows"),
+                ],
               ],
             },
             {
@@ -195,9 +269,24 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
               label: t(language, "viewer.graph.familyGroupEvidential"),
               desc: t(language, "viewer.graph.familyDesc.evidential"),
               kinds: [
-                ["derives_from", t(language, "enum.synapseKind.derives_from"), "#10b981", t(language, "viewer.graph.synapseDesc.derives_from")],
-                ["exemplifies", t(language, "enum.synapseKind.exemplifies"), "#6ee7b7", t(language, "viewer.graph.synapseDesc.exemplifies")],
-                ["contradicts", t(language, "enum.synapseKind.contradicts"), "#ef4444", t(language, "viewer.graph.synapseDesc.contradicts")],
+                [
+                  "derives_from",
+                  t(language, "enum.synapseKind.derives_from"),
+                  "#10b981",
+                  t(language, "viewer.graph.synapseDesc.derives_from"),
+                ],
+                [
+                  "exemplifies",
+                  t(language, "enum.synapseKind.exemplifies"),
+                  "#6ee7b7",
+                  t(language, "viewer.graph.synapseDesc.exemplifies"),
+                ],
+                [
+                  "contradicts",
+                  t(language, "enum.synapseKind.contradicts"),
+                  "#ef4444",
+                  t(language, "viewer.graph.synapseDesc.contradicts"),
+                ],
               ],
             },
             {
@@ -206,8 +295,18 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
               label: t(language, "viewer.graph.familyGroupTemporal"),
               desc: t(language, "viewer.graph.familyDesc.temporal"),
               kinds: [
-                ["supersedes", t(language, "enum.synapseKind.supersedes"), "#8b5cf6", t(language, "viewer.graph.synapseDesc.supersedes")],
-                ["consolidates", t(language, "enum.synapseKind.consolidates"), "#c4b5fd", t(language, "viewer.graph.synapseDesc.consolidates")],
+                [
+                  "supersedes",
+                  t(language, "enum.synapseKind.supersedes"),
+                  "#8b5cf6",
+                  t(language, "viewer.graph.synapseDesc.supersedes"),
+                ],
+                [
+                  "consolidates",
+                  t(language, "enum.synapseKind.consolidates"),
+                  "#c4b5fd",
+                  t(language, "viewer.graph.synapseDesc.consolidates"),
+                ],
               ],
             },
             {
@@ -216,7 +315,12 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
               label: t(language, "viewer.graph.familyGroupModulatory"),
               desc: t(language, "viewer.graph.familyDesc.modulatory"),
               kinds: [
-                ["contextualizes", t(language, "enum.synapseKind.contextualizes"), "#6b7280", t(language, "viewer.graph.synapseDesc.contextualizes")],
+                [
+                  "contextualizes",
+                  t(language, "enum.synapseKind.contextualizes"),
+                  "#6b7280",
+                  t(language, "viewer.graph.synapseDesc.contextualizes"),
+                ],
               ],
             },
           ]
@@ -240,11 +344,36 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
           <div class="group-title">${t(language, "viewer.graph.engramKindsTitle")}</div>
           <div class="group kind-grid">
             ${[
-              ["fact", t(language, "enum.kind.fact"), "#10b981", t(language, "viewer.graph.kindDesc.fact")],
-              ["observation", t(language, "enum.kind.observation"), "#3b82f6", t(language, "viewer.graph.kindDesc.observation")],
-              ["pattern", t(language, "enum.kind.pattern"), "#8b5cf6", t(language, "viewer.graph.kindDesc.pattern")],
-              ["procedure", t(language, "enum.kind.procedure"), "#f97316", t(language, "viewer.graph.kindDesc.procedure")],
-              ["hypothesis", t(language, "enum.kind.hypothesis"), "#ef4444", t(language, "viewer.graph.kindDesc.hypothesis")],
+              [
+                "fact",
+                t(language, "enum.kind.fact"),
+                "#10b981",
+                t(language, "viewer.graph.kindDesc.fact"),
+              ],
+              [
+                "observation",
+                t(language, "enum.kind.observation"),
+                "#3b82f6",
+                t(language, "viewer.graph.kindDesc.observation"),
+              ],
+              [
+                "pattern",
+                t(language, "enum.kind.pattern"),
+                "#8b5cf6",
+                t(language, "viewer.graph.kindDesc.pattern"),
+              ],
+              [
+                "procedure",
+                t(language, "enum.kind.procedure"),
+                "#f97316",
+                t(language, "viewer.graph.kindDesc.procedure"),
+              ],
+              [
+                "hypothesis",
+                t(language, "enum.kind.hypothesis"),
+                "#ef4444",
+                t(language, "viewer.graph.kindDesc.hypothesis"),
+              ],
             ]
               .map(
                 ([k, label, color, desc]) =>

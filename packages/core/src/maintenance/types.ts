@@ -112,7 +112,7 @@ export interface MaintenanceDeps {
 /** 默认配置常量 */
 export const DEFAULT_LIGHT_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 export const DEFAULT_DEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-export const DEFAULT_REM_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+export const DEFAULT_REM_INTERVAL_MS = 1 * 24 * 60 * 60 * 1000; // 1 day(用户要求:记忆巩固周期 1 天,让 REM 频繁跑、效果可见)
 export const DEFAULT_DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const DEFAULT_SIGNAL_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 

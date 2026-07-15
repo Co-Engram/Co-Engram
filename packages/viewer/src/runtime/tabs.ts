@@ -3244,14 +3244,9 @@ window.CO_ENGRAM_MAINTENANCE = {
       html += '<div class="metadata" style="margin-top:1.2rem;font-size:0.85rem;color:var(--fg-muted)">';
       html += T.t('viewer.maintenance.lastWrite', {
         at: relTime(state.updatedAt),
-        by: CO_ENGRAM.escapeHtml(state.updatedBy || 'unknown'),
       });
       html += '</div>';
     }
-
-    html += '<details style="margin-top:1rem"><summary>' + T.t('viewer.maintenance.explainerTitle') + '</summary>';
-    html += '<div style="margin-top:0.5rem;line-height:1.6">' + T.t('viewer.maintenance.explainerBody') + '</div>';
-    html += '</details>';
 
     html += '</div>';
     return html;

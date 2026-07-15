@@ -744,7 +744,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Prompt · Visibility risk recognition (Task 5: LLM risk-signal contract) =====
   "prompt.visibilityRisk.title": "## Visibility Risk Recognition",
   "prompt.visibilityRisk.guidance":
-    "Before calling engram_create / engram_accept_proposal / engram_update, if content contains any of the following risk signals, **you MUST ask the user first** whether to set visibility: \"private\":",
+    'Before calling engram_create / engram_accept_proposal / engram_update, if content contains any of the following risk signals, **you MUST ask the user first** whether to set visibility: "private":',
   "prompt.visibilityRisk.credentials":
     "Credentials: API key (ghp_*, sk-*, xoxb-*, npm_*, AKIA*, AIza*), password assignment (password=, pwd:), JWT (eyJ...), PEM private key header",
   "prompt.visibilityRisk.personal":
@@ -756,7 +756,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "prompt.visibilityRisk.paths":
     "Username in absolute paths (/home/<user>/, /Users/<user>/, C:\\\\Users\\\\<user>\\\\)",
   "prompt.visibilityRisk.template":
-    "Template: \"This memory contains [category] (example: ...). Suggest setting visibility: private (local-only, not in team repo). Approve?\"",
+    'Template: "This memory contains [category] (example: ...). Suggest setting visibility: private (local-only, not in team repo). Approve?"',
   "prompt.visibilityRisk.principle":
     "**Better to over-ask than under-detect**. When uncertain, default to asking. One redundant ask costs far less than one credential leak.",
 
@@ -780,28 +780,44 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.health": "Health",
   "viewer.tab.maintenance": "Maintenance",
   "viewer.tab.more": "More",
-  "viewer.tab.more.tip": "More tools: merges / audit / trash / health / config / help",
-  "viewer.tab.stats.tip": "Memory repository overview: engram/synapse counts, kind & status distributions, top contributors, popular tags",
-  "viewer.tab.engrams.tip": "Browse and search all memory engrams (card view or directory view grouped by domain/kind)",
-  "viewer.tab.graph.tip": "Memory synapse visualization; filter and color by family (structural/causal/evidential/temporal/modulatory) and kind",
-  "viewer.tab.proposals.tip": "Candidate memories implicitly captured but not yet approved; accept to promote to a real engram, dismiss to discard",
-  "viewer.tab.merges.tip": "Team memory merges: deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
-  "viewer.tab.audit.tip": "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
-  "viewer.tab.maintenance.tip": "Maintenance stage status: REM (dream sleep, memory consolidation) / daily (decay) / deep / light cycle and last artifacts",
-  "viewer.tab.trash.tip": "Soft-deleted engrams and synapses; restore or permanently purge",
-  "viewer.tab.health.tip": "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
-  "viewer.tab.config.tip": "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
-  "viewer.tab.help.tip": "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
+  "viewer.tab.more.tip":
+    "More tools: merges / audit / trash / health / config / help",
+  "viewer.tab.stats.tip":
+    "Memory repository overview: engram/synapse counts, kind & status distributions, top contributors, popular tags",
+  "viewer.tab.engrams.tip":
+    "Browse and search all memory engrams (card view or directory view grouped by domain/kind)",
+  "viewer.tab.graph.tip":
+    "Memory synapse visualization; filter and color by family (structural/causal/evidential/temporal/modulatory) and kind",
+  "viewer.tab.proposals.tip":
+    "Candidate memories implicitly captured but not yet approved; accept to promote to a real engram, dismiss to discard",
+  "viewer.tab.merges.tip":
+    "Team memory merges: deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
+  "viewer.tab.audit.tip":
+    "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
+  "viewer.tab.maintenance.tip":
+    "Maintenance stage status: REM (dream sleep, memory consolidation) / daily (decay) / deep / light cycle and last artifacts",
+  "viewer.tab.trash.tip":
+    "Soft-deleted engrams and synapses; restore or permanently purge",
+  "viewer.tab.health.tip":
+    "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
+  "viewer.tab.config.tip":
+    "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
+  "viewer.tab.help.tip":
+    "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
 
   // Engram visibility badges / filters / tips
   "viewer.engram.visibilityBadge.private": "Private",
   "viewer.engram.visibilityBadge.public": "Public",
   "viewer.engram.visibilityBadge.team": "Team",
   "viewer.engram.visibilityBadge.restricted": "Restricted",
-  "viewer.engram.visibilityBadge.public.tip": "Public — enters team repo, visible to all members.",
-  "viewer.engram.visibilityBadge.team.tip": "Team-visible — enters team repo, restricted to team members.",
-  "viewer.engram.visibilityBadge.private.tip": "Local-only — never enters repo (isolated via .gitignore); all local agents can index.",
-  "viewer.engram.visibilityBadge.restricted.tip": "Restricted — requires approval to view.",
+  "viewer.engram.visibilityBadge.public.tip":
+    "Public — enters team repo, visible to all members.",
+  "viewer.engram.visibilityBadge.team.tip":
+    "Team-visible — enters team repo, restricted to team members.",
+  "viewer.engram.visibilityBadge.private.tip":
+    "Local-only — never enters repo (isolated via .gitignore); all local agents can index.",
+  "viewer.engram.visibilityBadge.restricted.tip":
+    "Restricted — requires approval to view.",
   "viewer.engram.filter.visibility": "Visibility",
   "viewer.engram.filter.allVisibilities": "All",
   "viewer.engram.filter.team": "Team-visible",
@@ -814,13 +830,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Changing visibility triggers file path migration (public/team/restricted → <domainTags>/, private → private/<domainTags>/); fails on path conflict, original file untouched.",
 
   "viewer.health.title": "Warehouse Health",
-  "viewer.health.subtitle": "One-glance diagnostic — surfaces silent failures before they bite.",
+  "viewer.health.subtitle":
+    "One-glance diagnostic — surfaces silent failures before they bite.",
   "viewer.health.overall": "Overall",
   "viewer.health.generatedAt": "Generated",
   "viewer.health.dataRoot": "Data Root",
   "viewer.health.checks": "Checks",
   "viewer.health.refresh": "Refresh",
-  "viewer.health.empty": "No data root configured. Run `co-engram init` to create a warehouse.",
+  "viewer.health.empty":
+    "No data root configured. Run `co-engram init` to create a warehouse.",
   "viewer.health.badge.ok": "OK",
   "viewer.health.badge.warn": "WARN",
   "viewer.health.badge.error": "ERROR",
@@ -836,26 +854,44 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Engrams in the forgotten status: equivalent to a soft delete, visible in the trash, restorable or purge-able. The web UI delete button writes this status (no immediate physical delete).",
 
   // Health-tab warn/error meaning (viewer.health.why.<checkId>)
-  "viewer.health.why.data_root_missing": "Data root does not exist; co-engram cannot read or write any memory. Every tool call will fail.",
-  "viewer.health.why.data_root_not_warehouse": "Directory exists but lacks .co-engram/config.json — not a valid co-engram warehouse. Initialize first.",
-  "viewer.health.why.config_unreadable": ".co-engram/config.json failed to parse (JSON syntax error or permission issue). Defaults will take over but persisted config is lost.",
-  "viewer.health.why.config_missing_fields": "language or defaultCreatedBy is missing. Missing language falls back to default (may not match your team's primary language); missing defaultCreatedBy means new memories cannot be attributed to a creator, breaking team attribution and contributor stats.",
-  "viewer.health.why.index_missing": "Index files (engram-index.json / digest.jsonl / graph.json) are retrieval accelerators. Missing files slow the first query (full-scan rebuild) but do not affect data integrity.",
-  "viewer.health.why.proposals_pending_high": "More than 5 pending proposals. The proposal engine generates candidates in the background; leaving them unreviewed turns them into noise that buries genuinely valuable team memories.",
-  "viewer.health.why.git_not_repo": "dataRoot is not a git repository. Memory files have no version history — accidental deletes, wrong writes, or merge conflicts cannot be recovered.",
-  "viewer.health.why.git_dirty_high": "More than 10 uncommitted changes. co-engram does not auto-commit; piled-up changes increase loss risk and broaden the merge-conflict surface during team collaboration.",
-  "viewer.health.why.merge_driver_missing": "Git merge driver is not configured. When teammates merge branches, engram frontmatter + derived sections cause text conflicts that must be resolved by hand — easy to lose content.",
+  "viewer.health.why.data_root_missing":
+    "Data root does not exist; co-engram cannot read or write any memory. Every tool call will fail.",
+  "viewer.health.why.data_root_not_warehouse":
+    "Directory exists but lacks .co-engram/config.json — not a valid co-engram warehouse. Initialize first.",
+  "viewer.health.why.config_unreadable":
+    ".co-engram/config.json failed to parse (JSON syntax error or permission issue). Defaults will take over but persisted config is lost.",
+  "viewer.health.why.config_missing_fields":
+    "language or defaultCreatedBy is missing. Missing language falls back to default (may not match your team's primary language); missing defaultCreatedBy means new memories cannot be attributed to a creator, breaking team attribution and contributor stats.",
+  "viewer.health.why.index_missing":
+    "Index files (engram-index.json / digest.jsonl / graph.json) are retrieval accelerators. Missing files slow the first query (full-scan rebuild) but do not affect data integrity.",
+  "viewer.health.why.proposals_pending_high":
+    "More than 5 pending proposals. The proposal engine generates candidates in the background; leaving them unreviewed turns them into noise that buries genuinely valuable team memories.",
+  "viewer.health.why.git_not_repo":
+    "dataRoot is not a git repository. Memory files have no version history — accidental deletes, wrong writes, or merge conflicts cannot be recovered.",
+  "viewer.health.why.git_dirty_high":
+    "More than 10 uncommitted changes. co-engram does not auto-commit; piled-up changes increase loss risk and broaden the merge-conflict surface during team collaboration.",
+  "viewer.health.why.merge_driver_missing":
+    "Git merge driver is not configured. When teammates merge branches, engram frontmatter + derived sections cause text conflicts that must be resolved by hand — easy to lose content.",
 
   // Health-tab fix guidance (viewer.health.fix.<checkId>.description)
-  "viewer.health.fix.data_root_missing.description": "Create the directory and initialize the warehouse:",
-  "viewer.health.fix.data_root_not_warehouse.description": "Initialize a co-engram warehouse at the current path:",
-  "viewer.health.fix.config_unreadable.description": "Re-initialize to regenerate a valid config.json:",
-  "viewer.health.fix.config_missing_fields.description": "Set the missing config fields:",
-  "viewer.health.fix.index_missing.description": "Run a self-healing scan to rebuild indexes (or ignore — next tool call rebuilds them automatically):",
-  "viewer.health.fix.proposals_pending_high.description": "List pending proposals and review each (accept to persist / dismiss to reject):",
-  "viewer.health.fix.git_not_repo.description": "Initialize a git repository for version history:",
-  "viewer.health.fix.git_dirty_high.description": "Commit all engram changes in one click, or copy the command to run manually:",
-  "viewer.health.fix.merge_driver_missing.description": "Auto-configure the git merge driver (idempotent):",
+  "viewer.health.fix.data_root_missing.description":
+    "Create the directory and initialize the warehouse:",
+  "viewer.health.fix.data_root_not_warehouse.description":
+    "Initialize a co-engram warehouse at the current path:",
+  "viewer.health.fix.config_unreadable.description":
+    "Re-initialize to regenerate a valid config.json:",
+  "viewer.health.fix.config_missing_fields.description":
+    "Set the missing config fields:",
+  "viewer.health.fix.index_missing.description":
+    "Run a self-healing scan to rebuild indexes (or ignore — next tool call rebuilds them automatically):",
+  "viewer.health.fix.proposals_pending_high.description":
+    "List pending proposals and review each (accept to persist / dismiss to reject):",
+  "viewer.health.fix.git_not_repo.description":
+    "Initialize a git repository for version history:",
+  "viewer.health.fix.git_dirty_high.description":
+    "Commit all engram changes in one click, or copy the command to run manually:",
+  "viewer.health.fix.merge_driver_missing.description":
+    "Auto-configure the git merge driver (idempotent):",
 
   // Health-tab UI assets (expand/collapse, copy command, call tool, doctor card)
   "viewer.health.check.why": "Why",
@@ -864,15 +900,20 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.check.commandCopied": "Copied",
   "viewer.health.check.orCallTool": "Or call tool",
   "viewer.health.check.commitNow": "Commit now",
-  "viewer.health.check.commitMessagePrompt": "Enter a commit message (editable)",
-  "viewer.health.check.commitDefaultMessage": "chore(memory): sync engram updates",
-  "viewer.health.check.commitSuccess": "Committed {files} file(s) · {branch}@{hash}",
-  "viewer.health.check.commitNothing": "Working tree is clean, nothing to commit.",
+  "viewer.health.check.commitMessagePrompt":
+    "Enter a commit message (editable)",
+  "viewer.health.check.commitDefaultMessage":
+    "chore(memory): sync engram updates",
+  "viewer.health.check.commitSuccess":
+    "Committed {files} file(s) · {branch}@{hash}",
+  "viewer.health.check.commitNothing":
+    "Working tree is clean, nothing to commit.",
   "viewer.health.check.commitFailed": "Commit failed: {error}",
   "viewer.health.check.expand": "Show details",
   "viewer.health.check.collapse": "Collapse",
   "viewer.health.doctor.title": "Self-healing suggestions",
-  "viewer.health.doctor.subtitle": "Structured fix guidance from engram_doctor (for deeper diagnostics)",
+  "viewer.health.doctor.subtitle":
+    "Structured fix guidance from engram_doctor (for deeper diagnostics)",
   "viewer.health.doctor.autoFixed": "Auto-fixed",
   "viewer.health.doctor.pendingReview": "Pending manual review",
   "viewer.health.doctor.empty": "Scan passed — no issues.",
@@ -881,15 +922,20 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.nextAction": "Suggested next step",
   "viewer.health.doctor.noPending": "No issues pending manual review.",
   "viewer.health.doctor.fixKind.index_rebuilt": "Rebuilt derived index",
-  "viewer.health.doctor.fixKind.merge_driver_installed": "Configured git merge driver",
+  "viewer.health.doctor.fixKind.merge_driver_installed":
+    "Configured git merge driver",
   "viewer.health.doctor.fixKind.moved_file": "Updated file path",
   "viewer.health.doctor.fixKind.title_changed": "Renamed to match new title",
   "viewer.health.doctor.fixKind.missing_file": "Cleared stale index entry",
   "viewer.health.doctor.fixKind.obsidian_view_stale": "Synced Obsidian view",
-  "viewer.health.doctor.fixKind.dangling_index_reference": "Cleaned dangling refs to deleted engrams in derived indexes",
-  "viewer.health.doctor.fixKind.invalid_frontmatter": "YAML syntax error in frontmatter",
-  "viewer.health.doctor.fixKind.invalid_field_value": "Invalid frontmatter field value",
-  "viewer.health.doctor.fixKind.derived_field_stale": "Recomputed stale derived field (content hash/size)",
+  "viewer.health.doctor.fixKind.dangling_index_reference":
+    "Cleaned dangling refs to deleted engrams in derived indexes",
+  "viewer.health.doctor.fixKind.invalid_frontmatter":
+    "YAML syntax error in frontmatter",
+  "viewer.health.doctor.fixKind.invalid_field_value":
+    "Invalid frontmatter field value",
+  "viewer.health.doctor.fixKind.derived_field_stale":
+    "Recomputed stale derived field (content hash/size)",
   "viewer.search.placeholder": "Full-text search engrams...",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",
@@ -1033,7 +1079,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // Error messages (error.<name>) — user-visible error prefix and message templates
   "error.prefix": "Error",
   "error.uri_missing_id": "URI missing {id} variable",
-  "error.engram_not_found": "engram \"${id}\" not found",
+  "error.engram_not_found": 'engram "${id}" not found',
 
   // Decay visualization (decay.<name>)
   "decay.daysToNext": "${days} days to next downgrade",
@@ -1057,7 +1103,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.retrievalsCount": "Retrievals ${n}",
   "engrams.untagged": "Untagged",
   "engrams.viewInCards": "View in cards",
-  "engrams.tree.cumulativeCount": "Cumulative count (this folder + all descendants)",
+  "engrams.tree.cumulativeCount":
+    "Cumulative count (this folder + all descendants)",
   "engrams.tree.rootDirect": "Root-level (no folder)",
   "engrams.pager.prev": "« Prev",
   "engrams.pager.next": "Next »",
@@ -1111,8 +1158,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.stats.kindDistribution": "Engrams · by kind",
   "viewer.stats.statusDistribution": "Engrams · by status",
   "viewer.stats.synapseKindDistribution": "Synapses · by kind",
-  "viewer.stats.contributorRanking":
-    "Contributor ranking · engrams + synapses",
+  "viewer.stats.contributorRanking": "Contributor ranking · engrams + synapses",
   "viewer.stats.topTags": "Top domain tags",
   "viewer.stats.contributorCol": "Contributor",
   "viewer.stats.engramCol": "Engrams",
@@ -1129,12 +1175,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.status.dismissed": "Dismissed",
   "viewer.proposals.status.all": "All",
   "viewer.proposals.empty": "No ${status} proposals",
-  "viewer.proposals.emptyHint": "The system observes candidate memories in the background; new proposals will appear here automatically.",
+  "viewer.proposals.emptyHint":
+    "The system observes candidate memories in the background; new proposals will appear here automatically.",
   "viewer.proposals.pager.hasMoreHint": "${n} more — load on page turn",
   "viewer.proposals.card.occurrences": "${n} occurrences",
   "viewer.proposals.card.samples": "${n} samples",
   "viewer.proposals.card.inferred": "inferred",
-  "viewer.proposals.card.inferredTip": "Title and kind are inferred from conversation snippets — click the card to review samples and correct them",
+  "viewer.proposals.card.inferredTip":
+    "Title and kind are inferred from conversation snippets — click the card to review samples and correct them",
   "viewer.proposals.card.noPreview": "(no content preview)",
   "viewer.proposals.convertedTo": "Converted to",
   "viewer.proposals.dismissedReason": "Dismissed",
@@ -1159,24 +1207,32 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.dismissBtn": "Dismiss",
   "viewer.proposals.acceptBtn": "Accept & save",
   "viewer.proposals.visibility.label": "Visibility",
-  "viewer.proposals.visibility.hint": "Default public; switch to private if the LLM asked or you spot sensitive content.",
+  "viewer.proposals.visibility.hint":
+    "Default public; switch to private if the LLM asked or you spot sensitive content.",
   "viewer.proposals.notFound": "Proposal not found: ${id}",
   "viewer.proposals.titleRequired": "Please fill in the title",
   "viewer.proposals.contentRequired": "Please fill in the content",
   "viewer.proposals.acceptedToast": "✓ Accepted",
   "viewer.proposals.createdEngramToast": "Created engram: ${id}",
   "viewer.proposals.acceptFailed": "Accept failed: ${err}",
-  "viewer.proposals.dismissConfirm": "Dismiss this proposal? It will not resurface. Audit log retained.",
+  "viewer.proposals.dismissConfirm":
+    "Dismiss this proposal? It will not resurface. Audit log retained.",
   "viewer.proposals.dismissFailed": "Dismiss failed: ${err}",
   "viewer.proposals.batch.acceptAll": "Accept all (${n})",
   "viewer.proposals.batch.dismissAll": "Dismiss all (${n})",
-  "viewer.proposals.batch.acceptAllConfirm": "Batch-accept ${n} loaded pending proposals?\n\nEach will create an engram (cannot be undone in one click). Proposals beyond the loaded range are not affected.",
-  "viewer.proposals.batch.dismissAllConfirm": "Batch-dismiss ${n} loaded pending proposals?\n\nThey will not resurface. Proposals beyond the loaded range are not affected.",
-  "viewer.proposals.batch.acceptAllToast": "Batch accept done: ${ok} succeeded, ${fail} failed",
-  "viewer.proposals.batch.dismissAllToast": "Batch dismiss done: ${ok} succeeded, ${fail} failed",
-  "viewer.proposals.batch.noPending": "No pending proposals in current view to batch-operate",
+  "viewer.proposals.batch.acceptAllConfirm":
+    "Batch-accept ${n} loaded pending proposals?\n\nEach will create an engram (cannot be undone in one click). Proposals beyond the loaded range are not affected.",
+  "viewer.proposals.batch.dismissAllConfirm":
+    "Batch-dismiss ${n} loaded pending proposals?\n\nThey will not resurface. Proposals beyond the loaded range are not affected.",
+  "viewer.proposals.batch.acceptAllToast":
+    "Batch accept done: ${ok} succeeded, ${fail} failed",
+  "viewer.proposals.batch.dismissAllToast":
+    "Batch dismiss done: ${ok} succeeded, ${fail} failed",
+  "viewer.proposals.batch.noPending":
+    "No pending proposals in current view to batch-operate",
   "viewer.proposals.batch.purgeDismissed": "Purge (${n})",
-  "viewer.proposals.batch.purgeConfirm": "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
+  "viewer.proposals.batch.purgeConfirm":
+    "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
   "viewer.proposals.batch.purgeToast": "Purged ${n} dismissed proposals",
   "viewer.proposals.batch.purgeFailed": "Purge failed: ${err}",
   "viewer.proposals.batch.purgeNoDismissed": "No dismissed proposals to purge",
@@ -1216,7 +1272,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actorTip.system":
     "System: events triggered by background maintenance/self-healing",
   "viewer.audit.actionTip.create": "create: create a new engram",
-  "viewer.audit.actionTip.update": "update: modify fields of an existing engram",
+  "viewer.audit.actionTip.update":
+    "update: modify fields of an existing engram",
   "viewer.audit.actionTip.update_lifecycle":
     "update_lifecycle: lifecycle transition (frozen/forgotten)",
   "viewer.audit.actionTip.importance_update":
@@ -1300,7 +1357,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // Long-missing — UI used to show raw key strings. Added 2026-07.
   "viewer.audit.pager.prev": "« Prev",
   "viewer.audit.pager.next": "Next »",
-  "viewer.audit.pager.pageInfo": "Page ${current} / ${total} (${itemTotal} items)",
+  "viewer.audit.pager.pageInfo":
+    "Page ${current} / ${total} (${itemTotal} items)",
   "viewer.audit.pager.loadingHint": "Loading more…",
 
   // ===== Trash panel (viewer.trash.*) =====
@@ -1316,7 +1374,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.trash.restoreBtn": "Restore",
   "viewer.trash.previewTitle": "Trash preview",
   "viewer.trash.previewHint":
-    "This memory has been removed from the main index. \"Restore\" it first to edit or recall it again.",
+    'This memory has been removed from the main index. "Restore" it first to edit or recall it again.',
   "viewer.trash.partitionField": "Partition:",
   "viewer.trash.trashedAtField": "Trashed at:",
   "viewer.trash.creatorField": "Creator:",
@@ -1369,17 +1427,20 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Maintenance panel (viewer.maintenance.*) — plan A viewer tab =====
   "viewer.maintenance.loading": "Loading maintenance state",
-  "viewer.maintenance.disabledHint": "Maintenance service not enabled or dataRoot unavailable.",
-  "viewer.maintenance.title": "Maintenance stage status",
-  "viewer.maintenance.intro": "Maintenance runs in the background on a schedule: light processes behavioral signals, deep does pattern abstraction, REM (dream sleep) does memory consolidation and metacognition, daily does decay. Below shows each stage's last run time, artifacts, and whether it's within its cycle.",
+  "viewer.maintenance.disabledHint":
+    "Maintenance service not enabled or dataRoot unavailable.",
+  "viewer.maintenance.title": "Dream State",
+  "viewer.maintenance.intro":
+    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), ☀️ daily decay (forgetting), 🧠 deep pattern abstraction, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
   "viewer.maintenance.never": "never run",
   "viewer.maintenance.justNow": "just now",
   "viewer.maintenance.minutesAgo": "${n} min ago",
   "viewer.maintenance.hoursAgo": "${n} h ago",
   "viewer.maintenance.daysAgo": "${n} d ago",
-  "viewer.maintenance.lastWrite": "State file last written: ${at} (by ${by})",
+  "viewer.maintenance.lastWrite": "Last updated: ${at}",
   "viewer.maintenance.explainerTitle": "How to read these metrics",
-  "viewer.maintenance.explainerBody": "REM/daily are low-frequency stages. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and \"never run\" isn't abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).",
+  "viewer.maintenance.explainerBody":
+    'REM/daily are low-frequency stages. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
   "viewer.maintenance.stage.rem": "REM (consolidation)",
   "viewer.maintenance.stage.daily": "Daily (decay)",
   "viewer.maintenance.stage.deep": "Deep (abstraction)",
@@ -1388,26 +1449,40 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.stageIcon.daily": "☀️",
   "viewer.maintenance.stageIcon.deep": "🧠",
   "viewer.maintenance.stageIcon.light": "⚡",
-  "viewer.maintenance.stageSubtitle.rem": "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition rating",
-  "viewer.maintenance.stageSubtitle.daily": "Daily decay: all active engrams get importance × 0.95, modeling \"unused time also weakens memory\"",
-  "viewer.maintenance.stageSubtitle.deep": "Deep abstraction: mid-frequency pattern extraction and synapse cleanup",
-  "viewer.maintenance.stageSubtitle.light": "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
-  "viewer.maintenance.stageTip.rem": "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract them into new pattern memories; ③ run metacognition scoring to drive unverified→plausible→probable→verified upgrades or refute. Default 7-day cycle.",
-  "viewer.maintenance.stageTip.daily": "Daily decay: for every engram with status=active and verificationStatus in {unverified, plausible, probable, verified}, multiply importance × 0.95. Already-refuted or archived engrams are skipped. Default 24h cycle, orthogonal to light's RPE additive updates.",
-  "viewer.maintenance.stageTip.deep": "Deep stage: reuses runDeepDreaming for mid-frequency (default 1h) pattern abstraction and decay upkeep.",
-  "viewer.maintenance.stageTip.light": "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning, orthogonal to daily's time-driven decay.",
+  "viewer.maintenance.stageSubtitle.rem":
+    "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition rating",
+  "viewer.maintenance.stageSubtitle.daily":
+    'Daily decay: all active engrams get importance × 0.95, modeling "unused time also weakens memory"',
+  "viewer.maintenance.stageSubtitle.deep":
+    "Deep abstraction: mid-frequency pattern extraction and synapse cleanup",
+  "viewer.maintenance.stageSubtitle.light":
+    "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
+  "viewer.maintenance.stageTip.rem":
+    "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract them into new pattern memories; ③ run metacognition scoring to drive unverified→plausible→probable→verified upgrades or refute. Default 1-day cycle.",
+  "viewer.maintenance.stageTip.daily":
+    "Daily decay (Ebbinghaus forgetting curve): unused memories weaken over time — for every active, non-refuted engram, importance × 0.95 (5% off per day). This mirrors human 'use it or lose it': frequently retrieved/reinforced memories resist decay, unused ones fade. Default 24h cycle.",
+  "viewer.maintenance.stageTip.deep":
+    "Deep stage: reuses runDeepDreaming for mid-frequency (default 1h) pattern abstraction and decay upkeep.",
+  "viewer.maintenance.stageTip.light":
+    "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning, orthogonal to daily's time-driven decay.",
   "viewer.maintenance.dreamBadge": "dream sleep",
-  "viewer.maintenance.dreamBadgeTip": "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
+  "viewer.maintenance.dreamBadgeTip":
+    "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
   "viewer.maintenance.status.healthy": "in cycle",
   "viewer.maintenance.status.soon": "due soon",
   "viewer.maintenance.status.overdue": "overdue",
   "viewer.maintenance.status.never": "not triggered",
   "viewer.maintenance.statusTip.healthy": "Cycle healthy. Next trigger in ${n}",
-  "viewer.maintenance.statusTip.soon": "Due soon (${pct}% of cycle used); next trigger will restore healthy state",
-  "viewer.maintenance.statusTip.overdue": "Overdue by ${n}. Next startup will catch-up immediately (low-freq stages) or wait for next setInterval tick (high-freq stages)",
-  "viewer.maintenance.statusTip.never": "This stage has never fired. Low-frequency stages (rem/daily) will be triggered immediately by startup catch-up; high-frequency stages (light/deep) are scheduled by setInterval",
-  "viewer.maintenance.progressBarTip": "Cycle progress: ${pct}% (${remain} to next trigger)",
-  "viewer.maintenance.progressBarTipOverdue": "Overdue by ${pct}% of cycle (${remain} overdue)",
+  "viewer.maintenance.statusTip.soon":
+    "Due soon (${pct}% of cycle used); next trigger will restore healthy state",
+  "viewer.maintenance.statusTip.overdue":
+    "Overdue by ${n}. Next startup will catch-up immediately (low-freq stages) or wait for next setInterval tick (high-freq stages)",
+  "viewer.maintenance.statusTip.never":
+    "This stage has never fired. Low-frequency stages (rem/daily) will be triggered immediately by startup catch-up; high-frequency stages (light/deep) are scheduled by setInterval",
+  "viewer.maintenance.progressBarTip":
+    "Cycle progress: ${pct}% (${remain} to next trigger)",
+  "viewer.maintenance.progressBarTipOverdue":
+    "Overdue by ${pct}% of cycle (${remain} overdue)",
   "viewer.maintenance.resultLabel": "Last artifacts",
   "viewer.maintenance.errorLabel": "Last error",
 
@@ -1430,8 +1505,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.family.evidential": "Evidential",
   "viewer.graph.family.temporal": "Temporal",
   "viewer.graph.family.modulatory": "Modulatory",
-  "viewer.graph.familyDesc.structural":
-    "Composition / extension relationships",
+  "viewer.graph.familyDesc.structural": "Composition / extension relationships",
   "viewer.graph.familyDesc.causal": "Trigger / dependency relationships",
   "viewer.graph.familyDesc.evidential": "Source / conflict relationships",
   "viewer.graph.familyDesc.temporal": "Version / evolution relationships",
@@ -1465,8 +1539,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "A is a concrete instance/sample of B",
   "viewer.graph.synapseDesc.supersedes":
     "A replaces outdated B (version transition)",
-  "viewer.graph.synapseDesc.consolidates":
-    "A merges/refines the content of B",
+  "viewer.graph.synapseDesc.consolidates": "A merges/refines the content of B",
   "viewer.graph.synapseDesc.contextualizes":
     "A provides context for B (neither causal nor evidential)",
 
@@ -1474,21 +1547,22 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.filter.searchPlaceholder": "Search nodes by title/tag/id…",
   "viewer.graph.filter.pathBtn": "📁 Filter by directory",
   "viewer.graph.filter.pathBtnTitle": "Filter graph by engram directory",
-  "viewer.graph.filter.pathPickerTitle": "Pick a directory · only nodes within it and synapses between them are shown",
+  "viewer.graph.filter.pathPickerTitle":
+    "Pick a directory · only nodes within it and synapses between them are shown",
   "viewer.graph.filter.pathPick": "Show only this directory",
   "viewer.graph.filter.pathPickerEmpty": "No directory data available",
   "viewer.graph.filter.count": "Nodes ${nodes} · Synapses ${edges}",
-  "viewer.graph.filter.countTip": "Format: \"filtered / total\". The stats bar's synapse total comes from /api/status (full count), while this graph only renders synapses whose both endpoint engrams exist (dangling synapses are auto-cleaned by doctor). Keyword/path/kind filters narrow the visible range further.",
+  "viewer.graph.filter.countTip":
+    'Format: "filtered / total". The stats bar\'s synapse total comes from /api/status (full count), while this graph only renders synapses whose both endpoint engrams exist (dangling synapses are auto-cleaned by doctor). Keyword/path/kind filters narrow the visible range further.',
 
   // ===== Detail panel / drawer (viewer.detail.*) =====
-  "viewer.detail.editModeHint":
-    "Edit mode · click \"Save\" to submit changes",
+  "viewer.detail.editModeHint": 'Edit mode · click "Save" to submit changes',
   "viewer.detail.editEngramTitle": "Edit engram",
   "viewer.detail.editSynapseTitle": "Edit synapse",
   "viewer.detail.detailViewTitle": "Detail view",
   "viewer.detail.synapseDetailTitle": "Synapse detail",
   "viewer.detail.kindChangeHint":
-    "Note: changing \"kind\" or \"direction\" re-computes the synapse ID (ID derives from from+to+kind+direction). The old ID becomes invalid, but all metadata (weight / evidence / creator) migrates to the new ID.",
+    'Note: changing "kind" or "direction" re-computes the synapse ID (ID derives from from+to+kind+direction). The old ID becomes invalid, but all metadata (weight / evidence / creator) migrates to the new ID.',
   "viewer.detail.titleLabel": "Title",
   "viewer.detail.kindLabel": "Kind",
   "viewer.detail.importanceLabel": "Importance (0-1, drag the slider)",
@@ -1497,7 +1571,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.detail.ctxTagsLabel": "Context tags (comma-separated)",
   "viewer.detail.visibilityLabel": "Visibility",
   "viewer.detail.visibility.changeBtn": "Change visibility",
-  "viewer.detail.visibility.confirm": "This will migrate the engram file path (e.g., public → private moves the file to a private/ subdirectory); the next sync will push the change. Confirm?",
+  "viewer.detail.visibility.confirm":
+    "This will migrate the engram file path (e.g., public → private moves the file to a private/ subdirectory); the next sync will push the change. Confirm?",
   "viewer.detail.visibility.changed": "Visibility updated, path migrated",
   "viewer.detail.contentLabel": "Content (Markdown)",
   "viewer.detail.weightLabel": "Weight (0-1, drag the slider)",
@@ -1549,7 +1624,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.config.field.createdAt": "Created at",
   "viewer.config.field.updatedAt": "Last updated",
   "viewer.config.runtimeSection.hint":
-    "These toggles persist the \"desired state at next launch\" to config.json. The currently running instance is unaffected — new values take effect only after restarting ${host}.",
+    'These toggles persist the "desired state at next launch" to config.json. The currently running instance is unaffected — new values take effect only after restarting ${host}.',
   "viewer.config.runtimeSection.openclawExtra":
     " In OpenClaw mode, run <code>openclaw gateway restart</code> in a terminal.",
   "viewer.config.runtimeSection.mcpExtra":
@@ -1592,7 +1667,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Take over <code>{path}</code>? co-engram will add a <code>.co-engram/</code> subfolder; existing files stay untouched.",
   "viewer.config.dataRootCancelled": "Takeover cancelled.",
   // 首次用户引导(dataRoot=null 时显示)
-  "viewer.config.dataRootWelcomeTitle": "Welcome — set your team memory location",
+  "viewer.config.dataRootWelcomeTitle":
+    "Welcome — set your team memory location",
   "viewer.config.dataRootWelcomeBody":
     "co-engram stores team memory in a folder you choose. Pick one of the common locations below, or type any path. co-engram will create a <code>.co-engram/</code> subfolder; existing files in the directory are not touched.",
   "viewer.config.dataRootWelcomeSuggestHome": "Use ~/team-memory (recommended)",
@@ -1645,7 +1721,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.common.restartToApply": "Applies after restart",
   "viewer.common.confirmDeleteTitle": "Confirm delete?",
   "viewer.common.confirmDeleteEngram":
-    "Delete \"${title}\"?\nThis action is irreversible.",
+    'Delete "${title}"?\nThis action is irreversible.',
   "viewer.common.confirmDeleteSynapse":
     "Delete this synapse?\nThis action is irreversible.",
   "viewer.common.saveFailed": "Save failed: ${err}",
@@ -1659,24 +1735,19 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.intro":
     "Co-Engram distills team conversations, decisions and lessons into <em>engrams</em> and links them with <em>synapses</em> into an evolvable knowledge network. Models recall relevant memories via <code>memory_search</code>, reinforce effective ones with <code>engram_reinforce</code>, and weaken broken ones with <code>engram_report_failure</code> — this closed loop lets high-value memories surface and stale ones decay automatically.",
   "viewer.help.conceptsTitle": "Core concepts",
-  "viewer.help.conceptEngram":
-    "<strong>Engram</strong>",
+  "viewer.help.conceptEngram": "<strong>Engram</strong>",
   "viewer.help.conceptEngramDesc":
     "A structured memory entry with fields like title/content/kind/tags/importance/confidence. 5 kinds: <code>fact</code> <code>observation</code> <code>pattern</code> <code>procedure</code> <code>hypothesis</code>. Hover a field to see its description.",
-  "viewer.help.conceptSynapse":
-    "<strong>Synapse</strong>",
+  "viewer.help.conceptSynapse": "<strong>Synapse</strong>",
   "viewer.help.conceptSynapseDesc":
     "A directed edge between two engrams, grouped into 5 families: <code>structural</code> (extends/part_of/similar_to), <code>causal</code> (depends_on/causes/follows), <code>evidential</code> (derives_from/contradicts/exemplifies), <code>temporal</code> (supersedes/consolidates), <code>modulatory</code> (contextualizes). <code>contradicts</code> enters the resolution flow.",
-  "viewer.help.conceptImportance":
-    "<strong>Importance & confidence</strong>",
+  "viewer.help.conceptImportance": "<strong>Importance & confidence</strong>",
   "viewer.help.conceptImportanceDesc":
     "Two independent 0-1 numbers. Importance is derived from reinforcement signals + time decay and affects retrieval weight; confidence reflects how trustworthy the memory is (a metacognition score) and is decoupled from importance.",
-  "viewer.help.conceptVector":
-    "<strong>Concept vector</strong>",
+  "viewer.help.conceptVector": "<strong>Concept vector</strong>",
   "viewer.help.conceptVectorDesc":
     "A numeric vector produced by an embedding model for each engram, used for semantic similarity. Retrieval recalls by cosine similarity; conversation-flow clustering groups messages by similarity and promotes to a proposal once the threshold is met.",
-  "viewer.help.conceptLifecycle":
-    "<strong>Lifecycle</strong>",
+  "viewer.help.conceptLifecycle": "<strong>Lifecycle</strong>",
   "viewer.help.conceptLifecycleDesc":
     "<code>draft → active → frozen → forgotten</code>. Forgotten files remain in the repo but are skipped by default retrieval. Maintenance cycles evaluate and transition states automatically.",
   "viewer.help.rulesTitle": "Reinforcement rules & default parameters",
@@ -1745,7 +1816,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.tip5":
     "Numeric fields like <code>importance</code> / <code>effectiveness</code> / <code>reinforcementScore</code> show a band label (high / medium / low; thresholds ≥0.7 / ≥0.3 / <0.3) next to the raw 2-decimal value. The band is language-neutral in storage; the UI localizes it.",
   "viewer.help.tip6":
-    "In the Proposals tab, \"Dismiss all\" and \"Purge\" are two different operations: <strong>dismiss</strong> marks candidates as dismissed (soft delete; proposals.json retains them; audit-traceable), while <strong>purge</strong> physically deletes all dismissed candidates from disk (irreversible; audit log retained). The counts on status buttons 「Accepted (N) / Dismissed (N) / All (N)」 reflect the live proposal-store composition.",
+    'In the Proposals tab, "Dismiss all" and "Purge" are two different operations: <strong>dismiss</strong> marks candidates as dismissed (soft delete; proposals.json retains them; audit-traceable), while <strong>purge</strong> physically deletes all dismissed candidates from disk (irreversible; audit log retained). The counts on status buttons 「Accepted (N) / Dismissed (N) / All (N)」 reflect the live proposal-store composition.',
 
   // ===== Memory visibility =====
   "viewer.help.visibilityTitle": "Memory visibility & risk recognition",
@@ -1836,17 +1907,18 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "host.gateway.mcp": "MCP server",
 
   // ===== Tooltip strings (tip.*) =====
-  "tip.stats.topTagsTip": "Top domain tags: counts how often each domainTag appears across active engrams, top 10. Each engram usually has multiple domainTags (many-to-many), so the sum of all tag counts exceeds the total engram count — this is expected, not a bug.",
+  "tip.stats.topTagsTip":
+    "Top domain tags: counts how often each domainTag appears across active engrams, top 10. Each engram usually has multiple domainTags (many-to-many), so the sum of all tag counts exceeds the total engram count — this is expected, not a bug.",
   "tip.kind.fact":
-    "Fact: a confirmed, independently verifiable objective statement. Example: \"The project uses PostgreSQL 14\".",
+    'Fact: a confirmed, independently verifiable objective statement. Example: "The project uses PostgreSQL 14".',
   "tip.kind.observation":
-    "Observation: a one-off perceived fact, not yet distilled into a stable conclusion. Example: \"CI took 12 minutes today\".",
+    'Observation: a one-off perceived fact, not yet distilled into a stable conclusion. Example: "CI took 12 minutes today".',
   "tip.kind.pattern":
-    "Pattern: a rule归纳duced from repeated observations; can predict future behavior. Example: \"Build times get longer every Monday morning\".",
+    'Pattern: a rule归纳duced from repeated observations; can predict future behavior. Example: "Build times get longer every Monday morning".',
   "tip.kind.procedure":
-    "Procedure: a sequence of steps that reproduces a result when executed. Example: \"Run pnpm check before release\".",
+    'Procedure: a sequence of steps that reproduces a result when executed. Example: "Run pnpm check before release".',
   "tip.kind.hypothesis":
-    "Hypothesis: an unverified guess; usable as a working hypothesis until counter-examples appear. Example: \"Slow queries may stem from missing indexes\".",
+    'Hypothesis: an unverified guess; usable as a working hypothesis until counter-examples appear. Example: "Slow queries may stem from missing indexes".',
   "tip.status.active":
     "Active: recently retrieved or reinforced; high weight in the recall pool.",
   "tip.status.dormant":
@@ -1907,10 +1979,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "tip.family.causal": "Causal: trigger / dependency relationships. Orange.",
   "tip.family.evidential":
     "Evidential: source / conflict relationships. Green (contradictions flagged red).",
-  "tip.family.temporal":
-    "Temporal: version / evolution relationships. Purple.",
-  "tip.family.modulatory":
-    "Modulatory: contextual relationships. Gray.",
+  "tip.family.temporal": "Temporal: version / evolution relationships. Purple.",
+  "tip.family.modulatory": "Modulatory: contextual relationships. Gray.",
   "tip.synapseDirection.directional":
     "Directional: A → B; the relation points only from source to target.",
   "tip.synapseDirection.bidirectional":
@@ -1923,8 +1993,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Escalated (phase 2): escalated to the owner for resolution.",
   "tip.resolution.contested":
     "Contested (phase 3): no response within the timeout, with a warning attached.",
-  "tip.resolution.resolved":
-    "Resolved: closed, manually or automatically.",
+  "tip.resolution.resolved": "Resolved: closed, manually or automatically.",
   "tip.importance":
     "Importance: 0-1; higher values mean more weight in the recall pool. Derived from initial setting + reinforcement signals + decay.",
   "tip.confidence":
@@ -1934,7 +2003,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "tip.effectiveRetrievals":
     "Effective retrievals: times the hit was actually adopted (not filtered out).",
   "tip.failedUses":
-    "Failed uses: times the hit was reported as \"invalid/outdated\". Too many failures trigger forgetting.",
+    'Failed uses: times the hit was reported as "invalid/outdated". Too many failures trigger forgetting.',
   "tip.reinforcementScore":
     "Reinforcement score: cumulative positive reinforcement signal.",
   "tip.lastEffectiveAt":
