@@ -262,7 +262,9 @@ export const ContradictionVerdictSchema = z.enum([
 
 export const ContradictionResolveInputSchema = z.object({
   fromId: ulidField,
-  synapseId: ulidField,
+  // synapseId 是 `syn-<hex>` 小写格式,不是 ULID——不能走 ulidField(toUpperCase),
+  // 否则 synapse_create 返回小写、contradiction_resolve 查大写 → NOT_FOUND。
+  synapseId: z.string().min(1),
   /** 裁决选项（必填） */
   verdict: ContradictionVerdictSchema,
   /** 必填依据（供审计） */
