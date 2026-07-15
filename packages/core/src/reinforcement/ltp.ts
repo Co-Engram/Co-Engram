@@ -58,14 +58,21 @@ export function recordRetrievalSuccess(
   nowIso: string = new Date().toISOString(),
 ): LtpResult {
   if (effectiveness < 0 || effectiveness > 1) {
-    throw validationError(`effectiveness must be in [0,1], got ${effectiveness}`);
+    throw validationError(
+      `effectiveness must be in [0,1], got ${effectiveness}`,
+    );
   }
   if (!repo.exists(id)) {
     throw notFoundError("Engram", id);
   }
-  const current = repo.readEngram(id).importance;
+  const engram = repo.readEngram(id);
+  const current = engram.importance;
+  const confidence = engram.confidence; // correctness 输入
   const next = updateOnReinforce(current, effectiveness);
-  const importanceDelta = next - current;
+  // confidence 调制:低置信(<0.5)抑制强化,高置信(≥0.5)全效。
+  // default firsthand 0.85 属正常置信→全效(不破坏 importance 演化基线);
+  // 只有低置信(被反驳/inferred)才抑制。min(1, confidence*2):0.5→1,0.85→1,0.2→0.4,0→0
+  const importanceDelta = (next - current) * Math.min(1, confidence * 2);
   repo.bumpRetrievalStats(id, {
     retrievedDelta: 1,
     effectiveDelta: 1,
