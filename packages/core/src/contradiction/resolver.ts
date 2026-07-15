@@ -20,11 +20,9 @@
  */
 
 import type { EngramRepository } from "../storage/repository.js";
+import { applyConfidenceSignal } from "../reinforcement/confidence.js";
 import { stripDerivedSection } from "../storage/obsidian-links.js";
-import {
-  notFoundError,
-  validationError,
-} from "../tools/error-schema.js";
+import { notFoundError, validationError } from "../tools/error-schema.js";
 import type {
   SynapseResolutionState,
   ContradictionVerdict,
@@ -228,6 +226,11 @@ function executeVerdict(
   switch (verdict) {
     case "keep_new": {
       repo.updateVerificationStatus(toId, "refuted");
+      // 元认知:败方 confidence 暴跌(A3 refute ×0.3)
+      repo.updateConfidence(
+        toId,
+        applyConfidenceSignal(repo.readEngram(toId).confidence, "refute"),
+      );
       appendEvidence(
         repo,
         fromId,
@@ -239,6 +242,10 @@ function executeVerdict(
     }
     case "keep_old": {
       repo.updateVerificationStatus(fromId, "refuted");
+      repo.updateConfidence(
+        fromId,
+        applyConfidenceSignal(repo.readEngram(fromId).confidence, "refute"),
+      );
       appendEvidence(
         repo,
         fromId,
