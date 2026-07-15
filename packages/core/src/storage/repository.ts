@@ -58,10 +58,7 @@ import { isStableEngramId } from "../types/repository-types.js";
 import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import { computeSynapseId } from "../types/synapse-id.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
-import {
-  safeJoinWithinRoot,
-  isPathWithinRoot,
-} from "./path.js";
+import { safeJoinWithinRoot, isPathWithinRoot } from "./path.js";
 
 import { computeContentHash, computeContentSize } from "./hash.js";
 import { DEFAULT_LANGUAGE, type Language } from "../i18n/index.js";
@@ -383,7 +380,9 @@ export class EngramRepository {
       // bumpRetrievalStats 也走全量 upsert(经 mutateFrontmatter → 这里)。
       // createdAt 是 ISO string,转 epoch ms 与 engrams 表对齐。
       retrievalCount: frontmatter.retrievalCount ?? 0,
-      createdAt: frontmatter.createdAt ? Date.parse(frontmatter.createdAt) : Date.parse(frontmatter.updatedAt),
+      createdAt: frontmatter.createdAt
+        ? Date.parse(frontmatter.createdAt)
+        : Date.parse(frontmatter.updatedAt),
       // v3 schema:让 viewer /api/stats topContributors 走 SQL GROUP BY,
       // 避免 N+1 readEngram(listSynapsesForEngram 扫 1826 文件)卡 24s
       createdBy: frontmatter.createdBy ?? "",
@@ -1113,9 +1112,7 @@ export class EngramRepository {
     const sortedDomains = [...input.domainTags].sort();
     const parts = [...sortedDomains, `${slug}.md`];
     const basePath = parts.join("/");
-    return input.visibility === "private"
-      ? `private/${basePath}`
-      : basePath;
+    return input.visibility === "private" ? `private/${basePath}` : basePath;
   }
 
   /**
@@ -1253,10 +1250,7 @@ export class EngramRepository {
     // 单向闸门:禁止任何非-private visibility 降级为 private。
     // private 路径进 .gitignore,降级会隐性删除其他成员工作树中的该记忆。
     // 仅当调用方显式传入 visibility 且与当前不同时触发(避免 no-op 与 fallback 干扰)。
-    if (
-      input.visibility !== undefined &&
-      input.visibility !== oldVisibility
-    ) {
+    if (input.visibility !== undefined && input.visibility !== oldVisibility) {
       assertVisibilityTransitionAllowed(oldVisibility, input.visibility);
     }
 
@@ -1331,7 +1325,9 @@ export class EngramRepository {
   ): string {
     const PRIVATE_PREFIX = "private/";
     if (visibility === "private") {
-      return path.startsWith(PRIVATE_PREFIX) ? path : `${PRIVATE_PREFIX}${path}`;
+      return path.startsWith(PRIVATE_PREFIX)
+        ? path
+        : `${PRIVATE_PREFIX}${path}`;
     }
     return path.startsWith(PRIVATE_PREFIX)
       ? path.slice(PRIVATE_PREFIX.length)
@@ -1455,7 +1451,10 @@ export class EngramRepository {
       for (const s of all) {
         if (seen.has(s.id)) continue;
         seen.add(s.id);
-        const synPath = join(this.config.rootPath, synapseRelativePath(s.id, s.kind));
+        const synPath = join(
+          this.config.rootPath,
+          synapseRelativePath(s.id, s.kind),
+        );
         try {
           deleteSynapseFile(synPath);
         } catch {
@@ -1672,7 +1671,6 @@ export class EngramRepository {
     this.synapseCache = undefined;
   }
 
-
   /**
    * 列表查询(viewer /api/engrams 用):支持过滤 / 排序 / cursor 分页,
    * 返回字段直接够 viewer 渲染(无需 N+1 readEngram)。
@@ -1688,7 +1686,12 @@ export class EngramRepository {
     readonly kind?: string;
     readonly domainTags?: readonly string[];
     readonly status?: readonly string[];
-    readonly sort?: "createdAt" | "updatedAt" | "importance" | "retrievalCount" | "title";
+    readonly sort?:
+      | "createdAt"
+      | "updatedAt"
+      | "importance"
+      | "retrievalCount"
+      | "title";
     readonly descending?: boolean;
     readonly limit?: number;
     readonly cursor?: string;
@@ -1904,7 +1907,12 @@ export class EngramRepository {
    */
   readContentBatch(
     ids: readonly string[],
-  ): ReadonlyArray<{ readonly id: string; readonly title: string; readonly summary: string; readonly content: string }> {
+  ): ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly summary: string;
+    readonly content: string;
+  }> {
     if (ids.length === 0) return [];
     if (this.indexDb) {
       try {
@@ -1913,7 +1921,12 @@ export class EngramRepository {
         // SQLite 查询失败 → fallback 到内存路径
       }
     }
-    const out: Array<{ id: string; title: string; summary: string; content: string }> = [];
+    const out: Array<{
+      id: string;
+      title: string;
+      summary: string;
+      content: string;
+    }> = [];
     for (const id of ids) {
       if (!this.exists(id)) continue;
       // noplus1: readContentBatch 的 memory fallback 自身,SQLite 路径走 WHERE IN
@@ -1966,7 +1979,9 @@ export class EngramRepository {
           id: r.id,
           title: r.title,
           kind: r.kind,
-          domainTags: r.domainTagsCsv ? r.domainTagsCsv.split(",").filter(Boolean) : [],
+          domainTags: r.domainTagsCsv
+            ? r.domainTagsCsv.split(",").filter(Boolean)
+            : [],
         }));
         // 拼装下一页 cursor:基于本页最后一条的 SortKey
         let nextCursor: string | null = null;
@@ -2033,7 +2048,9 @@ export class EngramRepository {
       hasMore && slice.length > 0
         ? encodeCursor({
             importance: slice[slice.length - 1]!.importance,
-            updatedAt: Date.parse(slice[slice.length - 1]!.updatedAt ?? "1970-01-01"),
+            updatedAt: Date.parse(
+              slice[slice.length - 1]!.updatedAt ?? "1970-01-01",
+            ),
             id: slice[slice.length - 1]!.id,
           })
         : null;
@@ -2081,9 +2098,7 @@ export class EngramRepository {
     // (catalog entry 不存 status,需 readEngram 拿,这是 fallback 路径的
     // 已知 N+1 代价。SQLite 主路径无此问题 —— memory 模式典型数据规模小)。
     const statusSet = new Set(verificationStatuses as readonly string[]);
-    const lifecycleSet = lifecycleStatuses
-      ? new Set(lifecycleStatuses)
-      : null;
+    const lifecycleSet = lifecycleStatuses ? new Set(lifecycleStatuses) : null;
     const matchedIds: string[] = [];
     for (const entry of this.getIndex().entries.values()) {
       const current = entry.verificationStatus ?? "unverified";
@@ -2396,7 +2411,10 @@ export class EngramRepository {
     for (const s of all) {
       if (seen.has(s.id)) continue;
       seen.add(s.id);
-      const path = join(this.config.rootPath, synapseRelativePath(s.id, s.kind));
+      const path = join(
+        this.config.rootPath,
+        synapseRelativePath(s.id, s.kind),
+      );
       try {
         deleteSynapseFile(path);
         count++;
@@ -2422,7 +2440,9 @@ export class EngramRepository {
   } {
     const db = this.indexDb!;
     const outRows = db
-      .prepare(`SELECT id, from_id, to_id, kind, weight FROM synapses WHERE from_id = ?`)
+      .prepare(
+        `SELECT id, from_id, to_id, kind, weight FROM synapses WHERE from_id = ?`,
+      )
       .all(engramId) as {
       id: string;
       from_id: string;
@@ -2431,7 +2451,9 @@ export class EngramRepository {
       weight: number;
     }[];
     const inRows = db
-      .prepare(`SELECT id, from_id, to_id, kind, weight, direction FROM synapses WHERE to_id = ?`)
+      .prepare(
+        `SELECT id, from_id, to_id, kind, weight, direction FROM synapses WHERE to_id = ?`,
+      )
       .all(engramId) as {
       id: string;
       from_id: string;
@@ -2680,6 +2702,17 @@ export class EngramRepository {
   }
 
   /**
+   * 更新 confidence(correctness 基础输入)。clamp [0,1]。不触发 version++。
+   *
+   * correctness 回路(子项目 A):confidence 是 importance 的输入因子,
+   * 被 refute/verify/effective/failure 信号驱动。本方法是它的持久化写入门。
+   */
+  updateConfidence(id: string, confidence: number): void {
+    const clamped = Math.max(0, Math.min(1, confidence));
+    this.mutateFrontmatter(id, (fm) => ({ ...fm, confidence: clamped }));
+  }
+
+  /**
    * 低层 frontmatter 修改:不触发 version++,不改 slug,不改 path。
    *
    * 供 stats / lifecycle / verification 等频次高的写入使用,避免频繁 version++。
@@ -2866,7 +2899,9 @@ export class EngramRepository {
         }
         return {
           tool: "engram_update",
-          argsHint: `id=${stableId}, ${issue.field}=<valid value from: ${(issue.validValues ?? [])
+          argsHint: `id=${stableId}, ${issue.field}=<valid value from: ${(
+            issue.validValues ?? []
+          )
             .map((v) => String(v))
             .join(", ")}>`,
           explanation: issue.message,
@@ -2971,7 +3006,11 @@ export class EngramRepository {
           parsed = undefined;
         }
 
-        if (parsed && parsed._validationIssues && parsed._validationIssues.length > 0) {
+        if (
+          parsed &&
+          parsed._validationIssues &&
+          parsed._validationIssues.length > 0
+        ) {
           // 字段级 issue 上报(critical 路径,非 orphan)
           const fmId = parsed.frontmatter.id;
           const stableId =
@@ -3135,11 +3174,8 @@ export class EngramRepository {
       if (!parsed._validationIssues || parsed._validationIssues.length === 0) {
         continue;
       }
-      const { fixes: fmFixes, pending: fmPending } = this.processValidationIssues(
-        id,
-        entry.path,
-        parsed._validationIssues,
-      );
+      const { fixes: fmFixes, pending: fmPending } =
+        this.processValidationIssues(id, entry.path, parsed._validationIssues);
       fixes.push(...fmFixes);
       pendingManualReview.push(...fmPending);
     }
@@ -3170,7 +3206,7 @@ export class EngramRepository {
       pendingManualReview.push({
         kind: "dangling_synapse_cleaned",
         stableId,
-        message: `Synapse ${syn.id} auto-deleted (.${which}="${which === "both" ? `${syn.from}/${syn.to}` : (which === "from" ? syn.from : syn.to)}" no longer exists)`,
+        message: `Synapse ${syn.id} auto-deleted (.${which}="${which === "both" ? `${syn.from}/${syn.to}` : which === "from" ? syn.from : syn.to}" no longer exists)`,
         autoFixed: true,
       });
     }
@@ -3376,7 +3412,9 @@ export class EngramRepository {
 
     if (ghostDetected) {
       queueMicrotask(() => {
-        try { this.rebuildIndex(); } catch {}
+        try {
+          this.rebuildIndex();
+        } catch {}
       });
     }
 
@@ -3614,12 +3652,14 @@ function digestRowToLine(row: DigestIndexRow): DigestLine {
     createdBy: row.createdBy,
     createdAt: new Date(row.createdAt).toISOString(),
     updatedAt: new Date(row.updatedAt).toISOString(),
-    lastRetrievedAt: row.lastRetrievedAt !== null
-      ? new Date(row.lastRetrievedAt).toISOString()
-      : null,
-    lastEffectiveAt: row.lastEffectiveAt !== null
-      ? new Date(row.lastEffectiveAt).toISOString()
-      : null,
+    lastRetrievedAt:
+      row.lastRetrievedAt !== null
+        ? new Date(row.lastRetrievedAt).toISOString()
+        : null,
+    lastEffectiveAt:
+      row.lastEffectiveAt !== null
+        ? new Date(row.lastEffectiveAt).toISOString()
+        : null,
     retrievalCount: row.retrievalCount,
     effectiveRetrievals: row.effectiveRetrievals,
     failedUses: row.failedUses,
@@ -3667,18 +3707,21 @@ function splitCsv(joined: string | null): readonly string[] {
  */
 function matchesFilterLine(line: DigestLine, filter: SearchFilter): boolean {
   if (filter.domainTags && filter.domainTags.length > 0) {
-    if (!filter.domainTags.some((t) => line.domainTags.includes(t))) return false;
+    if (!filter.domainTags.some((t) => line.domainTags.includes(t)))
+      return false;
   }
   if (filter.contextTags && filter.contextTags.length > 0) {
-    if (!filter.contextTags.some((t) => line.contextTags.includes(t))) return false;
+    if (!filter.contextTags.some((t) => line.contextTags.includes(t)))
+      return false;
   }
   if (filter.kinds && filter.kinds.length > 0) {
     if (!filter.kinds.some((k) => line.kinds.includes(k))) return false;
   }
   // status 隐式默认:与 retrieval/filter.ts 一致
-  const statusFilter = filter.status && filter.status.length > 0
-    ? filter.status
-    : ["active", "draft"];
+  const statusFilter =
+    filter.status && filter.status.length > 0
+      ? filter.status
+      : ["active", "draft"];
   if (!statusFilter.includes(line.status)) return false;
   if (filter.freshness && filter.freshness.length > 0) {
     if (!filter.freshness.includes(line.freshness)) return false;
@@ -3687,8 +3730,12 @@ function matchesFilterLine(line: DigestLine, filter: SearchFilter): boolean {
     if (!filter.createdBy.includes(line.createdBy)) return false;
   }
   if (filter.createdAfter && line.createdAt < filter.createdAfter) return false;
-  if (filter.createdBefore && line.createdAt > filter.createdBefore) return false;
-  if (typeof filter.minImportance === "number" && line.importance < filter.minImportance) {
+  if (filter.createdBefore && line.createdAt > filter.createdBefore)
+    return false;
+  if (
+    typeof filter.minImportance === "number" &&
+    line.importance < filter.minImportance
+  ) {
     return false;
   }
   return true;
