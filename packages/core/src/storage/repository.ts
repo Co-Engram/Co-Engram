@@ -1905,9 +1905,7 @@ export class EngramRepository {
    * 不存在的 id 静默跳过(结果可能短于输入)。memory 模式 fallback 走
    * readEngram 逐个(数据规模小,N+1 影响可控)。
    */
-  readContentBatch(
-    ids: readonly string[],
-  ): ReadonlyArray<{
+  readContentBatch(ids: readonly string[]): ReadonlyArray<{
     readonly id: string;
     readonly title: string;
     readonly summary: string;
@@ -3445,6 +3443,21 @@ export class EngramRepository {
       );
     }).length;
 
+    // evidenceCount 派生:从 derives_from synapse.evidence 的 verdict 证据数算
+    // (description 以 [plausible/probable/verified/refuted] 开头)。
+    // 废弃 frontmatter 的死字段 fm.evidenceCount(从不 increment),对齐 network count 正模式。
+    // 这是 [[co-engram-architecture-defects]] index-no-truth 修复:派生量读取时算,不存盘。
+    const verdictEvidenceCount = synapses.outgoing
+      .filter((s) => s.kind === "derives_from")
+      .reduce(
+        (sum, s) =>
+          sum +
+          s.evidence.filter((ev) =>
+            /^\[(plausible|probable|verified|refuted)\]/.test(ev.description),
+          ).length,
+        0,
+      );
+
     const createdAt = fm.createdAt ?? now();
     const lastEffectiveAtForFreshness = fm.lastEffectiveAt ?? createdAt;
     const importanceForFreshness = fm.importance ?? DEFAULT_IMPORTANCE;
@@ -3484,7 +3497,7 @@ export class EngramRepository {
       importance: fm.importance ?? DEFAULT_IMPORTANCE,
       confidence: fm.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE.firsthand,
       sourceType: fm.sourceType ?? "firsthand",
-      evidenceCount: fm.evidenceCount ?? 0,
+      evidenceCount: verdictEvidenceCount,
       retrievalCount: fm.retrievalCount ?? 0,
       effectiveRetrievals: fm.effectiveRetrievals ?? 0,
       failedUses: fm.failedUses ?? 0,
