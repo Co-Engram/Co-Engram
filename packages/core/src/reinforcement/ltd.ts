@@ -73,7 +73,11 @@ export function recordRetrievalFailure(
 
   const before = repo.readEngram(id);
   const next = updateOnReportFailure(before.importance);
-  const delta = next - before.importance; // 负数
+  const baseDelta = next - before.importance; // 负数
+  // confidence 调制:低置信(<0.5)+ 错 → 加速衰减。default firsthand 0.85 正常衰减(×1)。
+  // 1 + max(0, (0.5−confidence)*2):0.85→1,0.5→1,0.2→1.6,0→2(双倍衰减)
+  const confidenceAccel = 1 + Math.max(0, (0.5 - before.confidence) * 2);
+  const delta = baseDelta * confidenceAccel;
 
   repo.bumpRetrievalStats(id, {
     retrievedDelta: 1,
