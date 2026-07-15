@@ -46,6 +46,7 @@ import { applyRpeUpdate } from "../signals/rpe.js";
 import type { ToolCallEvent } from "../signals/types.js";
 import { applyMetacognition } from "../verification/metacognition.js";
 import { applyDailyDecay } from "../importance/dynamics.js";
+import { lowConfidencePenalty } from "../reinforcement/confidence.js";
 import {
   computePromptSignals,
   writePromptSignals,
@@ -86,8 +87,7 @@ export class MaintenanceEngine {
       rules: config.rules ?? DEFAULT_RULES,
       windowSize: config.windowSize ?? 10,
       enabledStages:
-        config.enabledStages ??
-        (["light", "deep", "rem", "daily"] as const),
+        config.enabledStages ?? (["light", "deep", "rem", "daily"] as const),
       trash: config.trash ?? { enabled: false },
     };
   }
@@ -298,7 +298,13 @@ export class MaintenanceEngine {
       let decayed = 0;
       for (const candidate of candidates) {
         try {
-          const newImportance = applyDailyDecay(candidate.importance);
+          // daily batch 低频(24h),读 confidence 加 lowConfidencePenalty(N+1 可接受;
+          // 未来若 digest 加 confidence 字段可消除 N+1)
+          const engram = this.deps.repository.readEngram(candidate.id);
+          // daily-decay + lowConfidencePenalty:不可信记忆加速遗忘
+          const newImportance =
+            applyDailyDecay(candidate.importance) *
+            (1 - lowConfidencePenalty(engram.confidence));
           if (newImportance !== candidate.importance) {
             this.deps.repository.updateEngram(candidate.id, {
               importance: newImportance,
@@ -545,9 +551,7 @@ export class MaintenanceEngine {
             stage,
             durationMs,
             errorCount: errors.length,
-            ...(errors.length > 0
-              ? { errorMessage: errors[0]?.message }
-              : {}),
+            ...(errors.length > 0 ? { errorMessage: errors[0]?.message } : {}),
             ...(report.signalsProcessed !== undefined
               ? { signalsProcessed: report.signalsProcessed }
               : {}),
@@ -558,7 +562,11 @@ export class MaintenanceEngine {
               ? { decayed: report.decayed }
               : {}),
             ...(report.downstreamReport !== undefined
-              ? { downstreamSummary: extractAuditSummary(report.downstreamReport) }
+              ? {
+                  downstreamSummary: extractAuditSummary(
+                    report.downstreamReport,
+                  ),
+                }
               : {}),
           },
         });
