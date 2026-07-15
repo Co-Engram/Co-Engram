@@ -21,7 +21,7 @@
 
 import { readFileSync, existsSync } from "node:fs";
 import { join as joinPath } from "node:path";
-import { registerCoEngramTools, startCoEngramViewer } from "./plugin-entry.js";
+import { registerCoEngramTools } from "./plugin-entry.js";
 import {
   resolveLanguage,
   parseLanguage,
@@ -280,14 +280,14 @@ const entry = {
     }
     const promptSignals = readPromptSignalsSync(bootstrapDataRoot);
     const resolvedDataRoot = bootstrapDataRoot;
-    const ctx = registerCoEngramTools(api, {
+    // viewer 启动已移入 registerCoEngramTools 内部(holder gating + onGained 补启,
+    // 对齐 claude-code),此处不再无条件拉起 —— 避免双宿主共享 dataRoot 时两边都启
+    // viewer 抢 18899 端口。
+    registerCoEngramTools(api, {
       ...userConfig,
       dataRoot: resolvedDataRoot,
       ...(promptSignals ? { promptSignals } : {}),
     });
-    if (userConfig.startViewer === true) {
-      void startCoEngramViewer(ctx, { ...userConfig, dataRoot: resolvedDataRoot });
-    }
   },
 };
 

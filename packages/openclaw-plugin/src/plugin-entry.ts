@@ -412,12 +412,11 @@ export function registerCoEngramTools(
   // rotation / fs.watch / external markdown hook 等共享型后台任务。non-holder
   // 跳过这些任务但仍正常服务工具调用 + hook 回调。
   //
-  // 设计权衡(简化版):non-holder 整个生命周期不跑后台任务,即使后续 holder
-  // 退出本进程接管也不补启动 —— 极端场景下 maintenance / watcher 暂停到下个
-  // 新进程启动。light/deep 默认间隔大 + mtime fallback 兜底 search 正确性,
-  // 影响有限;换取实现简洁(无 onAcquire 回调)。
-  const effectiveDataRoot =
-    config.dataRoot ?? DEFAULT_CONFIG.dataRoot;
+  // 设计权衡:non-holder 跳过 holder-only 后台任务(maintenance / rotation / watcher /
+  // viewer)。后续若 holder 退出、本进程经 onGained 接管,会补启动这些任务(见下方
+  // onLost / onGained 注册),不再停摆到下个新进程启动(light/deep 间隔大,mtime fallback
+  // 兜底 search 正确性)。
+  const effectiveDataRoot = config.dataRoot ?? DEFAULT_CONFIG.dataRoot;
   const processLock = acquireProcessLock({
     dataRoot: effectiveDataRoot,
     host: "openclaw-plugin",
@@ -486,7 +485,11 @@ export function registerCoEngramTools(
   // holder gating:non-holder 跳过 maintenance / rotation / watcher 等共享型
   // 后台任务,避免多 host adapter 进程叠加烧 CPU / fs.watch 链式响应
   let stopMaintenance: (() => void) | undefined;
-  if (config.startMaintenance !== false && ctx.signalSink && processLock.isHolder) {
+  if (
+    config.startMaintenance !== false &&
+    ctx.signalSink &&
+    processLock.isHolder
+  ) {
     const runtime = startMaintenanceRuntime(
       {
         repository: ctx.repository,
@@ -523,9 +526,29 @@ export function registerCoEngramTools(
     }
   }
 
-  // 注册 onLost:失去锁时停止 holder-only 任务(maintenance / rotation / watcher)。
+  // viewer holder gating(对齐 claude-code mcp-server.ts / daemon-entry.ts):
+  // viewer 绑定 known port 18899,是 dataRoot 维度单一资源。只有 holder 启 viewer;
+  // non-holder 启会 EADDRINUSE 重试到随机端口,而 observe hook / 客户端固定访问 18899
+  // 会找不到。openclaw 与 claude-code 共享同一 dataRoot 时,无论哪个宿主是 holder,
+  // 其 viewer 都在 18899 服务所有客户端;non-holder 接管时经下方 onGained 补启。
+  let viewerStop: (() => Promise<void>) | undefined;
+  const startHolderViewer = (): void => {
+    if (viewerStop) return; // 幂等:已启动则跳过(避免重复占端口)
+    if (config.startViewer !== true) return;
+    void startCoEngramViewer(ctx, {
+      ...config,
+      dataRoot: effectiveDataRoot,
+    }).then((r) => {
+      if (r.stopViewer) viewerStop = r.stopViewer;
+    });
+  };
+  if (processLock.isHolder) {
+    startHolderViewer();
+  }
+
+  // 注册 onLost:失去锁时停止 holder-only 任务(maintenance / rotation / watcher / viewer)。
   // 注册是无条件的:non-holder 时 stop 函数都是 undefined,回调是 no-op。
-  // OpenClaw viewer 由 entry.ts 单独管理,不在此处关闭(避免杀整个 gateway)。
+  // viewer 同为 holder-only 资源:失锁时关闭,让新 holder 能绑同端口 18899。
   processLock.onLost(() => {
     try {
       ctx.repository.stopWatching();
@@ -534,15 +557,21 @@ export function registerCoEngramTools(
     }
     stopMaintenance?.();
     stopAuditRotation?.();
+    viewerStop?.();
+    viewerStop = undefined;
   });
 
   // 注册 onGained:non-holder 通过 retry take over 成为 holder 时,补启动此前跳过的
-  // holder-only 任务(maintenance / audit rotation / external markdown watcher)。
-  // 与 mcp-server.ts 的 onGained viewer 启动对称 — 否则旧 holder 退出后,本进程
-  // 接管锁但 maintenance 等任务停摆到下个新 session 启动(light/deep 间隔大,可接受
-  // 短时间停摆,但能补就补,2026-07 完善对 ProcessLock.onGained 的支持)。
+  // holder-only 任务(maintenance / audit rotation / external markdown watcher / viewer)。
+  // 与 mcp-server.ts / daemon-entry.ts 的 onGained viewer 启动对称 — 否则旧 holder 退出后,
+  // 本进程接管锁但 viewer 等任务停摆(light/deep 间隔大,可接受短时间停摆,但能补就补)。
   processLock.onGained(() => {
-    if (stopMaintenance === undefined && config.startMaintenance !== false && ctx.signalSink) {
+    startHolderViewer();
+    if (
+      stopMaintenance === undefined &&
+      config.startMaintenance !== false &&
+      ctx.signalSink
+    ) {
       const runtime = startMaintenanceRuntime(
         {
           repository: ctx.repository,
@@ -581,10 +610,7 @@ export function registerCoEngramTools(
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {
       if (ctx.searchOrchestrator) {
-        rebuildSearchIndex(
-          ctx.searchOrchestrator,
-          ctx.repository,
-        );
+        rebuildSearchIndex(ctx.searchOrchestrator, ctx.repository);
       }
     });
     // .yaml 外部修改(git pull / Edit)→ debounce 重建 graph.json + SQLite synapse 表。
@@ -722,10 +748,7 @@ export function registerCoEngramTools(
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {
       if (ctx.searchOrchestrator) {
-        rebuildSearchIndex(
-          ctx.searchOrchestrator,
-          ctx.repository,
-        );
+        rebuildSearchIndex(ctx.searchOrchestrator, ctx.repository);
       }
     });
     // .yaml 外部修改(git pull / Edit)→ debounce 重建 graph.json + SQLite synapse 表。

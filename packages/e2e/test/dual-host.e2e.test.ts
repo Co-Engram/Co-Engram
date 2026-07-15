@@ -14,7 +14,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { spawn, type ChildProcess } from "node:child_process";
+import { createServer } from "node:net";
+import { fileURLToPath } from "node:url";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
@@ -120,6 +123,66 @@ async function callMcp(
     return JSON.parse(content[0].text);
   }
   throw new Error(`Unexpected MCP content: ${JSON.stringify(content)}`);
+}
+
+// ============================================================
+// 多进程 viewer holder gating 辅助
+// ============================================================
+
+const TEST_DIR = dirname(fileURLToPath(import.meta.url));
+const VIEWER_PROC_SCRIPT = join(TEST_DIR, "helpers/viewer-holder-process.mjs");
+
+/** 找一个空闲端口(避免与生产 18899 或其他测试冲突) */
+function findFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createServer();
+    srv.unref();
+    srv.on("error", reject);
+    srv.listen(0, "127.0.0.1", () => {
+      const addr = srv.address();
+      if (addr && typeof addr === "object") {
+        const p = addr.port;
+        srv.close(() => resolve(p));
+      } else {
+        srv.close();
+        reject(new Error("cannot determine free port"));
+      }
+    });
+  });
+}
+
+/** 探测端口 HTTP 状态码;连接失败返回 0 */
+async function httpStatus(port: number): Promise<number> {
+  try {
+    const resp = await fetch(`http://127.0.0.1:${port}/`);
+    return resp.status;
+  } catch {
+    return 0;
+  }
+}
+
+/** 轮询端口直到返回期望状态码(或超时) */
+async function pollHttp(
+  port: number,
+  expectStatus: number,
+  timeoutMs = 8000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if ((await httpStatus(port)) === expectStatus) return;
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  throw new Error(
+    `port ${port} 未在 ${timeoutMs}ms 内返回 HTTP ${expectStatus}`,
+  );
+}
+
+/** spawn 一个子进程:注册 openclaw plugin + 启 viewer(指定端口) */
+function spawnViewerProc(dataRoot: string, port: number): ChildProcess {
+  return spawn("node", [VIEWER_PROC_SCRIPT, dataRoot, String(port)], {
+    cwd: TEST_DIR,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 }
 
 // ============================================================
@@ -362,4 +425,51 @@ describe("双宿主共享同一份 team-memory 数据", () => {
     expect(fileRaw).toContain("检索次数: 0");
     expect(fileRaw).toContain("内容");
   });
+});
+
+// ============================================================
+// viewer holder gating(多进程:单一端口契约)
+//
+// 这是 [[co-engram-architecture-defects]] dual-host viewer 端口冲突修复的回归保护。
+// 同进程 in-memory 测不出此契约(模块级 viewerRuntime 幂等让第二个
+// registerCoEngramTools 永远跳过),端口冲突只在不同 Node 进程间发生 —— 所以这里
+// spawn 两个子进程共享同一 dataRoot:只有 holder 启 viewer;non-holder 若 holder
+// gating 失效,会 startViewerServer → EADDRINUSE → 重试到 port+1,被断言捕获。
+// holder 机制本身(acquire/onGained/stale/failover)由 core/process-lock.test.ts 覆盖。
+// ============================================================
+describe("viewer holder gating(多进程:单一端口契约)", () => {
+  it("同一 dataRoot 上只有 holder 启 viewer;non-holder 不抢端口", async () => {
+    const port = await findFreePort();
+    const nextPort = port + 1;
+    const procs: ChildProcess[] = [];
+
+    try {
+      // 进程 A(先启动 → holder):启 viewer
+      const procA = spawnViewerProc(tmpDir, port);
+      procs.push(procA);
+      await pollHttp(port, 200); // A 的 viewer 就绪
+
+      // 进程 B(后启动 → non-holder):不应启 viewer(holder gating)
+      const procB = spawnViewerProc(tmpDir, port);
+      procs.push(procB);
+      // 给 B 注册 + 确认它没启 viewer 的时间
+      await new Promise((r) => setTimeout(r, 3000));
+
+      // 断言 1:port 仍是 A 的 viewer(holder 的 viewer 在服务)
+      expect(await httpStatus(port)).toBe(200);
+      // 断言 2:B 没有因 EADDRINUSE 重试启自己的 viewer
+      // 若 holder gating 失效,B 会 startViewerServer(port) → EADDRINUSE → 重试到 nextPort
+      expect(await httpStatus(nextPort)).toBe(0);
+    } finally {
+      for (const p of procs) {
+        try {
+          p.kill("SIGTERM");
+        } catch {
+          // ignore
+        }
+      }
+      // 等子进程退出,释放端口(避免污染后续测试)
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }, 30_000);
 });

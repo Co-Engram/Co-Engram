@@ -122,7 +122,9 @@ function getLanguageFromEnv(): Language | undefined {
 async function main(): Promise<void> {
   const dataRoot = process.argv[2];
   if (!dataRoot) {
-    process.stderr.write(`[co-engram-daemon] FATAL: missing dataRoot argument\n`);
+    process.stderr.write(
+      `[co-engram-daemon] FATAL: missing dataRoot argument\n`,
+    );
     process.exit(1);
   }
 
@@ -138,8 +140,11 @@ async function main(): Promise<void> {
   }
   // daemon 直接用 argv[2] 作为 dataRoot,不走 resolveBootstrapDataRoot
   // (launcher spawn 前已解析过,这里信任)。但仍要跑 config 自愈。
-  const { config: persistedConfig, event: configEvent, backupPath } =
-    await loadAndSelfHealConfig(dataRoot);
+  const {
+    config: persistedConfig,
+    event: configEvent,
+    backupPath,
+  } = await loadAndSelfHealConfig(dataRoot);
   if (configEvent === "created") {
     process.stderr.write(
       `[co-engram-daemon] config.json created with defaults\n`,
@@ -193,14 +198,12 @@ async function main(): Promise<void> {
           : {}),
         ...(persistedConfig.proposals?.minMessageLength
           ? {
-              minMessageLength:
-                persistedConfig.proposals.minMessageLength,
+              minMessageLength: persistedConfig.proposals.minMessageLength,
             }
           : {}),
         ...(persistedConfig.proposals?.defaultDismissDays
           ? {
-              defaultDismissDays:
-                persistedConfig.proposals.defaultDismissDays,
+              defaultDismissDays: persistedConfig.proposals.defaultDismissDays,
             }
           : {}),
       }
@@ -292,9 +295,17 @@ async function main(): Promise<void> {
   }
 
   // === Viewer(同 mcp-server.ts,holder-only) ===
+  // holder gating:viewer 绑定 known port 18899,只有 holder 启(non-holder
+  // 启会 EADDRINUSE 重试到随机端口,客户端找不到)。daemon 启动时可能是
+  // non-holder(已有别的 holder),后续 onGained 接管时必须启 viewer —— 否则
+  // 会出现「daemon 是 holder 却没监听 18899」的静默故障(2026-07 实测,正是
+  // viewer 网页打不开的根因:旧实现只检查启动时的 isHolder,缺 onGained)。
   const viewerEnabled = persistedConfig.viewer?.enabled ?? proposalEnabled;
   let viewerRuntime: ViewerRuntime | undefined;
-  if (viewerEnabled && processLock.isHolder) {
+  // 幂等闭包:viewerRuntime 已存在则跳过(避免重复启动占端口)。
+  const startHolderViewer = async (): Promise<void> => {
+    if (viewerRuntime) return;
+    if (!viewerEnabled) return;
     try {
       viewerRuntime = await startViewerServer(ctx, {
         language,
@@ -304,17 +315,43 @@ async function main(): Promise<void> {
       process.stderr.write(
         `[co-engram-daemon] Viewer listening on http://127.0.0.1:${viewerRuntime.port}\n`,
       );
-      processLock.onLost(() => {
-        viewerRuntime?.stop().catch(() => {
-          // ignore
-        });
-        viewerRuntime = undefined;
-      });
     } catch (err) {
       process.stderr.write(
         `[co-engram-daemon] Viewer failed to start: ${err instanceof Error ? err.message : String(err)}\n`,
       );
+      if (proposalEnabled) {
+        process.stderr.write(
+          `[co-engram-daemon] WARNING: proposal engine is enabled but viewer is down — Claude Code observe hook will silently no-op.\n`,
+        );
+      }
     }
+  };
+  // 失去 holder 锁时关 viewer,让新 holder 能绑同端口。顶层注册一次,
+  // viewerRuntime 未启时 stop() 走可选链 noop,覆盖 holder 与 non-holder 两路。
+  processLock.onLost(() => {
+    viewerRuntime?.stop().catch(() => {
+      // ignore — 关闭失败不阻塞失去锁流程
+    });
+    viewerRuntime = undefined;
+  });
+  if (processLock.isHolder) {
+    // 启动时即是 holder:立即启 viewer(viewer 未启用时闭包内跳过)。
+    await startHolderViewer();
+  } else {
+    // non-holder:viewer 由 holder 启动,本进程工具/hook 仍经 holder 的 viewer。
+    // 若后续 holder 退出、本进程接管,靠 onGained 启 viewer
+    // (修复点:旧实现缺此分支 → 接管后 18899 静默不监听)。
+    if (proposalEnabled) {
+      process.stderr.write(
+        `[co-engram-daemon] NOTE: non-holder — viewer is started by the holder process; will start viewer if this daemon takes over the lock.\n`,
+      );
+    }
+    processLock.onGained(() => {
+      // fire-and-forget:onGained 签名 sync,async 启动不阻塞 retry 流程
+      startHolderViewer().catch(() => {
+        // ignore — 错误已在 startHolderViewer 内 stderr 提示
+      });
+    });
   }
 
   // === Auto-memory watcher(同 mcp-server.ts) ===
@@ -325,9 +362,8 @@ async function main(): Promise<void> {
       (autoMemorySyncConfig?.enabled === false ? "0" : "1")) !== "0";
   if (autoMemorySyncEnabled) {
     try {
-      const { AutoMemoryWatcher, AutoMemorySyncEngine } = await import(
-        "../memory-sync/index.js"
-      );
+      const { AutoMemoryWatcher, AutoMemorySyncEngine } =
+        await import("../memory-sync/index.js");
       const homeDir = process.env.HOME ?? "";
       const projectsRoot =
         autoMemorySyncConfig?.projectsRoot ||
@@ -373,13 +409,19 @@ async function main(): Promise<void> {
   const connections = new Set<Socket>();
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
   const idleTimeoutMs = parseInt(
-    process.env.CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS ?? String(DEFAULT_IDLE_TIMEOUT_MS),
+    process.env.CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS ??
+      String(DEFAULT_IDLE_TIMEOUT_MS),
     10,
   );
   let shuttingDown = false;
 
   const armIdleTimer = (): void => {
-    if (idleTimer !== null || !Number.isFinite(idleTimeoutMs) || idleTimeoutMs <= 0) return;
+    if (
+      idleTimer !== null ||
+      !Number.isFinite(idleTimeoutMs) ||
+      idleTimeoutMs <= 0
+    )
+      return;
     idleTimer = setTimeout(() => {
       if (connections.size === 0 && !shuttingDown) {
         process.stderr.write(
@@ -424,16 +466,16 @@ async function main(): Promise<void> {
       // 直接调 createCoEngramMcpServer 会再启一次 maintenance / fs.watch — 不是我们要的。
       // 我们需要只创建 McpServer 实例 + 注册工具,不重新 bootstrap runtime。
       // 由于 createCoEngramMcpServer 把两者耦合在一起,daemon 模式下我们直接重新注册:
-      const { McpServer } = await import("@modelcontextprotocol/sdk/server/mcp.js");
+      const { McpServer } =
+        await import("@modelcontextprotocol/sdk/server/mcp.js");
       const {
         createToolRegistry,
         wrapAllToolsWithSignalSink,
         wrapAllToolsWithErrorBoundary,
         DEFAULT_LANGUAGE: DEFAULT_LANG,
       } = await import("@co-engram/core");
-      const { registerCoEngramTool, buildInstructionSessionState } = await import(
-        "../register.js"
-      );
+      const { registerCoEngramTool, buildInstructionSessionState } =
+        await import("../register.js");
       const { buildServerInstructions } = await import("../instructions.js");
       const { filterToolsByProfile } = await import("../tool-profile.js");
       const { registerMcpPrompts } = await import("../prompts.js");
