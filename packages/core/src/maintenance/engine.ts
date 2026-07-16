@@ -246,13 +246,21 @@ export class MaintenanceEngine {
       );
 
       let metacognitionApplied = 0;
+      // 收集 REM 实际修改的 engram(升级/反驳),供 viewer 实例化展示
+      const remModified: { engramId: string; action: string }[] = [];
       for (const candidate of candidates) {
         try {
           const result = await applyMetacognition(
             this.deps.repository,
             candidate.id,
           );
-          if (result.applied) metacognitionApplied += 1;
+          if (result.applied) {
+            metacognitionApplied += 1;
+            remModified.push({
+              engramId: candidate.id,
+              action: result.newStatus ?? "evaluated",
+            });
+          }
         } catch {
           // 单个 engram 失败不阻塞整体
         }
@@ -263,6 +271,7 @@ export class MaintenanceEngine {
           dream: dreamRecord,
           metacognitionApplied,
           metacognitionTotal: candidates.length,
+          remModified,
         },
       };
     });

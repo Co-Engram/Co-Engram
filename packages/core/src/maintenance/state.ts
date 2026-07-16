@@ -76,7 +76,11 @@ export async function readMaintenanceState(
   try {
     const raw = await readFile(filePath, "utf8");
     const parsed = JSON.parse(raw) as Partial<MaintenanceState>;
-    if (parsed?.version !== 1 || typeof parsed.stages !== "object" || !parsed.stages) {
+    if (
+      parsed?.version !== 1 ||
+      typeof parsed.stages !== "object" ||
+      !parsed.stages
+    ) {
       return EMPTY_STATE;
     }
     return {
@@ -161,7 +165,11 @@ function extractReportSummary(
     const ds = report.downstreamReport as Record<string, unknown>;
     const dsSummary: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(ds)) {
-      if (
+      if (k === "remModified" && Array.isArray(v)) {
+        // remModified 保留具体(engramId + action),供 viewer 实例化展示
+        // 「上次 REM 升级/反驳了哪些 engram」。通常 2-29 条 × ~50 字节 < 1.5KB。
+        dsSummary.remModified = v;
+      } else if (
         typeof v === "number" ||
         typeof v === "string" ||
         typeof v === "boolean"
