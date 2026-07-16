@@ -1468,7 +1468,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.dreamBadge": "dream sleep",
   "viewer.maintenance.dreamBadgeTip":
     "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
-  "viewer.maintenance.remModifiedLabel": "Last REM modified",
   "viewer.maintenance.status.healthy": "in cycle",
   "viewer.maintenance.status.soon": "due soon",
   "viewer.maintenance.status.overdue": "overdue",

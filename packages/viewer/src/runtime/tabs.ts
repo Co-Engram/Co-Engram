@@ -3223,32 +3223,10 @@ window.CO_ENGRAM_MAINTENANCE = {
 
       const barHtml = '<div class="bar-track" title="' + CO_ENGRAM.escapeHtml(progressBarTip) + '" style="margin-top:0.45rem;cursor:help"><div class="bar-fill" style="width:' + (elapsed ? pct(elapsed, interval) : 0) + '%"></div></div>';
 
-      // REM 实例化:显示上次 REM 修改了哪些 engram
-      var remModifiedHtml = "";
-      if (stage === "rem" && lastResult && lastResult.downstreamSummary && Array.isArray(lastResult.downstreamSummary.remModified) && lastResult.downstreamSummary.remModified.length > 0) {
-        var mods = lastResult.downstreamSummary.remModified;
-        remModifiedHtml = "<div class=\"kpi-sub\" style=\"margin-top:0.4rem\"><span style=\"opacity:0.6\">" + T.t("viewer.maintenance.remModifiedLabel") + ":</span> ";
-        remModifiedHtml += mods
-          .map(function (m) {
-            return (
-              '<a onclick="CO_ENGRAM_ENGRAMS.open(\\'' +
-              CO_ENGRAM.escapeHtml(m.engramId) +
-              '\\')" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline">' +
-              CO_ENGRAM.escapeHtml(m.action) +
-              " " +
-              CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) +
-              "</a>"
-            );
-          })
-          .join(", ");
-        remModifiedHtml += "</div>";
-      }
-
       return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(94,234,212,0.1));border-radius:8px">'
         + headerHtml
         + barHtml
         + summaryHtml
-        + remModifiedHtml
         + errorHtml
         + '</div>';
     }

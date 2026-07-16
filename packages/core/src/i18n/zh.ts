@@ -1429,7 +1429,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.dreamBadge": "梦睡眠",
   "viewer.maintenance.dreamBadgeTip":
     "REM 是借用人类睡眠神经科学的隐喻:此阶段类似梦境记忆巩固,把白天散落的记忆痕迹重塑为长存的 pattern。",
-  "viewer.maintenance.remModifiedLabel": "上次 REM 修改",
   "viewer.maintenance.status.healthy": "周期内",
   "viewer.maintenance.status.soon": "即将到期",
   "viewer.maintenance.status.overdue": "已过期",
