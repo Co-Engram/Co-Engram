@@ -141,10 +141,10 @@ describe("truthFactorFromStatus", () => {
 // ============================================================
 
 describe("computeFourFactorScore", () => {
-  it("默认权重 α=0.5 β=0.2 γ=0.2 δ=0.1", () => {
+  it("默认权重 α=0.5 β=0 γ=0.4 δ=0.1(importance 唯一排序,freshness 不参与)", () => {
     expect(DEFAULT_WEIGHTS.alpha).toBe(0.5);
-    expect(DEFAULT_WEIGHTS.beta).toBe(0.2);
-    expect(DEFAULT_WEIGHTS.gamma).toBe(0.2);
+    expect(DEFAULT_WEIGHTS.beta).toBe(0);
+    expect(DEFAULT_WEIGHTS.gamma).toBe(0.4);
     expect(DEFAULT_WEIGHTS.delta).toBe(0.1);
   });
 
@@ -175,13 +175,10 @@ describe("computeFourFactorScore", () => {
     const expectedStrength = 0;
     const expected =
       0.5 * 1 +
-      0.2 * expectedRecency +
-      0.2 * expectedEffImp +
+      0 * expectedRecency +
+      0.4 * expectedEffImp +
       0.1 * expectedStrength;
-    expect(computeFourFactorScore(1, line, { now })).toBeCloseTo(
-      expected,
-      3,
-    );
+    expect(computeFourFactorScore(1, line, { now })).toBeCloseTo(expected, 3);
   });
 
   it("strength 维度独立于 importance:同 importance 但 reinforcementScore 不同 → 分数不同", () => {
@@ -235,10 +232,7 @@ describe("computeFourFactorScore", () => {
       delta: 0,
     };
     // 纯 relevance
-    expect(computeFourFactorScore(0.7, line, { weights })).toBeCloseTo(
-      0.7,
-      3,
-    );
+    expect(computeFourFactorScore(0.7, line, { weights })).toBeCloseTo(0.7, 3);
   });
 
   it("同输入同输出(确定性)", () => {

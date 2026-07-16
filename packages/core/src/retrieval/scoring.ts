@@ -44,11 +44,20 @@ export interface FourFactorWeights {
   readonly delta: number;
 }
 
-/** 默认权重(spec §3.7:α=0.5, β=0.2, γ=0.2, δ=0.1) */
+/**
+ * 默认权重。
+ *
+ * 2026-07 修正(importance/freshness 职责分离):
+ *   - β(recency)= 0:freshness(effectiveAge)不参与排序。freshness 只管
+ *     forgotten 过滤(filter.ts 默认排除 forgotten),不参与检索分。
+ *     原 β=0.2 让 importance 通过 halflife(recency)双计,正反馈放大。
+ *   - γ(importance)0.2→0.4:吸收 β 权重。importance 是唯一排序信号
+ *     (含近期使用信号 via reinforce/decay)。
+ */
 export const DEFAULT_WEIGHTS: FourFactorWeights = {
   alpha: 0.5,
-  beta: 0.2,
-  gamma: 0.2,
+  beta: 0,
+  gamma: 0.4,
   delta: 0.1,
 };
 
