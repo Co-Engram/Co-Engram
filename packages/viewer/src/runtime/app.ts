@@ -466,6 +466,12 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('click', function(e) {
     var menu = document.getElementById('more-menu');
     if (menu && !menu.contains(e.target)) CO_ENGRAM.toggleMoreMenu(false);
+    // REM remModified:点击 rem-mod-item → open engram 详情
+    var remItem = e.target.closest('.rem-mod-item');
+    if (remItem && remItem.dataset.engramId) {
+      CO_ENGRAM.showTab('engrams');
+      setTimeout(function() { CO_ENGRAM_ENGRAMS.open(remItem.dataset.engramId); }, 50);
+    }
   });
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') CO_ENGRAM.toggleMoreMenu(false);
