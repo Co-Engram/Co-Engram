@@ -66,13 +66,18 @@ export function applyDailyDecay(current: number): number {
 /**
  * 半衰期派生(机制 D):重要记忆衰减慢。
  *
- * 公式:halflife = BASE * (importance + 0.1) ^ 2.5
- *   importance=0.0 → 0.16 天(快速遗忘)
- *   importance=0.5 → 14 天(中等)
- *   importance=1.0 → 63 天(深度巩固)
+ * 公式:halflife = BASE * (importance + 0.1) ^ 1.5
+ *   importance=0.0 → 1.6 天(快速遗忘,但不暴坠)
+ *   importance=0.5 → 23 天(中等)
+ *   importance=1.0 → 58 天(深度巩固)
+ *
+ * 2026-07 修正:指数从 2.5 降到 1.5。原 2.5 让低 importance 区间 halflife
+ * 暴降(0.0→0.16 天=4 小时),叠加 daily decay 形成正反馈坠落
+ * (不用 → importance 降 → halflife 暴降 → forgotten → 永不检索)。
+ * 1.5 保留「重要慢衰」方向(importance 高→halflife 长),但低区间温和。
  */
 export function deriveHalfLifeDays(importance: number): number {
-  return BASE_HALFLIFE_DAYS * Math.pow(importance + 0.1, 2.5);
+  return BASE_HALFLIFE_DAYS * Math.pow(importance + 0.1, 1.5);
 }
 
 /**

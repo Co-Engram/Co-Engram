@@ -66,14 +66,17 @@ describe("importance dynamics", () => {
   });
 
   describe("deriveHalfLifeDays", () => {
-    it("returns base 7 days at importance=0.5", () => {
-      expect(deriveHalfLifeDays(0.5)).toBeCloseTo(14, 0);
+    // 2026-07:指数从 2.5 降到 1.5(消除低 importance 坠落),数值随之调整
+    it("returns ~23 days at importance=0.5", () => {
+      expect(deriveHalfLifeDays(0.5)).toBeCloseTo(23, 0);
     });
     it("returns longer halflife for higher importance", () => {
       expect(deriveHalfLifeDays(0.9)).toBeGreaterThan(deriveHalfLifeDays(0.5));
     });
-    it("returns very short halflife for low importance", () => {
-      expect(deriveHalfLifeDays(0.05)).toBeLessThan(1);
+    it("returns short (but not extreme) halflife for low importance", () => {
+      // 1.5 次方:importance=0.05 → ~2.9 天(原 2.5 次方 0.44 天,过于极端)
+      expect(deriveHalfLifeDays(0.05)).toBeLessThan(5);
+      expect(deriveHalfLifeDays(0.05)).toBeGreaterThan(1);
     });
   });
 
