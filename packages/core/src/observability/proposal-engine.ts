@@ -448,8 +448,11 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
-      sampleQuotes: [`score=${truthScore.toFixed(2)}`, reasoning.slice(0, 120)],
-      centroidExcerpt: `${engramTitle.slice(0, 40)}: ${before} → ${action}`,
+      sampleQuotes: [
+        `元认知评分：${truthScore.toFixed(2)}/1.0`,
+        `REM 建议升级验证状态（${before} → ${action}）`,
+      ],
+      centroidExcerpt: `「${engramTitle.slice(0, 30)}」验证：${before} → ${action}`,
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
       createdAt: existing?.createdAt ?? now,
