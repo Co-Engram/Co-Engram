@@ -33,6 +33,7 @@ import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
+import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
@@ -69,11 +70,13 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
-/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 */
+/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 */
 export type ProposalSource =
   | "conversation"
   | "auto-memory"
-  | "external-markdown";
+  | "external-markdown"
+  | "rem-verification"
+  | "rem-pattern";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -101,6 +104,20 @@ export interface ProposalPayload {
   readonly encodingContext?: string;
   /** external-markdown 专用:文件在 dataRoot 内的相对路径 */
   readonly sourcePath?: string;
+}
+
+/** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
+export interface VerificationProposalPayload {
+  /** REM 建议的目标状态 */
+  readonly action: string;
+  /** 修改前 verificationStatus */
+  readonly before: string;
+  /** 修改后（= action） */
+  readonly after: string;
+  /** REM truth score */
+  readonly truthScore: number;
+  /** REM 为什么建议 */
+  readonly reasoning: string;
 }
 
 /** 候选提案 */
@@ -442,6 +459,30 @@ export class ProposalEngine {
     const target = proposals.find((p) => p.entityId === entityId);
     if (!target) {
       throw notFoundError("Proposal", entityId);
+    }
+
+    // REM verification proposal:accept → 改 verificationStatus（不创建 engram）
+    if (target.source === "rem-verification") {
+      const engramId = entityId.replace(/^rem:/, "");
+      const payload = target.payload as VerificationProposalPayload | undefined;
+      const newStatus = (payload?.after ?? payload?.action) as
+        | VerificationStatus
+        | undefined;
+      if (newStatus) {
+        this.repository.updateVerificationStatus(engramId, newStatus);
+      }
+      const updated = proposals.map((p) =>
+        p.entityId === entityId
+          ? {
+              ...p,
+              status: "accepted" as const,
+              acceptedEngramId: engramId,
+            }
+          : p,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      return engramId;
     }
 
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
