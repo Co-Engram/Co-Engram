@@ -77,6 +77,7 @@ export interface MaintenanceDeps {
   readonly proposalEngine?: {
     proposeVerification(
       engramId: string,
+      engramTitle: string,
       action: string,
       before: string,
       truthScore: number,

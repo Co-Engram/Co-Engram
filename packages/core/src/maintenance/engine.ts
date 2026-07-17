@@ -264,6 +264,7 @@ export class MaintenanceEngine {
             if (this.deps.proposalEngine && result.newStatus) {
               this.deps.proposalEngine.proposeVerification(
                 candidate.id,
+                candidate.title,
                 result.newStatus,
                 candidate.verificationStatus ?? "unverified",
                 result.score.overall,

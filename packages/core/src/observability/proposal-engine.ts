@@ -426,6 +426,7 @@ export class ProposalEngine {
    */
   proposeVerification(
     engramId: string,
+    engramTitle: string,
     action: string,
     before: string,
     truthScore: number,
@@ -448,7 +449,7 @@ export class ProposalEngine {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
       sampleQuotes: [`score=${truthScore.toFixed(2)}`, reasoning.slice(0, 120)],
-      centroidExcerpt: `${before} → ${action}`,
+      centroidExcerpt: `${engramTitle.slice(0, 40)}: ${before} → ${action}`,
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
       createdAt: existing?.createdAt ?? now,
