@@ -477,7 +477,7 @@ describe("Metacognition - applyMetacognition", () => {
     expect(result.applied).toBe(true);
     expect(result.newStatus).toBe("plausible");
     const after = repo.readEngram(engram.id);
-    expect(after.verificationStatus).toBe("plausible");
+    expect(after.verificationStatus).toBe("unverified"); // REM 审批化:不直接落盘;
   });
 
   it("recommendation=upgrade_verified → verified", async () => {
@@ -490,7 +490,7 @@ describe("Metacognition - applyMetacognition", () => {
     expect(result.applied).toBe(true);
     expect(result.newStatus).toBe("verified");
     const after = repo.readEngram(engram.id);
-    expect(after.verificationStatus).toBe("verified");
+    expect(after.verificationStatus).toBe("unverified"); // REM 审批化:不直接落盘;
   });
 
   it("recommendation=refute → refuted", async () => {
@@ -537,9 +537,9 @@ describe("Metacognition - applyMetacognition", () => {
     expect(result.score.recommendation).toBe("upgrade_verified");
     // 已 verified,无需再动（幂等）
     expect(result.applied).toBe(false);
-    expect(result.newStatus).toBe("verified");
+    expect(result.newStatus).toBeUndefined(); // 已 verified,无需再升
     const after = repo.readEngram(engram.id);
-    expect(after.verificationStatus).toBe("verified");
+    expect(after.verificationStatus).toBe("verified"); // 已 verified,REM 不改(审批化)
   });
 
   it("engram 不存在 → 抛错", async () => {

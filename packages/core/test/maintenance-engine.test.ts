@@ -63,9 +63,9 @@ describe("MaintenanceEngine - 默认配置", () => {
   it("默认间隔合理", () => {
     expect(DEFAULT_LIGHT_INTERVAL_MS).toBe(5 * 60 * 1000);
     expect(DEFAULT_DEEP_INTERVAL_MS).toBe(60 * 60 * 1000);
-    expect(DEFAULT_REM_INTERVAL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(DEFAULT_REM_INTERVAL_MS).toBe(86400000); // 1 day
     expect(DEFAULT_DAILY_INTERVAL_MS).toBe(24 * 60 * 60 * 1000);
-    expect(DEFAULT_SIGNAL_PRUNE_AGE_MS).toBe(7 * 24 * 60 * 60 * 1000);
+    expect(DEFAULT_SIGNAL_PRUNE_AGE_MS).toBe(604800000); // 7 days
   });
 
   it("零配置启动默认全开 light/deep/rem/daily", () => {

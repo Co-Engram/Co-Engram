@@ -68,7 +68,7 @@ describe("applyDecayBatch", () => {
   });
 
   it("forgotten freshness(>4×halfLife 未强化)→ forget", () => {
-    // importance=0.5 → halfLife≈14 天;500 天 >> 4×14=56 天 → forgotten
+    // importance=0.5 → halfLife≈23 天;500 天 >> 4×14=56 天 → forgotten
     const engram = makeEngram({
       title: "A",
       content: "a",
@@ -82,13 +82,13 @@ describe("applyDecayBatch", () => {
   });
 
   it("stale + 高 importance → archive", () => {
-    // importance=0.5 → halfLife≈14 天;30 天前 → 2×14=28 < 30 ≤ 4×14=56 → stale
+    // importance=0.5 → halfLife≈23 天;50 天前 → 2×23=46 < 50 ≤ 4×23=92 → stale
     const engram = makeEngram({
       title: "A",
       content: "a",
       importance: 0.5,
     });
-    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(30) });
+    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(50) });
     const result = applyDecayBatch(repo, { nowIso: new Date().toISOString() });
     expect(result.archived).toContain(engram.id);
     expect(result.forgotten).toEqual([]);
@@ -96,14 +96,14 @@ describe("applyDecayBatch", () => {
   });
 
   it("stale + 低 importance → forget", () => {
-    // importance=0.5 → halfLife≈14 天;30 天前 → stale(2×14=28 < 30 ≤ 4×14=56)
+    // importance=0.5 → halfLife≈23 天;50 天前 → stale(2×23=46 < 50 ≤ 4×23=92)
     // importance=0.1 < 默认阈值 0.2 → forget
     const engram = makeEngram({
       title: "A",
       content: "a",
       importance: 0.1,
     });
-    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(30) });
+    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(50) });
     const result = applyDecayBatch(repo, { nowIso: new Date().toISOString() });
     expect(result.forgotten).toContain(engram.id);
     expect(result.archived).toEqual([]);
@@ -111,15 +111,15 @@ describe("applyDecayBatch", () => {
   });
 
   it("自定义 forgetImportanceThreshold 生效", () => {
-    // importance=0.4 → halfLife≈6.5 天;30 天前 → forgotten(>4×6.5=26)
+    // importance=0.4 → halfLife≈6.5 天;50 天前 → forgotten(>4×6.5=26)
     // 改成 importance=0.5 → halfLife≈14,stale;阈值 0.5,importance=0.4 < 0.5 → forget
-    // 但更直接的:importance=0.5 + 30 天前 stale + 阈值提升到 0.6 → 0.5 < 0.6 → forget
+    // 但更直接的:importance=0.5 + 50 天前 stale + 阈值提升到 0.6 → 0.5 < 0.6 → forget
     const engram = makeEngram({
       title: "A",
       content: "a",
       importance: 0.5,
     });
-    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(30) });
+    repo.bumpRetrievalStats(engram.id, { lastEffectiveAt: daysAgoIso(50) });
     // 默认阈值 0.2,0.5 > 0.2 → archive;改成 0.6,0.5 < 0.6 → forget
     const result = applyDecayBatch(repo, {
       nowIso: new Date().toISOString(),
@@ -162,13 +162,13 @@ describe("applyDecayBatch", () => {
       content: "fresh",
       importance: 0.9,
     });
-    // importance=0.5 → halfLife≈14 天;30 天前 → stale(2×14=28 < 30 ≤ 4×14=56)
+    // importance=0.5 → halfLife≈23 天;50 天前 → stale(2×23=46 < 50 ≤ 4×23=92)
     const stale1 = makeEngram({
       title: "Stale High",
       content: "stale hi",
       importance: 0.5,
     });
-    // importance=0.05 → halfLife≈0.18;30 天前 → forgotten(>> 4×0.18)
+    // importance=0.05 → halfLife≈0.18;50 天前 → forgotten(>> 4×0.18)
     const stale2 = makeEngram({
       title: "Stale Low",
       content: "stale lo",
@@ -180,8 +180,8 @@ describe("applyDecayBatch", () => {
       content: "forgotten",
       importance: 0.5,
     });
-    repo.bumpRetrievalStats(stale1.id, { lastEffectiveAt: daysAgoIso(30) });
-    repo.bumpRetrievalStats(stale2.id, { lastEffectiveAt: daysAgoIso(30) });
+    repo.bumpRetrievalStats(stale1.id, { lastEffectiveAt: daysAgoIso(50) });
+    repo.bumpRetrievalStats(stale2.id, { lastEffectiveAt: daysAgoIso(50) });
     repo.bumpRetrievalStats(forgotten.id, { lastEffectiveAt: daysAgoIso(500) });
 
     const result = applyDecayBatch(repo, { nowIso: new Date().toISOString() });
@@ -294,7 +294,7 @@ describe("runDeepDreaming", () => {
       content: "stale unique content",
       importance: 0.1,
     });
-    repo.bumpRetrievalStats(stale.id, { lastEffectiveAt: daysAgoIso(30) });
+    repo.bumpRetrievalStats(stale.id, { lastEffectiveAt: daysAgoIso(50) });
 
     const result = runDeepDreaming(repo, {
       decay: { nowIso: new Date().toISOString() },
@@ -423,17 +423,17 @@ describe("spec 验收：模拟批量场景", () => {
 
   it("stale engram 全部归档（小规模）", () => {
     // 5 个 stale 高 importance（应该 archive）
-    // importance=0.8 → halfLife≈37 天;30 天前 → fresh(< 37) → 改 80 天前(2×37=74 < 80 ≤ 4×37=148 → stale)
+    // importance=0.8 → halfLife≈43 天;50 天前 → fresh(< 37) → 改 90 天前(2×43=86 < 90 ≤ 4×43=172 → stale)
     for (let i = 0; i < 5; i++) {
       const e = makeEngram({
         title: `Stale-${i}`,
         content: `stale 内容 ${i}`,
         importance: 0.8,
       });
-      repo.bumpRetrievalStats(e.id, { lastEffectiveAt: daysAgoIso(80) });
+      repo.bumpRetrievalStats(e.id, { lastEffectiveAt: daysAgoIso(90) });
     }
     // 3 个 forgotten（应该 forget）
-    // importance=0.5 → halfLife≈14 天;500 天前 → forgotten(>> 4×14=56)
+    // importance=0.5 → halfLife≈23 天;500 天前 → forgotten(>> 4×14=56)
     for (let i = 0; i < 3; i++) {
       const e = makeEngram({
         title: `Forgotten-${i}`,

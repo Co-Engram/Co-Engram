@@ -145,8 +145,13 @@ export async function applyMetacognition(
     newStatus = "refuted";
     reason = `metacognition_refute: overall=${score.overall.toFixed(2)} < ${TRUTH_THRESHOLDS.refuteOverall} with ${synapseStats.contradicts} contradicts`;
   } else if (score.recommendation === "upgrade_verified") {
-    applied = true;
-    newStatus = "verified";
+    if (engram.verificationStatus !== "verified") {
+      applied = true;
+      newStatus = "verified";
+      reason = `metacognition_upgrade_verified: overall=${score.overall.toFixed(2)}`;
+    } else {
+      reason = reasoningHold("already verified");
+    }
     reason = `metacognition_upgrade_verified: overall=${score.overall.toFixed(2)}`;
   } else if (score.recommendation === "upgrade_one_level") {
     const next = nextStatusLevel(engram.verificationStatus);

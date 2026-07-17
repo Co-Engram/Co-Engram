@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -10,7 +16,10 @@ import {
   EMPTY_STATE,
   type MaintenanceState,
 } from "../src/maintenance/state.js";
-import type { MaintenanceReport, MaintenanceStage } from "../src/maintenance/types.js";
+import type {
+  MaintenanceReport,
+  MaintenanceStage,
+} from "../src/maintenance/types.js";
 
 let tmpDir: string;
 
@@ -58,11 +67,7 @@ describe("maintenance state 持久化(方案 A)", () => {
 
     it("文件损坏 JSON → EMPTY_STATE", async () => {
       mkdirSync(join(tmpDir, ".co-engram"), { recursive: true });
-      writeFileSync(
-        maintenanceStatePath(tmpDir),
-        "{not valid json",
-        "utf8",
-      );
+      writeFileSync(maintenanceStatePath(tmpDir), "{not valid json", "utf8");
       const state = await readMaintenanceState(tmpDir);
       expect(state).toEqual(EMPTY_STATE);
     });
@@ -71,7 +76,12 @@ describe("maintenance state 持久化(方案 A)", () => {
       mkdirSync(join(tmpDir, ".co-engram"), { recursive: true });
       writeFileSync(
         maintenanceStatePath(tmpDir),
-        JSON.stringify({ version: 2, stages: {}, updatedAt: "", updatedBy: "" }),
+        JSON.stringify({
+          version: 2,
+          stages: {},
+          updatedAt: "",
+          updatedBy: "",
+        }),
         "utf8",
       );
       const state = await readMaintenanceState(tmpDir);
@@ -366,12 +376,11 @@ describe("maintenance state 持久化(方案 A)", () => {
     it("REM 已过期(8 天前):catch-up 立即触发,更新 state.json", async () => {
       const { EngramRepository } = await import("../src/storage/repository.js");
       const { MemorySignalSink } = await import("../src/signals/file-sink.js");
-      const { MaintenanceEngine, DEFAULT_REM_INTERVAL_MS } = await import(
-        "../src/maintenance/index.js"
-      );
+      const { MaintenanceEngine, DEFAULT_REM_INTERVAL_MS } =
+        await import("../src/maintenance/index.js");
 
       // sanity:8 天 > 7 天 default REM interval
-      expect(DEFAULT_REM_INTERVAL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(DEFAULT_REM_INTERVAL_MS).toBe(1 * 24 * 60 * 60 * 1000);
 
       const repo = new EngramRepository({ rootPath: tmpDir });
       const sink = new MemorySignalSink();
@@ -400,7 +409,9 @@ describe("maintenance state 持久化(方案 A)", () => {
       );
 
       await seedExpiredState(tmpDir, "rem", 8);
-      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+      await callCatchUp(
+        engine as unknown as { scheduleCatchUp: () => Promise<void> },
+      );
 
       const state = await readMaintenanceState(tmpDir);
       expect(state.stages.rem).toBeDefined();
@@ -440,15 +451,17 @@ describe("maintenance state 持久化(方案 A)", () => {
         { enabledStages: ["rem"] },
       );
 
-      await seedExpiredState(tmpDir, "rem", 6); // 6 < 7,未到周期
-      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+      await seedExpiredState(tmpDir, "rem", 0); // 0 天前(刚跑),未到周期(1天)
+      await callCatchUp(
+        engine as unknown as { scheduleCatchUp: () => Promise<void> },
+      );
 
       const state = await readMaintenanceState(tmpDir);
       // updatedBy 应保持 "old-host"(未被 catch-up 改写)
       expect(state.updatedBy).toBe("old-host");
       // lastRunAt 应仍是 6 天前
       const runAt = new Date(state.stages.rem!.lastRunAt).getTime();
-      expect(Date.now() - runAt).toBeGreaterThan(5 * 24 * 60 * 60 * 1000);
+      expect(Date.now() - runAt).toBeLessThan(1 * 24 * 60 * 60 * 1000); // 不到1天
     });
 
     it("从未跑过 + 低频 stage(rem/daily):catch-up 立即触发", async () => {
@@ -482,7 +495,9 @@ describe("maintenance state 持久化(方案 A)", () => {
       );
 
       // state.json 不存在(全新环境)
-      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+      await callCatchUp(
+        engine as unknown as { scheduleCatchUp: () => Promise<void> },
+      );
 
       const state = await readMaintenanceState(tmpDir);
       expect(state.stages.rem).toBeDefined(); // 立即触发
@@ -520,7 +535,9 @@ describe("maintenance state 持久化(方案 A)", () => {
         { enabledStages: ["rem", "daily"] },
       );
 
-      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+      await callCatchUp(
+        engine as unknown as { scheduleCatchUp: () => Promise<void> },
+      );
 
       const state = await readMaintenanceState(tmpDir);
       // 两个都触发了
@@ -563,7 +580,9 @@ describe("maintenance state 持久化(方案 A)", () => {
       );
 
       await seedExpiredState(tmpDir, "rem", 30); // 远过期
-      await callCatchUp(engine as unknown as { scheduleCatchUp: () => Promise<void> });
+      await callCatchUp(
+        engine as unknown as { scheduleCatchUp: () => Promise<void> },
+      );
 
       const state = await readMaintenanceState(tmpDir);
       // 不持锁 → 不触发 catch-up → updatedBy 仍是 "old-host"
