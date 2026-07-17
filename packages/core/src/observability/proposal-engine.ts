@@ -510,13 +510,34 @@ export class ProposalEngine {
       throw notFoundError("Proposal", entityId);
     }
 
-    // REM verification proposal:accept → 改 verificationStatus（不创建 engram）
+    // REM verification proposal:accept → 完整落盘(status + confidence + evidence + importance 连锁)
     if (target.source === "rem-verification") {
       const engramId = entityId.replace(/^rem:/, "");
       const parts = target.centroidExcerpt.split(" → ");
       const newStatus = parts[1]?.trim() as VerificationStatus | undefined;
       if (newStatus) {
-        this.repository.updateVerificationStatus(engramId, newStatus);
+        const evidence = {
+          description:
+            `REM 审批通过（用户 accept）: ${target.sampleQuotes?.[0] ?? ""} ${target.sampleQuotes?.[1] ?? ""}`.trim(),
+          verifiedBy: input.createdBy ?? "rem-proposal-accept",
+          confidence: 0.8,
+        };
+        if (newStatus === "refuted") {
+          this.repository.updateVerificationStatus(engramId, "refuted");
+          this.repository.updateConfidence(
+            engramId,
+            (this.repository.readEngram(engramId).confidence ?? 0.5) * 0.3,
+          );
+        } else {
+          this.repository.updateVerificationStatus(engramId, newStatus);
+          this.repository.updateConfidence(
+            engramId,
+            Math.min(
+              0.95,
+              (this.repository.readEngram(engramId).confidence ?? 0.5) + 0.2,
+            ),
+          );
+        }
       }
       const updated = proposals.map((p) =>
         p.entityId === entityId
