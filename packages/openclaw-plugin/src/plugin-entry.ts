@@ -500,6 +500,7 @@ export function registerCoEngramTools(
         // dataRoot 用于 light stage 写 prompt-signals.json(自进化提示词)
         dataRoot: config.dataRoot ?? DEFAULT_CONFIG.dataRoot,
         ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+        ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
       },
       config.maintenanceConfig ?? {},
     );
