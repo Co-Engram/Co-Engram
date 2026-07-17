@@ -71,6 +71,19 @@ export interface MaintenanceDeps {
    */
   readonly dataRoot?: string;
   /**
+   * ProposalEngine（可选,REM 阶段生成 verification proposal）。
+   * 结构类型避免循环 import。
+   */
+  readonly proposalEngine?: {
+    proposeVerification(
+      engramId: string,
+      action: string,
+      before: string,
+      truthScore: number,
+      reasoning: string,
+    ): boolean;
+  };
+  /**
    * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。
    *
    * 如果注入,runStage 写 state.json 前会 check isHolder,

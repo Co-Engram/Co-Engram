@@ -260,6 +260,16 @@ export class MaintenanceEngine {
               engramId: candidate.id,
               action: result.newStatus ?? "evaluated",
             });
+            // REM 审批化:生成 verification proposal(centroidExcerpt 方案)
+            if (this.deps.proposalEngine && result.newStatus) {
+              this.deps.proposalEngine.proposeVerification(
+                candidate.id,
+                result.newStatus,
+                candidate.verificationStatus ?? "unverified",
+                result.score.overall,
+                result.reason,
+              );
+            }
           }
         } catch {
           // 单个 engram 失败不阻塞整体

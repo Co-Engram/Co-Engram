@@ -419,6 +419,51 @@ export class ProposalEngine {
   }
 
   /** 列出 status=pending 的提案 */
+  /**
+   * REM 元认知验证 proposal（centroidExcerpt 方案:不碰 ProposalPayload 类型）。
+   * verification 信息存 centroidExcerpt("before → after") + sampleQuotes(score + reasoning)。
+   * dedup: pending 覆盖 / dismissed 冷却 / accepted 跳过。
+   */
+  proposeVerification(
+    engramId: string,
+    action: string,
+    before: string,
+    truthScore: number,
+    reasoning: string,
+  ): boolean {
+    const entityId = `rem:${engramId}`;
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") return false;
+    if (
+      existing?.status === "dismissed" &&
+      existing.dismissedUntil &&
+      existing.dismissedUntil > new Date().toISOString()
+    )
+      return false;
+
+    const now = new Date().toISOString();
+    const proposal: Proposal = {
+      entityId,
+      occurrences: (existing?.occurrences ?? 0) + 1,
+      sampleQuotes: [`score=${truthScore.toFixed(2)}`, reasoning.slice(0, 120)],
+      centroidExcerpt: `${before} → ${action}`,
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      createdAt: existing?.createdAt ?? now,
+      status: "pending",
+      source: "rem-verification",
+    };
+
+    const updated = [
+      proposal,
+      ...proposals.filter((p) => p.entityId !== entityId),
+    ];
+    this.writeProposals(updated);
+    return true;
+  }
+
   listPending(): readonly Proposal[] {
     return this.readProposals().filter((p) => {
       if (p.status !== "pending") return false;
@@ -464,10 +509,8 @@ export class ProposalEngine {
     // REM verification proposal:accept → 改 verificationStatus（不创建 engram）
     if (target.source === "rem-verification") {
       const engramId = entityId.replace(/^rem:/, "");
-      const payload = target.payload as VerificationProposalPayload | undefined;
-      const newStatus = (payload?.after ?? payload?.action) as
-        | VerificationStatus
-        | undefined;
+      const parts = target.centroidExcerpt.split(" → ");
+      const newStatus = parts[1]?.trim() as VerificationStatus | undefined;
       if (newStatus) {
         this.repository.updateVerificationStatus(engramId, newStatus);
       }
