@@ -138,53 +138,25 @@ export async function applyMetacognition(
   let newStatus: VerificationStatus | undefined;
   let reason = score.reasoning;
 
-  try {
-    if (score.recommendation === "refute") {
-      const result = refuteEngram(
-        repo,
-        engramId,
-        {
-          description: `metacognition_refute: overall=${score.overall.toFixed(2)} < ${TRUTH_THRESHOLDS.refuteOverall} with ${synapseStats.contradicts} contradicts`,
-          verifiedBy: "metacognition",
-          confidence: 1 - score.overall,
-        },
-        { force: true },
-      );
-      applied = result.applied;
-      newStatus = result.newStatus;
-    } else if (score.recommendation === "upgrade_verified") {
-      // 按状态机逐步升到 verified（跳级被 canTransition 拦下）
-      const result = upgradeToTarget(
-        repo,
-        engramId,
-        "verified",
-        score,
-        ageDays,
-      );
-      applied = result.applied;
-      newStatus = result.newStatus;
-    } else if (score.recommendation === "upgrade_one_level") {
-      const next = nextStatusLevel(engram.verificationStatus);
-      if (next) {
-        const result = upgradeVerification(
-          repo,
-          engramId,
-          next,
-          {
-            description: `metacognition_upgrade: overall=${score.overall.toFixed(2)} ≥ ${TRUTH_THRESHOLDS.upgradeOneLevelOverall}`,
-            verifiedBy: "metacognition",
-            confidence: score.overall,
-          },
-          { force: true },
-        );
-        applied = result.applied;
-        newStatus = result.newStatus;
-      } else {
-        reason = reasoningHold("already verified");
-      }
+  // REM 审批化(2026-07):不直接 upgrade/refute(落盘),只返回建议。
+  // engine 收集 result → 生成 verification proposal → 用户 accept 才落盘。
+  if (score.recommendation === "refute") {
+    applied = true;
+    newStatus = "refuted";
+    reason = `metacognition_refute: overall=${score.overall.toFixed(2)} < ${TRUTH_THRESHOLDS.refuteOverall} with ${synapseStats.contradicts} contradicts`;
+  } else if (score.recommendation === "upgrade_verified") {
+    applied = true;
+    newStatus = "verified";
+    reason = `metacognition_upgrade_verified: overall=${score.overall.toFixed(2)}`;
+  } else if (score.recommendation === "upgrade_one_level") {
+    const next = nextStatusLevel(engram.verificationStatus);
+    if (next) {
+      applied = true;
+      newStatus = next;
+      reason = `metacognition_upgrade: overall=${score.overall.toFixed(2)} ≥ ${TRUTH_THRESHOLDS.upgradeOneLevelOverall}`;
+    } else {
+      reason = reasoningHold("already verified");
     }
-  } catch (err) {
-    reason = `apply failed: ${err instanceof Error ? err.message : String(err)}`;
   }
 
   return {

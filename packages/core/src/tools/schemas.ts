@@ -474,7 +474,12 @@ export interface EngramListProposalsToolResult {
     lastSeenAt: string;
     createdAt: string;
     status: "pending" | "accepted" | "dismissed";
-    source: "conversation" | "auto-memory" | "external-markdown";
+    source:
+      | "conversation"
+      | "auto-memory"
+      | "external-markdown"
+      | "rem-verification"
+      | "rem-pattern";
     slug?: string;
     proposedTitle?: string;
     proposedSummary?: string;
