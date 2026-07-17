@@ -75,6 +75,7 @@ export function startMaintenanceRuntime(
         : {}),
       ...(deps.dataRoot ? { dataRoot: deps.dataRoot } : {}),
       ...(deps.llmClient ? { llmClient: deps.llmClient } : {}),
+      ...(deps.proposalEngine ? { proposalEngine: deps.proposalEngine } : {}),
     },
     config,
   );

@@ -313,10 +313,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ctx.proposalEngine?.listPending().length ?? 0,
     config.dataRoot,
   );
-  const pathOverview = pathOverviewFromTree(
-    ctx.repository.listPathTree(),
-    1,
-  );
+  const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 1);
   const instructions = buildServerInstructions(
     language,
     profile,
@@ -375,7 +372,11 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   //   2. 进程启动时是 non-holder → onGained 接管时调用
   // 幂等:对应 stop 函数已定义则跳过(避免重复 setInterval 叠加)。
   const startHolderTasks = (): void => {
-    if (stopMaintenance === undefined && config.startMaintenance === true && ctx.signalSink) {
+    if (
+      stopMaintenance === undefined &&
+      config.startMaintenance === true &&
+      ctx.signalSink
+    ) {
       const runtime = startMaintenanceRuntime(
         {
           repository: ctx.repository,
@@ -383,6 +384,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           dataRoot: config.dataRoot,
           ...(effectivenessTracker ? { effectivenessTracker } : {}),
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+          ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
         },
         config.maintenanceConfig ?? {},
       );
@@ -536,7 +538,10 @@ export function registerCoEngramTool(
           isError: true,
           // structuredContent 携带 EngramToolErrorSchema 字段(code/resourceId/
           // suggestion/retryable),让 LLM 能解析出 actionable 信号决定是否重试。
-          structuredContent: payload.fields as unknown as Record<string, unknown>,
+          structuredContent: payload.fields as unknown as Record<
+            string,
+            unknown
+          >,
         };
       }
     },
