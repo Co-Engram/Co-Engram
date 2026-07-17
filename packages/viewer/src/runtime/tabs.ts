@@ -1114,6 +1114,48 @@ window.CO_ENGRAM_PROPOSALS = {
     } else {
       html += '<div class="grid cols-3">';
       for (const p of visible) {
+        // REM verification proposal: 专属卡片(不套用 conversation 模板)
+        if (p.source === 'rem-verification') {
+          var parts = (p.centroidExcerpt || '').split(' → ');
+          var changeStr = parts.length >= 2 ? (parts[0] + ' → ' + parts[parts.length - 1]) : (p.centroidExcerpt || '');
+          // 从 centroidExcerpt 提取 engram 标题(「title」验证：before → after)
+          var titleMatch = (p.centroidExcerpt || '').match(/「(.+?)」/);
+          var engTitle = titleMatch ? titleMatch[1] : (p.centroidExcerpt || '').split('」')[0].replace('「', '');
+          var engId = (p.entityId || '').replace(/^rem:/, '');
+          var sq = p.sampleQuotes || [];
+          var scoreStr = sq[0] || '';
+          var reasonStr = sq[1] || '';
+          var isAccepted = p.status === 'accepted';
+          var isDismissed = p.status === 'dismissed';
+
+          html += '<div class="card" style="border-left:3px solid var(--accent,#5DECD9)">'
+            + '<div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">'
+            + '<span style="font-size:1.2rem">🌙</span>'
+            + '<strong style="flex:1">REM 建议修改验证状态</strong>'
+            + '<span class="chip" style="font-size:.72rem">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+            + '</div>'
+            + '<div class="card-title" style="cursor:pointer;color:var(--accent,#5DECD9)" onclick="CO_ENGRAM_ENGRAMS.open(\'' + CO_ENGRAM.escapeHtml(engId) + '\')">'
+            + CO_ENGRAM.escapeHtml(engTitle || engId.slice(-8))
+            + '</div>'
+            + '<div style="margin:.4rem 0;padding:.5rem .7rem;background:rgba(93,236,217,.06);border-radius:6px;font-size:.85rem">'
+            + '<div style="margin-bottom:.3rem"><strong>验证状态变更:</strong> ' + CO_ENGRAM.escapeHtml(changeStr) + '</div>'
+            + (scoreStr ? '<div style="color:var(--fg-muted);margin-bottom:.2rem">' + CO_ENGRAM.escapeHtml(scoreStr) + '</div>' : '')
+            + (reasonStr ? '<div style="color:var(--fg-muted);font-size:.8rem">' + CO_ENGRAM.escapeHtml(reasonStr) + '</div>' : '')
+            + '</div>';
+          if (isAccepted) {
+            html += '<div class="card-meta"><span class="chip" style="background:rgba(93,236,217,.12);color:var(--accent)">✅ 已应用（' + CO_ENGRAM.escapeHtml(changeStr) + '）</span></div>';
+          } else if (isDismissed) {
+            html += '<div class="card-meta"><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">已驳回</span>' + (p.dismissReason ? ' <span style="color:var(--fg-muted);font-size:.8rem">' + CO_ENGRAM.escapeHtml(p.dismissReason) + '</span>' : '') + '</div>';
+          } else {
+            html += '<div style="margin-top:.5rem;display:flex;gap:.5rem">'
+              + '<button class="btn mini" style="background:var(--accent,#5DECD9);color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.accept(\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\')">应用</button>'
+              + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismiss(\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\')">驳回</button>'
+              + '</div>';
+          }
+          html += '</div>';
+          continue;
+        }
+
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const kindColor = CO_ENGRAM.kindColor(meta.kind);
