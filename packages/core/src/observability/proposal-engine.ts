@@ -758,8 +758,8 @@ export class ProposalEngine {
       // pending 状态且 payload 变化 → upsert
       const next: Proposal = {
         ...existing,
-        sampleQuotes: [input.slug],
-        centroidExcerpt: input.slug,
+        sampleQuotes: [],
+        centroidExcerpt: contentExcerpt(normalized.content),
         lastSeenAt: now,
         status: "pending",
         dismissedUntil: undefined,
@@ -776,8 +776,8 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: 1,
-      sampleQuotes: [input.slug],
-      centroidExcerpt: input.slug,
+      sampleQuotes: [],
+      centroidExcerpt: contentExcerpt(normalized.content),
       firstSeenAt: now,
       lastSeenAt: now,
       createdAt: now,
@@ -896,8 +896,8 @@ export class ProposalEngine {
     if (existing) {
       const next: Proposal = {
         ...existing,
-        sampleQuotes: [input.sourcePath],
-        centroidExcerpt: input.sourcePath,
+        sampleQuotes: [],
+        centroidExcerpt: contentExcerpt(normalized.content),
         lastSeenAt: now,
         status: "pending",
         dismissedUntil: undefined,
@@ -913,8 +913,8 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: 1,
-      sampleQuotes: [input.sourcePath],
-      centroidExcerpt: input.sourcePath,
+      sampleQuotes: [],
+      centroidExcerpt: contentExcerpt(normalized.content),
       firstSeenAt: now,
       lastSeenAt: now,
       createdAt: now,
@@ -973,6 +973,24 @@ export class ProposalEngine {
   }) => void {
     return (params) => {
       const { parsed, relPath, raw } = params;
+
+      // 空文件拦截:IDE 新建文件瞬间文件常为空,此时提案只会得到 content=""
+      // 的无价值候选(用户实测均 dismiss)。跳过首次提案,等文件有实质内容后
+      // watcher 再次触发才生成。仅作用于"首次生成";已 pending 提案的内容
+      // 刷新走 proposeExternalMarkdown 的 existing(upsert)分支,不受此拦截影响。
+      if (raw.trim().length === 0) {
+        this.auditLog.append({
+          actor: "system",
+          action: "noise_filtered",
+          metadata: {
+            entityId: externalMarkdownEntityId(relPath),
+            source: "external-markdown",
+            sourcePath: relPath,
+            reason: "empty-content",
+          },
+        });
+        return;
+      }
 
       // 路径 1:合法 engram(有 frontmatter 且含 title + kind)→ 现有同步逻辑
       if (parsed) {
@@ -2162,6 +2180,24 @@ function tokenizeForEmbedding(text: string): string[] {
 
 function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+/**
+ * 从 markdown 原文生成内容摘要:剥掉前导 frontmatter(`---\n…\n---`),
+ * 取正文前 max 字符。用于 external-markdown / auto-memory 来源 proposal
+ * 的 centroidExcerpt —— 展示文件/记忆内容片段,而非文件路径(slug/sourcePath)。
+ *
+ * 仅剥「文件起始」的 frontmatter;正文中的 --- 不受影响。空内容返回空串
+ * (配合 createExternalMarkdownHook 的空文件拦截,正常不会命中空值)。
+ */
+function contentExcerpt(raw: string, max = 200): string {
+  let body = raw;
+  const fm = body.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/);
+  if (fm) body = body.slice(fm[0].length);
+  body = body.trim();
+  if (body.length === 0) return "";
+  if (body.length > max) return `${body.slice(0, max - 1)}…`;
+  return body;
 }
 
 function extractKeywords(text: string, n: number): string[] {

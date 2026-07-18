@@ -668,6 +668,20 @@ describe("ProposalEngine.proposeAutoMemory", () => {
     );
   });
 
+  it("centroidExcerpt 是内容摘要(非 slug),sampleQuotes 为空", () => {
+    engine.proposeAutoMemory({
+      slug: "content-note",
+      title: "T",
+      content: "auto-memory 的正文内容",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "fact",
+    });
+    const p = engine.listAll().find((x) => x.slug === "content-note")!;
+    expect(p.centroidExcerpt).toContain("auto-memory 的正文内容");
+    expect(p.centroidExcerpt).not.toBe("content-note");
+    expect(p.sampleQuotes).toEqual([]);
+  });
+
   it("相同 slug + 相同 payload → no-change,不重复写", () => {
     engine.proposeAutoMemory({
       slug: "stable-slug",
@@ -1180,6 +1194,69 @@ describe("ProposalEngine.proposeExternalMarkdown", () => {
     expect(p.status).toBe("pending");
     expect(p.payload?.title).toBe("导入笔记");
     expect(p.payload?.sourcePath).toBe("notes/imported.md");
+  });
+
+  it("centroidExcerpt 是内容摘要(非文件路径),sampleQuotes 为空", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "notes/content-excerpt.md",
+      title: "T",
+      content: "这是文件正文内容,用于验证提案预览显示正文而非路径。",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const p = engine.listAll()[0]!;
+    expect(p.centroidExcerpt).toContain("文件正文内容");
+    expect(p.centroidExcerpt).not.toBe("notes/content-excerpt.md");
+    expect(p.sampleQuotes).toEqual([]);
+  });
+
+  it("centroidExcerpt 剥离前导 frontmatter,取正文前段", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "notes/with-fm.md",
+      title: "T",
+      content: '---\nid: "abc"\ntitle: "t"\n---\n正文从这里开始,不应包含 frontmatter。',
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const p = engine.listAll()[0]!;
+    expect(p.centroidExcerpt).toContain("正文从这里开始");
+    expect(p.centroidExcerpt).not.toContain("id:");
+    expect(p.centroidExcerpt).not.toContain("---");
+  });
+
+  it("同文件 content 变化 → upsert 刷新 centroidExcerpt 为最新内容", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "refresh.md",
+      title: "T",
+      content: "第一版正文",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const id1 = engine.listAll()[0]!.entityId;
+    const action = engine.proposeExternalMarkdown({
+      sourcePath: "refresh.md",
+      title: "T",
+      content: "第二版正文,已更新",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    expect(action).toBe("updated");
+    expect(engine.listAll()).toHaveLength(1);
+    const p = engine.listAll()[0]!;
+    expect(p.entityId).toBe(id1);
+    expect(p.payload?.content).toContain("第二版正文");
+    expect(p.centroidExcerpt).toContain("第二版正文");
+  });
+
+  it("createExternalMarkdownHook:空文件(raw 空白)→ 不生成 proposal", () => {
+    const hook = engine.createExternalMarkdownHook();
+    hook({
+      absPath: "/root/empty.md",
+      relPath: "empty.md",
+      raw: "   \n  ",
+      parsed: null,
+    });
+    expect(engine.listAll()).toHaveLength(0);
   });
 
   it("相同 sourcePath + 相同 payload → no-change", () => {

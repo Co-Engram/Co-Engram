@@ -1172,6 +1172,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.contentLabelReadonly": "内容(只读)",
   "viewer.proposals.samples": "样本引用(${n} 次累积)",
   "viewer.proposals.noSamples": "(无样本)",
+  "viewer.proposals.sourceFile": "来源文件",
   "viewer.proposals.firstSeen": "首次见到:",
   "viewer.proposals.lastSeen": "最后见到:",
   "viewer.proposals.currentStatus": "该提案当前状态:",

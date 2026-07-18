@@ -1301,8 +1301,11 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.contentLabel') : T.t('viewer.proposals.contentLabelReadonly')) + '</label>'
       + '<textarea id="pf-content" rows="6"' + (editable ? '' : ' readonly') + '>' + CO_ENGRAM.escapeHtml((p.payload && p.payload.content) || p.centroidExcerpt || '') + '</textarea></div>'
-      + '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.samples', { n: (p.occurrences || 0) })) + '</h3>'
-      + (samples || '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.noSamples')) + '</div>')
+      + ((p.source === 'external-markdown' || p.source === 'auto-memory')
+        ? '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceFile')) + '</h3>'
+          + '<div class="chip" style="font-family:monospace;word-break:break-all">📄 ' + CO_ENGRAM.escapeHtml((p.sourcePath || p.slug || '').toString()) + '</div>'
+        : '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.samples', { n: (p.occurrences || 0) })) + '</h3>'
+          + (samples || '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.noSamples')) + '</div>'))
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.firstSeen')) + '</span>' + CO_ENGRAM.escapeHtml(p.firstSeenAt || '—')
       + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.lastSeen')) + '</span>' + CO_ENGRAM.escapeHtml(p.lastSeenAt || '—') + '</div>'
       + actionBtns;
