@@ -1158,6 +1158,29 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.card.inferredTip":
     "标题与类型由系统从对话片段推断,点击卡片查看完整样本并修正",
   "viewer.proposals.card.noPreview": "(无内容预览)",
+  // ===== REM 提案卡片(viewer.proposals.rem.*) =====
+  "viewer.proposals.rem.scene.refute": "梦境·反驳",
+  "viewer.proposals.rem.scene.verify": "梦境·验证",
+  "viewer.proposals.rem.scene.pattern": "梦境·模式提炼",
+  "viewer.proposals.rem.band.veryHigh": "可信度很高",
+  "viewer.proposals.rem.band.high": "可信度较高",
+  "viewer.proposals.rem.band.medium": "可信度中等",
+  "viewer.proposals.rem.band.low": "可信度较低",
+  "viewer.proposals.rem.band.veryLow": "可信度极低",
+  "viewer.proposals.rem.bandTip": "可信度 ${score} / 1.0",
+  "viewer.proposals.rem.reason.refute":
+    "这条记忆缺乏支持证据,或被其他记忆否定,建议标记为「已驳回」。",
+  "viewer.proposals.rem.reason.verify":
+    "这条记忆在多个领域反复出现、证据充分,建议提升验证等级。",
+  "viewer.proposals.rem.accept.refute": "同意反驳",
+  "viewer.proposals.rem.accept.verify": "同意升级",
+  "viewer.proposals.rem.dismiss": "保持现状",
+  "viewer.proposals.rem.applied": "已应用",
+  "viewer.proposals.rem.kept": "已保持现状",
+  "viewer.proposals.rem.pattern.sourceCount": "源自 ${n} 条记忆",
+  "viewer.proposals.rem.pattern.sourceTip": "该模式由这些记忆提炼而来",
+  "viewer.proposals.rem.acceptFail": "REM 采纳失败",
+  "viewer.proposals.rem.dismissFail": "REM 驳回失败",
   "viewer.proposals.convertedTo": "已转",
   "viewer.proposals.dismissedReason": "驳回",
   "viewer.proposals.detailTitle": "候选提案详情",
@@ -1413,14 +1436,14 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.stageIcon.deep": "🧠",
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
-    "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分升降级",
+    "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分,产出升级/反驳/模式提案待审批",
   "viewer.maintenance.stageSubtitle.daily":
     "每日衰减:所有活跃记忆 importance × 0.95,模拟「未被使用的时间也在削弱」",
   "viewer.maintenance.stageSubtitle.deep": "深层抽象:中频模式提取与突触整理",
   "viewer.maintenance.stageSubtitle.light":
     "信号处理:把工具调用行为流转化为记忆的强化/衰减(RPE 加性更新)",
   "viewer.maintenance.stageTip.rem":
-    "REM(Rapid Eye Movement)对应人类梦睡眠。此阶段做三件事:① 聚类相似 engram;② 综合抽象为新的 pattern 记忆;③ 跑元认知评分,决定 unverified→plausible→probable→verified 升级或 refute。默认 1 天一周期。",
+    "REM(Rapid Eye Movement)对应人类梦睡眠。此阶段做三件事:① 聚类相似 engram;② 综合抽象出 pattern;③ 跑元认知评分。这些产出(升级/反驳/新模式)不会自动落盘,而是作为提案呈现在「记忆提案」页,由你审批采纳后才生效。默认 1 天一周期。",
   "viewer.maintenance.stageTip.daily":
     "每日衰减(Ebbinghaus 遗忘曲线):未被使用的记忆随时间自然削弱 —— 对所有 active、未 refute 的 engram,importance × 0.95(每天打 95 折)。这模拟人类「用进废退」:常被检索/强化的记忆抗衰减,不用的逐渐淡忘。默认 24h 一周期。",
   "viewer.maintenance.stageTip.deep":
@@ -1431,6 +1454,26 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.dreamBadgeTip":
     "REM 是借用人类睡眠神经科学的隐喻:此阶段类似梦境记忆巩固,把白天散落的记忆痕迹重塑为长存的 pattern。",
   "viewer.maintenance.remModifiedLabel": "上次 REM 修改",
+  "viewer.maintenance.lightModifiedLabel": "RPE 强化",
+  "viewer.maintenance.deepModifiedLabel": "修改",
+  "viewer.maintenance.deepAction.forgotten": "遗忘",
+  "viewer.maintenance.deepAction.archived": "归档",
+  "viewer.maintenance.deepAction.merged": "合并",
+  "viewer.maintenance.modCard.viewEngram": "查看记忆详情",
+  "viewer.maintenance.modCard.remUpgrade":
+    "这条记忆在梦境(REM)阶段被元认知评估,验证状态从「${before}」提升到「${after}」——系统认为它更可信了。",
+  "viewer.maintenance.modCard.remRefute":
+    "这条记忆在梦境(REM)阶段被评估为可信度不足,标记为「已驳回」。它仍保留,但被明确标记为不可靠。",
+  "viewer.maintenance.modCard.deepForgotten":
+    "这条记忆在 Deep(模式抽象)阶段因长期未被使用,被判定为过时遗忘,检索优先级降低。",
+  "viewer.maintenance.modCard.deepArchived":
+    "这条记忆在 Deep(模式抽象)阶段被归档,不再活跃,但仍保留在仓库中。",
+  "viewer.maintenance.modCard.deepMerged":
+    "这条记忆在 Deep(模式抽象)阶段被合并到另一条相似记忆(去重),内容并入目标记忆。",
+  "viewer.maintenance.modCard.lightRpe":
+    "这条记忆在 Light(信号处理)阶段因被检索/使用,获得 RPE 强化 ${delta}——被用到的记忆变得更强。",
+  "viewer.maintenance.patternLabel": "模式提炼",
+  "viewer.maintenance.remAction.evaluated": "评估",
   "viewer.maintenance.status.healthy": "周期内",
   "viewer.maintenance.status.soon": "即将到期",
   "viewer.maintenance.status.overdue": "已过期",
@@ -1741,7 +1784,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.evo5":
     "<strong>衰减</strong>:衰退半衰期从 engram 的 <code>importance</code> 实时派生(<code>deriveHalfLifeDays</code>),importance 按 lastEffectiveAt + 半衰期指数衰减。",
   "viewer.help.evo6":
-    '<strong>维护</strong>:后台周期跑 light/deep/rem 三阶段,完成"巩固强化 → 衰减遗忘 → REM 抽象模式 → 触发元认知评分"。',
+    '<strong>维护</strong>:后台周期跑 light/deep/rem 三阶段,完成"巩固强化 → 衰减遗忘 → REM 抽象模式 → 触发元认知评分"。其中 REM 的升级/反驳/模式提炼产出会以提案形式呈现在「记忆提案」页,由你审批采纳后才生效。',
   "viewer.help.tipsTitle": "提示",
   "viewer.help.tip1":
     "字段名旁的 <code>?</code> 图标(鼠标悬停)有该字段的简短解释。",

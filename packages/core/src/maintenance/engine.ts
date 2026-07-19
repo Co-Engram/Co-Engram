@@ -110,6 +110,8 @@ export class MaintenanceEngine {
 
       let signalsProcessed = 0;
       let rpeUpdates = 0;
+      // 收集 RPE 实际强化的 engram(供 viewer 展示 Light 的实际效果,可点击跳详情)
+      const lightModified: { engramId: string; delta: number }[] = [];
 
       if (events.length > 0) {
         const signals = extractSignals(events, this.resolvedConfig.rules, {
@@ -145,6 +147,7 @@ export class MaintenanceEngine {
             this.resolvedConfig.learningRate,
           );
           rpeUpdates += 1;
+          lightModified.push({ engramId, delta: effectiveness });
         }
       }
 
@@ -182,10 +185,13 @@ export class MaintenanceEngine {
       }
 
       return {
-        signalsProcessed,
-        rpeUpdates,
-        windowsClosed,
-        promptSignalsUpdated,
+        downstreamReport: {
+          signalsProcessed,
+          rpeUpdates,
+          windowsClosed,
+          promptSignalsUpdated,
+          lightModified,
+        },
       };
     });
   }
@@ -205,8 +211,35 @@ export class MaintenanceEngine {
         );
       }
       const record = this.deps.dreamingScheduler.trigger("deep");
+
+      // Deep 修改的记忆:decay(遗忘/归档) + light(重复合并),供 viewer 展示(可点击跳详情)
+      const deepResult = record?.result as
+        | {
+            light?: {
+              duplicatesHandled?: ReadonlyArray<{ from: string; to: string }>;
+            };
+            decay?: {
+              forgotten?: readonly string[];
+              archived?: readonly string[];
+            };
+          }
+        | undefined;
+      // Deep 修改的记忆:decay(遗忘/归档) + light(重复合并),供 viewer 展示(可点击跳详情)
+      // to:merged 时记录合并目标 engramId,供「修改介绍卡片」显示「from → to」
+      const deepModified: { engramId: string; action: string; to?: string }[] = [];
+      for (const id of deepResult?.decay?.forgotten ?? []) {
+        deepModified.push({ engramId: id, action: "forgotten" });
+      }
+      for (const id of deepResult?.decay?.archived ?? []) {
+        deepModified.push({ engramId: id, action: "archived" });
+      }
+      for (const rec of deepResult?.light?.duplicatesHandled ?? []) {
+        // merged:记录「from 被合并到 to」,卡片展示「from → to」
+        deepModified.push({ engramId: rec.from, action: "merged", to: rec.to });
+      }
+
       return {
-        downstreamReport: record,
+        downstreamReport: { ...record, deepModified },
       };
     });
   }
@@ -247,7 +280,8 @@ export class MaintenanceEngine {
 
       let metacognitionApplied = 0;
       // 收集 REM 实际修改的 engram(升级/反驳),供 viewer 实例化展示
-      const remModified: { engramId: string; action: string }[] = [];
+      // before:修改前 verificationStatus,供「修改介绍卡片」显示「从 before 到 action」
+      const remModified: { engramId: string; action: string; before?: string }[] = [];
       for (const candidate of candidates) {
         try {
           const result = await applyMetacognition(
@@ -259,6 +293,7 @@ export class MaintenanceEngine {
             remModified.push({
               engramId: candidate.id,
               action: result.newStatus ?? "evaluated",
+              before: candidate.verificationStatus ?? "unverified",
             });
             // REM 审批化:生成 verification proposal(centroidExcerpt 方案)
             if (this.deps.proposalEngine && result.newStatus) {
@@ -277,12 +312,35 @@ export class MaintenanceEngine {
         }
       }
 
+      // dreaming 模式提炼的 pattern 提案(供 viewer「上次 REM 修改」展示,
+      // 补 metacognition 升级/反驳之外的「模式提炼」类型)。
+      // dreamRecord.result 是 Light/Deep/Rem DreamingResult union,需收窄出 Rem 的 proposals。
+      const dreamResult = dreamRecord?.result as
+        | {
+            proposals?: ReadonlyArray<{
+              title: string;
+              confidence: number;
+              sourceIds?: readonly string[];
+            }>;
+          }
+        | undefined;
+      const dreamProposals =
+        dreamResult && Array.isArray(dreamResult.proposals)
+          ? dreamResult.proposals
+          : [];
+      const patternProposals = dreamProposals.map((p) => ({
+        title: p.title,
+        confidence: p.confidence,
+        sourceCount: Array.isArray(p.sourceIds) ? p.sourceIds.length : 0,
+      }));
+
       return {
         downstreamReport: {
           dream: dreamRecord,
           metacognitionApplied,
           metacognitionTotal: candidates.length,
           remModified,
+          patternProposals,
         },
       };
     });

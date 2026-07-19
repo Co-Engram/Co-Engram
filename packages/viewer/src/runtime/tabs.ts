@@ -1114,42 +1114,59 @@ window.CO_ENGRAM_PROPOSALS = {
     } else {
       html += '<div class="grid cols-3">';
       for (const p of visible) {
-        // REM verification proposal: 专属卡片(不套用 conversation 模板)
+        // REM verification proposal: 专属卡片(改已有记忆状态,不创建新记忆)
+        // centroidExcerpt 格式:title|before|action|score(action = 变更后状态)
         if (p.source === 'rem-verification') {
-          var parts = (p.centroidExcerpt || '').split(' → ');
-          var changeStr = parts.length >= 2 ? (parts[0] + ' → ' + parts[parts.length - 1]) : (p.centroidExcerpt || '');
-          // 从 centroidExcerpt 提取 engram 标题(「title」验证：before → after)
-          var titleMatch = (p.centroidExcerpt || '').match(/「(.+?)」/);
-          var engTitle = titleMatch ? titleMatch[1] : (p.centroidExcerpt || '').split('」')[0].replace('「', '');
+          var remParts = (p.centroidExcerpt || '').split('|');
+          var remTitle = remParts[0] || '';
+          var remBefore = remParts[1] || '';
+          var remAction = remParts[2] || '';
+          var remScore = parseFloat(remParts[3] || '0') || 0;
           var engId = (p.entityId || '').replace(/^rem:/, '');
-          var sq = p.sampleQuotes || [];
-          var scoreStr = sq[0] || '';
-          var reasonStr = sq[1] || '';
           var isAccepted = p.status === 'accepted';
           var isDismissed = p.status === 'dismissed';
+          var isRefute = remAction === 'refuted';
 
-          html += '<div class="card" style="border-left:3px solid var(--accent,#5DECD9)">'
-            + '<div style="display:flex;align-items:center;gap:.4rem;margin-bottom:.5rem">'
-            + '<span style="font-size:1.2rem">🌙</span>'
-            + '<strong style="flex:1">REM 建议修改验证状态</strong>'
-            + '<span class="chip" style="font-size:.72rem">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+          // 验证状态:用 enumLabel(术语统一 + 中英双语)
+          var beforeZh = T.enumLabel('verificationStatus', remBefore) || remBefore;
+          var afterZh = T.enumLabel('verificationStatus', remAction) || remAction;
+
+          // 可信度档位(i18n key + 颜色),裸分数值放 hover
+          var bandKey, bandColor;
+          if (remScore >= 0.85) { bandKey = 'veryHigh'; bandColor = '#34d399'; }
+          else if (remScore >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
+          else if (remScore >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
+          else if (remScore >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
+          else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+          var bandZh = T.t('viewer.proposals.rem.band.' + bandKey);
+          var bandTip = T.t('viewer.proposals.rem.bandTip', { score: remScore.toFixed(2) });
+
+          // 场景:反驳(红)/升级(青)
+          var sceneColor = isRefute ? '#f87171' : 'var(--accent,#5DECD9)';
+          var sceneLabel = T.t(isRefute ? 'viewer.proposals.rem.scene.refute' : 'viewer.proposals.rem.scene.verify');
+          var reasonZh = T.t(isRefute ? 'viewer.proposals.rem.reason.refute' : 'viewer.proposals.rem.reason.verify');
+
+          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engId) + '\\')">'
+            + CO_ENGRAM.escapeHtml(remTitle || engId.slice(-8))
             + '</div>'
-            + '<div class="card-title" style="cursor:pointer;color:var(--accent,#5DECD9)" onclick="CO_ENGRAM_ENGRAMS.open(\'' + CO_ENGRAM.escapeHtml(engId) + '\')">'
-            + CO_ENGRAM.escapeHtml(engTitle || engId.slice(-8))
+            + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
+            + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(sceneLabel) + '</span>'
+            + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
+            + '<span class="chip">' + CO_ENGRAM.escapeHtml(beforeZh) + ' → <strong style="color:' + sceneColor + '">' + CO_ENGRAM.escapeHtml(afterZh) + '</strong></span>'
+            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
-            + '<div style="margin:.4rem 0;padding:.5rem .7rem;background:rgba(93,236,217,.06);border-radius:6px;font-size:.85rem">'
-            + '<div style="margin-bottom:.3rem"><strong>验证状态变更:</strong> ' + CO_ENGRAM.escapeHtml(changeStr) + '</div>'
-            + (scoreStr ? '<div style="color:var(--fg-muted);margin-bottom:.2rem">' + CO_ENGRAM.escapeHtml(scoreStr) + '</div>' : '')
-            + (reasonStr ? '<div style="color:var(--fg-muted);font-size:.8rem">' + CO_ENGRAM.escapeHtml(reasonStr) + '</div>' : '')
-            + '</div>';
+            + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml(reasonZh) + '</div>';
           if (isAccepted) {
-            html += '<div class="card-meta"><span class="chip" style="background:rgba(93,236,217,.12);color:var(--accent)">✅ 已应用（' + CO_ENGRAM.escapeHtml(changeStr) + '）</span></div>';
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '(' + CO_ENGRAM.escapeHtml(afterZh) + ')</span></div>';
           } else if (isDismissed) {
-            html += '<div class="card-meta"><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">已驳回</span>' + (p.dismissReason ? ' <span style="color:var(--fg-muted);font-size:.8rem">' + CO_ENGRAM.escapeHtml(p.dismissReason) + '</span>' : '') + '</div>';
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
           } else {
-            html += '<div style="margin-top:.5rem;display:flex;gap:.5rem">'
-              + '<button class="btn mini" style="background:var(--accent,#5DECD9);color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.accept(\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\')">应用</button>'
-              + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismiss(\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\')">驳回</button>'
+            var acceptLabel = T.t(isRefute ? 'viewer.proposals.rem.accept.refute' : 'viewer.proposals.rem.accept.verify');
+            var dismissLabel = T.t('viewer.proposals.rem.dismiss');
+            html += '<div style="margin-top:.55rem;display:flex;gap:.5rem">'
+              + '<button class="btn mini" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(acceptLabel) + '</button>'
+              + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(dismissLabel) + '</button>'
               + '</div>';
           }
           html += '</div>';
@@ -1162,6 +1179,17 @@ window.CO_ENGRAM_PROPOSALS = {
         const previewClip = this._previewClip(p);
         const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"';
         const sampleCount = (p.sampleQuotes || []).length;
+        // rem-pattern 专属标识(dreaming 提炼的新模式记忆):梦境标识 + 提炼置信度 + 来源数
+        var isRemPattern = p.source === 'rem-pattern';
+        var rpConf = (p.payload && typeof p.payload.remConfidence === 'number') ? p.payload.remConfidence : 0;
+        var rpBandKey = rpConf >= 0.85 ? 'veryHigh' : (rpConf >= 0.7 ? 'high' : (rpConf >= 0.5 ? 'medium' : (rpConf >= 0.3 ? 'low' : 'veryLow')));
+        var rpConfColor = rpConf >= 0.7 ? '#34d399' : (rpConf >= 0.5 ? '#fbbf24' : '#f87171');
+        var rpSrcN = (p.payload && p.payload.remSourceIds) ? p.payload.remSourceIds.length : 0;
+        var remPatternChips = isRemPattern
+          ? '<span class="chip" style="border-color:var(--accent,#5DECD9);color:var(--accent,#5DECD9)">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.pattern')) + '</span>'
+            + '<span class="chip" style="color:' + rpConfColor + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.bandTip', { score: rpConf.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.band.' + rpBandKey)) + '</span>'
+            + (rpSrcN ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceTip')) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceCount', { n: rpSrcN })) + '</span>' : '')
+          : '';
         // payload.domainTags(若有)+ occurrences/sample chip
         const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
         const moreTags = (p.payload && Array.isArray(p.payload.domainTags) && p.payload.domainTags.length > 4) ? (p.payload.domainTags.length - 4) : 0;
@@ -1171,6 +1199,7 @@ window.CO_ENGRAM_PROPOSALS = {
         html += '<div class="card"' + cardClick + '>'
           + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
+          + remPatternChips
           + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
           + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
@@ -1471,7 +1500,100 @@ window.CO_ENGRAM_PROPOSALS = {
     if (!p) return;
     CO_ENGRAM._currentProposal = p;
     await this.dismissFromForm();
+  },
+
+  /**
+   * REM verification 提案专用:直接 accept,跳过 conversation 抽屉。
+   * rem-verification 后端 accept 分支无需 title/content 字段(只改 verificationStatus
+   * + confidence),空 body POST 即可(同 acceptAllLoaded);成功后刷新提案列表 + 徽章。
+   */
+  async acceptRem(entityId) {
+    try {
+      await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(entityId) + '/accept', 'POST', {});
+      CO_ENGRAM._proposalsLoaded = false;
+      await this.render(document.getElementById('proposals-content'));
+      if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+    } catch (e) { alert(CO_ENGRAM_T.t('viewer.proposals.rem.acceptFail') + ': ' + ((e && e.message) || e)); }
+  },
+
+  /** REM verification 提案专用:直接 dismiss(保持现状),跳过 conversation 抽屉。 */
+  async dismissRem(entityId) {
+    try {
+      await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(entityId) + '/dismiss', 'POST', {});
+      CO_ENGRAM._proposalsLoaded = false;
+      await this.render(document.getElementById('proposals-content'));
+      if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+    } catch (e) { alert(CO_ENGRAM_T.t('viewer.proposals.rem.dismissFail') + ': ' + ((e && e.message) || e)); }
   }
+};
+
+// ============================================================
+// 修改介绍卡片(REM/Deep/Light 修改项点击 → 说明这次修改 + 链接记忆)
+// ============================================================
+
+/**
+ * 打开「修改介绍卡片」:maintenance 修改项(rem/light/deep)点击时,
+ * 说明这次阶段对这条记忆做了什么修改,并链接到记忆详情。
+ * 参考 REM 记忆提案卡片格式:stage 徽章 + 动作徽章 + 修改说明 + 查看记忆链接。
+ */
+CO_ENGRAM.openModifiedCard = async function(el) {
+  const T = CO_ENGRAM_T;
+  const stage = el.dataset.stage || '';
+  const action = el.dataset.action || '';
+  const engramId = el.dataset.engramId || '';
+  const before = el.dataset.before || '';
+  const delta = el.dataset.delta;
+  const to = el.dataset.to || '';
+
+  // 读记忆标题(async,失败回落 id 末 8 位)
+  let title = engramId.slice(-8);
+  try {
+    const eng = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId), 'GET');
+    if (eng && eng.title) title = eng.title;
+  } catch { /* engram 可能已删 */ }
+
+  // 根据 stage/action 生成 stage 徽章、动作徽章、修改说明
+  let icon = '🌙', stageBadge = '', actionBadge = '', desc = '';
+  if (stage === 'rem') {
+    const isRefute = action === 'refuted';
+    icon = isRefute ? '⚠️' : '🌙';
+    stageBadge = T.t(isRefute ? 'viewer.proposals.rem.scene.refute' : 'viewer.proposals.rem.scene.verify');
+    actionBadge = T.enumLabel('verificationStatus', action) || action;
+    if (isRefute) {
+      desc = T.t('viewer.maintenance.modCard.remRefute');
+    } else {
+      const beforeZh = T.enumLabel('verificationStatus', before) || before;
+      const afterZh = T.enumLabel('verificationStatus', action) || action;
+      desc = T.t('viewer.maintenance.modCard.remUpgrade', { before: beforeZh, after: afterZh });
+    }
+  } else if (stage === 'deep') {
+    icon = '🧠';
+    stageBadge = 'Deep(模式抽象)';
+    actionBadge = T.t('viewer.maintenance.deepAction.' + action) || action;
+    if (action === 'forgotten') desc = T.t('viewer.maintenance.modCard.deepForgotten');
+    else if (action === 'archived') desc = T.t('viewer.maintenance.modCard.deepArchived');
+    else if (action === 'merged') desc = T.t('viewer.maintenance.modCard.deepMerged') + (to ? '(→ ' + CO_ENGRAM.escapeHtml(to.slice(-8)) + ')' : '');
+    else desc = action;
+  } else if (stage === 'light') {
+    icon = '⚡';
+    stageBadge = 'Light(信号处理)';
+    actionBadge = T.t('viewer.maintenance.lightModifiedLabel');
+    desc = T.t('viewer.maintenance.modCard.lightRpe', { delta: delta });
+  }
+
+  const html = '<div style="padding:1.1rem">'
+    + '<div style="display:flex;align-items:center;gap:.55rem;margin-bottom:.85rem">'
+    + '<span style="font-size:1.4rem">' + icon + '</span>'
+    + '<strong style="flex:1;line-height:1.4">' + CO_ENGRAM.escapeHtml(title) + '</strong>'
+    + '</div>'
+    + '<div class="card-meta" style="margin-bottom:.85rem;display:flex;gap:.4rem;flex-wrap:wrap">'
+    + '<span class="chip" style="border-color:var(--accent,#5DECD9);color:var(--accent,#5DECD9)">' + CO_ENGRAM.escapeHtml(stageBadge) + '</span>'
+    + '<span class="chip">' + CO_ENGRAM.escapeHtml(actionBadge) + '</span>'
+    + '</div>'
+    + '<div style="color:var(--fg-muted);line-height:1.65;margin-bottom:1.1rem">' + CO_ENGRAM.escapeHtml(desc) + '</div>'
+    + '<button class="btn" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engramId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.modCard.viewEngram')) + '</button>'
+    + '</div>';
+  CO_ENGRAM.openDrawer(html);
 };
 
 // ============================================================
@@ -3226,17 +3348,33 @@ window.CO_ENGRAM_MAINTENANCE = {
         progressBarTip = T.t('viewer.maintenance.statusTip.never');
       }
 
-      // 产物摘要:downstreamSummary 嵌套对象 → key=value 列表
+      // 产物摘要:lastResult → 中文友好描述
+      // 数组(如 remModified)不在此显示——由专门列表渲染,避免 String() 成 [object Object]
+      var FIELD_LABELS = {
+        metacognitionApplied: '元认知修改', metacognitionTotal: '元认知评估',
+        signalsProcessed: '处理信号', rpeUpdates: 'RPE 更新', windowsClosed: '关闭窗口',
+        promptSignalsUpdated: '提示信号已更新', clustersScanned: '聚类扫描',
+        decayed: '衰减', archived: '归档', forgotten: '遗忘', merged: '合并',
+      };
+      function fmtStageField(k, v) {
+        var label = FIELD_LABELS[k] || k;
+        if (typeof v === 'boolean') return v ? label : null;
+        return label + ' ' + v;
+      }
       const parts = [];
       if (lastResult) {
         for (const k of Object.keys(lastResult)) {
           const v = lastResult[k];
+          if (Array.isArray(v)) continue;
           if (v !== null && typeof v === 'object') {
             for (const sk of Object.keys(v)) {
-              parts.push(CO_ENGRAM.escapeHtml(sk) + '=' + CO_ENGRAM.escapeHtml(String(v[sk])));
+              if (Array.isArray(v[sk])) continue;
+              var sf = fmtStageField(sk, v[sk]);
+              if (sf) parts.push(CO_ENGRAM.escapeHtml(sf));
             }
           } else {
-            parts.push(CO_ENGRAM.escapeHtml(k) + '=' + CO_ENGRAM.escapeHtml(String(v)));
+            var f = fmtStageField(k, v);
+            if (f) parts.push(CO_ENGRAM.escapeHtml(f));
           }
         }
       }
@@ -3268,13 +3406,61 @@ window.CO_ENGRAM_MAINTENANCE = {
 
       const barHtml = '<div class="bar-track" title="' + CO_ENGRAM.escapeHtml(progressBarTip) + '" style="margin-top:0.45rem;cursor:help"><div class="bar-fill" style="width:' + (elapsed ? pct(elapsed, interval) : 0) + '%"></div></div>';
 
+      // 各 stage 的「修改的记忆」列表(rem/light/deep 通用),可点击跳详情;数量限制防撑爆
       var remModifiedHtml = '';
-      if (stage === 'rem' && lastResult && lastResult.downstreamSummary && lastResult.downstreamSummary.remModified && lastResult.downstreamSummary.remModified.length > 0) {
-        remModifiedHtml = '<div class="kpi-sub" style="margin-top:0.4rem">' + T.t('viewer.maintenance.remModifiedLabel') + ': ';
-        remModifiedHtml += lastResult.downstreamSummary.remModified.map(function(m) {
-          return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(m.engramId) + '" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline">' + CO_ENGRAM.escapeHtml(m.action) + ' ' + CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) + '</span>';
-        }).join(', ');
+      var modifiedItems = null;
+      var modifiedLabel = '';
+      var actionText = null;
+      if (stage === 'rem' && lastResult.downstreamSummary.remModified && lastResult.downstreamSummary.remModified.length > 0) {
+        modifiedItems = lastResult.downstreamSummary.remModified;
+        modifiedLabel = T.t('viewer.maintenance.remModifiedLabel');
+        actionText = function(m) {
+          return m.action === 'evaluated'
+            ? T.t('viewer.maintenance.remAction.evaluated')
+            : (T.enumLabel('verificationStatus', m.action) || m.action);
+        };
+      } else if (stage === 'light' && lastResult.downstreamSummary.lightModified && lastResult.downstreamSummary.lightModified.length > 0) {
+        modifiedItems = lastResult.downstreamSummary.lightModified;
+        modifiedLabel = T.t('viewer.maintenance.lightModifiedLabel');
+        actionText = function(m) {
+          return (m.delta >= 0 ? '+' : '') + Number(m.delta).toFixed(2);
+        };
+      } else if (stage === 'deep' && lastResult.downstreamSummary.deepModified && lastResult.downstreamSummary.deepModified.length > 0) {
+        modifiedItems = lastResult.downstreamSummary.deepModified;
+        modifiedLabel = T.t('viewer.maintenance.deepModifiedLabel');
+        actionText = function(m) {
+          return T.t('viewer.maintenance.deepAction.' + m.action) || m.action;
+        };
+      }
+      if (modifiedItems) {
+        var MAX_REM_SHOW = 6; // 大量时防撑爆:最多显示 6 条,超出折叠为「等 N 条」
+        var shownRem = modifiedItems.slice(0, MAX_REM_SHOW);
+        remModifiedHtml = '<div class="kpi-sub" style="margin-top:0.4rem">' + CO_ENGRAM.escapeHtml(modifiedLabel) + ': ';
+        remModifiedHtml += shownRem.map(function(m) {
+          // 修改项携带完整 data 属性,点击打开「修改介绍卡片」(说明这次修改 + 链接记忆)
+          return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(m.engramId) + '"'
+            + ' data-stage="' + stage + '"'
+            + ' data-action="' + CO_ENGRAM.escapeHtml(String(m.action ?? '')) + '"'
+            + ' data-before="' + CO_ENGRAM.escapeHtml(String(m.before ?? '')) + '"'
+            + ' data-delta="' + (typeof m.delta === 'number' ? m.delta : '') + '"'
+            + ' data-to="' + CO_ENGRAM.escapeHtml(String(m.to ?? '')) + '"'
+            + ' style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline">' + CO_ENGRAM.escapeHtml(actionText(m)) + ' · ' + CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) + '</span>';
+        }).join('、');
+        if (modifiedItems.length > MAX_REM_SHOW) {
+          remModifiedHtml += ' <span style="opacity:0.6">等 ' + modifiedItems.length + ' 条</span>';
+        }
         remModifiedHtml += '</div>';
+      }
+
+      // 模式提炼提案(dreaming,REM 另一半产出):补 metacognition 升级/反驳之外的类型
+      var patternHtml = '';
+      var patternProposals = lastResult && lastResult.downstreamSummary ? lastResult.downstreamSummary.patternProposals : null;
+      if (stage === 'rem' && patternProposals && patternProposals.length > 0) {
+        patternHtml = '<div class="kpi-sub" style="margin-top:0.3rem">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.patternLabel')) + ': '
+          + patternProposals.map(function(p) {
+              return '<span style="color:var(--accent,#5eead4)" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
+            }).join('、')
+          + '</div>';
       }
 
       return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(94,234,212,0.1));border-radius:8px">'
@@ -3282,6 +3468,7 @@ window.CO_ENGRAM_MAINTENANCE = {
         + barHtml
         + summaryHtml
         + remModifiedHtml
+        + patternHtml
         + errorHtml
         + '</div>';
     }

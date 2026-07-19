@@ -164,11 +164,18 @@ function extractReportSummary(
   if (report.downstreamReport && typeof report.downstreamReport === "object") {
     const ds = report.downstreamReport as Record<string, unknown>;
     const dsSummary: Record<string, unknown> = {};
+    // 这些数组保留具体(engramId + action/title 等),供 viewer 实例化展示
+    // 「修改了哪些记忆」—— rem/light/deep 的修改列表 + REM 模式提炼提案。
+    // 其他数组仍压成 count(防 state.json 撑爆)。
+    const KEEP_ARRAY_KEYS = new Set([
+      "remModified",
+      "lightModified",
+      "deepModified",
+      "patternProposals",
+    ]);
     for (const [k, v] of Object.entries(ds)) {
-      if (k === "remModified" && Array.isArray(v)) {
-        // remModified 保留具体(engramId + action),供 viewer 实例化展示
-        // 「上次 REM 升级/反驳了哪些 engram」。通常 2-29 条 × ~50 字节 < 1.5KB。
-        dsSummary.remModified = v;
+      if (KEEP_ARRAY_KEYS.has(k) && Array.isArray(v)) {
+        dsSummary[k] = v;
       } else if (
         typeof v === "number" ||
         typeof v === "string" ||

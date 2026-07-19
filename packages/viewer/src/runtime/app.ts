@@ -466,11 +466,10 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('click', function(e) {
     var menu = document.getElementById('more-menu');
     if (menu && !menu.contains(e.target)) CO_ENGRAM.toggleMoreMenu(false);
-    // REM remModified:点击 rem-mod-item → open engram 详情
+    // REM/Deep/Light 修改项:点击 rem-mod-item → 打开「修改介绍卡片」(说明这次修改 + 链接记忆)
     var remItem = e.target.closest('.rem-mod-item');
     if (remItem && remItem.dataset.engramId) {
-      CO_ENGRAM.showTab('engrams');
-      setTimeout(function() { CO_ENGRAM_ENGRAMS.open(remItem.dataset.engramId); }, 50);
+      CO_ENGRAM.openModifiedCard(remItem);
     }
   });
   document.addEventListener('keydown', function(e) {

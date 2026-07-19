@@ -1184,6 +1184,29 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.card.inferredTip":
     "Title and kind are inferred from conversation snippets — click the card to review samples and correct them",
   "viewer.proposals.card.noPreview": "(no content preview)",
+  // ===== REM proposal cards(viewer.proposals.rem.*) =====
+  "viewer.proposals.rem.scene.refute": "REM·Refute",
+  "viewer.proposals.rem.scene.verify": "REM·Verify",
+  "viewer.proposals.rem.scene.pattern": "REM·Pattern",
+  "viewer.proposals.rem.band.veryHigh": "Very high confidence",
+  "viewer.proposals.rem.band.high": "High confidence",
+  "viewer.proposals.rem.band.medium": "Medium confidence",
+  "viewer.proposals.rem.band.low": "Low confidence",
+  "viewer.proposals.rem.band.veryLow": "Very low confidence",
+  "viewer.proposals.rem.bandTip": "Confidence ${score} / 1.0",
+  "viewer.proposals.rem.reason.refute":
+    "This memory lacks supporting evidence or is contradicted by others; suggest marking it refuted.",
+  "viewer.proposals.rem.reason.verify":
+    "This memory recurs across domains with solid evidence; suggest upgrading its verification level.",
+  "viewer.proposals.rem.accept.refute": "Accept refute",
+  "viewer.proposals.rem.accept.verify": "Accept upgrade",
+  "viewer.proposals.rem.dismiss": "Keep as-is",
+  "viewer.proposals.rem.applied": "Applied",
+  "viewer.proposals.rem.kept": "Kept as-is",
+  "viewer.proposals.rem.pattern.sourceCount": "from ${n} memories",
+  "viewer.proposals.rem.pattern.sourceTip": "Pattern abstracted from these memories",
+  "viewer.proposals.rem.acceptFail": "REM accept failed",
+  "viewer.proposals.rem.dismissFail": "REM dismiss failed",
   "viewer.proposals.convertedTo": "Converted to",
   "viewer.proposals.dismissedReason": "Dismissed",
   "viewer.proposals.detailTitle": "Proposal detail",
@@ -1451,7 +1474,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.stageIcon.deep": "🧠",
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
-    "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition rating",
+    "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition scoring, producing upgrade / refute / pattern proposals for approval",
   "viewer.maintenance.stageSubtitle.daily":
     'Daily decay: all active engrams get importance × 0.95, modeling "unused time also weakens memory"',
   "viewer.maintenance.stageSubtitle.deep":
@@ -1459,7 +1482,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.stageSubtitle.light":
     "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
   "viewer.maintenance.stageTip.rem":
-    "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract them into new pattern memories; ③ run metacognition scoring to drive unverified→plausible→probable→verified upgrades or refute. Default 1-day cycle.",
+    "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract patterns from them; ③ run metacognition scoring. These outputs (upgrades / refutes / new patterns) are not written automatically — they appear as proposals on the Proposals page and take effect only after you approve them. Default 1-day cycle.",
   "viewer.maintenance.stageTip.daily":
     "Daily decay (Ebbinghaus forgetting curve): unused memories weaken over time — for every active, non-refuted engram, importance × 0.95 (5% off per day). This mirrors human 'use it or lose it': frequently retrieved/reinforced memories resist decay, unused ones fade. Default 24h cycle.",
   "viewer.maintenance.stageTip.deep":
@@ -1470,6 +1493,26 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.dreamBadgeTip":
     "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
   "viewer.maintenance.remModifiedLabel": "Last REM modified",
+  "viewer.maintenance.lightModifiedLabel": "RPE boosted",
+  "viewer.maintenance.deepModifiedLabel": "Modified",
+  "viewer.maintenance.deepAction.forgotten": "forgotten",
+  "viewer.maintenance.deepAction.archived": "archived",
+  "viewer.maintenance.deepAction.merged": "merged",
+  "viewer.maintenance.modCard.viewEngram": "View memory detail",
+  "viewer.maintenance.modCard.remUpgrade":
+    "This memory was evaluated during dream sleep (REM); its verification status rose from \"${before}\" to \"${after}\" — the system considers it more trustworthy.",
+  "viewer.maintenance.modCard.remRefute":
+    "This memory was judged low-confidence during dream sleep (REM) and marked \"refuted\". It is kept but clearly flagged as unreliable.",
+  "viewer.maintenance.modCard.deepForgotten":
+    "This memory was judged stale and forgotten during Deep (pattern abstraction) after long disuse, lowering its retrieval priority.",
+  "viewer.maintenance.modCard.deepArchived":
+    "This memory was archived during Deep (pattern abstraction); it is no longer active but remains in the store.",
+  "viewer.maintenance.modCard.deepMerged":
+    "This memory was merged into a similar one during Deep (pattern abstraction) to deduplicate; its content moved into the target memory.",
+  "viewer.maintenance.modCard.lightRpe":
+    "This memory gained an RPE boost of ${delta} during Light (signal processing) because it was retrieved/used — used memories grow stronger.",
+  "viewer.maintenance.patternLabel": "Pattern abstraction",
+  "viewer.maintenance.remAction.evaluated": "evaluated",
   "viewer.maintenance.status.healthy": "in cycle",
   "viewer.maintenance.status.soon": "due soon",
   "viewer.maintenance.status.overdue": "overdue",
@@ -1805,7 +1848,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.evo5":
     "<strong>Decay</strong>: half-life is derived from <code>engram.importance</code> in real time (<code>deriveHalfLifeDays</code>); importance decays exponentially by lastEffectiveAt + half-life.",
   "viewer.help.evo6":
-    "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'.",
+    "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'. REM's upgrade / refute / pattern-abstraction outputs appear as proposals on the Proposals page and take effect only after you approve them.",
   "viewer.help.tipsTitle": "Tips",
   "viewer.help.tip1":
     "The <code>?</code> icon next to field names (hover) gives a short description of that field.",
