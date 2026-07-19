@@ -206,7 +206,7 @@ unverified → plausible → probable → verified
                                     ↘ refuted
 ```
 
-新 engram 起步于 `unverified`——"有人说过这个,还未核实"。随着记忆被成功使用、被其他 engram 引用、以及通过矛盾检测,REM 维护阶段会自动升级它。被持续矛盾的记忆则走向 `refuted`——它仍留在仓库中(你可能还想知道它曾经被相信过),但被明确标记为不可靠。
+新 engram 起步于 `unverified`——"有人说过这个,还未核实"。随着记忆被成功使用、被其他 engram 引用、以及通过矛盾检测,REM 维护阶段会评估它并把升级建议作为提案呈现在「记忆提案」页,经你采纳后才落盘。被持续矛盾的记忆则走向 `refuted`——它仍留在仓库中(你可能还想知道它曾经被相信过),但被明确标记为不可靠。
 
 **REM 阶段**(默认每 7 天)对每条 engram 从五个维度做评估:
 
@@ -228,9 +228,9 @@ unverified → plausible → probable → verified
 |------|-----------|--------|
 | **Light** | 5 分钟 | 对最近返回的 engram 施加 RPE,更新检索统计 |
 | **Deep** | 1 小时 | 合并碎片化 engram,重算综合重要性,施加 Ebbinghaus 遗忘衰减 |
-| **REM** | 7 天 | 运行元认知:升级 `verificationStatus`(`unverified`→`plausible`→`probable`→`verified`),检测跨 synapse 的矛盾,建议归档或反驳某些 engram |
+| **REM** | 7 天 | 运行元认知评估 + 模式提炼:评估每条 engram 真值、聚类相似记忆提炼模式,生成升级/反驳/模式提案(见「记忆提案」页,采纳后生效) |
 
-三阶段全部**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、Ebbinghaus 遗忘曲线、Hebbian 可塑性),写回更新后的字段。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
+Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、Ebbinghaus 遗忘曲线、Hebbian 可塑性),写回更新后的字段。**REM 阶段自动做分析,但升级/反驳/模式提炼建议会以提案形式呈现在「记忆提案」页,由你审批采纳后才落盘**,避免系统未经确认就改动你的记忆。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 
 ### 访问 Web 查看器
 

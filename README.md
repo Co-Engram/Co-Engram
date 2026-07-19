@@ -206,7 +206,7 @@ unverified → plausible → probable → verified
                                     ↘ refuted
 ```
 
-New engrams start as `unverified` — "someone said this, we haven't checked." As the memory is used successfully, referenced by other engrams, and survives contradiction checks, the REM maintenance stage automatically upgrades it. A memory that is consistently contradicted moves to `refuted` — it stays in the repository (you may still want to know it was once believed), but is clearly marked as unreliable.
+New engrams start as `unverified` — "someone said this, we haven't checked." As the memory is used successfully, referenced by other engrams, and survives contradiction checks, the REM maintenance stage evaluates it and presents upgrade suggestions as proposals on the Proposals page, applied only after you accept them. A memory that is consistently contradicted moves to `refuted` — it stays in the repository (you may still want to know it was once believed), but is clearly marked as unreliable.
 
 At the **REM stage** (every 7 days by default), the system evaluates each engram across five dimensions:
 
@@ -228,9 +228,9 @@ No one has time to curate a knowledge base. If `CO_ENGRAM_MAINTENANCE=1` is set,
 |-------|--------------------|--------------|
 | **Light** | 5 min | Applies RPE to recently-returned engrams, boosts retrieval stats |
 | **Deep** | 1 hour | Merges fragmented engrams, recalculates composite importance, applies Ebbinghaus decay |
-| **REM** | 7 days | Runs metacognition: upgrades `verificationStatus` (`unverified`→`plausible`→`probable`→`verified`), detects contradictions across synapses, suggests engrams for archival or refutation |
+| **REM** | 7 days | Runs metacognition evaluation + pattern abstraction: scores each engram's truthfulness and clusters similar memories into pattern proposals (see the Proposals page; applied after you accept) |
 
-All three are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, Ebbinghaus forgetting curve, Hebbian plasticity), and writes back updated fields. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
+Light and Deep are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, Ebbinghaus forgetting curve, Hebbian plasticity), and writes back updated fields. **REM runs its analysis automatically, but its upgrade / refute / pattern-abstraction suggestions are presented as proposals on the Proposals page, applied only after you approve them**, so the system never rewrites your memory unconfirmed. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
 
 ### Access the web viewer
 
