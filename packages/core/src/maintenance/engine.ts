@@ -332,6 +332,7 @@ export class MaintenanceEngine {
         title: p.title,
         confidence: p.confidence,
         sourceCount: Array.isArray(p.sourceIds) ? p.sourceIds.length : 0,
+        sourceIds: Array.isArray(p.sourceIds) ? [...p.sourceIds] : [],
       }));
 
       return {

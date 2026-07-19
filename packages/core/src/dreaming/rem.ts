@@ -130,17 +130,17 @@ export class LocalHeuristicPatternAbstraction implements PatternAbstractionProvi
       };
     }
 
-    const title = `Pattern: ${commonTokens.slice(0, 3).join(" / ")}`;
+    const title = `从 ${input.engrams.length} 条相似记忆提炼的模式`;
     const content = [
       `# ${title}`,
       "",
-      `**抽象来源**：${input.engrams.length} 个 engram`,
+      `**提炼来源**：${input.engrams.length} 条记忆`,
       "",
       "**共同关键词**：",
       ...commonTokens.map((t) => `- ${t}`),
       "",
-      "**来源 engram**：",
-      ...input.engrams.map((e) => `- [${e.id}] ${e.title}`),
+      "**来源记忆**：",
+      ...input.engrams.map((e) => `- ${e.title}`),
     ].join("\n");
 
     // confidence = 共同 token 数 / 期望数（归一化到 [0,1]）

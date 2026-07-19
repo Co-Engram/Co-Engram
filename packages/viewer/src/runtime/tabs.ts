@@ -3357,6 +3357,7 @@ window.CO_ENGRAM_MAINTENANCE = {
         decayed: '衰减', archived: '归档', forgotten: '遗忘', merged: '合并',
       };
       function fmtStageField(k, v) {
+        if (k === 'stage' || k === 'at') return null; // 跳过技术字段(用户看不懂)
         var label = FIELD_LABELS[k] || k;
         if (typeof v === 'boolean') return v ? label : null;
         return label + ' ' + v;
@@ -3466,7 +3467,9 @@ window.CO_ENGRAM_MAINTENANCE = {
       if (stage === 'rem' && patternProposals && patternProposals.length > 0) {
         patternHtml = '<div class="kpi-sub" style="margin-top:0.3rem">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.patternLabel')) + ': '
           + patternProposals.map(function(p) {
-              return '<span class="rem-mod-item" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击到记忆提案审批)" onclick="CO_ENGRAM.showTab(\\'proposals\\')">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
+              // 点击 → 跳转到来源记忆(sourceIds[0]);data-stage=pattern 区分(app.ts 委托直跳 engram)
+              var srcId = (p.sourceIds && p.sourceIds[0]) ? p.sourceIds[0] : '';
+              return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(srcId) + '" data-stage="pattern" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击查看来源记忆)">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
             }).join('、')
           + '</div>';
       }
