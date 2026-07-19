@@ -175,7 +175,12 @@ function extractReportSummary(
     ]);
     for (const [k, v] of Object.entries(ds)) {
       if (KEEP_ARRAY_KEYS.has(k) && Array.isArray(v)) {
-        dsSummary[k] = v;
+        // 数量上限(防 state.json 撑爆):最多保留 50 条,超出截断并记 truncatedCount
+        const MAX_KEEP = 50;
+        dsSummary[k] = v.length > MAX_KEEP ? v.slice(0, MAX_KEEP) : v;
+        if (v.length > MAX_KEEP) {
+          dsSummary[`${k}Truncated`] = v.length - MAX_KEEP;
+        }
       } else if (
         typeof v === "number" ||
         typeof v === "string" ||

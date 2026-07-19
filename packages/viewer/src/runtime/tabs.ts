@@ -1545,12 +1545,13 @@ CO_ENGRAM.openModifiedCard = async function(el) {
   const delta = el.dataset.delta;
   const to = el.dataset.to || '';
 
-  // 读记忆标题(async,失败回落 id 末 8 位)
+  // 读记忆标题(async,失败回落 id 末 8 位)+ 检查是否存在(被删除的记忆不可跳转)
   let title = engramId.slice(-8);
+  let engramExists = false;
   try {
     const eng = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId), 'GET');
-    if (eng && eng.title) title = eng.title;
-  } catch { /* engram 可能已删 */ }
+    if (eng && eng.title) { title = eng.title; engramExists = true; }
+  } catch { /* engram 已删 */ }
 
   // 根据 stage/action 生成 stage 徽章、动作徽章、修改说明
   let icon = '🌙', stageBadge = '', actionBadge = '', desc = '';
@@ -1591,7 +1592,9 @@ CO_ENGRAM.openModifiedCard = async function(el) {
     + '<span class="chip">' + CO_ENGRAM.escapeHtml(actionBadge) + '</span>'
     + '</div>'
     + '<div style="color:var(--fg-muted);line-height:1.65;margin-bottom:1.1rem">' + CO_ENGRAM.escapeHtml(desc) + '</div>'
-    + '<button class="btn" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engramId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.modCard.viewEngram')) + '</button>'
+    + (engramExists
+      ? '<button class="btn" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engramId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.modCard.viewEngram')) + '</button>'
+      : '<div style="color:var(--fg-muted);font-style:italic;padding:.5rem 0">⚠️ 该记忆已被删除,无法查看详情</div>')
     + '</div>';
   CO_ENGRAM.openDrawer(html);
 };
