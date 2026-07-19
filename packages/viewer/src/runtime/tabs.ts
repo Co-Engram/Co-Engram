@@ -3264,7 +3264,8 @@ window.CO_ENGRAM_MAINTENANCE = {
 
   renderHtml(state, intervals) {
     const T = CO_ENGRAM_T;
-    const STAGES = ['rem', 'daily', 'deep', 'light'];
+    // Daily(每日衰减)不属于梦境(固定 importance×0.95,无变化),不在此展示;engine 仍运行
+    const STAGES = ['rem', 'deep', 'light'];
     const now = Date.now();
 
     function relTime(iso) {
