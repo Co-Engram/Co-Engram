@@ -45,6 +45,7 @@ function makeReport(
 }
 
 describe("maintenance state 持久化(方案 A)", () => {
+  const stages: import("../src/maintenance/types.js").MaintenanceStage[] = ["light", "deep", "rem"];
   // ============================================================
   // maintenanceStatePath
   // ============================================================
@@ -123,7 +124,6 @@ describe("maintenance state 持久化(方案 A)", () => {
       // 其他 stage 不受影响
       expect(state.stages.light).toBeUndefined();
       expect(state.stages.deep).toBeUndefined();
-      expect(state.stages.daily).toBeUndefined();
     });
   });
 
@@ -216,7 +216,6 @@ describe("maintenance state 持久化(方案 A)", () => {
     });
 
     it("维护文件 < 2 KB(单 stage summary,4 stage 全填也小)", async () => {
-      const stages: MaintenanceStage[] = ["light", "deep", "rem", "daily"];
       for (const stage of stages) {
         await writeStageState(
           tmpDir,
@@ -354,7 +353,6 @@ describe("maintenance state 持久化(方案 A)", () => {
           light: undefined,
           deep: undefined,
           rem: undefined,
-          daily: undefined,
           [stage]: {
             lastRunAt,
             lastDurationMs: 100,
@@ -404,7 +402,6 @@ describe("maintenance state 持久化(方案 A)", () => {
           // @ts-expect-error mock minimal scheduler
           dreamingScheduler: mockScheduler,
         },
-        // 只启用 rem,避免 daily/light 互相干扰断言
         { enabledStages: ["rem"] },
       );
 
@@ -464,7 +461,7 @@ describe("maintenance state 持久化(方案 A)", () => {
       expect(Date.now() - runAt).toBeLessThan(1 * 24 * 60 * 60 * 1000); // 不到1天
     });
 
-    it("从未跑过 + 低频 stage(rem/daily):catch-up 立即触发", async () => {
+    it("从未跑过 + 低频 stage(rem):catch-up 立即触发", async () => {
       const { EngramRepository } = await import("../src/storage/repository.js");
       const { MemorySignalSink } = await import("../src/signals/file-sink.js");
       const { MaintenanceEngine } = await import("../src/maintenance/index.js");
@@ -490,8 +487,6 @@ describe("maintenance state 持久化(方案 A)", () => {
           // @ts-expect-error mock minimal scheduler
           dreamingScheduler: mockScheduler,
         },
-        // 全启用,验证只有 rem + daily 立即跑,light/deep 不跑
-        { enabledStages: ["rem", "daily", "deep", "light"] },
       );
 
       // state.json 不存在(全新环境)
@@ -501,52 +496,8 @@ describe("maintenance state 持久化(方案 A)", () => {
 
       const state = await readMaintenanceState(tmpDir);
       expect(state.stages.rem).toBeDefined(); // 立即触发
-      expect(state.stages.daily).toBeDefined(); // 立即触发
       expect(state.stages.deep).toBeUndefined(); // 不立即跑(setInterval 会触发)
       expect(state.stages.light).toBeUndefined(); // 不立即跑
-    });
-
-    it("低频优先顺序:rem 在 daily 之前被触发", async () => {
-      const { EngramRepository } = await import("../src/storage/repository.js");
-      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
-      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
-
-      const repo = new EngramRepository({ rootPath: tmpDir });
-      const sink = new MemorySignalSink();
-      const mockScheduler = {
-        trigger: () => ({
-          stage: "rem" as const,
-          at: new Date().toISOString(),
-          result: {},
-        }),
-        start: () => {},
-        stop: () => {},
-        onRun: () => () => {},
-      };
-      const engine = new MaintenanceEngine(
-        {
-          repository: repo,
-          signalSink: sink,
-          dataRoot: tmpDir,
-          host: "order-host",
-          // @ts-expect-error mock minimal scheduler
-          dreamingScheduler: mockScheduler,
-        },
-        { enabledStages: ["rem", "daily"] },
-      );
-
-      await callCatchUp(
-        engine as unknown as { scheduleCatchUp: () => Promise<void> },
-      );
-
-      const state = await readMaintenanceState(tmpDir);
-      // 两个都触发了
-      expect(state.stages.rem).toBeDefined();
-      expect(state.stages.daily).toBeDefined();
-      // rem 的 lastRunAt <= daily 的 lastRunAt(rem 先跑)
-      const remAt = new Date(state.stages.rem!.lastRunAt).getTime();
-      const dailyAt = new Date(state.stages.daily!.lastRunAt).getTime();
-      expect(remAt).toBeLessThanOrEqual(dailyAt);
     });
 
     it("processLock.isHolder=false:不触发任何 catch-up", async () => {
@@ -576,7 +527,6 @@ describe("maintenance state 持久化(方案 A)", () => {
           // @ts-expect-error mock minimal scheduler
           dreamingScheduler: mockScheduler,
         },
-        { enabledStages: ["rem", "daily", "deep", "light"] },
       );
 
       await seedExpiredState(tmpDir, "rem", 30); // 远过期
@@ -645,35 +595,6 @@ describe("maintenance state 持久化(方案 A)", () => {
       });
     });
 
-    it("daily stage 完成 → 写 maintenance_run audit entry(含 decayed)", async () => {
-      const { EngramRepository } = await import("../src/storage/repository.js");
-      const { MemorySignalSink } = await import("../src/signals/file-sink.js");
-      const { MaintenanceEngine } = await import("../src/maintenance/index.js");
-      const { AuditLog } = await import("../src/observability/audit-log.js");
-
-      const repo = new EngramRepository({ rootPath: tmpDir });
-      const sink = new MemorySignalSink();
-      const auditLog = new AuditLog(tmpDir);
-      const engine = new MaintenanceEngine(
-        {
-          repository: repo,
-          signalSink: sink,
-          dataRoot: tmpDir,
-          host: "test-host",
-          auditLog,
-        },
-        { enabledStages: ["daily"] },
-      );
-
-      await engine.runDaily();
-
-      const events = auditLog.query({ action: "maintenance_run" });
-      expect(events.length).toBe(1);
-      const entry = events[0];
-      expect(entry.metadata?.stage).toBe("daily");
-      expect(entry.metadata?.decayed).toBe(0); // 空 repo,无 engram 可衰减
-    });
-
     it("light stage 完成 → 不写 maintenance_run(避免高频噪音)", async () => {
       const { EngramRepository } = await import("../src/storage/repository.js");
       const { MemorySignalSink } = await import("../src/signals/file-sink.js");
@@ -715,12 +636,9 @@ describe("maintenance state 持久化(方案 A)", () => {
           host: "test-host",
           // auditLog 不注入
         },
-        { enabledStages: ["daily"] },
       );
 
       // 不应抛错
-      const report = await engine.runDaily();
-      expect(report.stage).toBe("daily");
     });
 
     it("rem stage 失败 → 写 maintenance_run audit entry(含 errorMessage)", async () => {

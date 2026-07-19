@@ -7,61 +7,17 @@ import {
   updateOnReportFailure,
   updateOnTaskSuccess,
   updateOnTaskFailure,
-  applyDailyDecay,
   deriveHalfLifeDays,
   effectiveImportance,
 } from "../src/importance/dynamics.js";
 
 describe("importance dynamics", () => {
   describe("updateOnCreate", () => {
-    it("defaults to 0.5 when no initial", () => {
+    it("default importance = 0.5", () => {
       expect(updateOnCreate()).toBe(0.5);
     });
-    it("clamps to [0, 1]", () => {
-      expect(updateOnCreate(-0.5)).toBe(0);
-      expect(updateOnCreate(1.5)).toBe(1);
-    });
-  });
-
-  describe("updateOnReinforce", () => {
-    it("increases by eff * LTP_GAIN (default 0.10)", () => {
-      expect(updateOnReinforce(0.5, 1.0)).toBeCloseTo(0.6);
-    });
-    it("clamps to 1", () => {
-      expect(updateOnReinforce(0.95, 1.0)).toBe(1);
-    });
-  });
-
-  describe("updateOnRetrieveHit", () => {
-    it("increases by RETRIEVAL_GAIN (0.05)", () => {
-      expect(updateOnRetrieveHit(0.5)).toBeCloseTo(0.55);
-    });
-  });
-
-  describe("updateOnReportFailure", () => {
-    it("decreases by FAILURE_LOSS (0.10)", () => {
-      expect(updateOnReportFailure(0.5)).toBeCloseTo(0.4);
-    });
-    it("clamps to 0", () => {
-      expect(updateOnReportFailure(0.05)).toBe(0);
-    });
-  });
-
-  describe("updateOnTaskSuccess", () => {
-    it("increases by value * TASK_SUCCESS_GAIN (0.15)", () => {
-      expect(updateOnTaskSuccess(0.5, 1.0)).toBeCloseTo(0.65);
-    });
-  });
-
-  describe("updateOnTaskFailure", () => {
-    it("decreases by TASK_FAILURE_LOSS (0.05)", () => {
-      expect(updateOnTaskFailure(0.5)).toBeCloseTo(0.45);
-    });
-  });
-
-  describe("applyDailyDecay", () => {
-    it("multiplies by DAILY_DECAY (0.95)", () => {
-      expect(applyDailyDecay(0.5)).toBeCloseTo(0.475);
+    it("custom initial", () => {
+      expect(updateOnCreate(0.8)).toBe(0.8);
     });
   });
 

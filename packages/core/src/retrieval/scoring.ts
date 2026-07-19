@@ -56,8 +56,8 @@ export interface FourFactorWeights {
  */
 export const DEFAULT_WEIGHTS: FourFactorWeights = {
   alpha: 0.5,
-  beta: 0,
-  gamma: 0.4,
+  beta: 0.15,
+  gamma: 0.25,
   delta: 0.1,
 };
 

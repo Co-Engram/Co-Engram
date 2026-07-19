@@ -1,7 +1,7 @@
 /**
  * Maintenance state 持久化(方案 A:让 REM 真的跑起来)。
  *
- * 解决「setInterval + 进程重启 + 持锁切换」导致低频 stage(rem/daily)永远
+ * 解决「setInterval + 进程重启 + 持锁切换」导致低频 stage(rem)永远
  * 触发不到的问题:
  *   - 每次 runStage 完成(成功/失败)写 lastRunAt / lastResult
  *   - MaintenanceEngine.start() 启动时读,检查 now - lastRunAt > intervalMs
@@ -51,7 +51,6 @@ export const EMPTY_STATE: MaintenanceState = {
     light: undefined,
     deep: undefined,
     rem: undefined,
-    daily: undefined,
   },
   updatedAt: "",
   updatedBy: "",

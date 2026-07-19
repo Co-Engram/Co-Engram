@@ -48,7 +48,6 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   lightIntervalMs: 5 * 60 * 1000,
   deepIntervalMs: 60 * 60 * 1000,
   remIntervalMs: 7 * 24 * 60 * 60 * 1000,
-  dailyIntervalMs: 24 * 60 * 60 * 1000,
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,

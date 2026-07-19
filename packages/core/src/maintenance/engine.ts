@@ -1,17 +1,13 @@
 /**
  * Maintenance Engine（P4 B.2 + C.2 + D.1）
  *
- * 自动维护服务的核心调度器。四阶段：
+ * 自动维护服务的核心调度器。三阶段（2026-07-20 移除 daily：importance 不再时间驱动衰减）：
  *
  *   - light （秒/分钟级）:drain signals → extractSignals → applyRpeUpdate
- *   - deep  （小时级）   :复用现有 runDeepDreaming
- *   - rem   （天级）     :runRemDreaming + metacognition（P4 C.2 实现）
- *   - daily （24 小时）  :applyDailyDecay —— 全量 engram 乘性衰减 ×0.95
+ *   - deep  （小时级）   :runDeepDreaming（记忆整理：合并重复 + 归档/遗忘）
+ *   - rem   （天级）     :runRemDreaming + metacognition
  *
- * daily 与 light 正交:
- *   - light 的 RPE 是事件驱动的加性更新(基于 retrieve/reinforce 信号)
- *   - daily 是时间驱动的乘性衰减(无关事件,每天打 95 折)
- *   两机制走不同 stage,避免在同一循环里"加性 + 乘性"互相抵消。
+ * importance 纯事件驱动（RPE/LTP/LTD），freshness 纯时间驱动（age vs halfLife）。
  *
  * 调度策略：
  *   start() 内部 setInterval + unref(),不依赖宿主 /loop 或 cron。
@@ -30,7 +26,6 @@ import type {
   MaintenanceStage,
 } from "./types.js";
 import {
-  DEFAULT_DAILY_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
@@ -45,8 +40,6 @@ import {
 import { applyRpeUpdate } from "../signals/rpe.js";
 import type { ToolCallEvent } from "../signals/types.js";
 import { applyMetacognition } from "../verification/metacognition.js";
-import { applyDailyDecay } from "../importance/dynamics.js";
-import { lowConfidencePenalty } from "../reinforcement/confidence.js";
 import {
   computePromptSignals,
   writePromptSignals,
@@ -72,7 +65,6 @@ export class MaintenanceEngine {
   private lightTimer: ReturnType<typeof setInterval> | null = null;
   private deepTimer: ReturnType<typeof setInterval> | null = null;
   private remTimer: ReturnType<typeof setInterval> | null = null;
-  private dailyTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
 
   constructor(deps: MaintenanceDeps, config: MaintenanceConfig = {}) {
@@ -81,13 +73,12 @@ export class MaintenanceEngine {
       lightIntervalMs: config.lightIntervalMs ?? DEFAULT_LIGHT_INTERVAL_MS,
       deepIntervalMs: config.deepIntervalMs ?? DEFAULT_DEEP_INTERVAL_MS,
       remIntervalMs: config.remIntervalMs ?? DEFAULT_REM_INTERVAL_MS,
-      dailyIntervalMs: config.dailyIntervalMs ?? DEFAULT_DAILY_INTERVAL_MS,
       signalPruneAgeMs: config.signalPruneAgeMs ?? DEFAULT_SIGNAL_PRUNE_AGE_MS,
       learningRate: config.learningRate ?? DEFAULT_RPE_LEARNING_RATE,
       rules: config.rules ?? DEFAULT_RULES,
       windowSize: config.windowSize ?? 10,
       enabledStages:
-        config.enabledStages ?? (["light", "deep", "rem", "daily"] as const),
+        config.enabledStages ?? (["light", "deep", "rem"] as const),
       trash: config.trash ?? { enabled: false },
     };
   }
@@ -352,59 +343,6 @@ export class MaintenanceEngine {
   }
 
   /**
-   * Daily 阶段:applyDailyDecay —— 全量 engram 乘性衰减
-   *
-   * 低频(默认 24 小时),时间驱动的结构化衰减。
-   * 与 light 的 RPE 加性更新正交:RPE 是事件驱动的微调,daily 是
-   * "无论是否被使用,所有 engram 每天打 95 折",对应"未被使用的时间
-   * 也在削弱记忆权重"的认知科学语义。
-   *
-   * 范围:active 状态 + verificationStatus ∈ {unverified, plausible,
-   * probable, verified} 的 engram。
-   *   - status = draft/archived/forgotten 的 engram 已是冻结/废弃态,不再衰减
-   *   - verificationStatus = refuted 的 engram 已被否决,不再衰减
-   *
-   * 不写 audit log:全量 × 每天会产生海量 audit 噪音(1000 engrams ×
-   * 365 天 = 36w 条/年),违反 audit log "人类可读的状态变更追踪"设计。
-   * 通过 MaintenanceReport.decayed 暴露衰减计数供宿主观察。
-   */
-  async runDaily(): Promise<MaintenanceReport> {
-    return this.runStage("daily", async () => {
-      // SQL 端 filter 下推(verification_status + status='active'),
-      // 替代旧 listByVerificationStatus 的 N+1 readEngram + 内存 status 过滤。
-      // 返回 DigestLine[] 包含 id / importance,够 applyDailyDecay 用。
-      const candidates = this.deps.repository.listDigestByVerificationStatus(
-        ["unverified", "plausible", "probable", "verified"],
-        { lifecycleStatuses: ["active"] },
-      );
-
-      let decayed = 0;
-      for (const candidate of candidates) {
-        try {
-          // daily batch 低频(24h),读 confidence 加 lowConfidencePenalty(N+1 可接受;
-          // 未来若 digest 加 confidence 字段可消除 N+1)
-          const engram = this.deps.repository.readEngram(candidate.id);
-          // daily-decay + lowConfidencePenalty:不可信记忆加速遗忘
-          const newImportance =
-            applyDailyDecay(candidate.importance) *
-            (1 - lowConfidencePenalty(engram.confidence));
-          if (newImportance !== candidate.importance) {
-            this.deps.repository.updateEngram(candidate.id, {
-              importance: newImportance,
-              updatedBy: "maintenance.daily",
-            });
-            decayed += 1;
-          }
-        } catch {
-          // 单个 engram 失败不阻塞整体
-        }
-      }
-
-      return { decayed };
-    });
-  }
-
-  /**
    * 启动所有已启用阶段的定时调度
    *
    * 定时器都调 .unref(),进程退出时自动清理。
@@ -415,8 +353,8 @@ export class MaintenanceEngine {
 
     // 方案 A:启动时检查 catch-up(异步,不阻塞 start 返回)。
     // 读 maintenance-state.json,若某 stage 的 now - lastRunAt > intervalMs,
-    // 或低频 stage(rem/daily)从未跑过,立即触发一次。
-    // 低频优先(rem → daily → deep → light):确保最贵的 REM 不被前面 stage 卡住。
+    // 或低频 stage(rem)从未跑过,立即触发一次。
+    // 低频优先(rem → deep → light):确保最贵的 REM 不被前面 stage 卡住。
     // 串行执行,避免 stage 间互相干扰。
     this.scheduleCatchUp().catch(() => {
       // catch-up 失败不影响后续 setInterval;下次启动会再次尝试
@@ -443,12 +381,6 @@ export class MaintenanceEngine {
       }, this.resolvedConfig.remIntervalMs);
       this.remTimer.unref?.();
     }
-    if (stages.has("daily")) {
-      this.dailyTimer = setInterval(() => {
-        this.runDaily().catch(() => {});
-      }, this.resolvedConfig.dailyIntervalMs);
-      this.dailyTimer.unref?.();
-    }
   }
 
   /**
@@ -456,10 +388,10 @@ export class MaintenanceEngine {
    *
    * 触发条件:
    *   - 有 lastRunAt 且 now - lastRunAt > intervalMs(已过周期)
-   *   - 无 lastRunAt + 低频 stage(rem/daily):首次启动立即跑,避免 setInterval 永远不到
+   *   - 无 lastRunAt + 低频 stage(rem):首次启动立即跑,避免 setInterval 永远不到
    *   - 无 lastRunAt + 高频 stage(light/deep):setInterval 会很快触发,不立即跑
    *
-   * 顺序:低频优先(rem → daily → deep → light),串行执行。
+   * 顺序:低频优先(rem → deep → light),串行执行。
    *
    * 不触发条件(直接返回):
    *   - 未注入 dataRoot(无 state 可读)
@@ -476,7 +408,6 @@ export class MaintenanceEngine {
     // 低频优先顺序
     const order: readonly MaintenanceStage[] = [
       "rem",
-      "daily",
       "deep",
       "light",
     ];
@@ -485,9 +416,9 @@ export class MaintenanceEngine {
       const intervalMs = this.getIntervalMs(stage);
       const last = state.stages[stage]?.lastRunAt;
       if (!last) {
-        // 从未跑过:仅低频 stage(rem/daily)立即触发(否则 setInterval 永远到不了)。
+        // 从未跑过:仅低频 stage(rem)立即触发(否则 setInterval 永远到不了)。
         // 高频 stage(light/deep) 等 setInterval 很快就会跑,无需 catch-up。
-        if (!(stage === "rem" || stage === "daily")) continue;
+        if (stage !== "rem") continue;
       } else {
         // 跑过:仅当过期才 catch-up
         const elapsed = now - new Date(last).getTime();
@@ -511,8 +442,6 @@ export class MaintenanceEngine {
         return this.resolvedConfig.deepIntervalMs;
       case "rem":
         return this.resolvedConfig.remIntervalMs;
-      case "daily":
-        return this.resolvedConfig.dailyIntervalMs;
     }
   }
 
@@ -527,9 +456,6 @@ export class MaintenanceEngine {
         return;
       case "rem":
         await this.runRem();
-        return;
-      case "daily":
-        await this.runDaily();
         return;
     }
   }
@@ -549,10 +475,6 @@ export class MaintenanceEngine {
     if (this.remTimer) {
       clearInterval(this.remTimer);
       this.remTimer = null;
-    }
-    if (this.dailyTimer) {
-      clearInterval(this.dailyTimer);
-      this.dailyTimer = null;
     }
   }
 
@@ -588,9 +510,9 @@ export class MaintenanceEngine {
 
     // 阶段触发 audit 策略:
     //   - light/deep 频率高(5min/1h),写 audit 会变噪音,跳过
-    //   - rem/daily 频率低(7d/24h),且用户关心"REM 跑过吗",写 audit
+    //   - rem 频率低(7d),且用户关心"REM 跑过吗",写 audit
     //   - 下游任务(sweep_to_trash / reinforce / forget / refute 等)自己写状态变更 audit
-    const shouldWriteAudit = stage === "rem" || stage === "daily";
+    const shouldWriteAudit = stage === "rem";
 
     const report: MaintenanceReport = {
       stage,
@@ -622,7 +544,7 @@ export class MaintenanceEngine {
       }
     }
 
-    // 方案 A:rem/daily 完成后写 audit log(让用户可查 "REM 跑过吗")。
+    // 方案 A:rem 完成后写 audit log(让用户可查 "REM 跑过吗")。
     // 失败/成功都写,metadata 含 stage / durationMs / errorCount / 关键产物。
     if (shouldWriteAudit && this.deps.auditLog) {
       try {

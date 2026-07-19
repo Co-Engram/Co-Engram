@@ -30,8 +30,8 @@ describe("config.json overrides defaults (Task 1.5)", () => {
   it("search weights default to spec 3.7 (α=0.5, β=0, γ=0.4, δ=0.1 (2026-07 effectiveAge removed))", () => {
     const cfg = loadConfig();
     expect(cfg.search?.relevance).toBe(0.5);
-    expect(cfg.search?.recency).toBe(0); // β=0 (effectiveAge removed);
-    expect(cfg.search?.importance).toBe(0.4); // γ=0.4 (absorbed β);
+    expect(cfg.search?.recency).toBe(0.15); // β=0.15 (recency re-enabled);
+    expect(cfg.search?.importance).toBe(0.25); // γ=0.25 (reduced for β);
     expect(cfg.search?.strength).toBe(0.1);
   });
 
@@ -60,7 +60,7 @@ describe("config.json overrides defaults (Task 1.5)", () => {
     expect(cfg.reinforcement?.hebbianRatio).toBe(0.7);
     expect(cfg.reinforcement?.archiveThreshold).toBe(3); // D1 default
     expect(cfg.search?.relevance).toBe(0.4);
-    expect(cfg.search?.recency).toBe(0); // β=0 (effectiveAge removed)
+    expect(cfg.search?.recency).toBe(0.15); // β=0 (effectiveAge removed)
   });
 
   it("normalizeConfig round-trip: full override → all fields preserved", () => {

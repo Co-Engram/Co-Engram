@@ -26,8 +26,8 @@ import type { LlmClient } from "../observability/necessity-evaluator.js";
 import type { AuditLog } from "../observability/audit-log.js";
 import { DEFAULT_RPE_LEARNING_RATE } from "../signals/rpe.js";
 
-/** 维护阶段名 */
-export type MaintenanceStage = "light" | "deep" | "rem" | "daily";
+/** 维护阶段名（2026-07-20 移除 daily：importance 不再时间驱动衰减） */
+export type MaintenanceStage = "light" | "deep" | "rem";
 
 /**
  * ProcessLock 持有者抽象(用于 maintenance 写 state.json 前 check)。
@@ -141,7 +141,6 @@ export interface MaintenanceDeps {
 export const DEFAULT_LIGHT_INTERVAL_MS = 5 * 60 * 1000; // 5 min
 export const DEFAULT_DEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 export const DEFAULT_REM_INTERVAL_MS = 1 * 24 * 60 * 60 * 1000; // 1 day(用户要求:记忆巩固周期 1 天,让 REM 频繁跑、效果可见)
-export const DEFAULT_DAILY_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const DEFAULT_SIGNAL_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** 复用 signals/rpe.ts 的学习率（重导出避免分裂） */
@@ -162,7 +161,6 @@ export interface MaintenanceConfig {
    * RPE 加性更新正交。频率过快会让 importance 一天被打到 0,过慢则失去
    * "每日衰减"的语义。24h 是与人类"每天"节律对齐的自然周期。
    */
-  readonly dailyIntervalMs?: number;
   /** signals.jsonl 保留时长（默认 7 天） */
   readonly signalPruneAgeMs?: number;
   /** RPE 学习率（默认 0.1） */

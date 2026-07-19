@@ -141,10 +141,10 @@ describe("truthFactorFromStatus", () => {
 // ============================================================
 
 describe("computeFourFactorScore", () => {
-  it("默认权重 α=0.5 β=0 γ=0.4 δ=0.1(importance 唯一排序,freshness 不参与)", () => {
+  it("默认权重 α=0.5 β=0.15 γ=0.25 δ=0.1(importance 唯一排序,freshness 不参与)", () => {
     expect(DEFAULT_WEIGHTS.alpha).toBe(0.5);
-    expect(DEFAULT_WEIGHTS.beta).toBe(0);
-    expect(DEFAULT_WEIGHTS.gamma).toBe(0.4);
+    expect(DEFAULT_WEIGHTS.beta).toBe(0.15);
+    expect(DEFAULT_WEIGHTS.gamma).toBe(0.25);
     expect(DEFAULT_WEIGHTS.delta).toBe(0.1);
   });
 
@@ -175,8 +175,8 @@ describe("computeFourFactorScore", () => {
     const expectedStrength = 0;
     const expected =
       0.5 * 1 +
-      0 * expectedRecency +
-      0.4 * expectedEffImp +
+      0.15 * expectedRecency +
+      0.25 * expectedEffImp +
       0.1 * expectedStrength;
     expect(computeFourFactorScore(1, line, { now })).toBeCloseTo(expected, 3);
   });

@@ -67,7 +67,6 @@ import {
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
-  DEFAULT_DAILY_INTERVAL_MS,
   type EngramRepository,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
@@ -930,7 +929,6 @@ async function routeApi(
         light: DEFAULT_LIGHT_INTERVAL_MS,
         deep: DEFAULT_DEEP_INTERVAL_MS,
         rem: DEFAULT_REM_INTERVAL_MS,
-        daily: DEFAULT_DAILY_INTERVAL_MS,
       },
     });
     return;

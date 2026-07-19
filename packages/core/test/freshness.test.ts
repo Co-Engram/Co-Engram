@@ -56,14 +56,14 @@ describe("computeFreshness", () => {
       now.getTime() - (halfLife * 4 + 1) * DAY_MS,
     ).toISOString();
 
-    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
-    expect(computeFreshness(withinAging, FIXED_CREATED_AT, 0.5, now)).toBe(
+    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("fresh");
+    expect(computeFreshness(withinAging, FIXED_CREATED_AT, 0.5, undefined, now)).toBe(
       "aging",
     );
-    expect(computeFreshness(withinStale, FIXED_CREATED_AT, 0.5, now)).toBe(
+    expect(computeFreshness(withinStale, FIXED_CREATED_AT, 0.5, undefined, now)).toBe(
       "stale",
     );
-    expect(computeFreshness(forgotten, FIXED_CREATED_AT, 0.5, now)).toBe(
+    expect(computeFreshness(forgotten, FIXED_CREATED_AT, 0.5, undefined, now)).toBe(
       "forgotten",
     );
   });
@@ -74,9 +74,9 @@ describe("computeFreshness", () => {
     const lastEff = new Date(now.getTime() - 30 * DAY_MS).toISOString();
 
     // 低 importance:halflife 短,30 天可能已 forgotten
-    const low = computeFreshness(lastEff, FIXED_CREATED_AT, 0.05, now);
+    const low = computeFreshness(lastEff, FIXED_CREATED_AT, 0.05, undefined, now);
     // 高 importance:halflife 长,30 天仍 fresh
-    const high = computeFreshness(lastEff, FIXED_CREATED_AT, 0.9, now);
+    const high = computeFreshness(lastEff, FIXED_CREATED_AT, 0.9, undefined, now);
 
     // 验收:high 比 low 更 fresh(low 字典序在前 = forgotten 先于 fresh)
     const order = ["fresh", "aging", "stale", "forgotten"];
@@ -89,7 +89,7 @@ describe("computeFreshness", () => {
     const recent = new Date(
       now.getTime() - (halfLife - 1) * DAY_MS,
     ).toISOString();
-    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
+    expect(computeFreshness(recent, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("fresh");
   });
 
   it("1×~2×halfLife → aging", () => {
@@ -98,7 +98,7 @@ describe("computeFreshness", () => {
     const age = new Date(
       now.getTime() - (halfLife * 1.5) * DAY_MS,
     ).toISOString();
-    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("aging");
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("aging");
   });
 
   it("2×~4×halfLife → stale", () => {
@@ -107,7 +107,7 @@ describe("computeFreshness", () => {
     const age = new Date(
       now.getTime() - (halfLife * 3) * DAY_MS,
     ).toISOString();
-    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("stale");
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("stale");
   });
 
   it("4×+halfLife → forgotten", () => {
@@ -116,13 +116,13 @@ describe("computeFreshness", () => {
     const age = new Date(
       now.getTime() - (halfLife * 5) * DAY_MS,
     ).toISOString();
-    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, now)).toBe("forgotten");
+    expect(computeFreshness(age, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("forgotten");
   });
 
   it("未来时间(时钟偏差)→ fresh", () => {
     const now = new Date("2026-06-20T00:00:00Z");
     const future = new Date(now.getTime() + 1000 * DAY_MS).toISOString();
-    expect(computeFreshness(future, FIXED_CREATED_AT, 0.5, now)).toBe("fresh");
+    expect(computeFreshness(future, FIXED_CREATED_AT, 0.5, undefined, now)).toBe("fresh");
   });
 
   it("非法 lastEffectiveAt → fallback 到 createdAt 衰退", () => {
@@ -131,7 +131,7 @@ describe("computeFreshness", () => {
     const createdStale = new Date(
       now.getTime() - (halfLife * 3) * DAY_MS,
     ).toISOString();
-    expect(computeFreshness("not-a-date", createdStale, 0.5, now)).toBe("stale");
+    expect(computeFreshness("not-a-date", createdStale, 0.5, undefined, now)).toBe("stale");
   });
 });
 

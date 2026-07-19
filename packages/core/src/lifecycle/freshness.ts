@@ -16,7 +16,7 @@
  * @module @co-engram/core/lifecycle
  */
 
-import type { EngramFreshness } from "../types/engram.js";
+import type { EngramFreshness, EngramKind } from "../types/engram.js";
 import { deriveHalfLifeDays } from "../importance/dynamics.js";
 
 /**
@@ -64,10 +64,11 @@ export function computeFreshness(
   lastEffectiveAt: string | null | undefined,
   createdAt: string,
   importance: number,
+  kind?: EngramKind,
   now: Date = new Date(),
 ): EngramFreshness {
   const ageDays = effectiveAge(lastEffectiveAt, createdAt, now);
-  const halfLife = deriveHalfLifeDays(importance);
+  const halfLife = deriveHalfLifeDays(importance, kind);
 
   if (ageDays <= halfLife) return "fresh";
   if (ageDays <= halfLife * 2) return "aging";
@@ -83,6 +84,7 @@ export function computeFreshnessBatch(
     readonly lastEffectiveAt: string | null | undefined;
     readonly createdAt: string;
     readonly importance: number;
+    readonly kind?: EngramKind;
   }>,
   now: Date = new Date(),
 ): EngramFreshness[] {
@@ -91,6 +93,7 @@ export function computeFreshnessBatch(
       item.lastEffectiveAt,
       item.createdAt,
       item.importance,
+      item.kind,
       now,
     ),
   );

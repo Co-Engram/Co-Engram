@@ -90,6 +90,7 @@ export function applyDecayBatch(
       digest.lastEffectiveAt,
       digest.createdAt,
       digest.importance,
+      digest.kind as import("../types/engram.js").EngramKind | undefined,
       now,
     );
     byFreshness[freshness] += 1;
