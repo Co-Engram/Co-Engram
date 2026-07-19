@@ -29,13 +29,14 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
+import type { Synapse } from "../types/synapse.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   RuleBasedNecessityEvaluator,
@@ -104,6 +105,12 @@ export interface ProposalPayload {
   readonly encodingContext?: string;
   /** external-markdown 专用:文件在 dataRoot 内的相对路径 */
   readonly sourcePath?: string;
+  /** rem-pattern 专用:REM 提炼置信度(accept 时写入 engram.confidence) */
+  readonly remConfidence?: number;
+  /** rem-pattern 专用:来源记忆 id 列表(accept 时连 derives_from synapse) */
+  readonly remSourceIds?: readonly string[];
+  /** rem-pattern 专用:REM 提炼理由(展示给用户,辅助审批) */
+  readonly remReason?: string;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -449,15 +456,88 @@ export class ProposalEngine {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
       sampleQuotes: [
-        `元认知评分：${truthScore.toFixed(2)}/1.0`,
-        `REM 建议升级验证状态（${before} → ${action}）`,
+        `score=${truthScore.toFixed(2)}`,
+        reasoning.slice(0, 120),
       ],
-      centroidExcerpt: `「${engramTitle.slice(0, 30)}」验证：${before} → ${action}`,
+      centroidExcerpt: `${engramTitle.slice(0, 30)}|${before}|${action}|${truthScore.toFixed(2)}`,
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
       createdAt: existing?.createdAt ?? now,
       status: "pending",
       source: "rem-verification",
+    };
+
+    const updated = [
+      proposal,
+      ...proposals.filter((p) => p.entityId !== entityId),
+    ];
+    this.writeProposals(updated);
+    return true;
+  }
+
+  /**
+   * REM 模式提炼 proposal（payload 方案:产生**新** pattern 记忆）。
+   *
+   * 与 rem-verification（改已有记忆状态,不创建 engram）不同,rem-pattern 是
+   * dreaming 从多个相似记忆提炼出的高阶 pattern,accept 时**创建新 pattern engram**
+   * + 连 derives_from synapse。因此用 payload 携带完整新记忆字段(title/content/
+   * summary/domainTags/kind=pattern)+ REM 特有信息(remConfidence/remSourceIds/remReason)。
+   *
+   * dedup:同一组来源记忆(sourceIds)视为同一提案——重复提炼覆盖(pending)/
+   * 冷却(dismissed)/跳过(accepted)。entityId = rem-pattern:<sourceIds sha256 hash>。
+   */
+  proposePattern(input: {
+    readonly title: string;
+    readonly content: string;
+    readonly summary: string;
+    readonly confidence: number;
+    readonly reason: string;
+    readonly sourceIds: readonly string[];
+    readonly domainTags: readonly string[];
+  }): boolean {
+    const sortedIds = [...input.sourceIds].sort();
+    const hash = createHash("sha256")
+      .update(sortedIds.join(","))
+      .digest("hex")
+      .slice(0, 16);
+    const entityId = `rem-pattern:${hash}`;
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") return false;
+    if (
+      existing?.status === "dismissed" &&
+      existing.dismissedUntil &&
+      existing.dismissedUntil > new Date().toISOString()
+    )
+      return false;
+
+    const now = new Date().toISOString();
+    const proposal: Proposal = {
+      entityId,
+      occurrences: (existing?.occurrences ?? 0) + 1,
+      sampleQuotes: [
+        `confidence=${input.confidence.toFixed(2)}`,
+        input.reason.slice(0, 120),
+      ],
+      centroidExcerpt: input.title.slice(0, 80),
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      createdAt: existing?.createdAt ?? now,
+      status: "pending",
+      source: "rem-pattern",
+      payload: {
+        title: input.title,
+        content: input.content,
+        summary: input.summary,
+        domainTags: input.domainTags,
+        kind: "pattern",
+        sourceType: "inferred",
+        importance: 0.7,
+        remConfidence: input.confidence,
+        remSourceIds: input.sourceIds,
+        remReason: input.reason,
+      },
     };
 
     const updated = [
@@ -513,8 +593,9 @@ export class ProposalEngine {
     // REM verification proposal:accept → 完整落盘(status + confidence + evidence + importance 连锁)
     if (target.source === "rem-verification") {
       const engramId = entityId.replace(/^rem:/, "");
-      const parts = target.centroidExcerpt.split(" → ");
-      const newStatus = parts[1]?.trim() as VerificationStatus | undefined;
+      // centroidExcerpt 格式:title|before|action|score(action = 变更后状态)
+      const pipeParts = target.centroidExcerpt.split("|");
+      const newStatus = pipeParts[2]?.trim() as VerificationStatus | undefined;
       if (newStatus) {
         const evidence = {
           description:
@@ -551,6 +632,60 @@ export class ProposalEngine {
       this.writeProposals(updated);
       this.clustersCache = null;
       return engramId;
+    }
+
+    // REM pattern proposal:accept → 创建**新** pattern engram + 连 derives_from synapse
+    // (从 runRemDreaming 自动创建逻辑移来;提案化后,自动创建改为用户 accept 才执行)
+    if (target.source === "rem-pattern") {
+      const payload = target.payload;
+      if (!payload || !payload.title || !payload.content) {
+        throw validationError(
+          `rem-pattern proposal missing payload (entityId=${entityId})`,
+        );
+      }
+      const createdBy = input.createdBy ?? "rem-pattern-accept";
+      const patternEngram = this.repository.createEngram({
+        title: payload.title,
+        content: payload.content,
+        summary: payload.summary,
+        kind: "pattern",
+        domainTags: [...payload.domainTags],
+        importance: payload.importance ?? 0.7,
+        confidence: payload.remConfidence ?? 0.7,
+        sourceType: "inferred",
+        createdBy,
+      });
+      // 连 derives_from synapse 到每个来源记忆(标注新 pattern 的出处)
+      const timestamp = patternEngram.createdAt;
+      for (const sourceId of payload.remSourceIds ?? []) {
+        const synapse: Synapse = {
+          id: randomUUID(),
+          from: patternEngram.id,
+          to: sourceId,
+          kind: "derives_from",
+          weight: 0.8,
+          direction: "directional",
+          evidence: [],
+          createdBy,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          retrievalWeight: 0.8,
+          visibility: "public",
+        };
+        this.repository.addOutgoingSynapse(patternEngram.id, synapse);
+      }
+      const updated = proposals.map((p) =>
+        p.entityId === entityId
+          ? {
+              ...p,
+              status: "accepted" as const,
+              acceptedEngramId: patternEngram.id,
+            }
+          : p,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      return patternEngram.id;
     }
 
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。

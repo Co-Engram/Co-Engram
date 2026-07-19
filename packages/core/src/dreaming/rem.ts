@@ -274,6 +274,22 @@ export interface RemDreamingOptions {
   readonly createdBy?: string;
   /** 只读模式：只生成提案不落盘 */
   readonly dryRun?: boolean;
+  /**
+   * REM 审批化(2026-07):注入后,pattern 提案**不再自动 createEngram**,而是交给
+   * ProposalEngine.proposePattern 生成 rem-pattern 提案(用户 accept 才创建)。
+   * 不注入时保持原行为(confidence ≥ autoAdoptionThreshold 自动创建,向后兼容)。
+   */
+  readonly proposalEngine?: {
+    proposePattern(input: {
+      readonly title: string;
+      readonly content: string;
+      readonly summary: string;
+      readonly confidence: number;
+      readonly reason: string;
+      readonly sourceIds: readonly string[];
+      readonly domainTags: readonly string[];
+    }): boolean;
+  };
 }
 
 export interface RemDreamingResult {
@@ -355,7 +371,20 @@ export async function runRemDreaming(
     };
     proposals.push(proposal);
 
-    if (output.confidence >= autoAdoptionThreshold && !dryRun) {
+    if (options.proposalEngine) {
+      // REM 审批化(2026-07):所有提炼的 pattern 都生成 rem-pattern 提案
+      // (用户 accept 才创建),不再自动 createEngram / 丢弃。
+      const domainTags = [...new Set(engrams.flatMap((e) => e.domainTags))];
+      options.proposalEngine.proposePattern({
+        title: proposal.title,
+        content: proposal.content,
+        summary: proposal.summary,
+        confidence: proposal.confidence,
+        reason: proposal.reason,
+        sourceIds: proposal.sourceIds,
+        domainTags,
+      });
+    } else if (output.confidence >= autoAdoptionThreshold && !dryRun) {
       // 自动采纳：创建 pattern engram + derives_from synapse
       const patternEngram = repo.createEngram({
         title: proposal.title,

@@ -59,6 +59,7 @@ export function startMaintenanceRuntime(
     remIntervalMs: config.remIntervalMs,
     deepOptions: { trash: trashToDeepOptions(config.trash) },
     ...(deps.llmClient ? { llmClient: deps.llmClient } : {}),
+    ...(deps.proposalEngine ? { proposalEngine: deps.proposalEngine } : {}),
   };
 
   const dreamingScheduler =

@@ -56,6 +56,12 @@ export interface DreamingScheduleConfig {
    * 与 remOptions.abstractionProvider 互斥:显式传入的 abstractionProvider 优先级更高。
    */
   readonly llmClient?: LlmClient;
+  /**
+   * REM 审批化:ProposalEngine(可选)。注入后 REM 的 pattern 提炼不再自动
+   * createEngram,而是生成 rem-pattern 提案(用户 accept 才创建)。
+   * 顶层字段便于宿主直接注入 deps.proposalEngine;会合并进 remOptions。
+   */
+  readonly proposalEngine?: RemDreamingOptions["proposalEngine"];
 }
 
 export interface DreamingRunRecord {
@@ -113,11 +119,15 @@ export function createDreamingScheduler(
   const remIntervalMs = config.remIntervalMs ?? 7 * 24 * 60 * 60 * 1000;
 
   // 解析 REM abstractionProvider:显式 > llmClient 自动构造 > 默认(runRemDreaming 内部 LocalHeuristic)
-  const remOptions: RemDreamingOptions = config.remOptions
+  const baseRemOptions: RemDreamingOptions = config.remOptions
     ? config.remOptions
     : config.llmClient
       ? { abstractionProvider: new LlmPatternAbstraction(config.llmClient) }
       : {};
+  // REM 审批化:叠加 proposalEngine(若宿主注入),pattern 提炼走提案而非自动创建
+  const remOptions: RemDreamingOptions = config.proposalEngine
+    ? { ...baseRemOptions, proposalEngine: config.proposalEngine }
+    : baseRemOptions;
 
   const handlers: DreamingRunHandler[] = [];
   let lightTimer: ReturnType<typeof setInterval> | null = null;

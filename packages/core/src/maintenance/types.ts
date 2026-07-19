@@ -83,6 +83,20 @@ export interface MaintenanceDeps {
       truthScore: number,
       reasoning: string,
     ): boolean;
+    /**
+     * REM 模式提炼提案(dreaming 产生**新** pattern 记忆)。
+     * 提案化之前 runRemDreaming 对 confidence ≥ threshold 的 pattern 自动 createEngram;
+     * 提案化后改为经此方法生成 rem-pattern 提案,用户 accept 才创建。
+     */
+    proposePattern(input: {
+      readonly title: string;
+      readonly content: string;
+      readonly summary: string;
+      readonly confidence: number;
+      readonly reason: string;
+      readonly sourceIds: readonly string[];
+      readonly domainTags: readonly string[];
+    }): boolean;
   };
   /**
    * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。
