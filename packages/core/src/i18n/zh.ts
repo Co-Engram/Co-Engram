@@ -1454,10 +1454,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.dreamBadgeTip":
     "REM 是借用人类睡眠神经科学的隐喻:此阶段类似梦境记忆巩固,把白天散落的记忆痕迹重塑为长存的 pattern。",
   "viewer.maintenance.remModifiedLabel": "上次 REM 修改",
+  "viewer.maintenance.lightNoSignal":
+    "本周期没有新的记忆使用信号,记忆无变化(Light 阶段把 agent 检索/使用记忆的行为转化为强化,没有新行为时记忆保持原样)",
   "viewer.maintenance.lightModifiedLabel": "RPE 强化",
   "viewer.maintenance.deepModifiedLabel": "修改",
   "viewer.maintenance.deepAction.forgotten": "遗忘",
-  "viewer.maintenance.deepAction.archived": "归档",
+  "viewer.maintenance.deepAction.archived": "隐藏",
   "viewer.maintenance.deepAction.merged": "合并",
   "viewer.maintenance.modCard.viewEngram": "查看记忆详情",
   "viewer.maintenance.modCard.remUpgrade":
@@ -1467,7 +1469,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.modCard.deepForgotten":
     "这条记忆在 Deep(模式抽象)阶段因长期未被使用,被判定为过时遗忘,检索优先级降低。",
   "viewer.maintenance.modCard.deepArchived":
-    "这条记忆在 Deep(模式抽象)阶段被归档,不再活跃,但仍保留在仓库中。",
+    "这条记忆在 Deep(模式抽象)阶段被隐藏(不再活跃显示),但仍保留在仓库中。",
   "viewer.maintenance.modCard.deepMerged":
     "这条记忆在 Deep(模式抽象)阶段被合并到另一条相似记忆(去重),内容并入目标记忆。",
   "viewer.maintenance.modCard.lightRpe":

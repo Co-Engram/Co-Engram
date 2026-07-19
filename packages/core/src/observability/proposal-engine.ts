@@ -644,17 +644,29 @@ export class ProposalEngine {
         );
       }
       const createdBy = input.createdBy ?? "rem-pattern-accept";
-      const patternEngram = this.repository.createEngram({
-        title: payload.title,
-        content: payload.content,
-        summary: payload.summary,
-        kind: "pattern",
-        domainTags: [...payload.domainTags],
-        importance: payload.importance ?? 0.7,
-        confidence: payload.remConfidence ?? 0.7,
-        sourceType: "inferred",
-        createdBy,
-      });
+      // path conflict 兜底(同通用分支):若已有同 title 的 pattern engram,
+      // createEngram 抛 "Engram already exists at <path>",此时 adopt 现有的而非失败。
+      let patternEngram: { id: string; createdAt: string };
+      try {
+        patternEngram = this.repository.createEngram({
+          title: payload.title,
+          content: payload.content,
+          summary: payload.summary,
+          kind: "pattern",
+          domainTags: [...payload.domainTags],
+          importance: payload.importance ?? 0.7,
+          confidence: payload.remConfidence ?? 0.7,
+          sourceType: "inferred",
+          createdBy,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const m = msg.match(/^Engram already exists at (.+)$/);
+        if (!m) throw e;
+        const existing = this.repository.ingestExistingEngramFile(m[1]!);
+        if (!existing) throw e;
+        patternEngram = existing;
+      }
       // 连 derives_from synapse 到每个来源记忆(标注新 pattern 的出处)
       const timestamp = patternEngram.createdAt;
       for (const sourceId of payload.remSourceIds ?? []) {

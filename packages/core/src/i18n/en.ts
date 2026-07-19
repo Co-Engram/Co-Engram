@@ -1493,6 +1493,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.dreamBadgeTip":
     "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
   "viewer.maintenance.remModifiedLabel": "Last REM modified",
+  "viewer.maintenance.lightNoSignal":
+    "No new memory-usage signals this cycle, so memories are unchanged (Light turns retrieval/usage behavior into reinforcement; with no new behavior, memories stay as-is).",
   "viewer.maintenance.lightModifiedLabel": "RPE boosted",
   "viewer.maintenance.deepModifiedLabel": "Modified",
   "viewer.maintenance.deepAction.forgotten": "forgotten",

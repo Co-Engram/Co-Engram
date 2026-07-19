@@ -3361,8 +3361,15 @@ window.CO_ENGRAM_MAINTENANCE = {
         if (typeof v === 'boolean') return v ? label : null;
         return label + ' ' + v;
       }
+      // Light 特判:计数全 0 时给友好说明(本周期无新信号),而不是一串看不懂的 0
+      var _ds = lastResult && lastResult.downstreamSummary;
+      var lightAllZero = stage === 'light' && _ds
+        && !(_ds.signalsProcessed > 0) && !(_ds.rpeUpdates > 0) && !(_ds.windowsClosed > 0);
+
       const parts = [];
-      if (lastResult) {
+      if (lightAllZero) {
+        parts.push(CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.lightNoSignal')));
+      } else if (lastResult) {
         for (const k of Object.keys(lastResult)) {
           const v = lastResult[k];
           if (Array.isArray(v)) continue;
@@ -3453,12 +3460,13 @@ window.CO_ENGRAM_MAINTENANCE = {
       }
 
       // 模式提炼提案(dreaming,REM 另一半产出):补 metacognition 升级/反驳之外的类型
+      // 每项可点击 → 跳转「记忆提案」tab(那里有对应的 rem-pattern 提案可审批)
       var patternHtml = '';
       var patternProposals = lastResult && lastResult.downstreamSummary ? lastResult.downstreamSummary.patternProposals : null;
       if (stage === 'rem' && patternProposals && patternProposals.length > 0) {
         patternHtml = '<div class="kpi-sub" style="margin-top:0.3rem">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.patternLabel')) + ': '
           + patternProposals.map(function(p) {
-              return '<span style="color:var(--accent,#5eead4)" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
+              return '<span class="rem-mod-item" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击到记忆提案审批)" onclick="CO_ENGRAM.showTab(\\'proposals\\')">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
             }).join('、')
           + '</div>';
       }
