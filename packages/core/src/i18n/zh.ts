@@ -786,7 +786,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.audit.tip":
     "记忆变更时间线:创建/更新/删除/强化/矛盾解决的历史记录",
   "viewer.tab.maintenance.tip":
-    "记忆梦境:REM(🌙 记忆巩固+元认知)/daily(☀️ 每日衰减)/deep(🧠 模式抽象)/light(⚡ 信号处理)的运行状态与效果",
+    "记忆梦境:REM(🌙 记忆巩固+元认知)/daily(☀️ 每日衰减)/deep(🧠 记忆整理)/light(⚡ 信号处理)的运行状态与效果",
   "viewer.tab.trash.tip": "软删除的印迹与突触;可恢复或彻底清除",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
@@ -1417,7 +1417,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.disabledHint": "未启用维护服务或 dataRoot 不可用。",
   "viewer.maintenance.title": "梦境状态",
   "viewer.maintenance.intro":
-    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估(聚类相似记忆 + 抽象 pattern + 验证升降级)、☀️ daily 每日衰减(模拟遗忘)、🧠 deep 模式抽象、⚡ light 信号处理。下方显示每个阶段的运行时刻、产物效果与是否在周期内。",
+    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估(聚类相似记忆 + 抽象 pattern + 验证升降级)、☀️ daily 每日衰减(模拟遗忘)、🧠 deep 记忆整理、⚡ light 信号处理。下方显示每个阶段的运行时刻、产物效果与是否在周期内。",
   "viewer.maintenance.never": "从未运行",
   "viewer.maintenance.justNow": "刚刚",
   "viewer.maintenance.minutesAgo": "${n} 分钟前",
@@ -1429,7 +1429,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "REM/daily 是低频阶段,进程重启或持锁切换可能让 setInterval 永远到不了 —— 启动时的 catch-up 会立即补跑过期的低频阶段。light/deep 频率高(5 分钟 / 1 小时),setInterval 自然会触发,所以「从未运行」不算异常。状态颜色:绿(健康周期)、黄(即将到期)、红(已过期,会在下次启动补跑)。",
   "viewer.maintenance.stage.rem": "REM(记忆巩固)",
   "viewer.maintenance.stage.daily": "Daily(每日衰减)",
-  "viewer.maintenance.stage.deep": "Deep(模式抽象)",
+  "viewer.maintenance.stage.deep": "Deep(记忆整理)",
   "viewer.maintenance.stage.light": "Light(信号处理)",
   "viewer.maintenance.stageIcon.rem": "🌙",
   "viewer.maintenance.stageIcon.daily": "☀️",
@@ -1439,7 +1439,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分,产出升级/反驳/模式提案待审批",
   "viewer.maintenance.stageSubtitle.daily":
     "每日衰减:所有活跃记忆 importance × 0.95,模拟「未被使用的时间也在削弱」",
-  "viewer.maintenance.stageSubtitle.deep": "深层抽象:中频模式提取与突触整理",
+  "viewer.maintenance.stageSubtitle.deep": "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
   "viewer.maintenance.stageSubtitle.light":
     "信号处理:把工具调用行为流转化为记忆的强化/衰减(RPE 加性更新)",
   "viewer.maintenance.stageTip.rem":
@@ -1447,7 +1447,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.stageTip.daily":
     "每日衰减(Ebbinghaus 遗忘曲线):未被使用的记忆随时间自然削弱 —— 对所有 active、未 refute 的 engram,importance × 0.95(每天打 95 折)。这模拟人类「用进废退」:常被检索/强化的记忆抗衰减,不用的逐渐淡忘。默认 24h 一周期。",
   "viewer.maintenance.stageTip.deep":
-    "Deep 阶段:复用 runDeepDreaming,做中频(默认 1 小时)的模式抽象与 decay 维护。",
+    "Deep 阶段:合并重复记忆(去重)+ freshness 驱动的归档/遗忘 + 回收站清理。默认 1 小时。",
   "viewer.maintenance.stageTip.light":
     "Light 阶段:drain 工具调用事件流 → extractSignals → applyRpeUpdate。频率高(默认 5 分钟),事件驱动的微调,与 daily 的时间驱动衰减正交。",
   "viewer.maintenance.dreamBadge": "梦睡眠",
@@ -1467,11 +1467,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.modCard.remRefute":
     "这条记忆在梦境(REM)阶段被评估为可信度不足,标记为「已驳回」。它仍保留,但被明确标记为不可靠。",
   "viewer.maintenance.modCard.deepForgotten":
-    "这条记忆在 Deep(模式抽象)阶段因长期未被使用,被判定为过时遗忘,检索优先级降低。",
+    "这条记忆在 Deep(记忆整理)阶段因长期未被使用,被判定为过时遗忘,检索优先级降低。",
   "viewer.maintenance.modCard.deepArchived":
-    "这条记忆在 Deep(模式抽象)阶段被隐藏(不再活跃显示),但仍保留在仓库中。",
+    "这条记忆在 Deep(记忆整理)阶段被隐藏(不再活跃显示),但仍保留在仓库中。",
   "viewer.maintenance.modCard.deepMerged":
-    "这条记忆在 Deep(模式抽象)阶段被合并到另一条相似记忆(去重),内容并入目标记忆。",
+    "这条记忆在 Deep(记忆整理)阶段被合并到另一条相似记忆(去重),内容并入目标记忆。",
   "viewer.maintenance.modCard.lightRpe":
     "这条记忆在 Light(信号处理)阶段因被检索/使用,获得 RPE 强化 ${delta}——被用到的记忆变得更强。",
   "viewer.maintenance.patternLabel": "模式提炼",

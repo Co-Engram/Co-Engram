@@ -1455,7 +1455,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Maintenance service not enabled or dataRoot unavailable.",
   "viewer.maintenance.title": "Dream State",
   "viewer.maintenance.intro":
-    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), ☀️ daily decay (forgetting), 🧠 deep pattern abstraction, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
+    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), ☀️ daily decay (forgetting), 🧠 deep memory cleanup, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
   "viewer.maintenance.never": "never run",
   "viewer.maintenance.justNow": "just now",
   "viewer.maintenance.minutesAgo": "${n} min ago",
@@ -1467,7 +1467,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     'REM/daily are low-frequency stages. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
   "viewer.maintenance.stage.rem": "REM (consolidation)",
   "viewer.maintenance.stage.daily": "Daily (decay)",
-  "viewer.maintenance.stage.deep": "Deep (abstraction)",
+  "viewer.maintenance.stage.deep": "Deep (cleanup)",
   "viewer.maintenance.stage.light": "Light (signals)",
   "viewer.maintenance.stageIcon.rem": "🌙",
   "viewer.maintenance.stageIcon.daily": "☀️",
@@ -1477,16 +1477,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition scoring, producing upgrade / refute / pattern proposals for approval",
   "viewer.maintenance.stageSubtitle.daily":
     'Daily decay: all active engrams get importance × 0.95, modeling "unused time also weakens memory"',
-  "viewer.maintenance.stageSubtitle.deep":
-    "Deep abstraction: mid-frequency pattern extraction and synapse cleanup",
+  "viewer.maintenance.stageSubtitle.deep": "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
   "viewer.maintenance.stageSubtitle.light":
     "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
   "viewer.maintenance.stageTip.rem":
     "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract patterns from them; ③ run metacognition scoring. These outputs (upgrades / refutes / new patterns) are not written automatically — they appear as proposals on the Proposals page and take effect only after you approve them. Default 1-day cycle.",
   "viewer.maintenance.stageTip.daily":
     "Daily decay (Ebbinghaus forgetting curve): unused memories weaken over time — for every active, non-refuted engram, importance × 0.95 (5% off per day). This mirrors human 'use it or lose it': frequently retrieved/reinforced memories resist decay, unused ones fade. Default 24h cycle.",
-  "viewer.maintenance.stageTip.deep":
-    "Deep stage: reuses runDeepDreaming for mid-frequency (default 1h) pattern abstraction and decay upkeep.",
+  "viewer.maintenance.stageTip.deep": "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
   "viewer.maintenance.stageTip.light":
     "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning, orthogonal to daily's time-driven decay.",
   "viewer.maintenance.dreamBadge": "dream sleep",
@@ -1506,11 +1504,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.modCard.remRefute":
     "This memory was judged low-confidence during dream sleep (REM) and marked \"refuted\". It is kept but clearly flagged as unreliable.",
   "viewer.maintenance.modCard.deepForgotten":
-    "This memory was judged stale and forgotten during Deep (pattern abstraction) after long disuse, lowering its retrieval priority.",
+    "This memory was judged stale and forgotten during Deep (cleanup) after long disuse, lowering its retrieval priority.",
   "viewer.maintenance.modCard.deepArchived":
-    "This memory was archived during Deep (pattern abstraction); it is no longer active but remains in the store.",
+    "This memory was archived during Deep (cleanup); it is no longer active but remains in the store.",
   "viewer.maintenance.modCard.deepMerged":
-    "This memory was merged into a similar one during Deep (pattern abstraction) to deduplicate; its content moved into the target memory.",
+    "This memory was merged into a similar one during Deep (cleanup) to deduplicate; its content moved into the target memory.",
   "viewer.maintenance.modCard.lightRpe":
     "This memory gained an RPE boost of ${delta} during Light (signal processing) because it was retrieved/used — used memories grow stronger.",
   "viewer.maintenance.patternLabel": "Pattern abstraction",

@@ -1569,7 +1569,7 @@ CO_ENGRAM.openModifiedCard = async function(el) {
     }
   } else if (stage === 'deep') {
     icon = '🧠';
-    stageBadge = 'Deep(模式抽象)';
+    stageBadge = 'Deep(记忆整理)';
     actionBadge = T.t('viewer.maintenance.deepAction.' + action) || action;
     if (action === 'forgotten') desc = T.t('viewer.maintenance.modCard.deepForgotten');
     else if (action === 'archived') desc = T.t('viewer.maintenance.modCard.deepArchived');
