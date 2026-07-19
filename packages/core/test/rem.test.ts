@@ -82,7 +82,7 @@ describe("LocalHeuristicPatternAbstraction", () => {
         },
       ],
     });
-    expect(result.title).toMatch(/Pattern:/);
+    expect(result.title).toMatch(/从.*条相似记忆提炼的模式/);
     expect(result.confidence).toBeGreaterThan(0);
     expect(result.content).toContain("共同关键词");
   });
@@ -364,6 +364,6 @@ describe("spec 验收：REM 模式发现", () => {
     expect(result.proposals.length).toBeGreaterThanOrEqual(1);
     const proposal = result.proposals[0]!;
     expect(proposal.sourceIds.length).toBeGreaterThanOrEqual(3);
-    expect(proposal.title).toMatch(/Pattern:/);
+    expect(proposal.title).toMatch(/从.*条相似记忆提炼的模式/);
   });
 });

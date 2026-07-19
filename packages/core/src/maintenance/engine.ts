@@ -185,6 +185,10 @@ export class MaintenanceEngine {
       }
 
       return {
+        signalsProcessed,
+        rpeUpdates,
+        windowsClosed,
+        promptSignalsUpdated,
         downstreamReport: {
           signalsProcessed,
           rpeUpdates,

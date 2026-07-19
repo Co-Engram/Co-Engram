@@ -61,7 +61,7 @@ describe("LlmPatternAbstraction", () => {
     );
 
     // LocalHeuristic 输出 title 以 "Pattern:" 开头
-    expect(out.title.startsWith("Pattern:")).toBe(true);
+    expect(out.title).toMatch(/从.*条相似记忆提炼的模式/);
     // confidence 在 [0,1] 范围
     expect(out.confidence).toBeGreaterThanOrEqual(0);
     expect(out.confidence).toBeLessThanOrEqual(1);
@@ -79,7 +79,7 @@ describe("LlmPatternAbstraction", () => {
       makeInput(["Memory A", "Memory B"]),
     );
 
-    expect(out.title.startsWith("Pattern:")).toBe(true);
+    expect(out.title).toMatch(/从.*条相似记忆提炼的模式/);
   });
 
   it("LLM 返回空字符串时 fallback 到 LocalHeuristic", async () => {
@@ -92,7 +92,7 @@ describe("LlmPatternAbstraction", () => {
     const provider = new LlmPatternAbstraction(fakeClient);
     const out = await provider.abstract(makeInput(["A", "B"]));
 
-    expect(out.title.startsWith("Pattern:")).toBe(true);
+    expect(out.title).toMatch(/从.*条相似记忆提炼的模式/);
   });
 
   it("LLM 返回部分缺失字段(title 空)时 fallback", async () => {
@@ -110,7 +110,7 @@ describe("LlmPatternAbstraction", () => {
     const provider = new LlmPatternAbstraction(fakeClient);
     const out = await provider.abstract(makeInput(["A", "B"]));
 
-    expect(out.title.startsWith("Pattern:")).toBe(true);
+    expect(out.title).toMatch(/从.*条相似记忆提炼的模式/);
   });
 
   it("LLM 返回 markdown-fenced JSON 时能正确解析", async () => {

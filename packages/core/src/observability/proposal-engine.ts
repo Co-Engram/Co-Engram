@@ -37,6 +37,7 @@ import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
+import { upgradeVerification, refuteEngram } from "../verification/upgrade.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
   RuleBasedNecessityEvaluator,
@@ -603,21 +604,26 @@ export class ProposalEngine {
           verifiedBy: input.createdBy ?? "rem-proposal-accept",
           confidence: 0.8,
         };
+        // 用 upgradeVerification/refuteEngram 替代手动调用:
+        // 自动处理 status + confidence + evidence 追加到 derives_from synapse
         if (newStatus === "refuted") {
-          this.repository.updateVerificationStatus(engramId, "refuted");
-          this.repository.updateConfidence(
-            engramId,
-            (this.repository.readEngram(engramId).confidence ?? 0.5) * 0.3,
-          );
+          refuteEngram(this.repository, engramId, evidence);
         } else {
-          this.repository.updateVerificationStatus(engramId, newStatus);
-          this.repository.updateConfidence(
-            engramId,
-            Math.min(
-              0.95,
-              (this.repository.readEngram(engramId).confidence ?? 0.5) + 0.2,
-            ),
-          );
+          // 逐步升级到目标(canTransition 要求相邻级;REM 可能跨级如 unverified→verified)
+          const PATH: readonly VerificationStatus[] = ["plausible", "probable", "verified"];
+          let current = this.repository.readEngram(engramId).verificationStatus;
+          const currentIdx = PATH.indexOf(current as VerificationStatus);
+          const targetIdx = PATH.indexOf(newStatus);
+          for (let i = Math.max(0, currentIdx + 1); i <= targetIdx; i++) {
+            const result = upgradeVerification(
+              this.repository, engramId, PATH[i]!, evidence, { force: true },
+            );
+            if (result.applied) {
+              current = result.newStatus as VerificationStatus;
+            } else {
+              break;
+            }
+          }
         }
       }
       const updated = proposals.map((p) =>
