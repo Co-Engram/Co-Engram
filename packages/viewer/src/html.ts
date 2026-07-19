@@ -431,7 +431,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
 
   <!-- Detail drawer (right side) -->
   <aside id="detail-drawer" class="drawer">
-    <button class="drawer-close" aria-label="Close">✕</button>
+    <button class="drawer-close" aria-label="${t(language, "action.close")}">✕</button>
     <div class="drawer-body"></div>
   </aside>
 
