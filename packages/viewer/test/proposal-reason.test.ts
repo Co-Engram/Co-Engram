@@ -58,3 +58,27 @@ describe("formatWindow / _shortTs helper 存在且被引用", () => {
     expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window.within'");
   });
 });
+
+describe("_sourceLine 卡片来源行", () => {
+  it("CO_ENGRAM_PROPOSALS 定义 _sourceLine(p)", () => {
+    expect(TABS_RUNTIME).toContain("_sourceLine(p) {");
+  });
+
+  it("按 source 分模板,引用 sourceLine.* key", () => {
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.sourceLine.conversation'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.sourceLine.external'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.sourceLine.autoMemory'");
+  });
+
+  it("卡片循环在普通卡片段调用 this._sourceLine(p)", () => {
+    // 普通卡片段以 _inferMeta 为标志(_sourceLine 必须在其后,即 rem continue 之后)
+    const metaIdx = TABS_RUNTIME.indexOf("const meta = this._inferMeta(p)");
+    const callIdx = TABS_RUNTIME.indexOf("this._sourceLine(p)");
+    expect(metaIdx, "应存在 _inferMeta 锚点").toBeGreaterThan(-1);
+    expect(callIdx, "应调用 this._sourceLine(p)").toBeGreaterThan(metaIdx);
+  });
+
+  it("_sourceLine 内部用 this.formatWindow 取时间范围", () => {
+    expect(TABS_RUNTIME).toContain("this.formatWindow(p.firstSeenAt, p.lastSeenAt, occ, { compact: true })");
+  });
+});

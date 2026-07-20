@@ -1030,6 +1030,35 @@ window.CO_ENGRAM_PROPOSALS = {
     return compact ? this._shortTs(singleIso) : (occ ? (occ + ' ' + T.t('viewer.proposals.sourceLine.times')) : (this._shortTs(singleIso) || ''));
   },
 
+  /**
+   * 卡片紧凑来源行(在 meta chip 行之后、previewClip 之前)。
+   * 按 source 分模板;conversation 含时间范围 + 次数;external/auto-memory 含文件标识。
+   * rem-* 走专属卡片,调用方已 continue 跳过,不进本函数。
+   */
+  _sourceLine(p) {
+    const T = CO_ENGRAM_T;
+    const src = p.source || 'conversation';
+    const occ = p.occurrences || 0;
+    const times = T.t('viewer.proposals.sourceLine.times');
+    if (src === 'external-markdown') {
+      const base = (p.sourcePath || '').split('/').pop() || p.sourcePath || '';
+      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">📄 '
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.external'))
+        + (base ? ' · ' + CO_ENGRAM.escapeHtml(base) : '') + '</div>';
+    }
+    if (src === 'auto-memory') {
+      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">🧠 '
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.autoMemory'))
+        + (p.slug ? ' · ' + CO_ENGRAM.escapeHtml(p.slug) : '') + '</div>';
+    }
+    // conversation(含 undefined 向前兼容)
+    const range = this.formatWindow(p.firstSeenAt, p.lastSeenAt, occ, { compact: true });
+    const parts = ['💬 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.conversation'))];
+    if (range) parts.push(CO_ENGRAM.escapeHtml(range));
+    if (occ) parts.push(occ + ' ' + CO_ENGRAM.escapeHtml(times));
+    return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">' + parts.join(' · ') + '</div>';
+  },
+
   async _setStatus(status) {
     this._currentStatus = status;
     // 切 status 等于切 server-side filter,旧 viewStart 索引的页面不再相关 → 回第一页
@@ -1260,6 +1289,7 @@ window.CO_ENGRAM_PROPOSALS = {
           + '<span class="chip">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
           + (p.payload && p.payload.visibility ? CO_ENGRAM.renderVisibilityBadge(p.payload.visibility) : '')
           + '</div>';
+        html += this._sourceLine(p);
         if (previewClip) {
           html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
         } else {
