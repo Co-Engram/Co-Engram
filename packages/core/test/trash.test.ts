@@ -221,7 +221,7 @@ describe("listTrashed / findTrashed", () => {
   it("跨多个分区列出 trashed engram", () => {
     const e1 = makeEngram({ title: "A", domainTags: ["x"] });
     repo.updateLifecycle(e1.id, "forgotten", "forgotten");
-    backdateMetaMtime(e1.id, 60);
+    backdateMetaMtime(e1.id, 180); // 回溯 180 天,确保 first sweep(nowIso=June)时 elapsed > afterDays=30
     sweepToTrash(repo, {
       afterDays: 30,
       nowIso: new Date(2026, 5, 15).toISOString(),
@@ -229,7 +229,7 @@ describe("listTrashed / findTrashed", () => {
 
     const e2 = makeEngram({ title: "B", domainTags: ["y"] });
     repo.updateLifecycle(e2.id, "forgotten", "forgotten");
-    backdateMetaMtime(e2.id, 60);
+    backdateMetaMtime(e2.id, 180);
     sweepToTrash(repo, {
       afterDays: 30,
       nowIso: new Date(2026, 6, 20).toISOString(),
