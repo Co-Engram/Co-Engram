@@ -308,11 +308,20 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
 
   const language = config.language ?? DEFAULT_LANGUAGE;
   const profile = config.profile ?? resolveProfile({}).profile;
-  const sessionState = buildInstructionSessionState(
-    ctx.repository.listEngrams().length,
-    ctx.proposalEngine?.listPending().length ?? 0,
-    config.dataRoot,
-  );
+  // topTags 直接从 repository 实时计算(不从 prompt-signals.json 读缓存)
+  const allEngrams = ctx.repository.listEngrams();
+  const tagCounts: Record<string, number> = {};
+  for (const e of allEngrams) {
+    for (const tag of e.domainTags ?? []) {
+      const t = tag.trim();
+      if (t) tagCounts[t] = (tagCounts[t] ?? 0) + 1;
+    }
+  }
+  const topTags = Object.entries(tagCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 20)
+    .map(([t]) => t);
+  const sessionState = buildInstructionSessionState(topTags);
   const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 1);
   const instructions = buildServerInstructions(
     language,
@@ -602,25 +611,22 @@ function extractZodShape(tool: Tool): Record<string, any> | undefined {
 /**
  * 装配 instructions 的 session-fresh 状态
  *
- * - totalEngrams / pendingProposals 由调用方从 in-memory repository/proposalEngine 取
- * - topTags / lowConfidenceTopics / missedTopics 从 prompt-signals.json 读
- *   (light stage 周期性生成;首次启动或文件缺失时降级为空数组)
+ * 仅注入 topTags(从 repository 实时计算,不从 prompt-signals.json 读缓存)。
+ * 记忆总数和待审核候选已移除(无行动价值)。
+ * lowConfidenceTopics / missedTopics 暂留空(后续可从 repository 实时算)。
  *
  * Export 用于 daemon-entry.ts 在 per-connection McpServer 实例化时复用同一份 session state
  * 装配逻辑(避免代码重复)。
  */
 export function buildInstructionSessionState(
-  totalEngrams: number,
-  pendingProposals: number,
-  dataRoot: string,
+  topTags: readonly string[],
 ): InstructionSessionState {
-  const signals = readPromptSignalsSync(dataRoot);
   return {
-    totalEngrams,
-    pendingProposals,
-    topTags: signals?.topTags ?? [],
-    lowConfidenceTopics: signals?.lowConfidenceTopics ?? [],
-    missedTopics: signals?.missedTopics ?? [],
+    totalEngrams: 0,
+    pendingProposals: 0,
+    topTags,
+    lowConfidenceTopics: [],
+    missedTopics: [],
   };
 }
 

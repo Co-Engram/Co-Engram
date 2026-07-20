@@ -481,11 +481,20 @@ async function main(): Promise<void> {
       const { registerMcpPrompts } = await import("../prompts.js");
       const { registerMcpResources } = await import("../resources.js");
       const lang = language ?? DEFAULT_LANG;
-      const sessionState = buildInstructionSessionState(
-        ctx.repository.listEngrams().length,
-        ctx.proposalEngine?.listPending().length ?? 0,
-        dataRoot,
-      );
+      // topTags 直接从 repository 实时计算(不从 prompt-signals.json 读缓存)
+      const allEngrams = ctx.repository.listEngrams();
+      const tagCounts: Record<string, number> = {};
+      for (const e of allEngrams) {
+        for (const tag of e.domainTags ?? []) {
+          const t = tag.trim();
+          if (t) tagCounts[t] = (tagCounts[t] ?? 0) + 1;
+        }
+      }
+      const topTags = Object.entries(tagCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 20)
+        .map(([t]) => t);
+      const sessionState = buildInstructionSessionState(topTags);
       const instructions = buildServerInstructions(
         lang,
         profileResult.profile,

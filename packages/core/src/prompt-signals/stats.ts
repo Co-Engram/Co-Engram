@@ -33,8 +33,8 @@ export interface ComputePromptSignalsOptions {
   readonly generatedBy?: string;
 }
 
-const DEFAULT_TOP_TAGS_LIMIT = 5;
-const DEFAULT_TOP_TAGS_MIN_COUNT = 3;
+const DEFAULT_TOP_TAGS_LIMIT = 20;
+const DEFAULT_TOP_TAGS_MIN_COUNT = 1;
 const DEFAULT_LOW_CONFIDENCE_LIMIT = 3;
 const DEFAULT_LOW_CONFIDENCE_MIN_RETRIEVALS = 2;
 const DEFAULT_LOW_CONFIDENCE_MAX_SCORE = 0.4;

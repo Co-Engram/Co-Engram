@@ -190,22 +190,10 @@ function buildDynamicEn(
   const lines: string[] = [];
   lines.push("## Current state (session-fresh)");
   lines.push("");
-  lines.push(`- Total memories: **${s.totalEngrams}**`);
-  if (s.pendingProposals > 0) {
-    if (hasTool(profile, "engram_list_proposals")) {
-      lines.push(
-        `- Pending proposals: **${s.pendingProposals}** — call \`engram_list_proposals\` to review`,
-      );
-    } else {
-      lines.push(
-        `- Pending proposals: **${s.pendingProposals}** — not triageable via MCP in minimal profile; switch to standard/full profile (or use the viewer) to review`,
-      );
-    }
-  }
   if (s.topTags.length > 0) {
     lines.push(
       `- Top tags: ${s.topTags
-        .slice(0, 5)
+        .slice(0, 20)
         .map((t) => `\`${t}\``)
         .join(" ")}`,
     );
@@ -236,22 +224,10 @@ function buildDynamicZh(
   const lines: string[] = [];
   lines.push("## 当前状态(会话级快照)");
   lines.push("");
-  lines.push(`- 记忆总数: **${s.totalEngrams}**`);
-  if (s.pendingProposals > 0) {
-    if (hasTool(profile, "engram_list_proposals")) {
-      lines.push(
-        `- 待审核候选: **${s.pendingProposals}** 条 — 调用 \`engram_list_proposals\` 处理`,
-      );
-    } else {
-      lines.push(
-        `- 待审核候选: **${s.pendingProposals}** 条 — minimal profile 下无法通过 MCP 工具处理,请切换到 standard/full profile,或在 viewer 中审核`,
-      );
-    }
-  }
   if (s.topTags.length > 0) {
     lines.push(
       `- 高频 tags: ${s.topTags
-        .slice(0, 5)
+        .slice(0, 20)
         .map((t) => `\`${t}\``)
         .join(" ")}`,
     );
