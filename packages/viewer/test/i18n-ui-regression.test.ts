@@ -562,6 +562,7 @@ describe("Layer 3 / 按钮家族完备性:数据模型值域 × zh/en", () => {
     "viewer.common.langEn": "语言名 English,双语同形是有意的",
     "viewer.title": "品牌名 Co-Engram",
     "viewer.auth.placeholder": "HTTP 协议术语 Bearer token",
+    "viewer.proposals.sourceLine.autoMemory": "功能专名 auto-memory(Claude Code / OpenClaw 宿主系统记忆机制),zh/en 同形有意",
   };
   const CJK_RE = /[一-鿿]/;
   const LATIN_WORD_RE = /[a-zA-Z]{4,}/;
