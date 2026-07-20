@@ -302,17 +302,11 @@ header.app-header nav.primary-nav {
   font-size: 0.8rem;
   padding: 0.45rem 0.75rem;
 }
-/* 当某个二级 tab 处于 active 时,触发器上加一个圆点提示用户「当前页在更多里」 */
-.more-menu.has-active .more-menu-trigger::after {
-  content: '';
-  position: absolute;
-  top: 0.3rem;
-  right: 0.3rem;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 6px var(--accent);
+/* 当某个二级 tab 处于 active 时,触发器高亮(替代之前的圆点——圆点被用户误认为
+   "有新信息"的 notification badge,实际含义是"当前页面在更多菜单里") */
+.more-menu.has-active .more-menu-trigger {
+  color: var(--accent, #5eead4);
+  border-bottom-color: var(--accent, #5eead4);
 }
 .auth-bar {
   margin-top: 0;

@@ -313,11 +313,20 @@ const CO_ENGRAM = (function() {
     document.querySelectorAll('section.tab-panel').forEach(function(s) {
       s.classList.toggle('active', s.dataset.tab === name);
     });
-    // 二级 tab 在「更多」下拉中:展开状态下切 tab 后要收起,避免遮挡内容;
-    // 同时给触发器加 .has-active 提示「当前页在更多里」(see styles.ts)。
+    // 二级 tab 在「更多」下拉中:展开状态下切 tab 后要收起;
+    // trigger 显示当前子 tab 名(如"审计 ▾"替代"更多 ▾")+ .has-active 高亮
     var inMore = document.querySelector('#more-menu-dropdown .tab[data-tab="' + name + '"]');
     var menu = document.getElementById('more-menu');
     if (menu) menu.classList.toggle('has-active', !!inMore);
+    // 更新 trigger 标签:二级 tab active 时显示子 tab 名,否则恢复「更多」
+    var triggerLabel = document.querySelector('#more-menu-trigger > span:first-child');
+    if (triggerLabel) {
+      if (inMore) {
+        triggerLabel.textContent = inMore.textContent.trim();
+      } else {
+        triggerLabel.textContent = CO_ENGRAM_T.t('viewer.tab.more');
+      }
+    }
     toggleMoreMenu(false);
     CO_ENGRAM.onTabEnter(name);
   }
