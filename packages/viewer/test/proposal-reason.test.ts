@@ -36,3 +36,25 @@ describe("提案生成原因 i18n key 双语对等", () => {
     }
   });
 });
+
+describe("formatWindow / _shortTs helper 存在且被引用", () => {
+  it("CO_ENGRAM_PROPOSALS 定义 _shortTs 与 formatWindow", () => {
+    expect(TABS_RUNTIME).toContain("_shortTs(iso)");
+    expect(TABS_RUNTIME).toContain("formatWindow(firstSeenAt, lastSeenAt, occurrences, opts)");
+  });
+
+  it("formatWindow 双时间分支计算时长差(lastMs - firstMs)", () => {
+    expect(TABS_RUNTIME).toContain("lastMs - firstMs");
+  });
+
+  it("formatWindow 内部用 this._shortTs 处理单点/退化", () => {
+    expect(TABS_RUNTIME).toContain("this._shortTs(");
+  });
+
+  it("formatWindow 时长单位引用 why.window.minute/hour/day/within key", () => {
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window.minute'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window.hour'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window.day'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window.within'");
+  });
+});

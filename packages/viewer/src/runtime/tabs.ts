@@ -977,6 +977,59 @@ window.CO_ENGRAM_PROPOSALS = {
     return preview.length > 140 ? preview.slice(0, 140) + '…' : preview;
   },
 
+  /**
+   * ISO 时间 → MM-DD HH:mm 短时间(纯数字,中英通用,用于卡片紧凑行)。
+   * 解析失败返回空串。
+   */
+  _shortTs(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return mm + '-' + dd + ' ' + hh + ':' + mi;
+  },
+
+  /**
+   * 时间窗口描述。
+   * compact=true(卡片用):返回 '{firstShort} → {lastShort}' 短范围;单点退化返回该点短值;皆空返回 ''。
+   * compact=false/缺省(drawer 用):返回 '{firstShort} → {lastShort}({dur} 内 {n} 次出现)'。
+   * 时长:<1 小时按分钟、<1 天按小时、否则按天(向下取整,最少 1 天)。
+   */
+  formatWindow(firstSeenAt, lastSeenAt, occurrences, opts) {
+    const T = CO_ENGRAM_T;
+    const occ = occurrences || 0;
+    const compact = !!(opts && opts.compact);
+    const first = firstSeenAt ? new Date(firstSeenAt) : null;
+    const last = lastSeenAt ? new Date(lastSeenAt) : null;
+    const firstOk = first && !isNaN(first.getTime());
+    const lastOk = last && !isNaN(last.getTime());
+
+    // 皆空:compact 给空串;完整给「N 次」
+    if (!firstOk && !lastOk) {
+      return compact ? '' : (occ ? (occ + ' ' + T.t('viewer.proposals.sourceLine.times')) : '');
+    }
+    // 双时间且不同:compact 给短范围;完整给「范围(时长内 N 次)」
+    if (firstOk && lastOk && first.getTime() !== last.getTime()) {
+      const range = this._shortTs(firstSeenAt) + ' → ' + this._shortTs(lastSeenAt);
+      if (compact) return range;
+      const firstMs = first.getTime();
+      const lastMs = last.getTime();
+      const diffMs = lastMs - firstMs;
+      const mins = Math.max(1, Math.floor(diffMs / 60000));
+      let dur;
+      if (mins < 60) dur = mins + ' ' + T.t('viewer.proposals.why.window.minute');
+      else if (mins < 1440) dur = Math.floor(mins / 60) + ' ' + T.t('viewer.proposals.why.window.hour');
+      else dur = Math.max(1, Math.floor(mins / 1440)) + ' ' + T.t('viewer.proposals.why.window.day');
+      return range + ' (' + T.t('viewer.proposals.why.window.within', { dur: dur, n: occ }) + ')';
+    }
+    // 两者相等或仅一个:compact 给该点短值;完整给「N 次」或该点短值
+    const singleIso = firstOk ? firstSeenAt : lastSeenAt;
+    return compact ? this._shortTs(singleIso) : (occ ? (occ + ' ' + T.t('viewer.proposals.sourceLine.times')) : (this._shortTs(singleIso) || ''));
+  },
+
   async _setStatus(status) {
     this._currentStatus = status;
     // 切 status 等于切 server-side filter,旧 viewStart 索引的页面不再相关 → 回第一页
