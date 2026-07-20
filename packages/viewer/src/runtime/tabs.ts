@@ -1041,7 +1041,7 @@ window.CO_ENGRAM_PROPOSALS = {
     const occ = p.occurrences || 0;
     const times = T.t('viewer.proposals.sourceLine.times');
     if (src === 'external-markdown') {
-      const base = (p.sourcePath || '').split('/').pop() || p.sourcePath || '';
+      const base = (p.sourcePath || '').split('/').pop();
       return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">📄 '
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.external'))
         + (base ? ' · ' + CO_ENGRAM.escapeHtml(base) : '') + '</div>';
@@ -1057,6 +1057,74 @@ window.CO_ENGRAM_PROPOSALS = {
     if (range) parts.push(CO_ENGRAM.escapeHtml(range));
     if (occ) parts.push(occ + ' ' + CO_ENGRAM.escapeHtml(times));
     return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">' + parts.join(' · ') + '</div>';
+  },
+
+  /**
+   * drawer「为什么生成」结构化块:📍来源 / ⏱时间 / 🔍为什么 / 📝代表片段 + 折叠高级。
+   * 必要性文案纯模板拼接,不解析 necessityReason 机器串;原始串进「高级」折叠区。
+   */
+  _whyBlock(p) {
+    const T = CO_ENGRAM_T;
+    const src = p.source || 'conversation';
+    const sampleN = (p.sampleQuotes || []).length;
+
+    // 📍 来源
+    let sourceLabel;
+    if (src === 'external-markdown') sourceLabel = T.t('viewer.proposals.why.sourceLabel.external')
+      + (p.sourcePath ? '(' + p.sourcePath + ')' : '');
+    else if (src === 'auto-memory') sourceLabel = T.t('viewer.proposals.why.sourceLabel.autoMemory')
+      + (p.slug ? '(' + p.slug + ')' : '');
+    else sourceLabel = T.t('viewer.proposals.why.sourceLabel.conversation');
+
+    // ⏱ 时间
+    const window_ = this.formatWindow(p.firstSeenAt, p.lastSeenAt, p.occurrences, { compact: false });
+
+    // 🔍 为什么(按 source 分模板)
+    let why;
+    if (src === 'external-markdown') why = T.t('viewer.proposals.why.necessity.external');
+    else if (src === 'auto-memory') why = T.t('viewer.proposals.why.necessity.autoMemory');
+    else why = sampleN
+      ? T.t('viewer.proposals.why.necessity.conversation', { n: sampleN })
+      : T.t('viewer.proposals.why.necessity.fallback');
+
+    const field = (icon, label, val) => '<div style="margin:.25rem 0;font-size:.88rem;line-height:1.55">'
+      + '<span style="color:var(--fg-muted)">' + icon + ' ' + CO_ENGRAM.escapeHtml(label) + ':</span> '
+      + CO_ENGRAM.escapeHtml(val) + '</div>';
+
+    let html = '<div class="proposal-why-block" style="background:rgba(125,125,125,.06);border:1px solid var(--border,rgba(125,125,125,.18));border-radius:.5rem;padding:.6rem .75rem;margin:.5rem 0">'
+      + '<div style="font-weight:600;font-size:.85rem;margin-bottom:.25rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.title')) + '</div>'
+      + field('📍', T.t('viewer.proposals.why.source'), sourceLabel)
+      + (window_ ? field('⏱', T.t('viewer.proposals.why.window'), window_) : '')
+      + field('🔍', T.t('viewer.proposals.why.necessity'), why);
+
+    // 📝 代表片段(仅 conversation 有 sampleQuotes;ext/auto-memory 的完整内容在表单区,不在此重复)
+    const samples = p.sampleQuotes || [];
+    if (samples.length && src !== 'external-markdown' && src !== 'auto-memory') {
+      html += '<div style="margin:.25rem 0;font-size:.88rem;line-height:1.55"><span style="color:var(--fg-muted)">📝 '
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.samples')) + ':</span></div>';
+      for (const s of samples) {
+        html += '<pre class="pre-compact" style="margin:.2rem 0">' + CO_ENGRAM.escapeHtml(s) + '</pre>';
+      }
+    }
+
+    // ▸ 高级(折叠:necessityReason 原文 + necessityRule)
+    if (p.necessityReason || p.necessityRule) {
+      html += '<details style="margin-top:.4rem"><summary style="cursor:pointer;font-size:.8rem;color:var(--fg-muted)">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.advanced')) + '</summary>';
+      if (p.necessityReason) {
+        html += '<div style="font-size:.78rem;color:var(--fg-muted);margin:.3rem 0"><strong>'
+          + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.advancedReason')) + ':</strong> '
+          + CO_ENGRAM.escapeHtml(p.necessityReason) + '</div>';
+      }
+      if (p.necessityRule) {
+        html += '<div style="font-size:.78rem;color:var(--fg-muted);margin:.3rem 0"><strong>'
+          + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.advancedRule')) + ':</strong> '
+          + CO_ENGRAM.escapeHtml(p.necessityRule) + '</div>';
+      }
+      html += '</details>';
+    }
+    html += '</div>';
+    return html;
   },
 
   async _setStatus(status) {
@@ -1360,7 +1428,6 @@ window.CO_ENGRAM_PROPOSALS = {
     CO_ENGRAM._currentProposal = p;
 
     const meta = this._inferMeta(p);
-    const samples = (p.sampleQuotes || []).map(s => '<pre class="pre-compact" style="margin:0.3rem 0">' + CO_ENGRAM.escapeHtml(s) + '</pre>').join('');
     const kindKeys = ['observation', 'fact', 'pattern', 'procedure', 'hypothesis'];
     const kindOptions = kindKeys.map(k =>
       '<option value="' + k + '"' + (meta.kind === k ? ' selected' : '') + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', k)) + '</option>'
@@ -1413,13 +1480,7 @@ window.CO_ENGRAM_PROPOSALS = {
       + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(editable ? T.t('viewer.proposals.contentLabel') : T.t('viewer.proposals.contentLabelReadonly')) + '</label>'
       + '<textarea id="pf-content" rows="6"' + (editable ? '' : ' readonly') + '>' + CO_ENGRAM.escapeHtml((p.payload && p.payload.content) || p.centroidExcerpt || '') + '</textarea></div>'
-      + ((p.source === 'external-markdown' || p.source === 'auto-memory')
-        ? '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceFile')) + '</h3>'
-          + '<div class="chip" style="font-family:monospace;word-break:break-all">📄 ' + CO_ENGRAM.escapeHtml((p.sourcePath || p.slug || '').toString()) + '</div>'
-        : '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.samples', { n: (p.occurrences || 0) })) + '</h3>'
-          + (samples || '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.noSamples')) + '</div>'))
-      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.firstSeen')) + '</span>' + CO_ENGRAM.escapeHtml(p.firstSeenAt || '—')
-      + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.lastSeen')) + '</span>' + CO_ENGRAM.escapeHtml(p.lastSeenAt || '—') + '</div>'
+      + this._whyBlock(p)
       + actionBtns;
 
     CO_ENGRAM.openDrawer(body);

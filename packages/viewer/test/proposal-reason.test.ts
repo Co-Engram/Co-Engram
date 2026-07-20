@@ -82,3 +82,33 @@ describe("_sourceLine 卡片来源行", () => {
     expect(TABS_RUNTIME).toContain("this.formatWindow(p.firstSeenAt, p.lastSeenAt, occ, { compact: true })");
   });
 });
+
+describe("_whyBlock drawer 结构化块", () => {
+  it("CO_ENGRAM_PROPOSALS 定义 _whyBlock(p)", () => {
+    expect(TABS_RUNTIME).toContain("_whyBlock(p) {");
+  });
+
+  it("drawer open() 调用 this._whyBlock(p)", () => {
+    expect(TABS_RUNTIME).toContain("this._whyBlock(p)");
+  });
+
+  it("四段标题引用 why.source/window/necessity/samples key", () => {
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.source'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.window'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.samples'");
+  });
+
+  it("必要性按 source 分模板(含 fallback)", () => {
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.conversation'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.external'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.autoMemory'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.fallback'");
+  });
+
+  it("高级区折叠展示原始 necessityReason(<details>)", () => {
+    expect(TABS_RUNTIME).toContain("<details");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.advanced'");
+    expect(TABS_RUNTIME).toContain("p.necessityReason");
+  });
+});

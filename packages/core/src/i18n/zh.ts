@@ -1182,7 +1182,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 提案「生成原因」展示(viewer.proposals.sourceLine.* / why.*) =====
   "viewer.proposals.sourceLine.conversation": "对话聚类",
   "viewer.proposals.sourceLine.external": "外部文件",
-  "viewer.proposals.sourceLine.autoMemory": "auto-memory",
+  "viewer.proposals.sourceLine.autoMemory": "自动记忆",
   "viewer.proposals.sourceLine.times": "次",
   "viewer.proposals.why.title": "为什么生成",
   "viewer.proposals.why.source": "来源",
