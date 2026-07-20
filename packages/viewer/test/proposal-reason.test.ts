@@ -26,6 +26,10 @@ const NEW_KEYS = [
   "viewer.proposals.why.advanced",
   "viewer.proposals.why.advancedReason",
   "viewer.proposals.why.advancedRule",
+  "viewer.proposals.why.necessity.remPattern",
+  "viewer.proposals.why.necessity.remVerification",
+  "viewer.proposals.why.sourceLabel.remPattern",
+  "viewer.proposals.why.sourceLabel.remVerification",
 ];
 
 describe("提案生成原因 i18n key 双语对等", () => {
@@ -104,6 +108,13 @@ describe("_whyBlock drawer 结构化块", () => {
     expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.external'");
     expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.autoMemory'");
     expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.fallback'");
+  });
+
+  it("rem-pattern / rem-verification 在 drawer 也有专属来源与必要性(防误显「对话聚类」)", () => {
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.sourceLabel.remPattern'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.sourceLabel.remVerification'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.remPattern'");
+    expect(TABS_RUNTIME).toContain("'viewer.proposals.why.necessity.remVerification'");
   });
 
   it("高级区折叠展示原始 necessityReason(<details>)", () => {

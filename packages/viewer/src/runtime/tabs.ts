@@ -1074,6 +1074,8 @@ window.CO_ENGRAM_PROPOSALS = {
       + (p.sourcePath ? '(' + p.sourcePath + ')' : '');
     else if (src === 'auto-memory') sourceLabel = T.t('viewer.proposals.why.sourceLabel.autoMemory')
       + (p.slug ? '(' + p.slug + ')' : '');
+    else if (src === 'rem-pattern') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remPattern');
+    else if (src === 'rem-verification') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remVerification');
     else sourceLabel = T.t('viewer.proposals.why.sourceLabel.conversation');
 
     // ⏱ 时间
@@ -1083,6 +1085,8 @@ window.CO_ENGRAM_PROPOSALS = {
     let why;
     if (src === 'external-markdown') why = T.t('viewer.proposals.why.necessity.external');
     else if (src === 'auto-memory') why = T.t('viewer.proposals.why.necessity.autoMemory');
+    else if (src === 'rem-pattern') why = T.t('viewer.proposals.why.necessity.remPattern');
+    else if (src === 'rem-verification') why = T.t('viewer.proposals.why.necessity.remVerification');
     else why = sampleN
       ? T.t('viewer.proposals.why.necessity.conversation', { n: sampleN })
       : T.t('viewer.proposals.why.necessity.fallback');
@@ -1097,9 +1101,9 @@ window.CO_ENGRAM_PROPOSALS = {
       + (window_ ? field('⏱', T.t('viewer.proposals.why.window'), window_) : '')
       + field('🔍', T.t('viewer.proposals.why.necessity'), why);
 
-    // 📝 代表片段(仅 conversation 有 sampleQuotes;ext/auto-memory 的完整内容在表单区,不在此重复)
+    // 📝 代表片段(仅 conversation 的 sampleQuotes 是对话片段;ext/auto-memory 完整内容在表单区;rem-* 是元数据,不在此重复)
     const samples = p.sampleQuotes || [];
-    if (samples.length && src !== 'external-markdown' && src !== 'auto-memory') {
+    if (samples.length && src === 'conversation') {
       html += '<div style="margin:.25rem 0;font-size:.88rem;line-height:1.55"><span style="color:var(--fg-muted)">📝 '
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.why.samples')) + ':</span></div>';
       for (const s of samples) {
