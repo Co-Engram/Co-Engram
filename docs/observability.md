@@ -58,7 +58,7 @@ LLM agents that need "what happened to this engram?" without opening the viewer 
 
 ### Log Rotation (automatic cleanup)
 
-`audit.jsonl` self-rotates by default via an **independent background `setInterval`** (default 24h check), fully decoupled from the [maintenance engine](./maintenance-engine.md) light/deep/rem/daily stages — log management and memory-data maintenance are different concerns.
+`audit.jsonl` self-rotates by default via an **independent background `setInterval`** (default 24h check), fully decoupled from the [maintenance engine](./maintenance-engine.md) light/deep/rem stages — log management and memory-data maintenance are different concerns.
 
 Retention runs along two axes:
 

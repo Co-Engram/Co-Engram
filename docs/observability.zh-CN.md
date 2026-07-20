@@ -58,7 +58,7 @@ LLM agent 想"查询某个 engram 发生了什么",又不想打开 viewer 或直
 
 ### 日志轮转(自动清理)
 
-`audit.jsonl` 默认开启自动清理,**独立后台 `setInterval`**(默认 24h 检查一次),与 [维护引擎](./maintenance-engine.zh-CN.md) 的 light/deep/rem/daily 阶段完全解耦 —— 日志管理与记忆数据维护是不同概念的东西。
+`audit.jsonl` 默认开启自动清理,**独立后台 `setInterval`**(默认 24h 检查一次),与 [维护引擎](./maintenance-engine.zh-CN.md) 的 light/deep/rem 阶段完全解耦 —— 日志管理与记忆数据维护是不同概念的东西。
 
 清理策略沿两条轴:
 
