@@ -413,10 +413,11 @@ export function upgradeVerification(
 
   // 落盘 verificationStatus
   repo.updateVerificationStatus(engramId, newStatus);
-  // 独立验证支撑 → confidence 上升(A3 verify +0.2,上限 0.95)
+  // confidence 更新:升级用 "verify"(+0.2),反驳用 "refute"(×0.3)
+  const confSignal = newStatus === "refuted" ? "refute" : "verify";
   repo.updateConfidence(
     engramId,
-    applyConfidenceSignal(repo.readEngram(engramId).confidence, "verify"),
+    applyConfidenceSignal(repo.readEngram(engramId).confidence, confSignal),
   );
 
   // 追加 evidence 到所有 derives_from synapse（如果有）
