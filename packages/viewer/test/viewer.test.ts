@@ -1687,8 +1687,7 @@ describe("GET /api/maintenance-state", () => {
       expect(data.enabled).toBe(true);
       expect(data.state.stages.rem).toBeUndefined();
       expect(data.state.stages.light).toBeUndefined();
-      expect(data.intervals.rem).toBe(7 * 24 * 60 * 60 * 1000);
-      expect(data.intervals.daily).toBe(24 * 60 * 60 * 1000);
+      expect(data.intervals.rem).toBe(1 * 24 * 60 * 60 * 1000);
       expect(data.intervals.deep).toBe(60 * 60 * 1000);
       expect(data.intervals.light).toBe(5 * 60 * 1000);
     });
@@ -1705,16 +1704,16 @@ describe("GET /api/maintenance-state", () => {
         dataRoot: tmpDir,
         host: "smoke-host",
       },
-      { enabledStages: ["daily"] },
+      { enabledStages: ["light"] },
     );
-    await engine.runDaily();
+    await engine.runLight();
 
     await withViewer(ctx, undefined, async (port) => {
       const res = await makeRequest(port, "/api/maintenance-state");
       const data = JSON.parse(res.body);
       expect(data.enabled).toBe(true);
-      expect(data.state.stages.daily).toBeDefined();
-      expect(data.state.stages.daily.lastResult.decayed).toBe(0);
+      expect(data.state.stages.light).toBeDefined();
+      expect(data.state.stages.light.lastResult).toBeTruthy();
       expect(data.state.updatedBy).toBe("smoke-host");
     });
   });
@@ -1745,19 +1744,15 @@ describe("GET /api/maintenance-state", () => {
       "viewer.maintenance.explainerTitle",
       "viewer.maintenance.explainerBody",
       "viewer.maintenance.stage.rem",
-      "viewer.maintenance.stage.daily",
       "viewer.maintenance.stage.deep",
       "viewer.maintenance.stage.light",
       "viewer.maintenance.stageIcon.rem",
-      "viewer.maintenance.stageIcon.daily",
       "viewer.maintenance.stageIcon.deep",
       "viewer.maintenance.stageIcon.light",
       "viewer.maintenance.stageSubtitle.rem",
-      "viewer.maintenance.stageSubtitle.daily",
       "viewer.maintenance.stageSubtitle.deep",
       "viewer.maintenance.stageSubtitle.light",
       "viewer.maintenance.stageTip.rem",
-      "viewer.maintenance.stageTip.daily",
       "viewer.maintenance.stageTip.deep",
       "viewer.maintenance.stageTip.light",
       "viewer.maintenance.dreamBadge",

@@ -480,12 +480,13 @@ describe("Layer 3 / 按钮家族完备性:数据模型值域 × zh/en", () => {
     }
   });
 
-  // MaintenanceStage(core/src/maintenance/types.ts)= light|deep|rem|daily
+  // MaintenanceStage(core/src/maintenance/types.ts)= light|deep|rem
+  // (3604dbb 移除 daily stage,与 importance/freshness 正交化同步)
   // tabs.ts maintenance tab 渲染 stage 图标/名称/副标题/tip + 4 种 status
-  const MAINTENANCE_STAGES = ["light", "deep", "rem", "daily"];
+  const MAINTENANCE_STAGES = ["light", "deep", "rem"];
   const MAINTENANCE_STATUS = ["healthy", "never", "overdue", "soon"];
 
-  it("maintenance 4 stage × 4 属性 + 4 status,双语言全量解析", () => {
+  it("maintenance 3 stage × 4 属性 + 4 status,双语言全量解析", () => {
     for (const lang of ["zh", "en"] as const) {
       const T = makeRuntime(lang);
       const dict = DICTS[lang];
