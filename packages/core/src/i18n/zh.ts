@@ -786,7 +786,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.audit.tip":
     "记忆变更时间线:创建/更新/删除/强化/矛盾解决的历史记录",
   "viewer.tab.maintenance.tip":
-    "记忆梦境:REM(🌙 记忆巩固+元认知)/daily(☀️ 每日衰减)/deep(🧠 记忆整理)/light(⚡ 信号处理)的运行状态与效果",
+    "记忆梦境:REM(🌙 记忆巩固+元认知)/deep(🧠 记忆整理)/light(⚡ 信号处理)的运行状态与效果",
   "viewer.tab.trash.tip": "软删除的印迹与突触;可恢复或彻底清除",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
@@ -1310,7 +1310,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.audit.actionTip.merge_llm_arbitrated_failed":
     "merge_llm_arbitrated_failed:LLM 仲裁失败,需人工介入",
   "viewer.audit.actionTip.maintenance_run":
-    "maintenance_run:维护阶段触发(rem/daily),系统自动执行的记忆巩固/衰减",
+    "maintenance_run:维护阶段触发(rem),系统自动执行的记忆巩固",
   // audit action 短标签(时间线按钮用)。缺翻译时回退到原 action 字符串,
   // 但中文化场景下应覆盖全部 emit 的 action,避免 accept/dismiss 等英文漏到 UI。
   // 与 actionTip 区别:tip 是 hover 提示长句,label 是按钮内短词。
@@ -1417,7 +1417,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.disabledHint": "未启用维护服务或 dataRoot 不可用。",
   "viewer.maintenance.title": "梦境状态",
   "viewer.maintenance.intro":
-    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估(聚类相似记忆 + 抽象 pattern + 验证升降级)、☀️ daily 每日衰减(模拟遗忘)、🧠 deep 记忆整理、⚡ light 信号处理。下方显示每个阶段的运行时刻、产物效果与是否在周期内。",
+    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估(聚类相似记忆 + 抽象 pattern + 验证升降级)、🧠 deep 记忆整理、⚡ light 信号处理。下方显示每个阶段的运行时刻、产物效果与是否在周期内。",
   "viewer.maintenance.never": "从未运行",
   "viewer.maintenance.justNow": "刚刚",
   "viewer.maintenance.minutesAgo": "${n} 分钟前",
@@ -1426,30 +1426,24 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.lastWrite": "最近更新:${at}",
   "viewer.maintenance.explainerTitle": "如何理解这些指标?",
   "viewer.maintenance.explainerBody":
-    "REM/daily 是低频阶段,进程重启或持锁切换可能让 setInterval 永远到不了 —— 启动时的 catch-up 会立即补跑过期的低频阶段。light/deep 频率高(5 分钟 / 1 小时),setInterval 自然会触发,所以「从未运行」不算异常。状态颜色:绿(健康周期)、黄(即将到期)、红(已过期,会在下次启动补跑)。",
+    "REM 是低频阶段,进程重启或持锁切换可能让 setInterval 永远到不了 —— 启动时的 catch-up 会立即补跑过期的低频阶段。light/deep 频率高(5 分钟 / 1 小时),setInterval 自然会触发,所以「从未运行」不算异常。状态颜色:绿(健康周期)、黄(即将到期)、红(已过期,会在下次启动补跑)。",
   "viewer.maintenance.stage.rem": "REM(记忆巩固)",
-  "viewer.maintenance.stage.daily": "Daily(每日衰减)",
   "viewer.maintenance.stage.deep": "Deep(记忆整理)",
   "viewer.maintenance.stage.light": "Light(信号处理)",
   "viewer.maintenance.stageIcon.rem": "🌙",
-  "viewer.maintenance.stageIcon.daily": "☀️",
   "viewer.maintenance.stageIcon.deep": "🧠",
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分,产出升级/反驳/模式提案待审批",
-  "viewer.maintenance.stageSubtitle.daily":
-    "每日衰减:所有活跃记忆 importance × 0.95,模拟「未被使用的时间也在削弱」",
   "viewer.maintenance.stageSubtitle.deep": "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
   "viewer.maintenance.stageSubtitle.light":
     "信号处理:把工具调用行为流转化为记忆的强化/衰减(RPE 加性更新)",
   "viewer.maintenance.stageTip.rem":
     "REM(Rapid Eye Movement)对应人类梦睡眠。此阶段做三件事:① 聚类相似 engram;② 综合抽象出 pattern;③ 跑元认知评分。这些产出(升级/反驳/新模式)不会自动落盘,而是作为提案呈现在「记忆提案」页,由你审批采纳后才生效。默认 1 天一周期。",
-  "viewer.maintenance.stageTip.daily":
-    "每日衰减(Ebbinghaus 遗忘曲线):未被使用的记忆随时间自然削弱 —— 对所有 active、未 refute 的 engram,importance × 0.95(每天打 95 折)。这模拟人类「用进废退」:常被检索/强化的记忆抗衰减,不用的逐渐淡忘。默认 24h 一周期。",
   "viewer.maintenance.stageTip.deep":
     "Deep 阶段:合并重复记忆(去重)+ freshness 驱动的归档/遗忘 + 回收站清理。默认 1 小时。",
   "viewer.maintenance.stageTip.light":
-    "Light 阶段:drain 工具调用事件流 → extractSignals → applyRpeUpdate。频率高(默认 5 分钟),事件驱动的微调,与 daily 的时间驱动衰减正交。",
+    "Light 阶段:drain 工具调用事件流 → extractSignals → applyRpeUpdate。频率高(默认 5 分钟),事件驱动的微调,importance 纯事件驱动(RPE/LTP/LTD)。",
   "viewer.maintenance.dreamBadge": "梦睡眠",
   "viewer.maintenance.dreamBadgeTip":
     "REM 是借用人类睡眠神经科学的隐喻:此阶段类似梦境记忆巩固,把白天散落的记忆痕迹重塑为长存的 pattern。",
@@ -1486,7 +1480,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.statusTip.overdue":
     "已过期 ${n}。下次启动时会立即触发 catch-up 补跑(低频 stage),或等 setInterval 下一拍(高频 stage)",
   "viewer.maintenance.statusTip.never":
-    "此 stage 从未触发过。低频 stage(rem/daily)启动时会被 catch-up 立即触发;高频 stage(light/deep)由 setInterval 自然调度",
+    "此 stage 从未触发过。低频 stage(rem)启动时会被 catch-up 立即触发;高频 stage(light/deep)由 setInterval 自然调度",
   "viewer.maintenance.progressBarTip": "周期进度:${pct}%(距下次触发 ${remain})",
   "viewer.maintenance.progressBarTipOverdue":
     "已过期 ${pct}% 周期(超期 ${remain})",

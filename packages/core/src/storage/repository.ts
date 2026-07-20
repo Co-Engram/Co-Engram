@@ -2065,11 +2065,11 @@ export class EngramRepository {
    * filter 全部 SQL 端下推(SQLite 模式),memory 模式走 readDigestBatch
    * + 内存 filter(数据规模小,N+1 影响可控)。
    *
-   * 用例:maintenance engine 的 runRem / runDaily —— 需要 id / importance /
+   * 用例:maintenance engine 的 runRem / runRem —— 需要 id / importance /
    * status 字段做 metacognition / daily decay,不需要完整 Engram。
    *
    * lifecycleStatuses 过滤:maintenance 隐式只关心 'active' 状态(排除
-   * archived/forgotten/draft)。旧 listByVerificationStatus 在 runDaily
+   * archived/forgotten/draft)。旧 listByVerificationStatus 在 runRem
    * 内部用 `if (engram.status !== "active") continue` 做内存过滤,这里
    * 改为 SQL 端下推,消除无谓 readEngram。
    */

@@ -795,7 +795,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.audit.tip":
     "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
   "viewer.tab.maintenance.tip":
-    "Maintenance stage status: REM (dream sleep, memory consolidation) / daily (decay) / deep / light cycle and last artifacts",
+    "Maintenance stage status: REM (dream sleep, memory consolidation) / deep (cleanup) / light cycle and last artifacts",
   "viewer.tab.trash.tip":
     "Soft-deleted engrams and synapses; restore or permanently purge",
   "viewer.tab.health.tip":
@@ -1345,7 +1345,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actionTip.merge_llm_arbitrated_failed":
     "merge_llm_arbitrated_failed: LLM arbitration failed, manual intervention required",
   "viewer.audit.actionTip.maintenance_run":
-    "maintenance_run: maintenance stage fired (rem/daily), system-run memory consolidation/decay",
+    "maintenance_run: maintenance stage fired (rem), system-run memory consolidation",
   // Short action labels for timeline buttons. When translation missing,
   // _actionLabel falls back to the raw action string — but to keep the audit
   // timeline locale-consistent we cover every emitted action here.
@@ -1455,7 +1455,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Maintenance service not enabled or dataRoot unavailable.",
   "viewer.maintenance.title": "Dream State",
   "viewer.maintenance.intro":
-    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), ☀️ daily decay (forgetting), 🧠 deep memory cleanup, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
+    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), 🧠 deep memory cleanup, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
   "viewer.maintenance.never": "never run",
   "viewer.maintenance.justNow": "just now",
   "viewer.maintenance.minutesAgo": "${n} min ago",
@@ -1464,29 +1464,23 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.lastWrite": "Last updated: ${at}",
   "viewer.maintenance.explainerTitle": "How to read these metrics",
   "viewer.maintenance.explainerBody":
-    'REM/daily are low-frequency stages. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
+    'REM is a low-frequency stage. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
   "viewer.maintenance.stage.rem": "REM (consolidation)",
-  "viewer.maintenance.stage.daily": "Daily (decay)",
   "viewer.maintenance.stage.deep": "Deep (cleanup)",
   "viewer.maintenance.stage.light": "Light (signals)",
   "viewer.maintenance.stageIcon.rem": "🌙",
-  "viewer.maintenance.stageIcon.daily": "☀️",
   "viewer.maintenance.stageIcon.deep": "🧠",
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition scoring, producing upgrade / refute / pattern proposals for approval",
-  "viewer.maintenance.stageSubtitle.daily":
-    'Daily decay: all active engrams get importance × 0.95, modeling "unused time also weakens memory"',
   "viewer.maintenance.stageSubtitle.deep": "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
   "viewer.maintenance.stageSubtitle.light":
     "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
   "viewer.maintenance.stageTip.rem":
     "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract patterns from them; ③ run metacognition scoring. These outputs (upgrades / refutes / new patterns) are not written automatically — they appear as proposals on the Proposals page and take effect only after you approve them. Default 1-day cycle.",
-  "viewer.maintenance.stageTip.daily":
-    "Daily decay (Ebbinghaus forgetting curve): unused memories weaken over time — for every active, non-refuted engram, importance × 0.95 (5% off per day). This mirrors human 'use it or lose it': frequently retrieved/reinforced memories resist decay, unused ones fade. Default 24h cycle.",
   "viewer.maintenance.stageTip.deep": "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
   "viewer.maintenance.stageTip.light":
-    "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning, orthogonal to daily's time-driven decay.",
+    "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning.",
   "viewer.maintenance.dreamBadge": "dream sleep",
   "viewer.maintenance.dreamBadgeTip":
     "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
@@ -1523,7 +1517,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.statusTip.overdue":
     "Overdue by ${n}. Next startup will catch-up immediately (low-freq stages) or wait for next setInterval tick (high-freq stages)",
   "viewer.maintenance.statusTip.never":
-    "This stage has never fired. Low-frequency stages (rem/daily) will be triggered immediately by startup catch-up; high-frequency stages (light/deep) are scheduled by setInterval",
+    "This stage has never fired. Low-frequency stages (rem) will be triggered immediately by startup catch-up; high-frequency stages (light/deep) are scheduled by setInterval",
   "viewer.maintenance.progressBarTip":
     "Cycle progress: ${pct}% (${remain} to next trigger)",
   "viewer.maintenance.progressBarTipOverdue":

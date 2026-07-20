@@ -1,17 +1,16 @@
 /**
  * Maintenance 模块类型定义（P4 B.2 + C.2 + D.1）
  *
- * MaintenanceEngine 四阶段配置：
+ * MaintenanceEngine 三阶段配置：
  *   - light : drain signals → extractSignals → applyRpeUpdate（高频,秒/分钟级）
  *   - deep  : 复用现有 runDeepDreaming（中频,小时级）
  *   - rem   : runRemDreaming + metacognition（低频,天级）
- *   - daily : applyDailyDecay（每 24h 一次,全量 engram 乘性衰减 ×0.95）
  *
  * 设计原则：
  *   1. 默认配置合理（可零配置启动）
  *   2. 调度器内化在 engine.start()（setInterval + unref）,不依赖宿主 /loop
  *   3. 各阶段独立触发,可单独调用
- *   4. daily 与 light 的 RPE 加性更新正交 —— RPE 是事件驱动的微调,
+ *   4. importance 纯事件驱动(RPE/LTP/LTD),freshness 纯时间驱动 —— RPE 是事件驱动的微调,
  *      daily 是时间驱动的结构化衰减;两机制并存而不互相抵消(分别走不同 stage)。
  *
  * @module @co-engram/core/maintenance
