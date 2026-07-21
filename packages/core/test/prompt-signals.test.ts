@@ -111,8 +111,10 @@ describe("prompt-signals / computePromptSignals", () => {
       ]);
       const snapshot = computePromptSignals(repo);
       // 'api' 出现 3 次,'design' 2 次,'frontend'/'docs' 1 次
-      // minCount=3 → 只 'api' 入选
-      expect(snapshot.topTags).toEqual(["api"]);
+      // minCount=1 → 全部入选,按频次降序
+      expect(snapshot.topTags[0]).toBe("api"); // 频次最高
+      expect(snapshot.topTags[1]).toBe("design"); // 频次第二
+      expect(snapshot.topTags).toHaveLength(4); // 无过滤,4 个 tag 全入选
       expect(snapshot.stats.tagCounts.api).toBe(3);
       expect(snapshot.stats.tagCounts.design).toBe(2);
     } finally {
