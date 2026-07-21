@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterAll } from "vitest";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -22,6 +22,10 @@ function setup(): { engine: ProposalEngine; repo: EngramRepository; dir: string 
   });
   return { engine, repo, dir };
 }
+
+afterAll(() => {
+  rmSync(join(process.cwd(), ".tmp-rem-synapse-test"), { recursive: true, force: true });
+});
 
 describe("rem-synapse ProposalSource", () => {
   it("ProposalSource 联合类型包含 rem-synapse", () => {
