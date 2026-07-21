@@ -213,6 +213,41 @@ describe("accept rem-synapse", () => {
     const p = engine.listAll().find((x) => x.entityId === eid)!;
     expect(p.status).toBe("pending");
   });
+
+  it("突触已被外部删除 → accept 抛错,proposal 留 pending", () => {
+    const { engine, repo } = setup();
+    const a = makeEngram(repo, "ea");
+    const b = makeEngram(repo, "eb");
+    const s = makeSynapse(repo, a.id, b.id, "similar_to");
+
+    // 先创建 delete proposal（不提供 synapseId，让 accept 时调用 resolveSynapseId）
+    engine.proposeSynapseOp({
+      op: "delete",
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      oldKind: "similar_to",
+      // 故意不提供 synapseId，测试 resolveSynapseId 路径
+      reason: "r",
+      confidence: 0.8,
+    });
+
+    // 模拟外部删除该突触（在 accept 之前）
+    repo.deleteSynapse(s.id);
+
+    // 验证突触已不存在
+    const synapses = repo.readSynapses(a.id).outgoing;
+    expect(synapses.some((x) => x.id === s.id)).toBe(false);
+
+    const eid = engine.listPending()[0]!.entityId;
+
+    // accept 应抛错（突触找不到，resolveSynapseId 返回 undefined）
+    expect(() => engine.accept(eid, {})).toThrow();
+
+    // proposal 应保持 pending 状态
+    const p = engine.listAll().find((x) => x.entityId === eid)!;
+    expect(p.status).toBe("pending");
+  });
 });
 
 describe("engram_list_proposals 投影 rem-synapse", () => {

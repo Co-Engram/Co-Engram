@@ -1723,6 +1723,7 @@ window.CO_ENGRAM_PROPOSALS = {
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
       if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+      CO_ENGRAM.closeDrawer(); // 关闭详情抽屉(acceptRem 从详情页调用时需关闭)
     } catch (e) { alert(CO_ENGRAM_T.t('viewer.proposals.rem.acceptFail') + ': ' + ((e && e.message) || e)); }
   },
 
@@ -1733,6 +1734,7 @@ window.CO_ENGRAM_PROPOSALS = {
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
       if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+      CO_ENGRAM.closeDrawer(); // 关闭详情抽屉(dismissRem 从详情页调用时需关闭)
     } catch (e) { alert(CO_ENGRAM_T.t('viewer.proposals.rem.dismissFail') + ': ' + ((e && e.message) || e)); }
   },
 
