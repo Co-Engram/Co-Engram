@@ -96,10 +96,10 @@ describe("buildServerInstructions", () => {
   });
 });
 
-describe("buildServerInstructions / pendingProposals 与 profile 一致性", () => {
-  // proposal 三件套现在在所有 profile 下都暴露(minimal/standard/full),
-  // 维护引擎产生的待审核候选始终能闭环。
-  it("minimal profile + pendingProposals>0 时,正常指引 agent 调用 engram_list_proposals", () => {
+describe("buildServerInstructions / pendingProposals 不再注入 instructions", () => {
+  // 5a4603c:pendingProposals 从 instructions 移除——LLM 不会自发审批,用户走 viewer 审批。
+  // 无论 profile / pendingProposals 多少,instructions 都不出现 pending / engram_list_proposals 指引。
+  it("minimal profile + pendingProposals>0 时,instructions 不含 pending 指引", () => {
     const en = buildServerInstructions("en", "minimal", {
       totalEngrams: 10,
       pendingProposals: 2,
@@ -114,13 +114,13 @@ describe("buildServerInstructions / pendingProposals 与 profile 一致性", () 
       lowConfidenceTopics: [],
       missedTopics: [],
     });
-    expect(en).toContain("Pending proposals: **2**");
-    expect(zh).toContain("待审核候选: **2**");
-    expect(en).toMatch(/call `engram_list_proposals`/);
-    expect(zh).toMatch(/调用 `engram_list_proposals`/);
+    expect(en).not.toContain("Pending proposals");
+    expect(zh).not.toContain("待审核候选");
+    expect(en).not.toMatch(/call `engram_list_proposals`/);
+    expect(zh).not.toMatch(/调用 `engram_list_proposals`/);
   });
 
-  it("standard profile + pendingProposals>0 时保持原有行为(指引调用 engram_list_proposals)", () => {
+  it("standard profile + pendingProposals>0 时同样不含 pending 指引", () => {
     const en = buildServerInstructions("en", "standard", {
       totalEngrams: 10,
       pendingProposals: 2,
@@ -128,10 +128,11 @@ describe("buildServerInstructions / pendingProposals 与 profile 一致性", () 
       lowConfidenceTopics: [],
       missedTopics: [],
     });
-    expect(en).toMatch(/call `engram_list_proposals`/);
+    expect(en).not.toMatch(/call `engram_list_proposals`/);
+    expect(en).not.toContain("Pending proposals");
   });
 
-  it("full profile + pendingProposals>0 时同样指引", () => {
+  it("full profile + pendingProposals>0 时同样不含 pending 指引", () => {
     const en = buildServerInstructions("en", "full", {
       totalEngrams: 10,
       pendingProposals: 2,
@@ -139,7 +140,8 @@ describe("buildServerInstructions / pendingProposals 与 profile 一致性", () 
       lowConfidenceTopics: [],
       missedTopics: [],
     });
-    expect(en).toMatch(/call `engram_list_proposals`/);
+    expect(en).not.toMatch(/call `engram_list_proposals`/);
+    expect(en).not.toContain("Pending proposals");
   });
 });
 
@@ -153,8 +155,9 @@ describe("buildServerInstructions / 动态 session 段", () => {
       missedTopics: [],
     });
     expect(s).toContain("## Current state (session-fresh)");
-    expect(s).toContain("Total memories: **42**");
-    expect(s).toContain("Pending proposals: **3**");
+    // 5a4603c:Total memories / Pending proposals 行已从 instructions 移除
+    expect(s).not.toContain("Total memories");
+    expect(s).not.toContain("Pending proposals");
     expect(s).toContain("`typescript`");
     expect(s).toContain("`auth-flow`");
   });
@@ -168,7 +171,8 @@ describe("buildServerInstructions / 动态 session 段", () => {
       missedTopics: ["migration"],
     });
     expect(s).toContain("## 当前状态(会话级快照)");
-    expect(s).toContain("记忆总数: **10**");
+    // 5a4603c:记忆总数行已移除
+    expect(s).not.toContain("记忆总数");
     expect(s).toContain("`postgres`");
     expect(s).toContain("`migration`");
     expect(s).not.toContain("待审核候选"); // pendingProposals=0 不显示该行
@@ -193,7 +197,8 @@ describe("buildServerInstructions / 动态 session 段", () => {
       lowConfidenceTopics: [],
       missedTopics: [],
     });
-    expect(s).toContain("Total memories: **0**");
+    // 5a4603c:Total memories 行已移除(恒不显示);空集合对应行不显示
+    expect(s).not.toContain("Total memories");
     expect(s).not.toMatch(/Top tags|Low-confidence|Recently missed/);
   });
 

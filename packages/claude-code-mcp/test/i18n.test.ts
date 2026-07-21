@@ -221,28 +221,10 @@ describe("MCP i18n / 仓库健康工具描述本地化(full-only)", () => {
 });
 
 describe("MCP i18n / instructions 动态段(session-fresh)", () => {
-  it('MCP initialize 返回的 instructions 含 "Current state" 段 + 动态数据', async () => {
-    // 准备:写入 prompt-signals.json
-    const signalsPath = join(tmpDir, ".co-engram", "prompt-signals.json");
-    mkdirSync(dirname(signalsPath), { recursive: true });
-    writeFileSync(
-      signalsPath,
-      JSON.stringify({
-        version: 1,
-        topTags: ["typescript", "react"],
-        lowConfidenceTopics: ["auth-flow"],
-        missedTopics: [],
-        updatedAt: new Date().toISOString(),
-        generatedBy: "test",
-        stats: {
-          totalEngrams: 5,
-          totalTagOccurrences: 10,
-          uniqueTags: 3,
-          tagCounts: {},
-        },
-      }),
-    );
-
+  it('MCP initialize 返回的 instructions 含 "Current state" 段(5a4603c 移除 totalMemories/pendingProposals)', async () => {
+    // 5a4603c:topTags 改为 repository 实时算(此处空 repo → 无 Top tags 行);
+    // lowConfidenceTopics/missedTopics 暂留空;totalMemories/pendingProposals 行已移除。
+    // prompt-signals.json 不再被 instructions 读取,故不再写入。
     const { server } = createCoEngramMcpServer({
       dataRoot: tmpDir,
       language: "en",
@@ -263,9 +245,9 @@ describe("MCP i18n / instructions 动态段(session-fresh)", () => {
       const instructions = client.getInstructions();
       expect(instructions).toBeDefined();
       expect(instructions!).toContain("## Current state (session-fresh)");
-      expect(instructions!).toContain("Top tags");
-      expect(instructions!).toContain("`typescript`");
-      expect(instructions!).toContain("`auth-flow`");
+      // 5a4603c 移除的行,在 MCP initialize 产物里也不应出现
+      expect(instructions!).not.toContain("Total memories");
+      expect(instructions!).not.toContain("Pending proposals");
     } finally {
       await client.close();
       await server.close();
