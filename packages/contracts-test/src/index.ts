@@ -24,7 +24,7 @@ export interface ContractResult {
 }
 
 export interface ContractDiff {
-  readonly kind: "profile" | "i18n" | "config" | "help" | "adapter";
+  readonly kind: "profile" | "i18n" | "config" | "help" | "adapter" | "proposal-behavior";
   readonly detail: string;
 }
 
@@ -76,3 +76,13 @@ export {
   EXPECTED_DIAGNOSTIC_REFS,
   type HostRuntime,
 } from "./adapter-contract.js";
+
+/**
+ * proposal accept 行为两端一致性测试(rem-synapse)
+ *
+ * 验证两宿主对 rem-synapse proposal 的 accept 行为一致 —— add/delete/retype
+ * accept 后落库结果对称(突触出现/消失/改 kind)。
+ */
+export {
+  runProposalBehaviorContractTests,
+} from "./proposal-behavior-contract.js";
