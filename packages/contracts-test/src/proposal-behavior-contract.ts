@@ -142,6 +142,7 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
       const ccEngine = ccProposalEngine as {
         proposeSynapseOp: (input: unknown) => boolean;
         accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
       };
 
       const proposed = ccEngine.proposeSynapseOp({
@@ -207,6 +208,7 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
       const ocEngine = ocProposalEngine as {
         proposeSynapseOp: (input: unknown) => boolean;
         accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
       };
 
       const ocProposed = ocEngine.proposeSynapseOp({
@@ -256,6 +258,334 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
       diffs.push({
         kind: "proposal-behavior",
         detail: `rem-synapse add 测试失败: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+
+    // ===== 契约 3:两宿主都能 accept rem-synapse delete proposal =====
+    try {
+      // CC 侧:建两个 engram + 手建一条突触 → proposeSynapseOp(delete) → accept → 验证突触消失
+      const ccEngram3 = ccRepo.createEngram({
+        title: "CC Test C",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+      const ccEngram4 = ccRepo.createEngram({
+        title: "CC Test D",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+
+      // 手建一条 similar_to 突触(用于 delete 测试)
+      const ccSynapseToDelete = ccRepo.createSynapse({
+        from: ccEngram3.id,
+        to: ccEngram4.id,
+        kind: "similar_to",
+        weight: 0.7,
+        createdBy: "tester",
+      });
+
+      const ccEngine = ccProposalEngine as {
+        proposeSynapseOp: (input: unknown) => boolean;
+        accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
+      };
+
+      // 提出 delete proposal
+      const ccDeleteProposed = ccEngine.proposeSynapseOp({
+        op: "delete",
+        from: ccEngram3.id,
+        to: ccEngram4.id,
+        kind: "similar_to", // delete 操作也需要 kind(payload 结构要求 synapseKind 字段必须存在)
+        oldKind: "similar_to",
+        synapseId: ccSynapseToDelete.id,
+        reason: "测试删除突触建议",
+        confidence: 0.8,
+      });
+      if (!ccDeleteProposed) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "CC proposeSynapseOp(delete) 返回 false",
+        });
+      }
+
+      const ccPending = ccEngine.listPending();
+      const ccDeleteProposal = ccPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+        p.source === "rem-synapse" && p.payload?.synapseOp === "delete"
+      );
+      if (!ccDeleteProposal) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "CC proposeSynapseOp(delete) 后未在 listPending() 找到 rem-synapse delete proposal",
+        });
+      } else {
+        const ccDeleteAcceptedId = ccEngine.accept(ccDeleteProposal.entityId, { createdBy: "tester" });
+        if (!ccDeleteAcceptedId) {
+          diffs.push({
+            kind: "proposal-behavior",
+            detail: "CC accept rem-synapse delete 返回空 ID",
+          });
+        } else {
+          // 验证 accept 后突触消失
+          const ccSynapsesAfter = ccRepo.readSynapses(ccEngram3.id);
+          const ccSimilarTosAfter = ccSynapsesAfter.outgoing.filter((s) => s.kind === "similar_to");
+          if (ccSimilarTosAfter.length !== 0) {
+            diffs.push({
+              kind: "proposal-behavior",
+              detail: "CC accept delete 后突触未消失",
+            });
+          }
+        }
+      }
+
+      // OC 侧:同样流程
+      const ocEngram3 = ocRepo.createEngram({
+        title: "OC Test C",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+      const ocEngram4 = ocRepo.createEngram({
+        title: "OC Test D",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+
+      // 手建一条 similar_to 突触(用于 delete 测试)
+      const ocSynapseToDelete = ocRepo.createSynapse({
+        from: ocEngram3.id,
+        to: ocEngram4.id,
+        kind: "similar_to",
+        weight: 0.7,
+        createdBy: "tester",
+      });
+
+      const ocEngine = ocProposalEngine as {
+        proposeSynapseOp: (input: unknown) => boolean;
+        accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
+      };
+
+      // 提出 delete proposal
+      const ocDeleteProposed = ocEngine.proposeSynapseOp({
+        op: "delete",
+        from: ocEngram3.id,
+        to: ocEngram4.id,
+        kind: "similar_to", // delete 操作也需要 kind(payload 结构要求 synapseKind 字段必须存在)
+        oldKind: "similar_to",
+        synapseId: ocSynapseToDelete.id,
+        reason: "测试删除突触建议",
+        confidence: 0.8,
+      });
+      if (!ocDeleteProposed) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "OC proposeSynapseOp(delete) 返回 false",
+        });
+      }
+
+      const ocPending = ocEngine.listPending();
+      const ocDeleteProposal = ocPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+        p.source === "rem-synapse" && p.payload?.synapseOp === "delete"
+      );
+      if (!ocDeleteProposal) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "OC proposeSynapseOp(delete) 后未在 listPending() 找到 rem-synapse delete proposal",
+        });
+      } else {
+        const ocDeleteAcceptedId = ocEngine.accept(ocDeleteProposal.entityId, { createdBy: "tester" });
+        if (!ocDeleteAcceptedId) {
+          diffs.push({
+            kind: "proposal-behavior",
+            detail: "OC accept rem-synapse delete 返回空 ID",
+          });
+        } else {
+          // 验证 accept 后突触消失
+          const ocSynapsesAfter = ocRepo.readSynapses(ocEngram3.id);
+          const ocSimilarTosAfter = ocSynapsesAfter.outgoing.filter((s) => s.kind === "similar_to");
+          if (ocSimilarTosAfter.length !== 0) {
+            diffs.push({
+              kind: "proposal-behavior",
+              detail: "OC accept delete 后突触未消失",
+            });
+          }
+        }
+      }
+    } catch (e) {
+      diffs.push({
+        kind: "proposal-behavior",
+        detail: `rem-synapse delete 测试失败: ${e instanceof Error ? e.message : String(e)}`,
+      });
+    }
+
+    // ===== 契约 4:两宿主都能 accept rem-synapse retype proposal =====
+    try {
+      // CC 侧:建两个 engram + 手建一条 similar_to 突触 → proposeSynapseOp(retype) → accept → 验证 kind 变为 extends
+      const ccEngram5 = ccRepo.createEngram({
+        title: "CC Test E",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+      const ccEngram6 = ccRepo.createEngram({
+        title: "CC Test F",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+
+      // 手建一条 similar_to 突触(用于 retype 测试)
+      const ccSynapseToRetype = ccRepo.createSynapse({
+        from: ccEngram5.id,
+        to: ccEngram6.id,
+        kind: "similar_to",
+        weight: 0.6,
+        createdBy: "tester",
+      });
+
+      const ccEngine = ccProposalEngine as {
+        proposeSynapseOp: (input: unknown) => boolean;
+        accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
+      };
+
+      // 提出 retype proposal: similar_to → extends
+      const ccRetypeProposed = ccEngine.proposeSynapseOp({
+        op: "retype",
+        from: ccEngram5.id,
+        to: ccEngram6.id,
+        kind: "extends",
+        oldKind: "similar_to",
+        synapseId: ccSynapseToRetype.id,
+        reason: "测试改变突触类型建议",
+        confidence: 0.8,
+      });
+      if (!ccRetypeProposed) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "CC proposeSynapseOp(retype) 返回 false",
+        });
+      }
+
+      const ccPending = ccEngine.listPending();
+      const ccRetypeProposal = ccPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+        p.source === "rem-synapse" && p.payload?.synapseOp === "retype"
+      );
+      if (!ccRetypeProposal) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "CC proposeSynapseOp(retype) 后未在 listPending() 找到 rem-synapse retype proposal",
+        });
+      } else {
+        const ccRetypeAcceptedId = ccEngine.accept(ccRetypeProposal.entityId, { createdBy: "tester" });
+        if (!ccRetypeAcceptedId) {
+          diffs.push({
+            kind: "proposal-behavior",
+            detail: "CC accept rem-synapse retype 返回空 ID",
+          });
+        } else {
+          // 验证 accept 后突触 kind 变为 extends
+          const ccSynapsesAfter = ccRepo.readSynapses(ccEngram5.id);
+          const ccExtends = ccSynapsesAfter.outgoing.filter((s) => s.kind === "extends");
+          if (ccExtends.length === 0) {
+            diffs.push({
+              kind: "proposal-behavior",
+              detail: "CC accept retype 后突触 kind 未变为 extends",
+            });
+          }
+        }
+      }
+
+      // OC 侧:同样流程
+      const ocEngram5 = ocRepo.createEngram({
+        title: "OC Test E",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+      const ocEngram6 = ocRepo.createEngram({
+        title: "OC Test F",
+        content: "content",
+        kind: "fact",
+        domainTags: ["test"],
+        createdBy: "tester",
+      });
+
+      // 手建一条 similar_to 突触(用于 retype 测试)
+      const ocSynapseToRetype = ocRepo.createSynapse({
+        from: ocEngram5.id,
+        to: ocEngram6.id,
+        kind: "similar_to",
+        weight: 0.6,
+        createdBy: "tester",
+      });
+
+      const ocEngine = ocProposalEngine as {
+        proposeSynapseOp: (input: unknown) => boolean;
+        accept: (entityId: string, options: unknown) => string;
+        listPending: () => unknown[];
+      };
+
+      // 提出 retype proposal: similar_to → extends
+      const ocRetypeProposed = ocEngine.proposeSynapseOp({
+        op: "retype",
+        from: ocEngram5.id,
+        to: ocEngram6.id,
+        kind: "extends",
+        oldKind: "similar_to",
+        synapseId: ocSynapseToRetype.id,
+        reason: "测试改变突触类型建议",
+        confidence: 0.8,
+      });
+      if (!ocRetypeProposed) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "OC proposeSynapseOp(retype) 返回 false",
+        });
+      }
+
+      const ocPending = ocEngine.listPending();
+      const ocRetypeProposal = ocPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+        p.source === "rem-synapse" && p.payload?.synapseOp === "retype"
+      );
+      if (!ocRetypeProposal) {
+        diffs.push({
+          kind: "proposal-behavior",
+          detail: "OC proposeSynapseOp(retype) 后未在 listPending() 找到 rem-synapse retype proposal",
+        });
+      } else {
+        const ocRetypeAcceptedId = ocEngine.accept(ocRetypeProposal.entityId, { createdBy: "tester" });
+        if (!ocRetypeAcceptedId) {
+          diffs.push({
+            kind: "proposal-behavior",
+            detail: "OC accept rem-synapse retype 返回空 ID",
+          });
+        } else {
+          // 验证 accept 后突触 kind 变为 extends
+          const ocSynapsesAfter = ocRepo.readSynapses(ocEngram5.id);
+          const ocExtends = ocSynapsesAfter.outgoing.filter((s) => s.kind === "extends");
+          if (ocExtends.length === 0) {
+            diffs.push({
+              kind: "proposal-behavior",
+              detail: "OC accept retype 后突触 kind 未变为 extends",
+            });
+          }
+        }
+      }
+    } catch (e) {
+      diffs.push({
+        kind: "proposal-behavior",
+        detail: `rem-synapse retype 测试失败: ${e instanceof Error ? e.message : String(e)}`,
       });
     }
   } finally {
