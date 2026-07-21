@@ -748,6 +748,85 @@ export class ProposalEngine {
       return engramId;
     }
 
+    // REM synapse proposal:accept → 按 op 改突触网络(add/delete/retype),不创建 engram
+    if (target.source === "rem-synapse") {
+      const p = target.payload;
+      if (!p || !p.synapseOp || !p.synapseFrom || !p.synapseTo || !p.synapseKind) {
+        throw validationError(
+          `rem-synapse proposal missing payload (entityId=${entityId})`,
+        );
+      }
+      const createdBy = input.createdBy ?? "rem-synapse-accept";
+      if (p.synapseOp === "add") {
+        const ts = new Date().toISOString();
+        const synapse: Synapse = {
+          id: randomUUID(),
+          from: p.synapseFrom,
+          to: p.synapseTo,
+          kind: p.synapseKind,
+          weight: p.synapseWeight ?? 0.5,
+          direction: p.synapseDirection ?? "directional",
+          evidence: [
+            {
+              description: `REM 突触提议(用户 accept): ${p.remSynapseReason ?? ""}`.trim(),
+              source: "rem-synapse",
+              confidence: p.remSynapseConfidence ?? 0.5,
+              addedAt: ts,
+              addedBy: createdBy,
+            },
+          ],
+          createdBy,
+          createdAt: ts,
+          updatedAt: ts,
+          retrievalWeight: p.synapseWeight ?? 0.5,
+          visibility: "public",
+        };
+        this.repository.addOutgoingSynapse(p.synapseFrom, synapse);
+      } else {
+        const sid =
+          p.synapseId ?? this.resolveSynapseId(p.synapseFrom, p.synapseTo, p.synapseOldKind);
+        if (!sid) {
+          throw validationError(
+            `rem-synapse ${p.synapseOp}:找不到目标突触(from=${p.synapseFrom}, to=${p.synapseTo}, oldKind=${p.synapseOldKind ?? "?"})——可能已被外部删除/修改。proposal 保持 pending,REM 下轮重新提议。`,
+            { resourceId: "synapseId" },
+          );
+        }
+        if (p.synapseOp === "delete") {
+          this.repository.removeOutgoingSynapse(p.synapseFrom, sid);
+        } else {
+          this.repository.updateSynapse(p.synapseFrom, sid, {
+            kind: p.synapseKind,
+            updatedBy: createdBy,
+          });
+        }
+      }
+
+      this.auditLog.append({
+        actor: "user",
+        action: p.synapseOp === "add" ? "create" : p.synapseOp === "delete" ? "purge" : "update",
+        engramId: p.synapseFrom,
+        metadata: {
+          entityId,
+          source: "rem-synapse",
+          op: p.synapseOp,
+          from: p.synapseFrom,
+          to: p.synapseTo,
+          kind: p.synapseKind,
+          oldKind: p.synapseOldKind,
+        },
+      });
+
+      const updated = proposals.map((pp) =>
+        pp.entityId === entityId
+          ? { ...pp, status: "accepted" as const, acceptedEngramId: p.synapseFrom }
+          : pp,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      safeEmit({ type: "proposal_accepted", engramId: p.synapseFrom, at: new Date().toISOString() });
+      return p.synapseFrom;
+    }
+
     // REM pattern proposal:accept → 创建**新** pattern engram + 连 derives_from synapse
     // (从 runRemDreaming 自动创建逻辑移来;提案化后,自动创建改为用户 accept 才执行)
     if (target.source === "rem-pattern") {
@@ -920,6 +999,20 @@ export class ProposalEngine {
     });
 
     return engram.id;
+  }
+
+  /** 按 (from, to, oldKind?) 在 repository 里定位 synapseId(rem-synapse delete/retype 用)。 */
+  private resolveSynapseId(
+    from: string,
+    to: string,
+    oldKind?: string,
+  ): string | undefined {
+    const { outgoing, incoming } = this.repository.readSynapses(from);
+    const all = [...outgoing, ...incoming];
+    const match = all.find(
+      (s) => s.from === from && s.to === to && (oldKind === undefined || s.kind === oldKind),
+    );
+    return match?.id;
   }
 
   /**
