@@ -1329,14 +1329,14 @@ window.CO_ENGRAM_PROPOSALS = {
 
         // REM synapse proposal:专属卡片(增/删/改 突触,不创建 engram)
         if (p.source === 'rem-synapse') {
-          var op = p.synapseOp || 'add';
-          var sKind = p.synapseKind || '';
-          var sOldKind = p.synapseOldKind || '';
-          var sConf = parseFloat(p.synapseConfidence) || 0;
-          var fromId = p.synapseFrom || '';
-          var toId = p.synapseTo || '';
-          var fromTitle = p.synapseFromTitle || fromId.slice(-8);
-          var toTitle = p.synapseToTitle || toId.slice(-8);
+          var op = (p.payload && p.payload.synapseOp) || 'add';
+          var sKind = (p.payload && p.payload.synapseKind) || '';
+          var sOldKind = (p.payload && p.payload.synapseOldKind) || '';
+          var sConf = parseFloat((p.payload && p.payload.remSynapseConfidence)) || 0;
+          var fromId = (p.payload && p.payload.synapseFrom) || '';
+          var toId = (p.payload && p.payload.synapseTo) || '';
+          var fromTitle = (p.payload && p.payload.synapseFromTitle) || fromId.slice(-8);
+          var toTitle = (p.payload && p.payload.synapseToTitle) || toId.slice(-8);
           var isAccepted = p.status === 'accepted';
           var isDismissed = p.status === 'dismissed';
 
@@ -1370,7 +1370,7 @@ window.CO_ENGRAM_PROPOSALS = {
             + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
             + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
-            + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml(p.synapseReason || T.t('viewer.proposals.rem.synapse.reason.' + op)) + '</div>';
+            + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml((p.payload && p.payload.remSynapseReason) || T.t('viewer.proposals.rem.synapse.reason.' + op)) + '</div>';
           if (isAccepted) {
             html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
           } else if (isDismissed) {
@@ -1742,15 +1742,15 @@ window.CO_ENGRAM_PROPOSALS = {
     const p = cache.find(x => x.entityId === entityId);
     if (!p) { CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.notFound', { id: entityId })) + '</div>'); return; }
 
-    const op = p.synapseOp || 'add';
-    const fromId = p.synapseFrom || '';
-    const toId = p.synapseTo || '';
-    const fromTitle = p.synapseFromTitle || fromId.slice(-8);
-    const toTitle = p.synapseToTitle || toId.slice(-8);
-    const synapseKind = p.synapseKind || '';
-    const synapseOldKind = p.synapseOldKind || '';
-    const sConf = parseFloat(p.synapseConfidence) || 0;
-    const synapseReason = p.synapseReason || T.t('viewer.proposals.rem.synapse.reason.' + op);
+    const op = (p.payload && p.payload.synapseOp) || 'add';
+    const fromId = (p.payload && p.payload.synapseFrom) || '';
+    const toId = (p.payload && p.payload.synapseTo) || '';
+    const fromTitle = (p.payload && p.payload.synapseFromTitle) || fromId.slice(-8);
+    const toTitle = (p.payload && p.payload.synapseToTitle) || toId.slice(-8);
+    const synapseKind = (p.payload && p.payload.synapseKind) || '';
+    const synapseOldKind = (p.payload && p.payload.synapseOldKind) || '';
+    const sConf = parseFloat((p.payload && p.payload.remSynapseConfidence)) || 0;
+    const synapseReason = (p.payload && p.payload.remSynapseReason) || T.t('viewer.proposals.rem.synapse.reason.' + op);
 
     // 置信度档位(复用卡片逻辑)
     let bandKey, bandColor;
