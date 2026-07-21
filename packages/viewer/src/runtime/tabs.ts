@@ -1716,6 +1716,10 @@ window.CO_ENGRAM_PROPOSALS = {
   async acceptRem(entityId) {
     try {
       await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(entityId) + '/accept', 'POST', {});
+      // Invalidate 缓存:rem-synapse accept 后突触计数变化,engram 详情/graph 需重新拉取
+      CO_ENGRAM._engramsLoaded = false;
+      CO_ENGRAM._engramsCache = null;
+      CO_ENGRAM._graphState = null; // graph 缓存失效
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
       if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
@@ -1799,11 +1803,11 @@ window.CO_ENGRAM_PROPOSALS = {
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.fromLabel')) + '</label>'
-      + '<div style="color:var(--accent);cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')">' + CO_ENGRAM.escapeHtml(fromTitle) + '</div>'
+      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(fromTitle) + '</div>'
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.toLabel')) + '</label>'
-      + '<div style="color:var(--accent);cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')">' + CO_ENGRAM.escapeHtml(toTitle) + '</div>'
+      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(toTitle) + '</div>'
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.kindLabel')) + '</label>'
