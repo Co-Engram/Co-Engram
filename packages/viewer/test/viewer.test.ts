@@ -1774,7 +1774,57 @@ describe("GET /api/maintenance-state", () => {
       expect(zh[key], `zh.${key} 缺翻译`).toBeTruthy();
       expect(en[key], `en.${key} 缺翻译`).toBeTruthy();
       expect(zh[key], `zh.${key} 误填成 key 本身`).not.toBe(key);
-      expect(en[key], `en.${key} 误填成 key 本身`).not.toBe(key);
+      expect(en[key], `en.${key} 误填成 key 本体`).not.toBe(key);
     }
+  });
+});
+
+// Task 9:rem-synapse 突触操作卡片(字符串断言)
+// TABS_RUNTIME 是注入到 iframe 的字符串，用字符串断言验证 rem-synapse 分支存在
+// 参考 health-tab.test.ts 的字符串断言模式;不测 HTML 渲染(已有集成测试覆盖)
+describe("Task 9: viewer rem-synapse 卡片渲染(字符串断言)", () => {
+  it("TABS_RUNTIME 包含 rem-synapse 专属卡片分支", () => {
+    // 分支判断：source === 'rem-synapse'
+    expect(TABS_RUNTIME).toContain("rem-synapse");
+    // 关键字段：synapseOp、synapseKind、synapseFrom、synapseTo
+    expect(TABS_RUNTIME).toContain("synapseOp");
+    expect(TABS_RUNTIME).toContain("synapseKind");
+    expect(TABS_RUNTIME).toContain("synapseFrom");
+    expect(TABS_RUNTIME).toContain("synapseTo");
+    // 复用 acceptRem/dismissRem(与 rem-verification 共享交互)
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_PROPOSALS.acceptRem");
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_PROPOSALS.dismissRem");
+  });
+
+  it("rem-synapse 卡片渲染关键元素(场景、op、band、kind chip、端点)", () => {
+    // 场景 chip：🌙 + viewer.proposals.rem.scene.synapse
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.scene.synapse");
+    // op 标识：viewer.proposals.rem.synapse.op. + 动态拼接 op 变量
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.synapse.op.");
+    // band 5 档(复用 rem-verification 逻辑，动态拼接 bandKey)
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.band.");
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.bandTip");
+    // kind chip 用 T.enumLabel('synapseKind', ...)
+    expect(TABS_RUNTIME).toContain("enumLabel('synapseKind'");
+    // 端点可点击：CO_ENGRAM_ENGRAMS.open
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_ENGRAMS.open");
+  });
+
+  it("rem-synapse 卡片状态渲染(accepted/dismissed/pending)", () => {
+    // accepted：viewer.proposals.rem.applied
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.applied");
+    // dismissed：viewer.proposals.rem.kept
+    expect(TABS_RUNTIME).toContain("viewer.proposals.rem.kept");
+    // statusLabel(p.status) 显示状态文本
+    expect(TABS_RUNTIME).toContain("statusLabel(p.status)");
+  });
+
+  it("inline onclick 调用 acceptRem/dismissRem", () => {
+    // rem-synapse 卡片复用 acceptRem/dismissRem(与 rem-verification 共享交互)
+    // 源码中必须用 \\'(双反斜沙)转义，避免 SPA 内联脚本解析错误
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_PROPOSALS.acceptRem");
+    expect(TABS_RUNTIME).toContain("CO_ENGRAM_PROPOSALS.dismissRem");
+    // 包含 onclick 属性(实际转义由 JS 模板处理)
+    expect(TABS_RUNTIME).toContain("onclick=");
   });
 });

@@ -1327,6 +1327,62 @@ window.CO_ENGRAM_PROPOSALS = {
           continue;
         }
 
+        // REM synapse proposal:专属卡片(增/删/改 突触,不创建 engram)
+        if (p.source === 'rem-synapse') {
+          var op = p.synapseOp || 'add';
+          var sKind = p.synapseKind || '';
+          var sOldKind = p.synapseOldKind || '';
+          var sConf = parseFloat(p.synapseConfidence) || 0;
+          var fromId = p.synapseFrom || '';
+          var toId = p.synapseTo || '';
+          var fromTitle = p.synapseFromTitle || fromId.slice(-8);
+          var toTitle = p.synapseToTitle || toId.slice(-8);
+          var isAccepted = p.status === 'accepted';
+          var isDismissed = p.status === 'dismissed';
+
+          // 可信度档位(复用 rem-verification 的 5 档逻辑)
+          var bandKey, bandColor;
+          if (sConf >= 0.85) { bandKey = 'veryHigh'; bandColor = '#34d399'; }
+          else if (sConf >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
+          else if (sConf >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
+          else if (sConf >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
+          else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+          var bandZh = T.t('viewer.proposals.rem.band.' + bandKey);
+          var bandTip = T.t('viewer.proposals.rem.bandTip', { score: sConf.toFixed(2) });
+
+          // 场景色:add 青 / delete 红 / retype 黄
+          var sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#f87171' : '#fbbf24');
+          var synapseKindLabel = T.enumLabel('synapseKind', sKind) || sKind;
+          var synapseKindColor = CO_ENGRAM.edgeColor(sKind);
+
+          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="card-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</div>'
+            + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
+            + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.synapse')) + '</span>'
+            + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
+            + (op === 'retype'
+                ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.enumLabel('synapseKind', sOldKind) || sOldKind) + ' → <strong style="color:' + synapseKindColor + '">' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</strong></span>'
+                : '<span class="chip" style="border-left:3px solid ' + synapseKindColor + '">🔗 ' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</span>')
+            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')">' + CO_ENGRAM.escapeHtml(fromTitle) + '</span>'
+            + '<span style="opacity:.5">→</span>'
+            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
+            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+            + '</div>'
+            + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml(p.synapseReason || T.t('viewer.proposals.rem.synapse.reason.' + op)) + '</div>';
+          if (isAccepted) {
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
+          } else if (isDismissed) {
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+          } else {
+            html += '<div style="margin-top:.55rem;display:flex;gap:.5rem">'
+              + '<button class="btn mini" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</button>'
+              + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.dismiss')) + '</button>'
+              + '</div>';
+          }
+          html += '</div>';
+          continue;
+        }
+
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const kindColor = CO_ENGRAM.kindColor(meta.kind);
