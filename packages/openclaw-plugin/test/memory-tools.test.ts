@@ -218,14 +218,38 @@ describe("createMemorySearchTool / execute", () => {
   });
 
   it("minScore 过滤低分结果", async () => {
-    await createEngram("Foo", "foo content", []);
+    // 得分归一化:top 命中恒为 1.00,弱匹配 < 1.00;clampMinScore 上限 1.0。
+    // 故「有匹配时不可能用 minScore 过滤到 0 条」(top=1.00 恒 ≥ minScore)。
+    // 正确测法:minScore 过滤弱匹配、保留 top。
+    await createEngram("Exact", "foo foo foo");
+    await createEngram("Weaker", "foo bar baz qux other words here");
     refreshIndex();
 
     const tool = createMemorySearchTool(ctx, "en");
-    const r = await tool.execute("call-1", { query: "foo", minScore: 0.99 });
-    const text = (r.content[0] as { text?: string }).text ?? "";
-    // 极高分阈值几乎不可能匹配,只展示 0 条
-    expect(text).toMatch(/共 0 条记忆/);
+    const textOf = (r: { content: Array<{ text?: string }> }) =>
+      (r.content[0]?.text ?? "") as string;
+
+    // 无阈值:两条都返回(Exact=1.00,Weaker<1.00)
+    const r0 = await tool.execute("call-0", { query: "foo" });
+    const t0 = textOf(r0);
+    expect(t0, "无阈值应返回 2 条").toMatch(/共 2 条记忆/);
+
+    // 动态提取 Weaker 的分数(不硬编码,防 bm25 微调致脆裂)
+    const weakerScore = parseFloat(
+      t0.match(/Weaker[\s\S]*?score:\s*([\d.]+)/)?.[1] ?? "0",
+    );
+    expect(weakerScore, "Weaker 应有 >0 分数").toBeGreaterThan(0);
+    expect(weakerScore, "Weaker 应 <1.0(top 才归一化为 1.00)").toBeLessThan(1);
+
+    // minScore 设在 (weakerScore, 1.0) 之间 → 过滤 Weaker,保留 Exact(1.00)
+    const threshold = (weakerScore + 1) / 2;
+    const r = await tool.execute("call-1", { query: "foo", minScore: threshold });
+    const text = textOf(r);
+    expect(text, `minScore=${threshold} 应过滤 Weaker(${weakerScore})`).toMatch(
+      /共 1 条记忆/,
+    );
+    expect(text).toContain("Exact");
+    expect(text).not.toContain("Weaker");
   });
 
   it("无匹配返回空数组(非 error)", async () => {
