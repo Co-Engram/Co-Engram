@@ -1162,6 +1162,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.rem.scene.refute": "梦境·反驳",
   "viewer.proposals.rem.scene.verify": "梦境·验证",
   "viewer.proposals.rem.scene.pattern": "梦境·模式提炼",
+  "viewer.proposals.rem.scene.synapse": "梦境·突触",
   "viewer.proposals.rem.band.veryHigh": "可信度很高",
   "viewer.proposals.rem.band.high": "可信度较高",
   "viewer.proposals.rem.band.medium": "可信度中等",
@@ -1179,6 +1180,16 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.rem.kept": "已保持现状",
   "viewer.proposals.rem.pattern.sourceCount": "源自 ${n} 条记忆",
   "viewer.proposals.rem.pattern.sourceTip": "该模式由这些记忆提炼而来",
+  "viewer.proposals.rem.synapse.op.add": "➕ 建立连接",
+  "viewer.proposals.rem.synapse.op.delete": "🗑️ 移除连接",
+  "viewer.proposals.rem.synapse.op.retype": "🔄 更正类型",
+  "viewer.proposals.rem.synapse.reason.add":
+    "梦境检测到这两条记忆高度相似,但尚未建立连接。接受后将创建突触。",
+  "viewer.proposals.rem.synapse.reason.delete":
+    "梦境检测到这条连接两端的语义已不相关。接受后将移除突触。",
+  "viewer.proposals.rem.synapse.reason.retype":
+    "梦境检测到这条连接的类型可以更精确。接受后将更正突触类型。",
+  "viewer.proposals.rem.synapse.between": "连接:{from} → {to}",
   // ===== 提案「生成原因」展示(viewer.proposals.sourceLine.* / why.*) =====
   "viewer.proposals.sourceLine.conversation": "对话聚类",
   "viewer.proposals.sourceLine.external": "外部文件",
@@ -1808,7 +1819,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.evo5":
     "<strong>衰减</strong>:衰退半衰期从 engram 的 <code>importance</code> 实时派生(<code>deriveHalfLifeDays</code>),importance 按 lastEffectiveAt + 半衰期指数衰减。",
   "viewer.help.evo6":
-    '<strong>维护</strong>:后台周期跑 light/deep/rem 三阶段,完成"巩固强化 → 衰减遗忘 → REM 抽象模式 → 触发元认知评分"。其中 REM 的升级/反驳/模式提炼产出会以提案形式呈现在「记忆提案」页,由你审批采纳后才生效。',
+    '<strong>维护</strong>:后台周期跑 light/deep/rem 三阶段,完成"巩固强化 → 衰减遗忘 → REM 抽象模式 → 触发元认知评分"。其中 REM 的升级/反驳/模式提炼/突触操作(建立/移除/更正类型)产出会以提案形式呈现在「记忆提案」页,由你审批采纳后才生效。',
   "viewer.help.tipsTitle": "提示",
   "viewer.help.tip1":
     "字段名旁的 <code>?</code> 图标(鼠标悬停)有该字段的简短解释。",

@@ -1188,6 +1188,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.rem.scene.refute": "REM·Refute",
   "viewer.proposals.rem.scene.verify": "REM·Verify",
   "viewer.proposals.rem.scene.pattern": "REM·Pattern",
+  "viewer.proposals.rem.scene.synapse": "Dream·Synapse",
   "viewer.proposals.rem.band.veryHigh": "Very high confidence",
   "viewer.proposals.rem.band.high": "High confidence",
   "viewer.proposals.rem.band.medium": "Medium confidence",
@@ -1205,6 +1206,16 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.rem.kept": "Kept as-is",
   "viewer.proposals.rem.pattern.sourceCount": "from ${n} memories",
   "viewer.proposals.rem.pattern.sourceTip": "Pattern abstracted from these memories",
+  "viewer.proposals.rem.synapse.op.add": "➕ Connect",
+  "viewer.proposals.rem.synapse.op.delete": "🗑️ Remove",
+  "viewer.proposals.rem.synapse.op.retype": "🔄 Retype",
+  "viewer.proposals.rem.synapse.reason.add":
+    "Dream detected two highly similar memories with no connection. Accept to create the synapse.",
+  "viewer.proposals.rem.synapse.reason.delete":
+    "Dream detected a connection whose endpoints are no longer related. Accept to remove it.",
+  "viewer.proposals.rem.synapse.reason.retype":
+    "Dream detected a connection that could be more precise. Accept to retype it.",
+  "viewer.proposals.rem.synapse.between": "Connect: {from} → {to}",
   // ===== Proposal「source reason」display(viewer.proposals.sourceLine.* / why.*) =====
   "viewer.proposals.sourceLine.conversation": "Conversation cluster",
   "viewer.proposals.sourceLine.external": "External file",
@@ -1870,7 +1881,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.evo5":
     "<strong>Decay</strong>: half-life is derived from <code>engram.importance</code> in real time (<code>deriveHalfLifeDays</code>); importance decays exponentially by lastEffectiveAt + half-life.",
   "viewer.help.evo6":
-    "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'. REM's upgrade / refute / pattern-abstraction outputs appear as proposals on the Proposals page and take effect only after you approve them.",
+    "<strong>Maintenance</strong>: background cycles run light/deep/rem phases — 'consolidate reinforcement → decay & forget → REM abstract patterns → trigger metacognition scoring'. REM's upgrade / refute / pattern-abstraction / synapse operations (add/remove/retype) outputs appear as proposals on the Proposals page and take effect only after you approve them.",
   "viewer.help.tipsTitle": "Tips",
   "viewer.help.tip1":
     "The <code>?</code> icon next to field names (hover) gives a short description of that field.",
