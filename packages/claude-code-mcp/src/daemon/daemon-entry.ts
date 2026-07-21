@@ -284,7 +284,7 @@ async function main(): Promise<void> {
     const migrateResult = ctx.repository.migrateFormat(language);
     if (migrateResult.migrated > 0) {
       process.stderr.write(
-        `[co-engram-daemon] Migrated ${migrateResult.migrated} file(s) to ${language === "zh" ? "Chinese" : "English"} format\n`,
+        `[co-engram-daemon] Migrated ${migrateResult.migrated} file(s) to ${language} format\n`,
       );
     }
     const updatedConfig = normalizeConfig({
