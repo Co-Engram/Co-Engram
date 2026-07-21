@@ -409,7 +409,6 @@ export async function runRemDreaming(
         const repSynapses = repo.readSynapses(rep);
         const existingTargets = new Set(
           [...repSynapses.outgoing, ...repSynapses.incoming]
-            .filter((s) => s.kind === "similar_to")
             .map((s) => (s.to === rep ? s.from : s.to)),
         );
         for (const memberId of cluster.memberIds) {

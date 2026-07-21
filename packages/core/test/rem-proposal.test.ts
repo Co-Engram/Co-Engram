@@ -340,6 +340,36 @@ describe("runRemDreaming rem-synapse add 发现", () => {
     const dupBA = proposed.some((p) => p.op === "add" && p.from === b.id && p.to === a.id);
     expect(dupAB || dupBA).toBe(false);
   });
+
+  it("两记忆间有 derives_from（非 similar_to）突触时,不提议 add similar_to", async () => {
+    const a = makeEngram("Test A", "fact");
+    const b = makeEngram("Test B", "fact");
+    const c = makeEngram("Test C", "fact");
+    // 预置一条 b→a 的 derives_from 突触（非 similar_to）
+    const ts = new Date().toISOString();
+    repo.addOutgoingSynapse(b.id, {
+      id: randomUUID(), from: b.id, to: a.id, kind: "derives_from",
+      weight: 0.5, direction: "directional", evidence: [], createdBy: "tester",
+      createdAt: ts, updatedAt: ts, retrievalWeight: 0.5, visibility: "public",
+    });
+
+    const proposed: { op: string; from: string; to: string; kind: string }[] = [];
+    const stubEngine = {
+      proposePattern: () => true,
+      proposeSynapseOp: (input: { op: string; from: string; to: string; kind: string }) => {
+        proposed.push(input);
+        return true;
+      },
+    };
+    await runRemDreaming(repo, { proposalEngine: stubEngine as never, minClusterSize: 3 });
+
+    // 不应再提议 a↔b 间的 similar_to（两端已通过 derives_from 相连）
+    const similarAB = proposed.some((p) =>
+      p.op === "add" && p.kind === "similar_to" &&
+      ((p.from === a.id && p.to === b.id) || (p.from === b.id && p.to === a.id))
+    );
+    expect(similarAB).toBe(false);
+  });
 });
 
 // ============================================================
