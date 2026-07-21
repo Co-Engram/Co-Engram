@@ -78,7 +78,8 @@ export type ProposalSource =
   | "auto-memory"
   | "external-markdown"
   | "rem-verification"
-  | "rem-pattern";
+  | "rem-pattern"
+  | "rem-synapse";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -112,6 +113,30 @@ export interface ProposalPayload {
   readonly remSourceIds?: readonly string[];
   /** rem-pattern 专用:REM 提炼理由(展示给用户,辅助审批) */
   readonly remReason?: string;
+  /** rem-synapse 专用:突触操作类型 */
+  readonly synapseOp?: "add" | "delete" | "retype";
+  /** rem-synapse 专用:突触起点 engram id */
+  readonly synapseFrom?: string;
+  /** rem-synapse 专用:突触终点 engram id */
+  readonly synapseTo?: string;
+  /** rem-synapse 专用:add 目标 kind / retype 新 kind */
+  readonly synapseKind?: import("../types/synapse.js").SynapseKind;
+  /** rem-synapse 专用:retype/delete 原始 kind(幂等 + 校验) */
+  readonly synapseOldKind?: import("../types/synapse.js").SynapseKind;
+  /** rem-synapse 专用:delete/retype 锁定具体突触 id */
+  readonly synapseId?: string;
+  /** rem-synapse 专用:add 权重(默认 0.5) */
+  readonly synapseWeight?: number;
+  /** rem-synapse 专用:add 方向(默认 directional) */
+  readonly synapseDirection?: import("../types/synapse.js").SynapseDirection;
+  /** rem-synapse 专用:REM 提议理由(展示给用户) */
+  readonly remSynapseReason?: string;
+  /** rem-synapse 专用:REM 置信度(卡片 band 档位) */
+  readonly remSynapseConfidence?: number;
+  /** rem-synapse 专用:起点标题快照(卡片展示) */
+  readonly synapseFromTitle?: string;
+  /** rem-synapse 专用:终点标题快照 */
+  readonly synapseToTitle?: string;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */

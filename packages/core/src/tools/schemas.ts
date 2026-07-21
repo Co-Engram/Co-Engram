@@ -479,7 +479,8 @@ export interface EngramListProposalsToolResult {
       | "auto-memory"
       | "external-markdown"
       | "rem-verification"
-      | "rem-pattern";
+      | "rem-pattern"
+      | "rem-synapse";
     slug?: string;
     proposedTitle?: string;
     proposedSummary?: string;
@@ -496,6 +497,16 @@ export interface EngramListProposalsToolResult {
     necessityRule?: string;
     acceptedEngramId?: string;
     sourcePath?: string;
+    synapseOp?: "add" | "delete" | "retype";
+    synapseFrom?: string;
+    synapseTo?: string;
+    synapseKind?: string;
+    synapseOldKind?: string;
+    synapseId?: string;
+    synapseConfidence?: number;
+    synapseReason?: string;
+    synapseFromTitle?: string;
+    synapseToTitle?: string;
   }>;
   readonly nextCursor: string | null;
 }
