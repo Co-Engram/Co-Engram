@@ -22,6 +22,7 @@ const LIST_INTENT_PATTERNS: readonly RegExp[] = [
   /列举.*记忆/,
   /列举.*engram/,
   /查看.*记忆库/,
+  /查看.*记忆/,
   /看看.*记忆/,
   /记忆库.*有什么/,
   /记忆库.*有哪些/,
