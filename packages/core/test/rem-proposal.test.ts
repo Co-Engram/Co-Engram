@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { EngramRepository } from "../src/storage/repository.js";
 import { ProposalEngine } from "../src/observability/proposal-engine.js";
@@ -310,5 +311,33 @@ describe("runRemDreaming rem-synapse add 发现", () => {
     const adds = proposed.filter((p) => p.op === "add");
     expect(adds.length).toBeGreaterThanOrEqual(1);
     expect(adds.every((p) => p.kind === "similar_to")).toBe(true);
+  });
+
+  it("已存在 member→rep 的 directional similar_to 时,不重复提议 rep→member", async () => {
+    const a = makeEngram("Test A", "fact");
+    const b = makeEngram("Test B", "fact");
+    const c = makeEngram("Test C", "fact");
+    // 预置一条 b→a 的 directional similar_to(b 是某成员,a 可能是 representative)
+    const ts = new Date().toISOString();
+    repo.addOutgoingSynapse(b.id, {
+      id: randomUUID(), from: b.id, to: a.id, kind: "similar_to",
+      weight: 0.5, direction: "directional", evidence: [], createdBy: "tester",
+      createdAt: ts, updatedAt: ts, retrievalWeight: 0.5, visibility: "public",
+    });
+
+    const proposed: { op: string; from: string; to: string }[] = [];
+    const stubEngine = {
+      proposePattern: () => true,
+      proposeSynapseOp: (input: { op: string; from: string; to: string }) => {
+        proposed.push(input);
+        return true;
+      },
+    };
+    await runRemDreaming(repo, { proposalEngine: stubEngine as never, minClusterSize: 3 });
+
+    // 不应再提议 a→b 或 b→a(两端已通过 b→a 相连)
+    const dupAB = proposed.some((p) => p.op === "add" && p.from === a.id && p.to === b.id);
+    const dupBA = proposed.some((p) => p.op === "add" && p.from === b.id && p.to === a.id);
+    expect(dupAB || dupBA).toBe(false);
   });
 });

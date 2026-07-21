@@ -404,11 +404,11 @@ export async function runRemDreaming(
       ) {
         const rep = cluster.representativeId;
         const repTitle = memberDigestById.get(rep)?.title ?? rep;
+        const repSynapses = repo.readSynapses(rep);
         const existingTargets = new Set(
-          repo
-            .readSynapses(rep)
-            .outgoing.filter((s) => s.kind === "similar_to")
-            .map((s) => s.to),
+          [...repSynapses.outgoing, ...repSynapses.incoming]
+            .filter((s) => s.kind === "similar_to")
+            .map((s) => (s.to === rep ? s.from : s.to)),
         );
         for (const memberId of cluster.memberIds) {
           if (memberId === rep) continue;
