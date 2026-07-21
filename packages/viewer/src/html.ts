@@ -25,6 +25,34 @@ import {
   COENGRAMLOGODARK_SVG,
   COENGRAMFAVICON_SVG,
 } from "./brand-logos.js";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * 读取构建时间(scripts/gen-build-info.mjs 在 build 后写入 dist/build-info.json)。
+ * 随 dist 部署,跨 cp 仍准(比读 mtime 可靠)。文件缺失(如直接跑 src 未 build)→ "unknown"。
+ * 模块级缓存,只读一次。
+ */
+let _buildTime: string | undefined;
+function readBuildTime(): string {
+  if (_buildTime !== undefined) return _buildTime;
+  let v = "";
+  try {
+    const p = join(dirname(fileURLToPath(import.meta.url)), "build-info.json");
+    if (existsSync(p)) v = String(JSON.parse(readFileSync(p, "utf8")).buildTime ?? "");
+  } catch {
+    /* ignore — 降级 unknown */
+  }
+  _buildTime = v || "unknown";
+  return _buildTime;
+}
+
+/** ISO(2026-07-21T14:58:17.123Z)→ 精确到秒的可读形式 2026-07-21 14:58:17Z */
+function formatBuildTime(iso: string): string {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})/.exec(iso);
+  return m ? `${m[1]} ${m[2]}Z` : iso;
+}
 
 export interface SpaHtmlOptions {
   /** 是否要求 token 认证 */
@@ -39,6 +67,8 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const title = t(language, "viewer.title");
   const slogan = t(language, "viewer.slogan");
   const footer = t(language, "viewer.footer");
+  const builtLabel = t(language, "viewer.buildTime");
+  const buildTime = formatBuildTime(readBuildTime());
 
   const searchPlaceholder = t(language, "viewer.search.placeholder");
   const searchBtn = t(language, "viewer.search.button");
@@ -437,6 +467,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
 
   <footer class="app-footer">
     <small>${footer}</small>
+    <small class="app-build-time" style="display:block;opacity:.4;font-size:.72em;margin-top:.15rem">${builtLabel} ${buildTime}</small>
   </footer>
 
   <script>

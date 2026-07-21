@@ -45,7 +45,8 @@
   "scripts": {
     "build:vendor": "node scripts/build-vendor.mjs",
     "build:assets": "node scripts/build-assets.mjs",
-    "build": "pnpm build:vendor && pnpm build:assets && tsc -p tsconfig.json",
+    "build:info": "node scripts/gen-build-info.mjs",
+    "build": "pnpm build:vendor && pnpm build:assets && tsc -p tsconfig.json && pnpm build:info",
     "test": "vitest run --reporter=verbose --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
