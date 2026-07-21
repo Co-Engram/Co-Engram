@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "pnpm -r --filter './packages/**' build && pnpm verify:i18n-dist",
+    "postbuild": "node scripts/deploy-co-engram.mjs --cli-global --no-build --no-restart --allow-missing || echo '[postbuild] auto-deploy 未完成(非致命,build 产物不受影响。CO_ENGRAM_NO_AUTO_DEPLOY=1 可禁用)'",
     "test": "pnpm -r --filter './packages/**' test",
     "test:contracts": "pnpm --filter @co-engram/contracts-test test",
     "typecheck": "pnpm -r --filter './packages/**' exec tsc --noEmit",

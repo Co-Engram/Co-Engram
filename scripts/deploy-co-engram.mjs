@@ -74,6 +74,12 @@ const GATEWAY_WAIT_MS = 25_000;
 const args = new Set(process.argv.slice(2));
 const NO_RESTART = args.has("--no-restart");
 const CLI_GLOBAL = args.has("--cli-global");
+// --no-build:postbuild 复用已 build 好的 dist,跳过 deleteTsbuildinfo/buildPackages/verifyI18n/healthCheck
+// (用于挂在 pnpm build 之后做快速同步,不重复 build)
+const NO_BUILD = args.has("--no-build");
+// --allow-missing:部署目标(OpenClaw 目录 / CLI 全局路径 / 某个 src dist)缺失时告警跳过,
+// 不 throw。用于 postbuild 自动同步:CI 或无本地安装的机器上非致命跳过。
+const ALLOW_MISSING = args.has("--allow-missing");
 
 function log(msg) {
   console.log(`[deploy] ${msg}`);
@@ -156,6 +162,10 @@ async function verifyI18n() {
 async function cpDistToOpenclaw() {
   log(`步骤 4/6: cp dist 到 ${OPENCLAW_DEPLOY_ROOT}...`);
   if (!existsSync(OPENCLAW_DEPLOY_ROOT)) {
+    if (ALLOW_MISSING) {
+      log(`  ⚠ 跳过 OpenClaw 部署:目录不存在 ${OPENCLAW_DEPLOY_ROOT}(--allow-missing)`);
+      return;
+    }
     throw new Error(
       `OpenClaw 部署目录不存在: ${OPENCLAW_DEPLOY_ROOT}\n` +
         `请确认已通过 openclaw plugins install co-engram 安装`,
@@ -169,9 +179,20 @@ async function cpDistToOpenclaw() {
     const pkgDirName = pkg.name.replace("@co-engram/", "");
     const dstParent = join(OPENCLAW_DEPLOY_ROOT, pkgDirName, "dist");
     if (!existsSync(join(OPENCLAW_DEPLOY_ROOT, pkgDirName))) {
+      if (ALLOW_MISSING) {
+        log(`  ⚠ 跳过 ${pkg.name}:未在 ${OPENCLAW_DEPLOY_ROOT} 中找到(--allow-missing)`);
+        continue;
+      }
       throw new Error(
         `${pkg.name} 未在 ${OPENCLAW_DEPLOY_ROOT} 中找到,请先 openclaw plugins install`,
       );
+    }
+    if (!existsSync(src)) {
+      if (ALLOW_MISSING) {
+        log(`  ⚠ 跳过 ${pkg.name}:src dist 不存在 ${src}(--allow-missing,可能未 build)`);
+        continue;
+      }
+      throw new Error(`${pkg.name}: build 后 ${src} 不存在`);
     }
     // cp -rT: 把 src 的内容直接覆盖到 dstParent(覆盖而非嵌套)
     await rm(dstParent, { recursive: true, force: true });
@@ -184,6 +205,10 @@ async function cpDistToCliGlobal() {
   if (!CLI_GLOBAL) return;
   log(`步骤 4b/6 (--cli-global): cp dist 到 ${CLI_GLOBAL_ROOT}...`);
   if (!existsSync(CLI_GLOBAL_ROOT)) {
+    if (ALLOW_MISSING) {
+      log(`  ⚠ 跳过 CLI 全局部署:路径不存在 ${CLI_GLOBAL_ROOT}(--allow-missing)`);
+      return;
+    }
     throw new Error(
       `CLI 全局路径不存在: ${CLI_GLOBAL_ROOT}\n` +
         `请确认已通过 npm install -g @co-engram/claude-code 安装`,
@@ -209,6 +234,10 @@ async function cpDistToCliGlobal() {
   ];
   for (const t of targets) {
     if (!existsSync(t.src)) {
+      if (ALLOW_MISSING) {
+        log(`  ⚠ 跳过 ${t.label}:src 不存在 ${t.src}(--allow-missing,可能未 build)`);
+        continue;
+      }
       throw new Error(`${t.label}: src 不存在 ${t.src}(buildPackages 应已构建,请检查)`);
     }
     await rm(t.dst, { recursive: true, force: true });
@@ -313,15 +342,31 @@ async function main() {
   );
   if (NO_RESTART) console.log("  (mode: --no-restart,不重启 gateway)");
   if (CLI_GLOBAL) console.log("  (mode: --cli-global,同时部署 CLI 全局路径)");
+  if (NO_BUILD) console.log("  (mode: --no-build,跳过 build,cp 已有 dist)");
+  if (ALLOW_MISSING) console.log("  (mode: --allow-missing,目标缺失则告警跳过而非报错)");
 
   try {
-    await deleteTsbuildinfo();
-    await buildPackages();
-    await verifyI18n();
+    // 逃生阀:仅 --no-build(postbuild 自动)模式下,CO_ENGRAM_NO_AUTO_DEPLOY=1 可跳过。
+    // 显式 deploy:cli-global(无 --no-build)不受影响,永远不会被静默跳过。
+    if (NO_BUILD && process.env.CO_ENGRAM_NO_AUTO_DEPLOY === "1") {
+      log("CO_ENGRAM_NO_AUTO_DEPLOY=1:跳过 postbuild 自动部署");
+      return;
+    }
+    if (!NO_BUILD) {
+      await deleteTsbuildinfo();
+      await buildPackages();
+      await verifyI18n();
+    } else {
+      log("--no-build 模式:跳过 build/verify,直接 cp 已有 dist");
+    }
     await cpDistToOpenclaw();
     await cpDistToCliGlobal();
     await restartGateway();
-    await healthCheck();
+    if (!NO_BUILD) {
+      await healthCheck();
+    } else {
+      log("--no-build 模式:跳过健康检查(快速同步)");
+    }
     console.log("\n[deploy] ✓ 部署成功");
   } catch (e) {
     err(`部署失败: ${e.message}`);
