@@ -341,3 +341,73 @@ describe("runRemDreaming rem-synapse add 发现", () => {
     expect(dupAB || dupBA).toBe(false);
   });
 });
+
+// ============================================================
+// runRemDreaming rem-synapse delete/retype 发现 (P1+P2)
+// ============================================================
+describe("runRemDreaming rem-synapse delete/retype 发现", () => {
+  it("两端 token 不交 + domainTags 不交 → 提议 delete", async () => {
+    const a = repo.createEngram({ title: "Alpha", content: "machine learning neural network deep learning", kind: "fact", domainTags: ["ml"], createdBy: "tester" });
+    const b = repo.createEngram({ title: "Beta", content: "番茄炒蛋放糖还是放盐", kind: "observation", domainTags: ["life"], createdBy: "tester" });
+    const ts = new Date().toISOString();
+    repo.addOutgoingSynapse(a.id, {
+      id: randomUUID(),
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      weight: 0.5,
+      direction: "directional",
+      evidence: [],
+      createdBy: "tester",
+      createdAt: ts,
+      updatedAt: ts,
+      retrievalWeight: 0.5,
+      visibility: "public",
+    });
+
+    const proposed: { op: string }[] = [];
+    await runRemDreaming(repo, {
+      deleteJaccardThreshold: 0.3,
+      proposalEngine: {
+        proposePattern: () => true,
+        proposeSynapseOp: (input: { op: string }) => {
+          proposed.push(input);
+          return true;
+        },
+      } as never,
+    });
+    expect(proposed.some((p) => p.op === "delete")).toBe(true);
+  });
+
+  it("similar_to 但 pattern→fact → 提议 retype extends", async () => {
+    const fact = repo.createEngram({ title: "FactBase", content: "基础事实", kind: "fact", domainTags: ["test"], createdBy: "tester" });
+    const pattern = repo.createEngram({ title: "PatternGen", content: "泛化模式", kind: "pattern", domainTags: ["test"], createdBy: "tester" });
+    const ts = new Date().toISOString();
+    repo.addOutgoingSynapse(pattern.id, {
+      id: randomUUID(),
+      from: pattern.id,
+      to: fact.id,
+      kind: "similar_to",
+      weight: 0.5,
+      direction: "directional",
+      evidence: [],
+      createdBy: "tester",
+      createdAt: ts,
+      updatedAt: ts,
+      retrievalWeight: 0.5,
+      visibility: "public",
+    });
+
+    const proposed: { op: string; kind: string }[] = [];
+    await runRemDreaming(repo, {
+      proposalEngine: {
+        proposePattern: () => true,
+        proposeSynapseOp: (input: { op: string; kind: string }) => {
+          proposed.push(input);
+          return true;
+        },
+      } as never,
+    });
+    expect(proposed.some((p) => p.op === "retype" && p.kind === "extends")).toBe(true);
+  });
+});

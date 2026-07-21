@@ -302,6 +302,8 @@ export interface RemDreamingOptions {
       readonly toTitle?: string;
     }): boolean;
   };
+  /** P1 delete:token Jaccard 阈值（默认 0.1） */
+  readonly deleteJaccardThreshold?: number;
 }
 
 export interface RemDreamingResult {
@@ -463,6 +465,63 @@ export async function runRemDreaming(
       skipped.push({
         proposal,
         reason: `confidence ${output.confidence.toFixed(2)} < threshold ${autoAdoptionThreshold}`,
+      });
+    }
+  }
+
+  // P1+P2:突触维护发现——扫所有突触,delete(失效)+ retype(类型不精确)
+  if (options.proposalEngine?.proposeSynapseOp) {
+    const DELETE_JACCARD = options.deleteJaccardThreshold ?? 0.1;
+    const allSynapses = repo.collectAllSynapses();
+    for (const { fromId, synapse } of allSynapses) {
+      if (!repo.exists(fromId) || !repo.exists(synapse.to)) continue;
+      const fromEng = repo.readEngram(fromId);
+      const toEng = repo.readEngram(synapse.to);
+
+      // P2 retype:similar_to 但 pattern→fact/procedure → extends(更精确)
+      if (
+        synapse.kind === "similar_to" &&
+        fromEng.kind === "pattern" &&
+        (toEng.kind === "fact" || toEng.kind === "procedure")
+      ) {
+        options.proposalEngine.proposeSynapseOp({
+          op: "retype",
+          from: fromId,
+          to: synapse.to,
+          kind: "extends" as const,
+          oldKind: "similar_to",
+          synapseId: synapse.id,
+          reason: `REM:两端 kind(${fromEng.kind}→${toEng.kind})表明是泛化-特化关系,similar_to 不如 extends 精确`,
+          confidence: 0.55,
+          fromTitle: fromEng.title,
+          toTitle: toEng.title,
+        });
+        continue; // 已建议 retype,跳过 delete 判断
+      }
+
+      // P1 delete:两端 token Jaccard 低 + domainTags 完全不交
+      const fromTags = new Set(fromEng.domainTags);
+      const tagsIntersect = toEng.domainTags.some((t) => fromTags.has(t));
+      if (tagsIntersect) continue;
+      const fromTokens = tokenizeForDedup(
+        `${fromEng.title} ${fromEng.summary} ${fromEng.content}`,
+      );
+      const toTokens = tokenizeForDedup(
+        `${toEng.title} ${toEng.summary} ${toEng.content}`,
+      );
+      const sim = jaccardSimilarity(fromTokens, toTokens);
+      if (sim >= DELETE_JACCARD) continue;
+      options.proposalEngine.proposeSynapseOp({
+        op: "delete",
+        from: fromId,
+        to: synapse.to,
+        kind: synapse.kind,
+        oldKind: synapse.kind,
+        synapseId: synapse.id,
+        reason: `REM:两端 token 相似度 ${sim.toFixed(2)} < ${DELETE_JACCARD} 且 domainTags 无交集,疑似失效连接`,
+        confidence: Math.min(0.6, 1 - sim),
+        fromTitle: fromEng.title,
+        toTitle: toEng.title,
       });
     }
   }
