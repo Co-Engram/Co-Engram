@@ -5,6 +5,7 @@ import { randomUUID } from "node:crypto";
 import { ProposalEngine } from "../src/observability/proposal-engine.js";
 import { EngramRepository } from "../src/storage/repository.js";
 import { AuditLog } from "../src/observability/audit-log.js";
+import { engramListProposalsTool } from "../src/tools/proposal-tools.js";
 import type { Synapse, SynapseKind } from "../src/types/synapse.js";
 
 function setup(): { engine: ProposalEngine; repo: EngramRepository; dir: string } {
@@ -207,5 +208,35 @@ describe("accept rem-synapse", () => {
     expect(() => engine.accept(eid, {})).toThrow();
     const p = engine.listAll().find((x) => x.entityId === eid)!;
     expect(p.status).toBe("pending");
+  });
+});
+
+describe("engram_list_proposals 投影 rem-synapse", () => {
+  it("返回 synapseOp/from/to/kind 等字段", () => {
+    const { engine, repo } = setup();
+    const a = makeEngram(repo, "ea");
+    const b = makeEngram(repo, "eb");
+    engine.proposeSynapseOp({
+      op: "add",
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      reason: "聚类",
+      confidence: 0.77,
+      fromTitle: "A",
+      toTitle: "B",
+    });
+    const res = engramListProposalsTool.execute(
+      { limit: 10 },
+      { repository: repo, proposalEngine: engine } as any,
+    );
+    const item = res.items[0]!;
+    expect(item.source).toBe("rem-synapse");
+    expect(item.synapseOp).toBe("add");
+    expect(item.synapseFrom).toBe(a.id);
+    expect(item.synapseTo).toBe(b.id);
+    expect(item.synapseKind).toBe("similar_to");
+    expect(item.synapseConfidence).toBe(0.77);
+    expect(item.synapseFromTitle).toBe("A");
   });
 });

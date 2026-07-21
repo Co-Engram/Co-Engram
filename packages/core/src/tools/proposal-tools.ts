@@ -189,6 +189,16 @@ export const engramListProposalsTool: Tool<
           necessityRule?: string;
           acceptedEngramId?: string;
           sourcePath?: string;
+          synapseOp?: "add" | "delete" | "retype";
+          synapseFrom?: string;
+          synapseTo?: string;
+          synapseKind?: string;
+          synapseOldKind?: string;
+          synapseId?: string;
+          synapseConfidence?: number;
+          synapseReason?: string;
+          synapseFromTitle?: string;
+          synapseToTitle?: string;
         } = {
           entityId: p.entityId,
           occurrences: p.occurrences,
@@ -221,6 +231,18 @@ export const engramListProposalsTool: Tool<
             base.proposedEncodingContext = payload.encodingContext;
           if (payload.sourceType) base.proposedSourceType = payload.sourceType;
           if (payload.createdBy) base.proposedCreatedBy = payload.createdBy;
+          // rem-synapse 投影
+          if (payload.synapseOp) base.synapseOp = payload.synapseOp;
+          if (payload.synapseFrom) base.synapseFrom = payload.synapseFrom;
+          if (payload.synapseTo) base.synapseTo = payload.synapseTo;
+          if (payload.synapseKind) base.synapseKind = payload.synapseKind;
+          if (payload.synapseOldKind) base.synapseOldKind = payload.synapseOldKind;
+          if (payload.synapseId) base.synapseId = payload.synapseId;
+          if (payload.remSynapseConfidence !== undefined)
+            base.synapseConfidence = payload.remSynapseConfidence;
+          if (payload.remSynapseReason) base.synapseReason = payload.remSynapseReason;
+          if (payload.synapseFromTitle) base.synapseFromTitle = payload.synapseFromTitle;
+          if (payload.synapseToTitle) base.synapseToTitle = payload.synapseToTitle;
         }
         return base;
       }),
