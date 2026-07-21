@@ -281,3 +281,34 @@ describe("runRemDreaming + proposalEngine", () => {
     expect(after).toBe(before);
   });
 });
+
+// ============================================================
+// runRemDreaming rem-synapse add 发现
+// ============================================================
+
+describe("runRemDreaming rem-synapse add 发现", () => {
+  it("cluster 内 representative→成员 未连则提议 add similar_to", async () => {
+    // makeEngram(title, kind) 是该文件现有 helper;3 个相似 engram 聚成 1 cluster
+    makeEngram("Test A", "fact");
+    makeEngram("Test B", "fact");
+    makeEngram("Test C", "fact");
+
+    const proposed: { op: string; kind: string }[] = [];
+    const stubEngine = {
+      proposePattern: () => true,
+      proposeSynapseOp: (input: { op: string; kind: string }) => {
+        proposed.push(input);
+        return true;
+      },
+    };
+
+    await runRemDreaming(repo, {
+      proposalEngine: stubEngine as never,
+      minClusterSize: 3,
+    });
+
+    const adds = proposed.filter((p) => p.op === "add");
+    expect(adds.length).toBeGreaterThanOrEqual(1);
+    expect(adds.every((p) => p.kind === "similar_to")).toBe(true);
+  });
+});

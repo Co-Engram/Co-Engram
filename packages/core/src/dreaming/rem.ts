@@ -289,6 +289,18 @@ export interface RemDreamingOptions {
       readonly sourceIds: readonly string[];
       readonly domainTags: readonly string[];
     }): boolean;
+    proposeSynapseOp(input: {
+      readonly op: "add" | "delete" | "retype";
+      readonly from: string;
+      readonly to: string;
+      readonly kind: import("../types/synapse.js").SynapseKind;
+      readonly oldKind?: import("../types/synapse.js").SynapseKind;
+      readonly synapseId?: string;
+      readonly reason: string;
+      readonly confidence: number;
+      readonly fromTitle?: string;
+      readonly toTitle?: string;
+    }): boolean;
   };
 }
 
@@ -384,6 +396,36 @@ export async function runRemDreaming(
         sourceIds: proposal.sourceIds,
         domainTags,
       });
+
+      // Task 5: REM 聚类驱动 add 发现（representative → 成员未连 similar_to）
+      if (
+        options.proposalEngine.proposeSynapseOp &&
+        cluster.memberIds.length >= 2
+      ) {
+        const rep = cluster.representativeId;
+        const repTitle = memberDigestById.get(rep)?.title ?? rep;
+        const existingTargets = new Set(
+          repo
+            .readSynapses(rep)
+            .outgoing.filter((s) => s.kind === "similar_to")
+            .map((s) => s.to),
+        );
+        for (const memberId of cluster.memberIds) {
+          if (memberId === rep) continue;
+          if (existingTargets.has(memberId)) continue;
+          const memberTitle = memberDigestById.get(memberId)?.title ?? memberId;
+          options.proposalEngine.proposeSynapseOp({
+            op: "add",
+            from: rep,
+            to: memberId,
+            kind: "similar_to",
+            reason: `REM 聚类:两记忆高度相似,建议建立 similar_to 连接(置信度 ${output.confidence.toFixed(2)})`,
+            confidence: output.confidence,
+            fromTitle: repTitle,
+            toTitle: memberTitle,
+          });
+        }
+      }
     } else if (output.confidence >= autoAdoptionThreshold && !dryRun) {
       // 自动采纳：创建 pattern engram + derives_from synapse
       const patternEngram = repo.createEngram({
