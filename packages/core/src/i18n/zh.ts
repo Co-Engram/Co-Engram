@@ -811,6 +811,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.engram.filter.allVisibilities": "全部",
   "viewer.engram.filter.team": "团队可见",
   "viewer.engram.filter.private": "仅私有",
+  "viewer.engram.synapses": "突触",
+  "viewer.engram.noSynapses": "无突触",
+  "viewer.engram.outgoingSynapses": "出边",
+  "viewer.engram.incomingSynapses": "入边",
   "tip.engram.gitIsolation":
     "私有记忆(🔒)通过 .gitignore 隔离,不进团队 git 仓库;本机所有 agent 仍可索引/检索。",
   "tip.engram.gitIsolation.teamScope":

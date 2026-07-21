@@ -554,6 +554,19 @@ async function routeApi(
     return;
   }
 
+  // /api/engrams/:id/synapses — 该 engram 的 outgoing/incoming 突触列表
+  const engramSynapsesMatch = /^\/api\/engrams\/(.+)\/synapses$/.exec(path);
+  if (engramSynapsesMatch && req.method === "GET") {
+    const id = decodeURIComponent(engramSynapsesMatch[1]!);
+    try {
+      const synapses = ctx.repository.readSynapses(id);
+      respondJson(res, 200, synapses);
+    } catch (err) {
+      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+    }
+    return;
+  }
+
   // /api/synapses/:id  (GET | PATCH | DELETE) — synapse detail/edit/delete
   const synapseMatch = /^\/api\/synapses\/(.+)$/.exec(path);
   if (synapseMatch) {

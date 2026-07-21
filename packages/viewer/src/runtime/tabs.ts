@@ -615,6 +615,9 @@ window.CO_ENGRAM_ENGRAMS = {
     try { d = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id)); }
     catch (e) { CO_ENGRAM.openDrawer('<div class="empty">加载失败:' + CO_ENGRAM.escapeHtml(e.message) + '</div>'); return; }
     CO_ENGRAM._currentEngram = d;
+    // 额外拉突触(失败降级空)
+    try { d._synapses = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id) + '/synapses'); }
+    catch { d._synapses = { outgoing: [], incoming: [] }; }
     this._renderView(d);
   },
 
@@ -713,6 +716,30 @@ window.CO_ENGRAM_ENGRAMS = {
         })()
       + valueSection
       + encSection;
+
+    // 突触栏
+    var synOut = (d._synapses && d._synapses.outgoing) || [];
+    var synInc = (d._synapses && d._synapses.incoming) || [];
+    var synRow = function(list, isOut) {
+      if (!list.length) return '<div class="kpi-sub"><em>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.noSynapses')) + '</em></div>';
+      return list.map(function(s) {
+        var otherId = isOut ? s.to : s.from;
+        var kindLabel = T.enumLabel('synapseKind', s.kind) || s.kind;
+        var kindColor = CO_ENGRAM.edgeColor(s.kind);
+        return '<div class="field" style="display:flex;align-items:center;gap:.4rem">'
+          + '<span class="chip" style="border-left:3px solid ' + kindColor + ';color:' + kindColor + '">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
+          + '<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(otherId) + '\\')">' + CO_ENGRAM.escapeHtml(isOut ? '→ ' : '← ') + CO_ENGRAM.escapeHtml(otherId.slice(-12)) + '</span>'
+          + '</div>';
+      }).join('');
+    };
+    var synSection = '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.synapses')) + ' (' + (synOut.length + synInc.length) + ')</h3>'
+      + '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.outgoingSynapses')) + ' (' + synOut.length + ')</div>'
+      + synRow(synOut, true)
+      + '<div class="kpi-sub" style="margin-top:.5rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.incomingSynapses')) + ' (' + synInc.length + ')</div>'
+      + synRow(synInc, false)
+      + '</div>';
+
+    body += synSection;
     CO_ENGRAM.openDrawer(body);
   },
 

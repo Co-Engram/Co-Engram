@@ -822,6 +822,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.engram.filter.allVisibilities": "All",
   "viewer.engram.filter.team": "Team-visible",
   "viewer.engram.filter.private": "Private only",
+  "viewer.engram.synapses": "Synapses",
+  "viewer.engram.noSynapses": "No synapses",
+  "viewer.engram.outgoingSynapses": "Outgoing",
+  "viewer.engram.incomingSynapses": "Incoming",
   "tip.engram.gitIsolation":
     "Private engrams (🔒) are isolated via .gitignore and never enter the team git repo; local agents can still index/search them.",
   "tip.engram.gitIsolation.teamScope":
