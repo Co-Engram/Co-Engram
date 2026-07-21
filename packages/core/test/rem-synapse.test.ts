@@ -10,7 +10,7 @@ function setup(): { engine: ProposalEngine; repo: EngramRepository; dir: string 
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const repo = new EngramRepository({ rootPath: dir, language: "zh" });
-  const auditLog = new AuditLog(join(dir, ".co-engram", "audit.jsonl"));
+  const auditLog = new AuditLog(dir);
   const engine = new ProposalEngine({
     repository: repo,
     embedder: async () => [1, 0, 0],
