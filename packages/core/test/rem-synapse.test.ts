@@ -27,3 +27,71 @@ describe("rem-synapse ProposalSource", () => {
     expect(src).toBe("rem-synapse");
   });
 });
+
+describe("proposeSynapseOp", () => {
+  it("add 操作生成 pending 提案,entityId 幂等", () => {
+    const { engine } = setup();
+    const a = engine.proposeSynapseOp({
+      op: "add",
+      from: "A",
+      to: "B",
+      kind: "similar_to",
+      reason: "聚类相似",
+      confidence: 0.8,
+      fromTitle: "记忆A",
+      toTitle: "记忆B",
+    });
+    expect(a).toBe(true);
+    const pending = engine.listPending();
+    expect(pending).toHaveLength(1);
+    expect(pending[0]!.source).toBe("rem-synapse");
+    expect(pending[0]!.entityId).toMatch(
+      /^rem-synapse:add:[0-9a-f]{16}$/,
+    );
+    // 重复 propose 同 op+endpoints+kind → 覆盖,occurrences +1,不新增
+    const b = engine.proposeSynapseOp({
+      op: "add",
+      from: "A",
+      to: "B",
+      kind: "similar_to",
+      reason: "聚类相似",
+      confidence: 0.82,
+      fromTitle: "A",
+      toTitle: "B",
+    });
+    expect(b).toBe(true);
+    expect(engine.listPending()).toHaveLength(1);
+    expect(engine.listPending()[0]!.occurrences).toBe(2);
+  });
+
+  it("delete / retype 的 entityId 与 add 不同(op 入 key)", () => {
+    const { engine } = setup();
+    engine.proposeSynapseOp({
+      op: "add",
+      from: "A",
+      to: "B",
+      kind: "similar_to",
+      reason: "r",
+      confidence: 0.7,
+    });
+    engine.proposeSynapseOp({
+      op: "delete",
+      from: "A",
+      to: "B",
+      kind: "similar_to",
+      oldKind: "similar_to",
+      reason: "r",
+      confidence: 0.7,
+    });
+    engine.proposeSynapseOp({
+      op: "retype",
+      from: "A",
+      to: "B",
+      kind: "extends",
+      oldKind: "similar_to",
+      reason: "r",
+      confidence: 0.7,
+    });
+    expect(engine.listPending()).toHaveLength(3);
+  });
+});

@@ -502,6 +502,89 @@ export class ProposalEngine {
   }
 
   /**
+   * REM 突触操作提案(add/delete/retype)。
+   *
+   * entityId 幂等:`rem-synapse:<op>:<sha256(canonical)[:16]>`
+   *  - add:canonical = `op|from|to|kind|direction`
+   *  - delete:canonical = `op|from|to|oldKind`
+   *  - retype:canonical = `op|from|to|oldKind|kind`
+   *
+   * 同 entityId:accepted 跳过;dismissed 走 tombstone 冷却;pending 覆盖。
+   */
+  proposeSynapseOp(input: {
+    readonly op: "add" | "delete" | "retype";
+    readonly from: string;
+    readonly to: string;
+    readonly kind: import("../types/synapse.js").SynapseKind;
+    readonly oldKind?: import("../types/synapse.js").SynapseKind;
+    readonly synapseId?: string;
+    readonly weight?: number;
+    readonly direction?: import("../types/synapse.js").SynapseDirection;
+    readonly reason: string;
+    readonly confidence: number;
+    readonly fromTitle?: string;
+    readonly toTitle?: string;
+  }): boolean {
+    const direction = input.direction ?? "directional";
+    const canonical =
+      input.op === "add"
+        ? `${input.op}|${input.from}|${input.to}|${input.kind}|${direction}`
+        : input.op === "delete"
+          ? `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}`
+          : `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}|${input.kind}`;
+    const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+    const entityId = `rem-synapse:${input.op}:${hash}`;
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") return false;
+    if (
+      existing?.status === "dismissed" &&
+      existing.dismissedUntil &&
+      existing.dismissedUntil > new Date().toISOString()
+    )
+      return false;
+
+    const now = new Date().toISOString();
+    const proposal: Proposal = {
+      entityId,
+      occurrences: (existing?.occurrences ?? 0) + 1,
+      sampleQuotes: [
+        `confidence=${input.confidence.toFixed(2)}`,
+        input.reason.slice(0, 120),
+      ],
+      centroidExcerpt: input.fromTitle?.slice(0, 40) ?? input.from,
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      createdAt: existing?.createdAt ?? now,
+      status: "pending",
+      source: "rem-synapse",
+      payload: {
+        title: `${input.op} synapse ${input.from}→${input.to}`,
+        content: input.reason,
+        domainTags: [],
+        kind: "pattern",
+        synapseOp: input.op,
+        synapseFrom: input.from,
+        synapseTo: input.to,
+        synapseKind: input.kind,
+        synapseOldKind: input.oldKind,
+        synapseId: input.synapseId,
+        synapseWeight: input.weight,
+        synapseDirection: direction,
+        remSynapseReason: input.reason,
+        remSynapseConfidence: input.confidence,
+        synapseFromTitle: input.fromTitle,
+        synapseToTitle: input.toTitle,
+      },
+    };
+
+    const updated = [proposal, ...proposals.filter((p) => p.entityId !== entityId)];
+    this.writeProposals(updated);
+    return true;
+  }
+
+  /**
    * REM 模式提炼 proposal（payload 方案:产生**新** pattern 记忆）。
    *
    * 与 rem-verification（改已有记忆状态,不创建 engram）不同,rem-pattern 是
