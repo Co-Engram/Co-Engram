@@ -939,6 +939,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.section.engrams": "记忆印迹",
   "viewer.section.graph": "图谱",
   "viewer.footer": "Co-Engram 查看器 — 仅本机回环 (127.0.0.1)",
+  "viewer.buildTime": "构建时间",
 
   // ===== CLI =====
   "cli.init.welcome": "欢迎使用 Co-Engram。让我们初始化你的 team-memory 仓库。",
@@ -1190,6 +1191,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.rem.synapse.reason.retype":
     "梦境检测到这条连接的类型可以更精确。接受后将更正突触类型。",
   "viewer.proposals.rem.synapse.between": "连接:{from} → {to}",
+  "viewer.proposals.rem.synapse.detail.title": "突触操作详情",
+  "viewer.proposals.rem.synapse.detail.fromLabel": "起点记忆",
+  "viewer.proposals.rem.synapse.detail.toLabel": "终点记忆",
+  "viewer.proposals.rem.synapse.detail.kindLabel": "突触类型",
+  "viewer.proposals.rem.synapse.detail.confLabel": "置信度",
+  "viewer.proposals.rem.synapse.detail.reasonLabel": "提议原因",
+  "viewer.proposals.rem.synapse.detail.openMem": "查看",
   // ===== 提案「生成原因」展示(viewer.proposals.sourceLine.* / why.*) =====
   "viewer.proposals.sourceLine.conversation": "对话聚类",
   "viewer.proposals.sourceLine.external": "外部文件",

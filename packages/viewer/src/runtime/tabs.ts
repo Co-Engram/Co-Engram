@@ -1356,7 +1356,7 @@ window.CO_ENGRAM_PROPOSALS = {
           var synapseKindColor = CO_ENGRAM.edgeColor(sKind);
 
           html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
-            + '<div class="card-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</div>'
+            + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_PROPOSALS.openSynapseDetail(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</div>'
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.synapse')) + '</span>'
             + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
@@ -1730,6 +1730,96 @@ window.CO_ENGRAM_PROPOSALS = {
       await this.render(document.getElementById('proposals-content'));
       if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
     } catch (e) { alert(CO_ENGRAM_T.t('viewer.proposals.rem.dismissFail') + ': ' + ((e && e.message) || e)); }
+  },
+
+  /**
+   * REM synapse 提案详情抽屉:显示突触两端记忆、操作类型、置信度、原因等完整信息。
+   * 点击 rem-synapse 卡片的 card-title 触发。
+   */
+  openSynapseDetail(entityId) {
+    const T = CO_ENGRAM_T;
+    const cache = CO_ENGRAM._proposalsPager ? CO_ENGRAM._proposalsPager.getItems() : (CO_ENGRAM._proposalsCache || []);
+    const p = cache.find(x => x.entityId === entityId);
+    if (!p) { CO_ENGRAM.openDrawer('<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.notFound', { id: entityId })) + '</div>'); return; }
+
+    const op = p.synapseOp || 'add';
+    const fromId = p.synapseFrom || '';
+    const toId = p.synapseTo || '';
+    const fromTitle = p.synapseFromTitle || fromId.slice(-8);
+    const toTitle = p.synapseToTitle || toId.slice(-8);
+    const synapseKind = p.synapseKind || '';
+    const synapseOldKind = p.synapseOldKind || '';
+    const sConf = parseFloat(p.synapseConfidence) || 0;
+    const synapseReason = p.synapseReason || T.t('viewer.proposals.rem.synapse.reason.' + op);
+
+    // 置信度档位(复用卡片逻辑)
+    let bandKey, bandColor;
+    if (sConf >= 0.85) { bandKey = 'veryHigh'; bandColor = '#34d399'; }
+    else if (sConf >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
+    else if (sConf >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
+    else if (sConf >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
+    else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+    const bandLabel = T.t('viewer.proposals.rem.band.' + bandKey);
+
+    // 场景色
+    const sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#f87171' : '#fbbf24');
+    const synapseKindLabel = T.enumLabel('synapseKind', synapseKind) || synapseKind;
+    const synapseKindColor = CO_ENGRAM.edgeColor(synapseKind);
+
+    // 突触类型显示
+    let kindDisplay = '';
+    if (op === 'add') {
+      kindDisplay = '<span class="chip" style="border-left:3px solid ' + synapseKindColor + '">🔗 ' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</span>';
+    } else if (op === 'retype') {
+      const oldKindLabel = T.enumLabel('synapseKind', synapseOldKind) || synapseOldKind;
+      kindDisplay = '<span class="chip">' + CO_ENGRAM.escapeHtml(oldKindLabel) + ' → <strong style="color:' + synapseKindColor + '">' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</strong></span>';
+    } else if (op === 'delete') {
+      const oldKindLabel = T.enumLabel('synapseKind', synapseOldKind) || synapseOldKind;
+      kindDisplay = '<span class="chip">🔗 ' + CO_ENGRAM.escapeHtml(oldKindLabel) + '</span>';
+    }
+
+    // 操作按钮
+    const isAccepted = p.status === 'accepted';
+    const isDismissed = p.status === 'dismissed';
+    let actionBtns = '';
+    if (isAccepted) {
+      actionBtns = '<div class="config-save-bar"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
+    } else if (isDismissed) {
+      actionBtns = '<div class="config-save-bar"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+    } else {
+      actionBtns = '<div class="config-save-bar">'
+        + '<button class="btn secondary" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.dismiss')) + '</button>'
+        + '<button class="btn" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</button>'
+        + '</div>';
+    }
+
+    const body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
+      + '<strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.title')) + ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</strong>'
+      + '<code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(entityId) + '</code>'
+      + '</div>'
+      + '<div class="field">'
+      + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.fromLabel')) + '</label>'
+      + '<div style="color:var(--accent);cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')">' + CO_ENGRAM.escapeHtml(fromTitle) + '</div>'
+      + '</div>'
+      + '<div class="field">'
+      + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.toLabel')) + '</label>'
+      + '<div style="color:var(--accent);cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')">' + CO_ENGRAM.escapeHtml(toTitle) + '</div>'
+      + '</div>'
+      + '<div class="field">'
+      + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.kindLabel')) + '</label>'
+      + '<div>' + kindDisplay + '</div>'
+      + '</div>'
+      + '<div class="field">'
+      + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.confLabel')) + '</label>'
+      + '<div><span class="chip" style="color:' + bandColor + '">' + CO_ENGRAM.escapeHtml(bandLabel) + '</span> <span style="font-size:0.9rem;opacity:0.8">' + sConf.toFixed(2) + '</span></div>'
+      + '</div>'
+      + '<div class="field">'
+      + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.reasonLabel')) + '</label>'
+      + '<div style="font-size:0.95rem;line-height:1.6">' + CO_ENGRAM.escapeHtml(synapseReason) + '</div>'
+      + '</div>'
+      + actionBtns;
+
+    CO_ENGRAM.openDrawer(body);
   }
 };
 

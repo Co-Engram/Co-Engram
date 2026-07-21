@@ -959,6 +959,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.section.engrams": "Engrams",
   "viewer.section.graph": "Graph",
   "viewer.footer": "Co-Engram Viewer — loopback only (127.0.0.1)",
+  "viewer.buildTime": "Built",
 
   // ===== CLI strings =====
   "cli.init.welcome":
@@ -1216,6 +1217,13 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.rem.synapse.reason.retype":
     "Dream detected a connection that could be more precise. Accept to retype it.",
   "viewer.proposals.rem.synapse.between": "Connect: {from} → {to}",
+  "viewer.proposals.rem.synapse.detail.title": "Synapse Operation Detail",
+  "viewer.proposals.rem.synapse.detail.fromLabel": "Source memory",
+  "viewer.proposals.rem.synapse.detail.toLabel": "Target memory",
+  "viewer.proposals.rem.synapse.detail.kindLabel": "Synapse type",
+  "viewer.proposals.rem.synapse.detail.confLabel": "Confidence",
+  "viewer.proposals.rem.synapse.detail.reasonLabel": "Reason",
+  "viewer.proposals.rem.synapse.detail.openMem": "Open",
   // ===== Proposal「source reason」display(viewer.proposals.sourceLine.* / why.*) =====
   "viewer.proposals.sourceLine.conversation": "Conversation cluster",
   "viewer.proposals.sourceLine.external": "External file",
