@@ -1360,9 +1360,11 @@ window.CO_ENGRAM_PROPOSALS = {
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.synapse')) + '</span>'
             + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
-            + (op === 'retype'
-                ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.enumLabel('synapseKind', sOldKind) || sOldKind) + ' → <strong style="color:' + synapseKindColor + '">' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</strong></span>'
-                : '<span class="chip" style="border-left:3px solid ' + synapseKindColor + '">🔗 ' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</span>')
+            + (op === 'delete'
+                ? '<span class="chip">🔗 ' + CO_ENGRAM.escapeHtml(T.enumLabel('synapseKind', sOldKind) || sOldKind) + '</span>'
+                : (op === 'retype'
+                    ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.enumLabel('synapseKind', sOldKind) || sOldKind) + ' → <strong style="color:' + synapseKindColor + '">' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</strong></span>'
+                    : '<span class="chip" style="border-left:3px solid ' + synapseKindColor + '">🔗 ' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</span>'))
             + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')">' + CO_ENGRAM.escapeHtml(fromTitle) + '</span>'
             + '<span style="opacity:.5">→</span>'
             + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
