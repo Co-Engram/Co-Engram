@@ -473,6 +473,7 @@ async function main(): Promise<void> {
         wrapAllToolsWithSignalSink,
         wrapAllToolsWithErrorBoundary,
         DEFAULT_LANGUAGE: DEFAULT_LANG,
+        pathOverviewFromTree,
       } = await import("@co-engram/core");
       const { registerCoEngramTool, buildInstructionSessionState } =
         await import("../register.js");
@@ -495,12 +496,12 @@ async function main(): Promise<void> {
         .slice(0, 20)
         .map(([t]) => t);
       const sessionState = buildInstructionSessionState(topTags);
+      const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 2);
       const instructions = buildServerInstructions(
         lang,
         profileResult.profile,
         sessionState,
-        // path overview 简化:空数组(避免每连接再算 pathTree)
-        [],
+        pathOverview,
       );
 
       const perConnServer = new McpServer(

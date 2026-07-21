@@ -450,7 +450,7 @@ export function registerCoEngramTools(
       signals: config.promptSignals,
       proposalCountProvider: () => proposalEngine?.listPending().length ?? 0,
       pathOverviewProvider: () =>
-        pathOverviewFromTree(repository.listPathTree(), 1),
+        pathOverviewFromTree(repository.listPathTree(), 2),
     });
     api.registerMemoryCapability({ promptBuilder });
   }

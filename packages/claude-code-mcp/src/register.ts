@@ -322,7 +322,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     .slice(0, 20)
     .map(([t]) => t);
   const sessionState = buildInstructionSessionState(topTags);
-  const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 1);
+  const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 2);
   const instructions = buildServerInstructions(
     language,
     profile,

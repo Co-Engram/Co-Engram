@@ -3373,6 +3373,45 @@ export class EngramRepository {
     const nodeMap = new Map<string, MutableNode>();
     nodeMap.set("", root);
 
+    const ensureNode = (relPath: string): MutableNode => {
+      if (relPath.length === 0) return root;
+      const segments = relPath.split("/");
+      let currentPath = "";
+      let parentNode = root;
+      let node = root;
+      for (const seg of segments) {
+        currentPath = currentPath.length === 0 ? seg : `${currentPath}/${seg}`;
+        const existing = nodeMap.get(currentPath);
+        if (existing) {
+          node = existing;
+        } else {
+          node = { path: currentPath, engramCount: 0, children: [] };
+          nodeMap.set(currentPath, node);
+          parentNode.children.push(node);
+        }
+        parentNode = node;
+      }
+      return node;
+    };
+
+    const SKIP_DIRS = new Set([".git", "node_modules", ".co-engram", "synapses"]);
+    const walkDirs = (absDir: string, relDir: string): void => {
+      let entries: import("node:fs").Dirent[];
+      try {
+        entries = readdirSync(absDir, { withFileTypes: true }) as import("node:fs").Dirent[];
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (SKIP_DIRS.has(entry.name)) continue;
+        const relPath = relDir.length === 0 ? entry.name : `${relDir}/${entry.name}`;
+        ensureNode(relPath);
+        walkDirs(join(this.config.rootPath, relPath), relPath);
+      }
+    };
+    walkDirs(this.config.rootPath, "");
+
     // Truth-filter(与 listEngrams 一致):engram-index.json 可能含 ghost
     // (外部 rm 了 .md 但 index 还没 rebuild)。直接拿 fs 文件列表做交集,
     // 5s 缓存摊销开销。无此 filter 时,ghost 会让 path-tree 凭空多出目录。
@@ -3390,21 +3429,9 @@ export class EngramRepository {
 
       root.engramCount++;
       let currentPath = "";
-      let parentNode = root;
       for (const seg of dirSegments) {
         currentPath = currentPath.length === 0 ? seg : `${currentPath}/${seg}`;
-        let node = nodeMap.get(currentPath);
-        if (!node) {
-          node = {
-            path: currentPath,
-            engramCount: 0,
-            children: [],
-          };
-          nodeMap.set(currentPath, node);
-          parentNode.children.push(node);
-        }
-        node.engramCount++;
-        parentNode = node;
+        ensureNode(currentPath).engramCount++;
       }
     }
 
