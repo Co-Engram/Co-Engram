@@ -1788,8 +1788,8 @@ window.CO_ENGRAM_PROPOSALS = {
       actionBtns = '<div class="config-save-bar"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
     } else {
       actionBtns = '<div class="config-save-bar">'
-        + '<button class="btn secondary" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.dismiss')) + '</button>'
         + '<button class="btn" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</button>'
+        + '<button class="btn secondary" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.dismiss')) + '</button>'
         + '</div>';
     }
 
