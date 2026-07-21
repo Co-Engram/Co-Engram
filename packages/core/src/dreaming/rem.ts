@@ -289,7 +289,7 @@ export interface RemDreamingOptions {
       readonly sourceIds: readonly string[];
       readonly domainTags: readonly string[];
     }): boolean;
-    proposeSynapseOp(input: {
+    proposeSynapseOp?(input: {
       readonly op: "add" | "delete" | "retype";
       readonly from: string;
       readonly to: string;
