@@ -674,7 +674,7 @@ window.CO_ENGRAM_ENGRAMS = {
       ? '<span title="' + CO_ENGRAM.escapeHtml(d.createdAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(d.createdAt)) + '</span>'
       : CO_ENGRAM.escapeHtml(d.createdAt || '');
 
-    const body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
+    var body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
       + '<strong style="margin-right:auto">' + T.actionLabel('detailView') + '</strong>'
       + '<button class="btn" onclick="CO_ENGRAM_ENGRAMS.edit()">' + T.actionLabel('edit') + '</button>'
       + '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.confirmDelete()">' + T.actionLabel('delete') + '</button>'
