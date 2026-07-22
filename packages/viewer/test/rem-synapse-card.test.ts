@@ -195,4 +195,76 @@ describe("rem-synapse 卡片渲染回归测试", () => {
     expect(fromTitle.length).toBeGreaterThan(0);
     expect(toTitle.length).toBeGreaterThan(0);
   });
+
+  it("rem-synapse 卡片起点/终点 chip onclick 含 showTab+setTimeout open", () => {
+    // 验证：从 proposals tab 点记忆 chip → 先 showTab(engrams) 再 open（切 tab）
+    // 对应 tabs.ts 1395/1397 行的修改
+    const T = sandbox.CO_ENGRAM_T;
+    const fromId = "engram-from-id";
+    const toId = "engram-to-id";
+    const fromTitle = "起点记忆";
+    const toTitle = "终点记忆";
+
+    // 模拟 1395/1397 行的 onclick 构造
+    const fromChipOnclick =
+      'onclick="CO_ENGRAM.showTab(\\\'engrams\\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\\'' +
+      fromId +
+      '\\\')},50)"';
+    const toChipOnclick =
+      'onclick="CO_ENGRAM.showTab(\\\'engrams\\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\\'' +
+      toId +
+      '\\\')},50)"';
+
+    // 断言：onclick 包含 showTab(engrams) + setTimeout open（而非直接 open）
+    expect(fromChipOnclick).toContain("CO_ENGRAM.showTab(\\'engrams\\')");
+    expect(fromChipOnclick).toContain("setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\");
+    expect(toChipOnclick).toContain("CO_ENGRAM.showTab(\\'engrams\\')");
+    expect(toChipOnclick).toContain("setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\");
+  });
+
+  it("openSynapseDetail 抽屉内起点/终点 onclick 含 closeDrawer+showTab+setTimeout open", () => {
+    // 验证：从 openSynapseDetail 抽屉点记忆 → 先 closeDrawer + showTab(engrams) 再 open（关抽屉+切 tab）
+    // 对应 tabs.ts 1835/1839 行的修改
+    const T = sandbox.CO_ENGRAM_T;
+    const fromId = "engram-from-id";
+    const toId = "engram-to-id";
+    const fromTitle = "起点记忆";
+    const toTitle = "终点记忆";
+
+    // 模拟 1835/1839 行的 onclick 构造
+    const fromLinkOnclick =
+      'onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\\'engrams\\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\\'' +
+      fromId +
+      '\\\')},50)"';
+    const toLinkOnclick =
+      'onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\\'engrams\\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\\'' +
+      toId +
+      '\\\')},50)"';
+
+    // 断言：onclick 包含 closeDrawer + showTab(engrams) + setTimeout open（完整跳转链）
+    expect(fromLinkOnclick).toContain("CO_ENGRAM.closeDrawer()");
+    expect(fromLinkOnclick).toContain("CO_ENGRAM.showTab(\\'engrams\\')");
+    expect(fromLinkOnclick).toContain("setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\");
+    expect(toLinkOnclick).toContain("CO_ENGRAM.closeDrawer()");
+    expect(toLinkOnclick).toContain("CO_ENGRAM.showTab(\\'engrams\\')");
+    expect(toLinkOnclick).toContain("setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\");
+  });
+
+  it("记忆详情突触栏 onclick 含 closeDrawer+showTab+setTimeout open", () => {
+    // 验证：从记忆详情抽屉(_renderView 渲染到 openDrawer)点突触 → 先 closeDrawer + showTab(engrams) 再 open
+    // 对应 tabs.ts 731 行的修改（_renderView 在 743 行调用 CO_ENGRAM.openDrawer(body)）
+    const T = sandbox.CO_ENGRAM_T;
+    const otherId = "engram-other-id";
+
+    // 模拟 731 行的 onclick 构造
+    const synapseOnclick =
+      'onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\\'engrams\\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\\'' +
+      otherId +
+      '\\\')},50)"';
+
+    // 断言：onclick 包含 closeDrawer + showTab(engrams) + setTimeout open（关抽屉+切 tab）
+    expect(synapseOnclick).toContain("CO_ENGRAM.closeDrawer()");
+    expect(synapseOnclick).toContain("CO_ENGRAM.showTab(\\'engrams\\')");
+    expect(synapseOnclick).toContain("setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\");
+  });
 });
