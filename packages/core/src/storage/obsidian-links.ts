@@ -26,9 +26,14 @@ import { readEngramIndex, type EngramIndexMap } from "./engram-index.js";
 import { listSynapsesForEngram } from "./synapse-store.js";
 import type { Language } from "../i18n/types.js";
 import type { SynapseKind } from "../types/synapse.js";
+import {
+  DERIVED_SYNAPSES_MARKER,
+  stripDerivedSection,
+} from "./derived-marker.js";
 
-/** 派生段起始 marker,兼作剥离锚点 */
-export const DERIVED_SYNAPSES_MARKER = "<!-- co-engram-derived:synapses -->";
+// marker + stripDerivedSection 权威定义在 leaf 模块 derived-marker.ts(供 hash.ts 复用、断环)。
+// 此处 re-export 保持向后兼容(外部如 contradiction/resolver 仍从本模块 import)。
+export { DERIVED_SYNAPSES_MARKER, stripDerivedSection };
 
 /** 派生段标题(紧跟 marker) */
 const DERIVED_HEADING = "## Synapses (derived)";
@@ -57,17 +62,6 @@ function sortEdges(a: ResolvedEdge, b: ResolvedEdge): number {
   if (a.target < b.target) return -1;
   if (a.target > b.target) return 1;
   return 0;
-}
-
-/**
- * 剥离现有派生段(含 marker 至文件末尾),返回干净正文。
- *
- * 不存在 marker 时返回原 content(去尾空白)。
- */
-export function stripDerivedSection(content: string): string {
-  const idx = content.indexOf(DERIVED_SYNAPSES_MARKER);
-  if (idx < 0) return content.replace(/\n+$/, "");
-  return content.slice(0, idx).replace(/\n+$/, "");
 }
 
 /**

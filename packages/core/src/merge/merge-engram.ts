@@ -10,6 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { stripDerivedSection } from "../storage/derived-marker.js";
 import {
   parseEngramFile,
   serializeEngramFile,
@@ -34,8 +35,11 @@ function computeContentHashAndSize(content: string): {
   hash: string;
   size: number;
 } {
-  const hash = createHash("sha256").update(content, "utf8").digest("hex");
-  const size = Buffer.byteLength(content, "utf8");
+  // 先剥除派生突触段:与 computeContentHash 口径一致(派生段每次 doctor 重写,
+  // 纳入 hash 会漂移)。merge 产物的 contentHash/contentSize 也定义在原始内容上。
+  const hashable = stripDerivedSection(content);
+  const hash = createHash("sha256").update(hashable, "utf8").digest("hex");
+  const size = Buffer.byteLength(hashable, "utf8");
   return { hash, size };
 }
 

@@ -4,6 +4,7 @@ import {
   verifyContentHash,
   computeContentSize,
 } from "../src/storage/hash.js";
+import { DERIVED_SYNAPSES_MARKER } from "../src/storage/derived-marker.js";
 
 describe("computeContentHash", () => {
   it("生成 sha256: 前缀的哈希", () => {
@@ -48,5 +49,30 @@ describe("computeContentSize", () => {
 
   it("空字符串为 0", () => {
     expect(computeContentSize("")).toBe(0);
+  });
+});
+
+describe("computeContentHash/Size 剥除派生突触段(防 doctor contentHash churn)", () => {
+  // 回归 bug:派生段(<!-- co-engram-derived:synapses --> ...)每次 doctor 的
+  // regenerateObsidianLinks 重写,若纳入 hash → contentHash 反复漂移 → doctor 反复
+  // 误报 derived_field_stale(stable churn,~36 项/次)。contentHash/contentSize 必须
+  // 定义在「原始内容(剥除派生段)」上,与 createEngram(input.content) 口径一致。
+  const body = "这是原始内容,不含派生段。";
+  const withDerived = `${body}\n\n${DERIVED_SYNAPSES_MARKER}\n## Synapses (derived)\n\n- → [[x|y · extends]]\n`;
+
+  it("含派生段的内容 hash === 原始内容 hash(派生段被剥除)", () => {
+    expect(computeContentHash(withDerived)).toBe(computeContentHash(body));
+  });
+
+  it("含派生段的内容 size === 原始内容 size", () => {
+    expect(computeContentSize(withDerived)).toBe(computeContentSize(body));
+  });
+
+  it("无派生段时不误剥(无 marker 原样返回,仅去尾换行)", () => {
+    expect(computeContentHash("plain\n\n")).toBe(computeContentHash("plain"));
+  });
+
+  it("round-trip:含派生段内容算的 hash,用原始内容验证通过", () => {
+    expect(verifyContentHash(body, computeContentHash(withDerived))).toBe(true);
   });
 });
