@@ -624,7 +624,7 @@ window.CO_ENGRAM_ENGRAMS = {
   _renderView(d) {
     const T = CO_ENGRAM_T;
     const D = CO_ENGRAM_DECAY;
-    const id = CO_ENGRAM.escapeHtml(d.id);
+    const engramId = CO_ENGRAM.escapeHtml(d.id); // 重命名避免与edit函数中的id冲突
     const tags = (d.domainTags || []).map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
     const ctxTags = (d.contextTags || []).map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
 
@@ -682,7 +682,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<h2>' + CO_ENGRAM.escapeHtml(d.title) + '</h2>'
       + '<div class="field"><span class="chip kind-' + d.kind + '"' + CO_ENGRAM.tip('kind.' + d.kind) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', d.kind)) + '</span> '
       + CO_ENGRAM.importanceBar(d.importance) + ' <span class="kpi-sub"' + CO_ENGRAM.tip('importance') + '>' + T.fieldLabel('importance') + ' ' + CO_ENGRAM.renderImportanceChip(d.importance) + '</span></div>'
-      + '<div class="field"><span class="field-label">' + T.fieldLabel('id') + '</span><code>' + id + '</code></div>'
+      + '<div class="field"><span class="field-label">' + T.fieldLabel('id') + '</span><code>' + engramId + '</code></div>'
       + (tags ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + '</span>' + tags + '</div>' : '')
       + (ctxTags ? '<div class="field"><span class="field-label">' + T.fieldLabel('contextTags') + '</span>' + ctxTags + '</div>' : '')
       + '<h3>' + T.sectionLabel('content') + '</h3><div class="markdown-body">' + CO_ENGRAM.renderMarkdown(d.content || '') + '</div>'
@@ -711,7 +711,7 @@ window.CO_ENGRAM_ENGRAMS = {
           }).join('');
           return '<details class="visibility-editor"><summary>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibility.changeBtn')) + '</summary>'
             + '<div class="field"><select name="visibility">' + visOpts + '</select>'
-            + ' <button class="btn secondary mini" onclick="CO_ENGRAM_ENGRAMS.updateVisibility(\\'' + id + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibility.changeBtn')) + '</button>'
+            + ' <button class="btn secondary mini" onclick="CO_ENGRAM_ENGRAMS.updateVisibility(\\'' + engramId + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.visibility.changeBtn')) + '</button>'
             + '</div></details>';
         })()
       + valueSection
@@ -747,7 +747,7 @@ window.CO_ENGRAM_ENGRAMS = {
     const d = CO_ENGRAM._currentEngram;
     if (!d) return;
     const T = CO_ENGRAM_T;
-    const id = CO_ENGRAM.escapeHtml(d.id);
+    const editId = CO_ENGRAM.escapeHtml(d.id); // 重命名避免与其他函数中的id冲突
     const kindKeys = ['observation', 'fact', 'pattern', 'procedure', 'hypothesis'];
     const kindOptions = kindKeys.map(k => '<option value="' + k + '"' + (d.kind === k ? ' selected' : '') + CO_ENGRAM.tip('kind.' + k) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', k)) + '</option>').join('');
     const visKeys = ['public', 'team', 'private', 'restricted'];
@@ -755,7 +755,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
     const body = '<div class="edit-banner"><strong>' + CO_ENGRAM.escapeHtml(T.t('viewer.common.editMode')) + '</strong> · ' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.editModeHint')) + '</div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.editEngramTitle')) + '</h2>'
-      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.fieldLabel('id')) + '</span><code>' + id + '</code></div>'
+      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.fieldLabel('id')) + '</span><code>' + editId + '</code></div>'
       + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.titleLabel')) + '</label><input id="ef-title" type="text" value="' + CO_ENGRAM.escapeHtml(d.title || '') + '"></div>'
       + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('kind.fact') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.kindLabel')) + '</label><select id="ef-kind"' + CO_ENGRAM.tip('kind.fact') + '>' + kindOptions + '</select></div>'
       + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('importance') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.detail.importanceLabel')) + '</label><input id="ef-importance-range" type="range" min="0" max="1" step="0.01" value="' + (d.importance || 0) + '" oninput="document.getElementById(\\'ef-importance\\').value=this.value"><input id="ef-importance" type="number" min="0" max="1" step="0.01" value="' + (d.importance || 0) + '" oninput="document.getElementById(\\'ef-importance-range\\').value=this.value" style="width:80px;margin-left:0.5rem"></div>'
@@ -3333,7 +3333,7 @@ window.CO_ENGRAM_SYNAPSES = {
 
   _renderView(d) {
     const T = CO_ENGRAM_T;
-    const id = CO_ENGRAM.escapeHtml(d.id);
+    const synapseId = CO_ENGRAM.escapeHtml(d.id); // 重命名避免与其他函数中的id冲突
     const kindLabel = T.enumLabel('synapseKind', d.kind) || d.kind;
     const family = CO_ENGRAM.synapseFamily(d.kind);
     const familyLabel = T.enumLabel('family', family) || family;
@@ -3359,7 +3359,7 @@ window.CO_ENGRAM_SYNAPSES = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('synapseDirection.' + (d.direction || 'directional')) + '>' + T.t('viewer.detail.directionField') + '</span>' + CO_ENGRAM.escapeHtml(dirLabel) + '</div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.weightField') + '</span>' + (d.weight != null ? Number(d.weight).toFixed(2) : '—') + '</div>'
       + (d.resolutionStatus ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('resolution.' + d.resolutionStatus) + '>' + T.t('viewer.detail.resolutionField') + '</span><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.enumLabel('resolution', d.resolutionStatus) || d.resolutionStatus) + '</span></div>' : '')
-      + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + id + '</code></div>'
+      + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + synapseId + '</code></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.detail.sourceToTargetField') + '</span><span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.from) + '">' + CO_ENGRAM.escapeHtml(d.from) + '</span> → <span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(d.to) + '">' + CO_ENGRAM.escapeHtml(d.to) + '</span></div>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(d.createdBy || '')
       + ' <span class="field-label">' + T.t('viewer.synapses.timeField') + '</span>' + CO_ENGRAM.escapeHtml(d.createdAt || '') + '</div>'
