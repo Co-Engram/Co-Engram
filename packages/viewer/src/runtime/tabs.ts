@@ -728,7 +728,7 @@ window.CO_ENGRAM_ENGRAMS = {
         var kindColor = CO_ENGRAM.edgeColor(s.kind);
         return '<div class="field" style="display:flex;align-items:center;gap:.4rem">'
           + '<span class="chip" style="border-left:3px solid ' + kindColor + ';color:' + kindColor + '">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
-          + '<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(otherId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(isOut ? '→ ' : '← ') + CO_ENGRAM.escapeHtml(otherId.slice(-12)) + '</span>'
+          + '<span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(otherId) + '&quot;)},50)">' + CO_ENGRAM.escapeHtml(isOut ? '→ ' : '← ') + CO_ENGRAM.escapeHtml(otherId.slice(-12)) + '</span>'
           + '</div>';
       }).join('');
     };
@@ -1392,9 +1392,9 @@ window.CO_ENGRAM_PROPOSALS = {
                 : (op === 'retype'
                     ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.enumLabel('synapseKind', sOldKind) || sOldKind) + ' → <strong style="color:' + synapseKindColor + '">' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</strong></span>'
                     : '<span class="chip" style="border-left:3px solid ' + synapseKindColor + '">🔗 ' + CO_ENGRAM.escapeHtml(synapseKindLabel) + '</span>'))
-            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(fromTitle) + '</span>'
+            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(fromId) + '&quot;)},50)">' + CO_ENGRAM.escapeHtml(fromTitle) + '</span>'
             + '<span style="opacity:.5">→</span>'
-            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')},50)">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
+            + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(toId) + '&quot;)},50)">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
             + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml((p.payload && p.payload.remSynapseReason) || T.t('viewer.proposals.rem.synapse.reason.' + op)) + '</div>';
@@ -1832,11 +1832,11 @@ window.CO_ENGRAM_PROPOSALS = {
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.fromLabel')) + '</label>'
-      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(fromId) + '\\')},50)"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(fromTitle) + '</div>'
+      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(fromId) + '&quot;)},50)"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(fromTitle) + '</div>'
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.toLabel')) + '</label>'
-      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(toId) + '\\')},50)"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(toTitle) + '</div>'
+      + '<div style="color:var(--accent);cursor:pointer;text-decoration:underline" onmouseover="this.style.opacity=0.7" onmouseout="this.style.opacity=1" onclick="CO_ENGRAM.closeDrawer();CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(toId) + '&quot;)},50)"><span style="margin-right:.3rem">🔗</span>' + CO_ENGRAM.escapeHtml(toTitle) + '</div>'
       + '</div>'
       + '<div class="field">'
       + '<label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.detail.kindLabel')) + '</label>'
