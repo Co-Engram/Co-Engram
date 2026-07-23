@@ -6,8 +6,8 @@
  * 设计目标:
  *   - 只绑定 loopback,不对外网暴露
  *   - 可选 bearer token 认证
- *   - EADDRINUSE 自动重试 5 次,每次 port+1
- *   - 默认关闭,需 CO_ENGRAM_VIEWER_ENABLED=1 显式开启
+ *   - EADDRINUSE 同端口重试(默认 10 次),固定 18899 不漂移(holder gating 单一端口契约)
+ *   - 默认开启(holder gating 决定 holder 启 viewer、非 holder 不启)
  *
  * 端点清单(11 个):
  *   GET    /                    SPA HTML(htmx)
@@ -35,7 +35,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   type AuditAction,
@@ -97,7 +97,14 @@ export interface ViewerServerConfig {
   readonly host?: "127.0.0.1";
   /** Bearer token(可选,设置后所有 /api 请求需 Authorization: Bearer <token>) */
   readonly token?: string;
-  /** EADDRINUSE 重试次数(默认 5) */
+  /**
+   * EADDRINUSE 同端口重试次数(默认 10)。
+   *
+   * viewer 端口固定 18899(holder gating 单一端口契约):冲突时**同端口重试**,
+   * 等待上一任 holder 的 viewer close 释放,不漂移到别的端口(漂移会让客户端
+   * 访问固定 18899 时找不到 viewer)。仅在 18899 被非 co-engram 进程长期占用时
+   * 耗尽 throw。
+   */
   readonly maxRetries?: number;
   /** UI 语言(默认 en) */
   readonly language?: Language;
@@ -138,7 +145,16 @@ export interface ViewerRuntime {
  * 时仍可隔离)。
  */
 const DEFAULT_PORT = 18899;
-const DEFAULT_MAX_RETRIES = 5;
+const DEFAULT_MAX_RETRIES = 10;
+/**
+ * EADDRINUSE 同端口重试间隔(毫秒)。
+ *
+ * 2026-07 根治端口漂移:不再递增到 port+1(漂移会让客户端访问固定 18899 时找不到 viewer),
+ * 改为同端口重试,等上一任 holder 的 viewer async close 释放 18899。300ms×10=3s 足够覆盖
+ * server.close 的释放时间。holder gating 保证只有 holder 调 startViewerServer,故 18899
+ * 被占只能是 failover 时旧 holder viewer 尚未关闭,重试即可等到。
+ */
+const EADDRINUSE_RETRY_DELAY_MS = 300;
 
 /**
  * Debounced graph.json 重建(batch accept 等高频写入时合并成一次重建)。
@@ -277,17 +293,21 @@ function tryListen(
     server.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "EADDRINUSE" && retriesLeft > 0) {
         server.close();
-        resolve(
-          tryListen(
-            ctx,
-            port + 1,
-            retriesLeft - 1,
-            token,
-            language,
-            dataRoot,
-            hostType,
-          ),
-        );
+        // 根治端口漂移:重试同一端口(等上一任 holder viewer close 释放),
+        // 不递增到 port+1 —— viewer 必须固定 18899,漂移会让客户端访问固定端口时找不到。
+        setTimeout(() => {
+          resolve(
+            tryListen(
+              ctx,
+              port,
+              retriesLeft - 1,
+              token,
+              language,
+              dataRoot,
+              hostType,
+            ),
+          );
+        }, EADDRINUSE_RETRY_DELAY_MS);
       } else {
         reject(err);
       }
@@ -1448,6 +1468,26 @@ async function routeApi(
       return;
     }
     const incremental = url.searchParams.get("incremental") === "1";
+    const rescan = url.searchParams.get("rescan") === "1";
+    // 优先读持久化 doctor-report.json(maintenance deep 定期跑 doctor 写入)。
+    // 健康栏默认显示"修复前的问题"——即使 maintenance 已 autoFixed(dangling/
+    // orphan/ghost),用户仍能看到 deep 修了什么。?rescan=1 强制重跑(忽略缓存)。
+    if (!rescan) {
+      try {
+        const drPath = join(
+          ctx.repository.rootPath,
+          ".co-engram",
+          "doctor-report.json",
+        );
+        if (existsSync(drPath)) {
+          const cached = JSON.parse(readFileSync(drPath, "utf8"));
+          respondJson(res, 200, { enabled: true, report: cached, cached: true });
+          return;
+        }
+      } catch {
+        // 持久化读取失败,fallback 到现场跑
+      }
+    }
     // 基础设施自愈 preflight:让"运行 doctor 扫描"按钮真正能消除 status 告警
     // (补齐 digest.jsonl / graph.json / merge driver 这三类 runDoctor 不覆盖的修复)
     const infra = runInfraDoctor({

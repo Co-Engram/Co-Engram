@@ -349,26 +349,22 @@ describe("POST /api/commit", () => {
 });
 
 // ============================================================
-// 孤儿端口场景:EADDRINUSE 时自动重试
+// 孤儿端口场景:EADDRINUSE 时同端口重试(2026-07 根治端口漂移)
 // 这是"网页无法访问"问题的根因防御:
-// 如果 18899 被占,viewer 应该重试到下一个端口,而不是彻底起不来
+// 如果 18899 被占(通常 failover 时旧 holder viewer 未关闭),viewer 应同端口
+// 重试等释放,而不是漂移到别的端口(漂移会让客户端访问固定 18899 时找不到)
 // ============================================================
 
 describe("孤儿端口场景防御", () => {
-  it("EADDRINUSE 时自动重试到下一个端口(防 viewer 彻底启动失败)", async () => {
+  it("EADDRINUSE 时同端口重试,不漂移到别的端口", async () => {
     const port = nextPort();
     const occupier = await startViewerServer(makeCtx(tmpDir), { port });
     try {
-      const ctx = makeCtx(tmpDir);
-      const runtime = await startViewerServer(ctx, { port });
-      try {
-        expect(runtime.port).toBe(port + 1);
-        // 重试后的 viewer 必须可访问
-        const res = await makeRequest(runtime.port, "/");
-        expect(res.status).toBe(200);
-      } finally {
-        await runtime.stop();
-      }
+      // 新行为:port 被占 → 同端口重试 → 耗尽 throw,不漂移到 port+1
+      // (漂移会让客户端访问固定 18899 时找不到 viewer)
+      await expect(
+        startViewerServer(makeCtx(tmpDir), { port, maxRetries: 2 }),
+      ).rejects.toThrow(/EADDRINUSE/);
     } finally {
       await occupier.stop();
     }
@@ -378,20 +374,15 @@ describe("孤儿端口场景防御", () => {
     // 防回归:MCP 启动时若 viewer 始终起不来,必须抛出可见错误,
     // 而不是静默跳过(那是"网页无法访问"问题的根因)
     const port = nextPort();
-    // 占满 port..port+5 共 6 个端口(maxRetries=5)
-    const occupiers: Array<{ stop: () => Promise<void> }> = [];
+    // 同端口重试:只需占住 port 一个(2026-07 起不再漂移到 port+1..port+5)
+    const occupier = await startViewerServer(makeCtx(tmpDir), { port });
     try {
-      for (let i = 0; i <= 5; i++) {
-        occupiers.push(await startViewerServer(makeCtx(tmpDir), { port: port + i }));
-      }
-      // 再启动应该彻底失败
+      // 同端口重试 maxRetries 次仍被占 → 抛出
       await expect(
-        startViewerServer(makeCtx(tmpDir), { port, maxRetries: 5 }),
+        startViewerServer(makeCtx(tmpDir), { port, maxRetries: 3 }),
       ).rejects.toThrow();
     } finally {
-      for (const o of occupiers) {
-        await o.stop();
-      }
+      await occupier.stop();
     }
   });
 });

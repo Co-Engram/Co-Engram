@@ -45,7 +45,7 @@ function makeCtx(tmpDir: string) {
 }
 
 /** 分配一个非默认端口(避免和并发测试/真实 viewer 冲突) */
-let portCounter = 20000;
+let portCounter = 50000;
 function nextPort(): number {
   portCounter += 1;
   return portCounter;
@@ -266,18 +266,15 @@ describe("Viewer server 基础", () => {
     }
   });
 
-  it("EADDRINUSE 时自动重试到下一个端口", async () => {
+  it("EADDRINUSE 时同端口重试,不漂移到下一个端口(2026-07 根治端口漂移)", async () => {
     const port = nextPort();
     // 占用 port
     const occupier = await startViewerServer(makeCtx(tmpDir), { port });
     try {
-      const ctx2 = makeCtx(tmpDir);
-      const runtime = await startViewerServer(ctx2, { port });
-      try {
-        expect(runtime.port).toBe(port + 1); // 自动 +1
-      } finally {
-        await runtime.stop();
-      }
+      // 新行为:同端口重试,耗尽 throw,不漂移到 port+1
+      await expect(
+        startViewerServer(makeCtx(tmpDir), { port, maxRetries: 2 }),
+      ).rejects.toThrow(/EADDRINUSE/);
     } finally {
       await occupier.stop();
     }

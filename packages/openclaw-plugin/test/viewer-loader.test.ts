@@ -71,4 +71,16 @@ describe("startCoEngramViewer", () => {
       await result.stopViewer?.();
     }
   });
+
+  it("未传 startViewer 时默认启用(2026-07 opt-out 对齐 maintenance/claude-code/configSchema)", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 不传 startViewer(undefined):新行为(config.startViewer === false 才关)默认启,
+    // 对齐 openclaw.plugin.json default:true / claude-code viewer.enabled ?? proposalEnabled
+    const result = await startCoEngramViewer(ctx, {
+      viewerConfig: { port: 19401 },
+    });
+    expect(result.viewerPort).toBe(19401);
+    expect(typeof result.stopViewer).toBe("function");
+    await result.stopViewer?.();
+  });
 });

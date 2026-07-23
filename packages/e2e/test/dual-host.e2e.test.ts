@@ -457,8 +457,10 @@ describe("viewer holder gating(多进程:单一端口契约)", () => {
 
       // 断言 1:port 仍是 A 的 viewer(holder 的 viewer 在服务)
       expect(await httpStatus(port)).toBe(200);
-      // 断言 2:B 没有因 EADDRINUSE 重试启自己的 viewer
-      // 若 holder gating 失效,B 会 startViewerServer(port) → EADDRINUSE → 重试到 nextPort
+      // 断言 2:B 没有启自己的 viewer(nextPort 空闲)
+      // holder gating 正常时 B 不调 startViewerServer;即便 gating 失效,2026-07 起
+      // tryListen 改为同端口重试(不漂移到 nextPort),故 nextPort 仍空闲。
+      // holder gating 正确性本身由 core/process-lock.test.ts 覆盖。
       expect(await httpStatus(nextPort)).toBe(0);
     } finally {
       for (const p of procs) {

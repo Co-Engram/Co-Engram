@@ -569,7 +569,7 @@ export function registerCoEngramTools(
   let viewerStop: (() => Promise<void>) | undefined;
   const startHolderViewer = (): void => {
     if (viewerStop) return; // 幂等:已启动则跳过(避免重复占端口)
-    if (config.startViewer !== true) return;
+    if (config.startViewer === false) return; // opt-out:默认开启,对齐 maintenance(startMaintenance !== false)/ claude-code(viewer.enabled ?? proposalEnabled)/ configSchema default:true
     void startCoEngramViewer(ctx, {
       ...config,
       dataRoot: effectiveDataRoot,
@@ -799,8 +799,8 @@ export function registerCoEngramTools(
     });
   }
 
-  // viewer 启动由调用方(entry.ts)通过 startCoEngramViewer 单独管理,
-  // 避免重复启动。这里不再自动拉起 viewer。
+  // 注:viewer 已在上方 holder gating 处(startHolderViewer)随 isHolder / onGained
+  // 自动拉起,此处 return 块不再重复启动。
 
   return {
     ...ctx,
@@ -841,7 +841,7 @@ export async function startCoEngramViewer(
   readonly stopViewer?: () => Promise<void>;
   readonly viewerPort?: number;
 }> {
-  if (config.startViewer !== true) return {};
+  if (config.startViewer === false) return {}; // opt-out:默认开启(对齐 startHolderViewer)
   if (viewerRuntime) {
     process.stderr.write(
       `[co-engram] Viewer already running on port ${viewerRuntime.viewerPort ?? "?"}, skipping duplicate startup\n`,
