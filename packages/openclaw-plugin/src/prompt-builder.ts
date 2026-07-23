@@ -69,9 +69,11 @@ export function createCoEngramPromptBuilder(options: {
     pathOverviewProvider: options.pathOverviewProvider,
   });
 
-  return (params: MemoryPromptBuilderParams) =>
-    coreBuilder({
+  return (params: MemoryPromptBuilderParams) => {
+    const out = coreBuilder({
       availableTools: params.availableTools,
       citationsMode: params.citationsMode,
     });
+    return out;
+  };
 }

@@ -178,6 +178,13 @@ export interface CoEngramPluginHostApi {
     event: "before_prompt_build",
     handler: BeforePromptBuildHandler,
   ) => void;
+  /** 可选:注册 additive memory prompt supplement(非 exclusive,不依赖 slot) */
+  readonly registerMemoryPromptSupplement?: (
+    builder: (params: {
+      availableTools: Set<string>;
+      citationsMode?: "off" | "compact" | "full";
+    }) => string[],
+  ) => void;
   /** 可选:plugin config(由 OpenClaw 默认 entry 透传) */
   readonly pluginConfig?: Record<string, unknown>;
 }

@@ -23,7 +23,7 @@
  * @module @co-engram/openclaw
  */
 
-import { existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import {
   EngramRepository,
   SearchOrchestrator,
@@ -49,6 +49,7 @@ import {
   resolveBootstrapDataRootSync,
   DEFAULT_LANGUAGE,
   pathOverviewFromTree,
+  formatPathOverview,
   type ToolContext,
   type SignalSink,
   type MaintenanceConfig,
@@ -441,10 +442,10 @@ export function registerCoEngramTools(
   }
 
   // 注册 memory capability(promptBuilder)
+  const repository = ctx.repository;
   // co-engram 作为 kind: "memory" 主要插件,提供引导文字
   if (api.registerMemoryCapability) {
     const proposalEngine = ctx.proposalEngine;
-    const repository = ctx.repository;
     const promptBuilder = createCoEngramPromptBuilder({
       language,
       signals: config.promptSignals,
@@ -453,6 +454,13 @@ export function registerCoEngramTools(
         pathOverviewFromTree(repository.listPathTree(), 2),
     });
     api.registerMemoryCapability({ promptBuilder });
+    // 兜底:registerMemoryCapability 是 exclusive slot,某些 coclaw 版本不调它。
+    // registerMemoryPromptSupplement 是 additive,buildMemoryPromptSection 会合并。
+    if (api.registerMemoryPromptSupplement) {
+      api.registerMemoryPromptSupplement((params) => [
+        ...promptBuilder({ availableTools: new Set(params.availableTools), citationsMode: params.citationsMode }),
+      ]);
+    }
   }
 
   // 注册 before_prompt_build hook:列举意图兜底
@@ -471,10 +479,36 @@ export function registerCoEngramTools(
   if (api.on) {
     api.on("before_prompt_build", (event) => {
       try {
-        if (!isListMemoryIntent(event.prompt ?? "")) return;
-        const markdown = renderMemoryCatalogMarkdown(ctx, language);
-        if (!markdown) return;
-        return { appendSystemContext: markdown };
+        const parts: string[] = [];
+
+        // 1. 每个 prompt 都注入 pathOverview + topTags(cache-stable,不破坏 prompt cache)。
+        // openclaw 的 registerMemoryCapability 被 contextEngine="lossless-claw" 短路(attempt.ts:1363),
+        // promptBuilder 从不被调用。appendSystemContext 是唯一可靠的 cache-stable 注入通道。
+        const overview = formatPathOverview(
+          pathOverviewFromTree(repository.listPathTree(), 2),
+          language,
+        );
+        if (overview) parts.push(overview);
+
+        const topTags = config.promptSignals?.topTags ?? [];
+        if (topTags.length > 0) {
+          parts.push(
+            translatePrompt(
+              language,
+              "prompt.memory.frequent_topics",
+              { tags: topTags.join(", ") },
+            ),
+          );
+        }
+
+        // 2. 列举意图时额外注入 catalog(现成答案)
+        if (isListMemoryIntent(event.prompt ?? "")) {
+          const catalog = renderMemoryCatalogMarkdown(ctx, language);
+          if (catalog) parts.push(catalog);
+        }
+
+        if (parts.length === 0) return;
+        return { appendSystemContext: parts.join("\n\n") };
       } catch {
         return;
       }
