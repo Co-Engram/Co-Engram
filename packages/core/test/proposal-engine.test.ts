@@ -2176,4 +2176,66 @@ describe("statusCounts / purgeDismissed · viewer 按钮计数与清空(Bug 5/6 
     const again = engine.purgeDismissed();
     expect(again).toEqual([]);
   });
+
+  // ============================================================
+  // purgeAccepted · 清空已采纳记录但保留 engram
+  // ============================================================
+
+  it("purgeAccepted 只删除 accepted,保留 pending/dismissed;返回被清空的 entityId 列表", () => {
+    const before = engine.statusCounts();
+    expect(before.accepted).toBe(2);
+
+    const purgedIds = engine.purgeAccepted();
+    expect(purgedIds.length).toBe(2);
+
+    const after = engine.statusCounts();
+    expect(after.accepted).toBe(0);
+    expect(after.pending).toBe(3);
+    expect(after.dismissed).toBe(2);
+    expect(after.all).toBe(5);
+  });
+
+  it("purgeAccepted 在没有 accepted 时返回空数组(no-op)", () => {
+    engine.purgeAccepted();
+    const again = engine.purgeAccepted();
+    expect(again).toEqual([]);
+  });
+
+  it("purgeAccepted 清空 proposals.jsonl 但保留 engram(关键验证)", () => {
+    // 创建一个 accepted proposal + 对应 engram
+    engine.proposeAutoMemory({
+      slug: "engram-keep-test",
+      title: "E1",
+      content: "engram content",
+      domainTags: ["test"],
+      kind: "fact",
+    });
+    const proposal = engine.listPending()[0]!;
+    const entityId = proposal.entityId;
+
+    // accept 会创建 engram,返回 engramId
+    const engramId = engine.accept(entityId, {
+      title: "E1",
+      content: "engram content",
+      domainTags: ["test"],
+      kind: "fact",
+      createdBy: "user",
+    });
+    expect(engramId).toBeDefined(); // engramId 是 UUID 格式
+    expect(typeof engramId).toBe("string");
+
+    // purgeAccepted 清掉 proposal,但 engram 应保留
+    const purgedIds = engine.purgeAccepted();
+    expect(purgedIds).toContain(entityId); // 我创建的 entityId 在被清空列表中
+
+    // proposals.jsonl 中已无 accepted
+    const remainingAccepted = engine.listAll().filter(p => p.status === 'accepted');
+    expect(remainingAccepted).toHaveLength(0);
+
+    // engram 仍在 repository 中(关键验证)
+    const keptEngram = engine.repository.readEngram(engramId);
+    expect(keptEngram).toBeDefined();
+    expect(keptEngram.title).toBe("E1");
+    expect(keptEngram.content).toBe("engram content");
+  });
 });

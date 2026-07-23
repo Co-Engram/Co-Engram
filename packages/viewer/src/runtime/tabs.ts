@@ -1278,9 +1278,16 @@ window.CO_ENGRAM_PROPOSALS = {
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeDismissed', { n: dismissedCount })) + '</button>'
       : '';
 
+    // 仅在 currentStatus=accepted 且确实有 accepted 提案时显示;清空采纳记录但保留已创建的 engram
+    const acceptedCount = (typeof statusCounts.accepted === 'number') ? statusCounts.accepted : 0;
+    const purgeAcceptedBtn = (currentStatus === 'accepted' && acceptedCount > 0)
+      ? '<button class="btn mini" style="margin-left:0.25rem" onclick="CO_ENGRAM_PROPOSALS.purgeAccepted()">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeAccepted', { n: acceptedCount })) + '</button>'
+      : '';
+
     let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
-      + batchBtns + purgeBtn + '</div>';
+      + batchBtns + purgeBtn + purgeAcceptedBtn + '</div>';
     if (!items.length) {
       // pending 用 emptyHint（「系统在后台观察」教育性提示）；其他 tab 用 empty 反映 filter（如「没有 已采纳 提案」），避免 emptyHint 在 accepted/dismissed 下暗示「新提案会出现在这里」造成误导。
       const emptyText = currentStatus === 'pending'
@@ -1704,6 +1711,25 @@ window.CO_ENGRAM_PROPOSALS = {
       CO_ENGRAM._proposalsLoaded = false;
       await this.render(document.getElementById('proposals-content'));
       alert(T.t('viewer.proposals.batch.purgeToast', { n: resp.purgedCount || 0 }));
+    } catch (e) {
+      alert(T.t('viewer.proposals.batch.purgeFailed', { err: (e.message || e) }));
+    }
+  },
+
+  async purgeAccepted() {
+    const T = CO_ENGRAM_T;
+    const lastResp = CO_ENGRAM._proposalsPager ? CO_ENGRAM._proposalsPager.getLastResponse() : null;
+    const acceptedCount = (lastResp && lastResp.statusCounts && typeof lastResp.statusCounts.accepted === 'number')
+      ? lastResp.statusCounts.accepted : 0;
+    if (!acceptedCount) { alert(T.t('viewer.proposals.batch.purgeNoAccepted')); return; }
+    if (!confirm(T.t('viewer.proposals.batch.purgeAcceptedConfirm', { n: acceptedCount }))) return;
+
+    try {
+      const resp = await CO_ENGRAM.apiJson('/api/proposals/purge-accepted', 'POST', {});
+      CO_ENGRAM._proposalsLoaded = false;
+      await this.render(document.getElementById('proposals-content'));
+      if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+      alert(T.t('viewer.proposals.batch.purgeAcceptedToast', { n: resp.purgedCount || 0 }));
     } catch (e) {
       alert(T.t('viewer.proposals.batch.purgeFailed', { err: (e.message || e) }));
     }

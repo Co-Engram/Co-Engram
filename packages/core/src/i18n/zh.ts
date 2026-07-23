@@ -1283,6 +1283,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.batch.purgeToast": "已物理清空 ${n} 条已驳回提案",
   "viewer.proposals.batch.purgeFailed": "清空失败:${err}",
   "viewer.proposals.batch.purgeNoDismissed": "当前没有已驳回提案可清空",
+  "viewer.proposals.batch.purgeAccepted": "清空已采纳记录(${n})",
+  "viewer.proposals.batch.purgeNoAccepted": "当前没有已采纳记录可清空",
+  "viewer.proposals.batch.purgeAcceptedConfirm":
+    "确认清空 ${n} 条已采纳记录?\n\n只清空 proposals.jsonl 中的采纳记录,accept 时已创建的 engram 不受影响。",
+  "viewer.proposals.batch.purgeAcceptedToast": "已清空 ${n} 条已采纳记录",
 
   // ===== Audit 面板(viewer.audit.*) =====
   "viewer.audit.filter.actor": "发起者",

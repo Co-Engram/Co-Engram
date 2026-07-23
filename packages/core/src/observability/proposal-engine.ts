@@ -674,6 +674,28 @@ export class ProposalEngine {
   }
 
   /**
+   * createEngram + path conflict 兜底（auto-memory / 虚拟 external-markdown 用）。
+   *
+   * external-markdown 原地纳管（adoptOrPromoteEngramAt）返回 undefined 时（源文件不存在）
+   * 或非 external-markdown 来源，走此默认路径：deriveDefaultPath 推导路径创建；
+   * 若路径已存在同名 .md，则 adopt 现有文件（orphan 计入 totalEngrams，幂等）。
+   */
+  private createEngramWithConflictFallback(
+    input: EngramCreateInput,
+  ): { id: string } {
+    try {
+      return this.repository.createEngram(input);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      const m = msg.match(/^Engram already exists at (.+)$/);
+      if (!m) throw e;
+      const existing = this.repository.ingestExistingEngramFile(m[1]!);
+      if (!existing) throw e;
+      return existing;
+    }
+  }
+
+  /**
    * 接受提案 → 创建 engram
    *
    * 当 proposal 自带 payload(auto-memory 来源)且调用方未传 title/content/domainTags/kind 时,
@@ -956,15 +978,18 @@ export class ProposalEngine {
     // 修复:捕获 conflict,把现有 .md 文件 adopt 进 index + SQLite,
     // 标记 proposal accepted,返回 engram.id —— 让 orphan 也计入 totalEngrams。
     let engram: { id: string };
-    try {
-      engram = this.repository.createEngram(createInput);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      const m = msg.match(/^Engram already exists at (.+)$/);
-      if (!m) throw e;
-      const existing = this.repository.ingestExistingEngramFile(m[1]!);
-      if (!existing) throw e;
-      engram = existing;
+    if (target.source === "external-markdown" && payload?.sourcePath) {
+      // external-markdown：原地纳管源文件（裸 md 原地提升 / 合法 engram orphan adopt），
+      // 用 payload.sourcePath 作目标路径，不在 imported/ 下新建副本。
+      // 详见 EngramRepository.adoptOrPromoteEngramAt。
+      // 源文件不存在（虚拟 proposal / 已被外部删除）→ undefined，退化默认路径创建。
+      const adopted = this.repository.adoptOrPromoteEngramAt(
+        payload.sourcePath,
+        createInput,
+      );
+      engram = adopted ?? this.createEngramWithConflictFallback(createInput);
+    } else {
+      engram = this.createEngramWithConflictFallback(createInput);
     }
 
     const updated: Proposal = {
@@ -1605,15 +1630,16 @@ export class ProposalEngine {
         };
 
         let engram: { id: string };
-        try {
-          engram = this.repository.createEngram(createInput);
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          const m = msg.match(/^Engram already exists at (.+)$/);
-          if (!m) throw e;
-          const existing = this.repository.ingestExistingEngramFile(m[1]!);
-          if (!existing) throw e;
-          engram = existing;
+        if (p.source === "external-markdown" && payload?.sourcePath) {
+          // external-markdown：原地纳管源文件，不在 imported/ 下新建（见 adoptOrPromoteEngramAt）。
+          // 源文件不存在 → undefined，退化默认路径创建（不阻塞 batch，失败进 failures）。
+          const adopted = this.repository.adoptOrPromoteEngramAt(
+            payload.sourcePath,
+            createInput,
+          );
+          engram = adopted ?? this.createEngramWithConflictFallback(createInput);
+        } else {
+          engram = this.createEngramWithConflictFallback(createInput);
         }
 
         acceptedIds.push(p.entityId);
@@ -1830,6 +1856,32 @@ export class ProposalEngine {
     if (dismissedIds.length === 0) return [];
     this.writeProposals(remaining);
     return dismissedIds;
+  }
+
+  /**
+   * 物理删除所有 status=accepted 的 proposal(proposals.jsonl)。
+   *
+   * 只清空"采纳记录"——accept 时创建的 engram 不受影响(engram 在独立文件,
+   * proposals.jsonl 只是提案索引)。用户场景:accepted 列表累积过多,清空记录
+   * 释放空间,但已采纳的记忆保留。
+   *
+   * 不需 tombstone(accepted 不像 dismissed 需防 auto-memory 复活;purge 后
+   * 同 entityId 重新 propose 会新建 pending,合理)。
+   */
+  purgeAccepted(): readonly string[] {
+    const all = this.readProposals();
+    const acceptedIds: string[] = [];
+    const remaining: Proposal[] = [];
+    for (const p of all) {
+      if (p.status === "accepted") {
+        acceptedIds.push(p.entityId);
+      } else {
+        remaining.push(p);
+      }
+    }
+    if (acceptedIds.length === 0) return [];
+    this.writeProposals(remaining);
+    return acceptedIds;
   }
 
   /** 清理过期/已处理数据(测试用) */

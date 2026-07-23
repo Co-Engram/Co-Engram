@@ -1311,6 +1311,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.batch.purgeToast": "Purged ${n} dismissed proposals",
   "viewer.proposals.batch.purgeFailed": "Purge failed: ${err}",
   "viewer.proposals.batch.purgeNoDismissed": "No dismissed proposals to purge",
+  "viewer.proposals.batch.purgeAccepted": "Purge accepted (${n})",
+  "viewer.proposals.batch.purgeNoAccepted": "No accepted proposals to purge",
+  "viewer.proposals.batch.purgeAcceptedConfirm":
+    "Purge ${n} accepted proposal records?\n\nOnly clears adoption records from proposals.jsonl; engrams created during accept are kept.",
+  "viewer.proposals.batch.purgeAcceptedToast": "Purged ${n} accepted proposals",
 
   // ===== Audit panel (viewer.audit.*) =====
   "viewer.audit.filter.actor": "Actor",

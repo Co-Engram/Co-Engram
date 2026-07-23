@@ -731,6 +731,47 @@ async function routeApi(
     }
   }
 
+  // /api/proposals/purge-accepted
+  //
+  // 清空所有 status=accepted 的 proposal,释放 .co-engram/proposals.jsonl 空间。
+  // 用户场景:accepted 列表累积过多,清空"采纳记录"但保留已创建的 engram。
+  // 返回被清空的 entityId 列表(审计 + UI 反馈用)。
+  if (
+    path === "/api/proposals/purge-accepted" &&
+    req.method === "POST"
+  ) {
+    if (!ctx.proposalEngine) {
+      respondJson(res, 503, {
+        error: "Proposal engine not enabled",
+        enabled: false,
+      });
+      return;
+    }
+    try {
+      const purgedIds = ctx.proposalEngine.purgeAccepted();
+      // 审计留痕(便于追溯清空动作)
+      for (const entityId of purgedIds) {
+        ctx.auditLog?.append({
+          actor: "user",
+          action: "accept",
+          engramId: entityId,
+          metadata: { purged: true, source: "purge-accepted" },
+        });
+      }
+      respondJson(res, 200, {
+        ok: true,
+        purgedCount: purgedIds.length,
+        purgedIds,
+      });
+      return;
+    } catch (err) {
+      respondJson(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+  }
+
   // /api/proposals/:entityId/accept | /dismiss
   const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss)$/.exec(
     path,
