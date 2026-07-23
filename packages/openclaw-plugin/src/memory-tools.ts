@@ -220,12 +220,17 @@ export function createMemorySearchTool(
           undefined,
           maxResults,
         );
+        // 归一化到本批 top = 1.0:memory_search 的 minScore 语义以 1.0 为"最相关"锚点,
+        // 与底层评分(SQLite T7 四因子分 / in-memory 四因子分,top 均 < 1.0)解耦,
+        // 让用户的 minScore 阈值稳定可移植。
+        const maxRaw = rawResults.reduce((m, r) => (r.score > m ? r.score : m), 0);
         const hits: MemorySearchHit[] = [];
         for (const r of rawResults) {
-          if (r.score < minScore) continue;
+          const score = maxRaw > 0 ? r.score / maxRaw : 0;
+          if (score < minScore) continue;
           const digest = ctx.repository.readDigest(r.id);
           if (!digest) continue;
-          hits.push(digestToHit(digest, r.score, r.matchReason));
+          hits.push(digestToHit(digest, score, r.matchReason));
         }
         return toAdaptedToolResult({ results: hits, total: hits.length }, ctx);
       } catch (error) {

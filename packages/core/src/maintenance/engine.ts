@@ -46,6 +46,9 @@ import {
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
 import { writeStageState, readMaintenanceState } from "./state.js";
+import { join, dirname } from "node:path";
+import { writeFileSync, mkdirSync } from "node:fs";
+import type { DoctorReport } from "../types/repository-types.js";
 
 /**
  * Maintenance Engine
@@ -233,8 +236,41 @@ export class MaintenanceEngine {
         deepModified.push({ engramId: rec.from, action: "merged", to: rec.to });
       }
 
+      // 方案 A:deep stage 跑 doctor 自愈(dangling synapse / orphan md / SQLite ghost
+      // 自动检测+清理)。无异常时 doctor 只检测不写(快速);有异常 autoFixed。
+      // report 持久化到 .co-engram/doctor-report.json,供 viewer 健康栏显示"修复前的
+      // 问题"(即使已 autoFixed,用户仍能看到 deep 修了什么)。
+      let doctorReport: DoctorReport | undefined;
+      try {
+        doctorReport = this.deps.repository.runDoctor();
+      } catch {
+        // doctor 失败不阻塞 deep,下次重试
+      }
+      if (this.deps.dataRoot && doctorReport) {
+        try {
+          const drPath = join(
+            this.deps.dataRoot,
+            ".co-engram",
+            "doctor-report.json",
+          );
+          mkdirSync(dirname(drPath), { recursive: true });
+          writeFileSync(drPath, JSON.stringify(doctorReport), "utf8");
+        } catch {
+          // 持久化失败不阻塞 deep
+        }
+      }
+      const doctorSummary = doctorReport
+        ? {
+            startedAt: doctorReport.startedAt,
+            finishedAt: doctorReport.finishedAt,
+            issueCount: doctorReport.issues.length,
+            fixCount: doctorReport.fixes.length,
+            pendingCount: doctorReport.pendingManualReview.length,
+          }
+        : undefined;
+
       return {
-        downstreamReport: { ...record, deepModified },
+        downstreamReport: { ...record, deepModified, doctorSummary },
       };
     });
   }

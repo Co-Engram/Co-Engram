@@ -67,7 +67,9 @@ afterAll(() => {
  *     = O(N²) 批读。批量重构后 N=200 ≈ 500-700ms,6s 留 10x 余量;
  *     N+1 回潮(readEngram × N)会冲到 6s+,实测 N=1026 时 30s+ 果断失败。
  */
-const SIMPLE_THRESHOLD_MS = 3000;
+// 放宽到 5000ms:单独跑 ~430ms,但全量并发(pnpm -r 多包 + 各包 vitest 并发)
+// CPU 竞争下可达 ~3.5s(8x)。3000ms 在并发下偏紧,5000ms 留 margin。
+const SIMPLE_THRESHOLD_MS = 5000;
 const COMPLEX_THRESHOLD_MS = 6000;
 
 describe("scale: N+1 hot paths at N=200", () => {

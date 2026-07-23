@@ -150,12 +150,20 @@ export class FileSignalSink implements SignalSink {
     }
     const pending = this.buffer.splice(0, this.buffer.length);
     const lines = pending.map((e) => JSON.stringify(e)).join("\n") + "\n";
-    // 追加模式打开，避免覆盖已有数据
-    const fd = openSync(this.filePath, "a");
+    // 追加模式打开,避免覆盖已有数据。
+    // 容错:filePath 所在目录可能已被删除(测试 rmSync tmpdir 后,unref 定时
+    // flush 仍可能触发)。信号是派生数据,此时丢弃这批缓冲可接受;吞掉 ENOENT
+    // 避免异步 flush 的 unhandled rejection 污染测试输出。生产 dataRoot 不会
+    // 被外部删除,该分支几乎不触发。
     try {
-      writeFileSync(fd, lines, "utf8");
-    } finally {
-      closeSync(fd);
+      const fd = openSync(this.filePath, "a");
+      try {
+        writeFileSync(fd, lines, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      // intentional:目录不存在 → 放弃这批缓冲
     }
   }
 }

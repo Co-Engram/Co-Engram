@@ -58,7 +58,12 @@ export class GraphBuilder {
 
     // 添加边
     for (const { fromId, synapse } of allSynapses) {
-      // 确保 from 和 to 都有邻接表项
+      // 过滤 dangling synapse:from/to 任一不在 engram 集合(engram 已删但
+      // .yaml 残留)则跳过,不进 graph.json / 统计。graph 视图本就只渲染两端
+      // 存在的边,此处对齐,避免 /api/stats totalSynapses 含 dangling 误导用户
+      // (实测某库 1829 synapse 中 1814 dangling,统计栏报 1829 而实际有效仅 15)。
+      if (!allIds.has(fromId) || !allIds.has(synapse.to)) continue;
+      // 确保 from 和 to 都有邻接表项(过滤后二者必在 allIds,邻接表已存在,以下防御)
       if (!outgoingAdjacency[fromId]) outgoingAdjacency[fromId] = [];
       if (!incomingAdjacencyHelper(incomingAdjacency, fromId))
         incomingAdjacency[fromId] = [];

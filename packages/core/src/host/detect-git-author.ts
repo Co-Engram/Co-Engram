@@ -25,22 +25,26 @@ import { execFileSync, type SpawnSyncReturns } from "node:child_process";
  * 返回去首尾空白后的字符串;配置不存在或 git 不可用时返回 undefined。
  */
 function readGitConfig(key: "user.name" | "user.email"): string | undefined {
-  try {
-    const result = execFileSync("git", ["config", key], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      timeout: 2000,
-    }) as string;
-    const trimmed = result.trim();
-    return trimmed.length > 0 ? trimmed : undefined;
-  } catch (err) {
-    // ENOENT:git 未安装
-    // 非零退出:key 不存在
-    // timeout:git 卡住(罕见)
-    // 一律静默返回 undefined,绝不影响宿主启动
-    void (err as SpawnSyncReturns<Buffer>);
-    return undefined;
+  // 重试一次:execFileSync 在并发/负载下可能瞬时超时,重试降低偶发失败。
+  // 根因:detectGitAuthor 同进程内可能被多次调用(openclaw createCoEngramContext +
+  // test 断言),单次超时 → fallback email → 与成功时 name 不一致。重试让两次都
+  // 拿到稳定结果。无进程级缓存(测试会改 git config 模拟不同环境,缓存会破坏隔离)。
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = execFileSync("git", ["config", key], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 3000,
+      }) as string;
+      const trimmed = result.trim();
+      if (trimmed.length > 0) return trimmed;
+    } catch (err) {
+      // ENOENT:git 未安装;非零退出:key 不存在;timeout:git 卡住
+      void (err as SpawnSyncReturns<Buffer>);
+      // 第一次失败 → 重试;第二次失败 → 落到循环外返回 undefined
+    }
   }
+  return undefined;
 }
 
 /**
