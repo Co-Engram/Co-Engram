@@ -1,5 +1,5 @@
 /**
- * confidence 演化(A3 混合速率)+ importance 调制辅助
+ * confidence 演化(A3 混合速率)
  *
  * 范式:confidence 是 correctness 基础输入(存盘+演化),importance 是派生综合。
  * A3 速率:明确对错信号(refute/verify)即时大幅,模糊反馈(effective/failure)缓调。
@@ -38,13 +38,4 @@ export function applyConfidenceSignal(
     case "failure":
       return clamp01(current - 0.05);
   }
-}
-
-/**
- * 低置信惩罚:daily-decay 对不可信记忆加速遗忘。
- * confidence≥0.5 无惩罚;<0.5 线性 (0.5−confidence)×0.1(最大 0.05)。
- */
-export function lowConfidencePenalty(confidence: number): number {
-  if (confidence >= 0.5) return 0;
-  return (0.5 - confidence) * 0.1;
 }

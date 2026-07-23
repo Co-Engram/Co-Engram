@@ -360,6 +360,8 @@ Convert a proposal into a real engram.
 
 **Effect:** creates the engram, removes the cluster, appends `accept` to audit log.
 
+**`external-markdown` source — in-place adoption (2026-07):** when the proposal originates from a manually added `.md` under `dataRoot` (carrying `payload.sourcePath`), accept does **not** create a copy under `imported/`. The source file is adopted in place — a bare-markdown file is rewritten with engram frontmatter (path unchanged, original body kept as `content`); an already-valid engram orphan is indexed as-is without modification. Falls back to the default derived path only if the source file no longer exists.
+
 ### `engram_dismiss_proposal`
 
 Reject a proposal temporarily (default 30 days, then it can re-appear if the topic resurfaces).

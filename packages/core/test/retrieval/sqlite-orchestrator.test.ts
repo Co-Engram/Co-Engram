@@ -306,8 +306,9 @@ describe("SqliteSearchOrchestrator", () => {
       const orchestrator = new SqliteSearchOrchestrator({ db });
       const { results } = orchestrator.search("罕见词 alpha");
       expect(results.length).toBeGreaterThanOrEqual(2);
-      // top hit 归一化后应为 1.0(允许浮点误差)
-      expect(results[0]!.score).toBeCloseTo(1.0, 5);
+      // T7:score 为四因子融合分(不再 bm25 归一化 top=1.0),top 是最高分且 ∈(0,1]
+      expect(results[0]!.score).toBeGreaterThan(0);
+      expect(results[0]!.score).toBeLessThanOrEqual(1);
       // 所有 score ∈ [0, 1]
       for (const r of results) {
         expect(r.score).toBeGreaterThanOrEqual(0);
@@ -334,9 +335,10 @@ describe("SqliteSearchOrchestrator", () => {
       const orchestrator = new SqliteSearchOrchestrator({ db });
       const { results } = orchestrator.search("中");
       if (results.length > 0) {
-        // LIKE 路径 maxScore=0,所有 score 保留 0
+        // T7:LIKE 无 bm25 相关度(relevance=0),四因子仍含 recency/effImp/strength,score ∈[0,1]
         for (const r of results) {
-          expect(r.score).toBe(0);
+          expect(r.score).toBeGreaterThanOrEqual(0);
+          expect(r.score).toBeLessThanOrEqual(1);
         }
       }
     });
@@ -359,7 +361,9 @@ describe("SqliteSearchOrchestrator", () => {
       const orchestrator = new SqliteSearchOrchestrator({ db });
       const { results } = orchestrator.search("独特组合词xyz");
       expect(results.length).toBe(1);
-      expect(results[0]!.score).toBeCloseTo(1.0, 5);
+      // T7:四因子融合分,∈(0,1]
+      expect(results[0]!.score).toBeGreaterThan(0);
+      expect(results[0]!.score).toBeLessThanOrEqual(1);
     });
 
     it("postFilter 过滤掉原 top hit:剩余结果按次高归一化", () => {
@@ -397,8 +401,50 @@ describe("SqliteSearchOrchestrator", () => {
         filter: { domainTags: ["kept-tag"] },
       });
       expect(filtered.length).toBe(1);
-      // 过滤后 maxScore 基于 second-best 自己 → 归一化为 1.0
-      expect(filtered[0]!.score).toBeCloseTo(1.0, 5);
+      // T7:过滤后四因子融合分,∈(0,1]
+      expect(filtered[0]!.score).toBeGreaterThan(0);
+      expect(filtered[0]!.score).toBeLessThanOrEqual(1);
+    });
+  });
+
+  describe("T7:四因子重排(召回 limit×3 + 增值信号)", () => {
+    it("bm25 相近时,高 importance 的记忆排前(effImp 主导)", () => {
+      db.upsertEngram({
+        id: "high-imp",
+        title: "共享词标题",
+        kind: "fact",
+        importance: 0.9,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "共享词 相同内容",
+      });
+      db.upsertEngram({
+        id: "low-imp",
+        title: "共享词标题",
+        kind: "fact",
+        importance: 0.1,
+        confidence: 0.8,
+        updatedAt: 1,
+        contentSize: 0,
+        visibility: "public",
+        status: "active",
+        domainTags: [],
+        summary: "",
+        contentTokens: "共享词 相同内容",
+      });
+      const orchestrator = new SqliteSearchOrchestrator({ db });
+      const { results } = orchestrator.search("共享词");
+      expect(results.length).toBe(2);
+      // 两条 contentTokens 相同 → bm25 给相同分 → relevance 相近;
+      // 四因子 effImp(importance × truthFactor)让高 importance 排前。
+      // 这正是 T7 的价值:纯 bm25 会并列,四因子让 importance 生效。
+      expect(results[0]!.id).toBe("high-imp");
+      expect(results[1]!.id).toBe("low-imp");
     });
   });
 });

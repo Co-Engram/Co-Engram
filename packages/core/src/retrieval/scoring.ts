@@ -23,7 +23,6 @@
  * @module @co-engram/core/retrieval
  */
 
-import type { DigestLine } from "../index/types.js";
 import { effectiveAge } from "../lifecycle/freshness.js";
 import {
   deriveHalfLifeDays,
@@ -119,7 +118,7 @@ export function truthFactorFromStatus(
 }
 
 /**
- * 从 DigestLine + relevance 计算四因子得分
+ * 从 FourFactorInput + relevance 计算四因子得分(适用于 DigestLine 及 SQLite 召回行)
  *
  * recency 维度的衰退计时起点 = `lastEffectiveAt ?? line.lastEffectiveAt ?? line.createdAt`:
  * 未生效 engram 用 createdAt 兜底,新记忆从编码完成起开始衰退(艾宾浩斯模型)。
@@ -130,9 +129,22 @@ export function truthFactorFromStatus(
  * @param now - 当前时间(可选,便于测试;省略则 new Date())
  * @param weights - 权重配置(可选,省略用默认)
  */
+export interface FourFactorInput {
+  /** 重要性 [0,1] — recency(经 halflife)+ effImp 双用 */
+  readonly importance: number;
+  /** 创建时间 ISO — 未生效时的衰退起点兜底 */
+  readonly createdAt: string;
+  /** 最后有效检索 ISO — 衰退计时首选起点,null/undefined 则 fallback createdAt */
+  readonly lastEffectiveAt?: string | null;
+  /** 验证状态 — 派生 truthFactor 调制 effImp */
+  readonly verificationStatus?: VerificationStatus | string | null;
+  /** 强化分 — strength 因子 */
+  readonly reinforcementScore?: number;
+}
+
 export function computeFourFactorScore(
   relevance: number,
-  line: DigestLine,
+  line: FourFactorInput,
   options: {
     lastEffectiveAt?: string | null;
     now?: Date;
@@ -149,7 +161,7 @@ export function computeFourFactorScore(
   const recency = recencyDecay(ageDays, line.importance);
   const truthFactor = truthFactorFromStatus(line.verificationStatus);
   const effImp = computeEffectiveImportance(line.importance, truthFactor);
-  const strength = clamp01(line.reinforcementScore);
+  const strength = clamp01(line.reinforcementScore ?? 0);
 
   return (
     weights.alpha * clamp01(relevance) +
@@ -163,7 +175,7 @@ export function computeFourFactorScore(
  * 四因子批量打分(保持原数组顺序,稳定排序友好)
  */
 export function computeFourFactorScores(
-  items: ReadonlyArray<{ id: string; relevance: number; line: DigestLine }>,
+  items: ReadonlyArray<{ id: string; relevance: number; line: FourFactorInput }>,
   options: {
     now?: Date;
     weights?: FourFactorWeights;

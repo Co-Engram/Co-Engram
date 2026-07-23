@@ -660,7 +660,8 @@ Side effects: none (read-only).`,
   "tool.engram_accept_proposal.technical": `Accept proposal. Input: { entityId, title?, content?, domainTags?, kind?, createdBy? }
 Side effects: creates engram (calls engram_create internally); marks proposal status=accepted; suppresses future duplicate proposals for same topic; appends audit.
 Error conditions: proposal not found throws; already accepted/dismissed throws.
-Invariant: default createdBy fallback chain: explicit > ctx.defaultCreatedBy > 'unknown'.`,
+Invariant: default createdBy fallback chain: explicit > ctx.defaultCreatedBy > 'unknown'.
+external-markdown source: adopts source file in place at payload.sourcePath (bare md rewritten with frontmatter; valid engram orphan indexed as-is) — no imported/ copy; falls back to derived path if source file missing.`,
   "tool.engram_dismiss_proposal.technical": `Dismiss proposal. Input: { entityId, reason?, dismissDays? }
 Default dismissDays=0 (permanent). Reason recorded for meta-learning.
 Side effects: marks proposal status=dismissed; dismissedUntil = now + N days when dismissDays>0, undefined when dismissDays=0 (never reopens); appends audit.

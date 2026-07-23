@@ -12,7 +12,7 @@ import { DECAY_RUNTIME } from "../src/runtime/decay.js";
  * 一个最小化的 stub(语义对齐 viewer/src/runtime/i18n.ts 的 fallback 逻辑)。
  *
  * D1 之后(decayHalfLifeDays 字段删除):衰退起点仍取 lastEffectiveAt ?? createdAt,
- * 半衰期由 importance 实时派生 — deriveHalfLifeDays(importance) = 50 * (imp + 0.1)^2.5。
+ * 半衰期由 importance + kind 实时派生 — deriveHalfLifeDays(importance, kind) = 50 * (imp + 0.1)^1.5 * kindMul。
  * 没有"永不衰退"概念;null 仅在时间戳损坏时出现,renderDecayBar(null) 返回空字符串。
  */
 
@@ -59,6 +59,7 @@ function loadDecayRuntime(lang: "zh" | "en" = "zh") {
       createdAt: string,
       importance: number,
       now?: Date,
+      kind?: string,
     ) => {
       progressPct: number;
       currentLevel: string;
@@ -73,11 +74,11 @@ function loadDecayRuntime(lang: "zh" | "en" = "zh") {
           }
         | null,
     ) => string;
-    deriveHalfLifeDays: (importance: number) => number;
+    deriveHalfLifeDays: (importance: number, kind?: string) => number;
   };
 }
 
-const IMP = 1.0; // importance=1.0 → halfLife ≈ 63.45 天(深度巩固)
+const IMP = 1.0; // importance=1.0 fact → halfLife ≈ 57.69 天(深度巩固)
 const NOW = new Date("2026-06-27T00:00:00Z");
 const CREATED_AT = NOW.toISOString(); // 默认 createdAt = now(新建 engram)
 
@@ -85,23 +86,29 @@ function daysAgo(days: number): string {
   return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
-describe("viewer runtime / deriveHalfLifeDays 公式(D1 机制 D)", () => {
+describe("viewer runtime / deriveHalfLifeDays 公式(D1 机制 D,对齐 core ^1.5 + kindMul)", () => {
   const decay = loadDecayRuntime();
 
   it("importance=0 → halfLife 仍 > 0(快速遗忘但不为零)", () => {
-    // 50 * 0.1^2.5 ≈ 0.158
+    // 50 * 0.1^1.5 ≈ 1.58
     expect(decay.deriveHalfLifeDays(0)).toBeGreaterThan(0);
-    expect(decay.deriveHalfLifeDays(0)).toBeCloseTo(0.158, 2);
+    expect(decay.deriveHalfLifeDays(0)).toBeCloseTo(1.58, 2);
   });
 
-  it("importance=0.5 → halfLife ≈ 14 天(中等记忆)", () => {
-    // 50 * 0.6^2.5 ≈ 13.93
-    expect(decay.deriveHalfLifeDays(0.5)).toBeCloseTo(13.93, 1);
+  it("importance=0.5 → halfLife ≈ 23 天(中等记忆,fact)", () => {
+    // 50 * 0.6^1.5 ≈ 23.24
+    expect(decay.deriveHalfLifeDays(0.5)).toBeCloseTo(23.24, 1);
   });
 
-  it("importance=1.0 → halfLife ≈ 63 天(深度巩固)", () => {
-    // 50 * 1.1^2.5 ≈ 63.45
-    expect(decay.deriveHalfLifeDays(1.0)).toBeCloseTo(63.45, 1);
+  it("importance=1.0 → halfLife ≈ 58 天(深度巩固,fact)", () => {
+    // 50 * 1.1^1.5 ≈ 57.69
+    expect(decay.deriveHalfLifeDays(1.0)).toBeCloseTo(57.69, 1);
+  });
+
+  it("kind 倍率生效:observation(×0.6)< fact(×1.0)< pattern(×1.5)", () => {
+    const base = decay.deriveHalfLifeDays(0.5, "fact");
+    expect(decay.deriveHalfLifeDays(0.5, "observation")).toBeCloseTo(base * 0.6, 1);
+    expect(decay.deriveHalfLifeDays(0.5, "pattern")).toBeCloseTo(base * 1.5, 1);
   });
 
   it("halfLife 随 importance 单调递增", () => {
@@ -112,7 +119,7 @@ describe("viewer runtime / deriveHalfLifeDays 公式(D1 机制 D)", () => {
 
 describe("viewer runtime / computeDecayState 边界", () => {
   const decay = loadDecayRuntime();
-  const halfLife = decay.deriveHalfLifeDays(IMP); // ≈ 63.45
+  const halfLife = decay.deriveHalfLifeDays(IMP); // ≈ 57.69
 
   it("lastEffectiveAt=null + createdAt 存在 → 用 createdAt 兜底算衰退", () => {
     // 新建 engram(lastEffectiveAt=null, createdAt=10 天前)→ 还在 fresh 阶段

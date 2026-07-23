@@ -641,7 +641,7 @@ window.CO_ENGRAM_ENGRAMS = {
     // 衰退进度段:半衰期从 importance 实时派生(机制 D)
     const hasImportance = d.importance !== undefined && d.importance !== null;
     const decay = hasImportance
-      ? D.computeDecayState(d.lastEffectiveAt, d.createdAt, d.importance)
+      ? D.computeDecayState(d.lastEffectiveAt, d.createdAt, d.importance, undefined, d.kind)
       : null;
     const decayLine = hasImportance
       ? '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('decayProgress') + '>' + T.fieldLabel('decayProgress') + '</span><div class="decay-block">' + D.renderDecayBar(decay) + '</div></div>'

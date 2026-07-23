@@ -361,6 +361,7 @@ export class EngramRepository {
         frontmatter.lastEffectiveAt,
         frontmatter.createdAt,
         importance,
+        frontmatter.kind,
       );
     const entry: SqliteEngramIndexEntry = {
       id: frontmatter.id,
@@ -755,8 +756,9 @@ export class EngramRepository {
       } catch {
         continue;
       }
-      // 仅当文件是合法 engram 格式时才通知 hook;裸 .md(README、笔记等)
-      // 不应进入提案流程。parseEngramFile 在格式不合法时抛错,catch 后跳过。
+      // parsed 取值:isEngramFile=true(合法 engram)→ parseEngramFile 结果;
+      // 裸 md / 解析失败 → null。注意 769 无条件通知 hook —— 裸 md 也会进入提案
+      // 流程(hook 路径 2 走 LLM/规则提取),accept 时由 adoptOrPromoteEngramAt 原地纳管。
       let parsed: EngramFile | null = null;
       if (isEngramFile(raw)) {
         try {
@@ -1028,38 +1030,13 @@ export class EngramRepository {
     // 是手动巡检版本,此处是写入路径的自动防线。
     this.purgeStaleIndexEntriesForPath(relativePath);
 
-    const hasExplicitDomainTags = input.domainTags.length > 0;
-    const frontmatter: EngramFrontmatter = {
-      id: stableId,
-      title: input.title,
-      kind: input.kind,
-      kinds: input.kinds ?? [input.kind],
-      tags: input.contextTags,
-      domainTags: hasExplicitDomainTags ? input.domainTags : undefined,
-      summary: input.summary ?? deriveAutoSummary(input.content, input.title),
+    const frontmatter = this.buildEngramFrontmatter(input, {
+      stableId,
+      timestamp,
+      sourceType,
       contentHash,
       contentSize,
-      createdBy: input.createdBy,
-      createdAt: timestamp,
-      updatedBy: input.createdBy,
-      updatedAt: timestamp,
-      version: 1,
-      importance: input.importance ?? DEFAULT_IMPORTANCE,
-      confidence: input.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE[sourceType],
-      sourceType,
-      evidenceCount: 0,
-      retrievalCount: 0,
-      effectiveRetrievals: 0,
-      failedUses: 0,
-      reinforcementScore: 0,
-      lastRetrievalScore: 0.5,
-      status: "active",
-      visibility: input.visibility ?? "public",
-      verificationStatus: "unverified",
-      encodingContext: input.encodingContext,
-      perspective: input.perspective,
-      contextTags: input.contextTags,
-    };
+    });
 
     const file: EngramFile = {
       frontmatter,
@@ -1091,6 +1068,56 @@ export class EngramRepository {
     this.invalidateTruthPathsCache();
 
     return this.readEngram(stableId);
+  }
+
+  /**
+   * 从 EngramCreateInput 构建 frontmatter（纯逻辑，不写文件 / 不入索引）。
+   *
+   * createEngram 与 adoptOrPromoteEngramAt（原地提升裸 md）共用，避免 frontmatter
+   * 字段构建逻辑重复。任一处新增 frontmatter 字段时，两处同步生效。
+   */
+  private buildEngramFrontmatter(
+    input: EngramCreateInput,
+    ctx: {
+      readonly stableId: StableEngramId;
+      readonly timestamp: string;
+      readonly sourceType: EngramSourceType;
+      readonly contentHash: string;
+      readonly contentSize: number;
+    },
+  ): EngramFrontmatter {
+    const hasExplicitDomainTags = input.domainTags.length > 0;
+    return {
+      id: ctx.stableId,
+      title: input.title,
+      kind: input.kind,
+      kinds: input.kinds ?? [input.kind],
+      tags: input.contextTags,
+      domainTags: hasExplicitDomainTags ? input.domainTags : undefined,
+      summary: input.summary ?? deriveAutoSummary(input.content, input.title),
+      contentHash: ctx.contentHash,
+      contentSize: ctx.contentSize,
+      createdBy: input.createdBy,
+      createdAt: ctx.timestamp,
+      updatedBy: input.createdBy,
+      updatedAt: ctx.timestamp,
+      version: 1,
+      importance: input.importance ?? DEFAULT_IMPORTANCE,
+      confidence: input.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE[ctx.sourceType],
+      sourceType: ctx.sourceType,
+      evidenceCount: 0,
+      retrievalCount: 0,
+      effectiveRetrievals: 0,
+      failedUses: 0,
+      reinforcementScore: 0,
+      lastRetrievalScore: 0.5,
+      status: "active",
+      visibility: input.visibility ?? "public",
+      verificationStatus: "unverified",
+      encodingContext: input.encodingContext,
+      perspective: input.perspective,
+      contextTags: input.contextTags,
+    };
   }
 
   /**
@@ -1559,6 +1586,87 @@ export class EngramRepository {
     this.invalidateTruthPathsCache();
 
     return engram;
+  }
+
+  /**
+   * 在指定路径原地纳管源文件为 engram（external-markdown 提案 accept 用）。
+   *
+   * 与 createEngram 的区别：目标路径由调用方指定（= proposal.payload.sourcePath，
+   * 即用户手动放入 dataRoot 的原文件位置），不重新推导到 imported/ 下。这样 accept
+   * 后原文件「目录不动」——裸 md 被原地提升为 engram，合法 engram orphan 被原地 adopt。
+   *
+   * 两种源文件形态：
+   *   - 已是合法 engram（有 frontmatter + id）→ adopt：文件字节不动，登记入索引
+   *     （复用 ingestExistingEngramFile 语义，含幂等）。
+   *   - 裸 md（无 frontmatter / 解析失败）→ promote：用 input 生成 frontmatter，
+   *     writeEngramFile 覆盖原文件（路径不变，原正文作为 content 保留），再入索引。
+   *
+   * @throws 路径逃逸 root 外（防 proposal.jsonl 被篡改做 path traversal）
+   * @returns undefined 表示源文件不存在（虚拟 proposal / 已被外部删除），
+   *          调用方应退化到 createEngram（默认路径），不阻塞 accept。
+   */
+  adoptOrPromoteEngramAt(
+    relativePath: string,
+    input: EngramCreateInput,
+  ): Engram | undefined {
+    if (!isPathWithinRoot(this.config.rootPath, relativePath)) {
+      throw validationError(
+        `adoptOrPromoteEngramAt: path escapes dataRoot (${relativePath})`,
+      );
+    }
+    const absolutePath = safeJoinWithinRoot(this.config.rootPath, relativePath);
+    if (!existsSync(absolutePath)) {
+      return undefined;
+    }
+
+    const raw = readFileSync(absolutePath, "utf8");
+    // 路径 1：合法 engram（完整 frontmatter + id，无 critical issue）→ 原地 adopt，
+    // 文件字节不动（含幂等 noop）。用 isEngramFile 而非 readEngramFile 的异常判断：
+    // readEngramFile 对裸 md / 残缺 frontmatter 容忍（返回带 _validationIssues 的残缺
+    // EngramFile），会让 ingestExistingEngramFile 误 adopt 裸 md、跳过提升。
+    if (isEngramFile(raw)) {
+      const adopted = this.ingestExistingEngramFile(relativePath);
+      if (adopted) return adopted;
+      // 极罕见：isEngramFile=true 但 ingest 失败（并发修改）→ 落到 promote 重写
+    }
+
+    // 路径 2：裸 md / 格式不完整 → 原地提升（覆盖写 engram 格式，路径不变）
+    // 自愈：清掉指向同 path 的 stale entry（同 createEngram 写入前防线）
+    this.purgeStaleIndexEntriesForPath(relativePath);
+
+    const stableId = ulid() as StableEngramId;
+    const timestamp = now();
+    const sourceType = input.sourceType ?? "firsthand";
+    const contentHash = computeContentHash(input.content);
+    const contentSize = computeContentSize(input.content);
+    const frontmatter = this.buildEngramFrontmatter(input, {
+      stableId,
+      timestamp,
+      sourceType,
+      contentHash,
+      contentSize,
+    });
+
+    const file: EngramFile = { frontmatter, content: input.content };
+    writeEngramFile(absolutePath, file, this.language);
+
+    const stat = statSync(absolutePath);
+    const entry = buildIndexEntryFromFrontmatter({
+      relativePath,
+      frontmatter,
+      mtime: stat.mtimeMs,
+      contentHash,
+    });
+    this.updateIndexEntry(entry);
+    this.syncEngramToIndex(frontmatter, input.content);
+    safeEmit({
+      type: "engram_created",
+      engramId: stableId,
+      at: new Date().toISOString(),
+    });
+    this.invalidateTruthPathsCache();
+
+    return this.readEngram(stableId);
   }
 
   // ─── Engram Catalog / Digest ───────────────────────────────────────────
@@ -2671,7 +2779,7 @@ export class EngramRepository {
    *
    * 默认按 lastEffectiveAt + importance 派生 freshness,
    * 但允许通过 forcedFreshness 显式覆盖（用于 lifecycle 工具强制切换）。
-   * 一旦再触发 effective 检索（lastEffectiveAt 更新）,forcedFreshness 会被清除。
+   * 注意:forcedFreshness 一旦设置即锁定 —— effective 检索(更新 lastEffectiveAt)不会自动清除它,需 lifecycle 工具另行显式解除。
    */
   updateLifecycle(
     id: string,
@@ -3493,9 +3601,11 @@ export class EngramRepository {
       status === "forgotten"
         ? "forgotten"
         : (fm.forcedFreshness ??
-          this.computeFreshness(
+          computeFreshness(
             lastEffectiveAtForFreshness,
+            createdAt,
             importanceForFreshness,
+            fm.kind,
           ));
 
     // domainTags:frontmatter 锁定则用之,否则从 path 推断
@@ -3544,19 +3654,6 @@ export class EngramRepository {
     };
   }
 
-  private computeFreshness(
-    lastEffectiveAt: string,
-    importance: number,
-  ): EngramFreshness {
-    const halfLife = deriveHalfLifeDays(importance);
-    if (halfLife <= 0) return "fresh";
-    const ageDays =
-      (Date.now() - new Date(lastEffectiveAt).getTime()) / 86400000;
-    if (ageDays < halfLife) return "fresh";
-    if (ageDays < halfLife * 2) return "aging";
-    if (ageDays < halfLife * 4) return "stale";
-    return "forgotten";
-  }
 
   /** 把绝对路径转回相对路径(用于 doctor 报告) */
   relativePath(absolutePath: string): string {

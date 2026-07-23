@@ -17,6 +17,7 @@ import type { SearchFilter } from "../types/disclosure.js";
 // 复用 in-memory orchestrator 的 SimpleSearchResult,保证两个引擎互换时
 // 上层工具调用方零代码改动。
 import type { SimpleSearchResult } from "./orchestrator.js";
+import { computeFourFactorScore } from "./scoring.js";
 
 /** SqliteSearchOrchestrator 构造参数 */
 export interface SqliteSearchOptions {
@@ -54,9 +55,11 @@ const LIKE_FALLBACK_MIN_CHARS = 3;
  */
 export class SqliteSearchOrchestrator {
   private readonly db: IndexDb;
+  private readonly nowFn: () => Date;
 
   constructor(opts: SqliteSearchOptions) {
     this.db = opts.db;
+    this.nowFn = opts.nowFn ?? (() => new Date());
   }
 
   search(query: string, opts: SearchQueryOptions = {}): SearchResponse {
@@ -64,56 +67,72 @@ export class SqliteSearchOrchestrator {
     const q = query.trim();
     if (!q) return { results: [], nextCursor: null };
 
+    // T7:召回池放大到 limit*3(对齐 in-memory searchFts(limit*3)),给四因子
+    // 重排留空间 —— 让"文本匹配弱但 importance 高 / verified"的记忆有机会
+    // 进前 limit,而非被 bm25 前 limit 直接截断丢弃。
+    const recallLimit = Math.min(limit * 3, 500);
     const useLike = q.length < LIKE_FALLBACK_MIN_CHARS;
     let rows = useLike
-      ? this.searchByLike(q, limit)
-      : this.searchByFts(q, limit);
+      ? this.searchByLike(q, recallLimit)
+      : this.searchByFts(q, recallLimit);
 
     // FTS5 trigram tokenizer 对短 token / 中英混合 query 可能 0 召回
     // (例:"co-engram loop 模式" — trigram tokenizer 切出跨空格 trigram,
-    // 文档里没有这个连续序列)。fallback 到 LIKE:四个文本维度模糊匹配,
-    // 覆盖 FTS 召回盲区。LIKE 排序仍走 importance + updatedAt DESC。
+    // 文档里没有这个连续序列)。fallback 到 LIKE:四个文本维度模糊匹配。
     if (!useLike && rows.length === 0) {
-      rows = this.searchByLike(q, limit);
+      rows = this.searchByLike(q, recallLimit);
     }
 
     const filtered = this.applyPostFilter(rows, opts.filter);
+    if (filtered.length === 0) return { results: [], nextCursor: null };
 
-    // AI-9 真正修复:把 SQLite bm25 的 -bm25_value(正数,无上界)归一化到 [0, 1]。
-    //
-    // 历史缺陷:之前直接透传 -bm25_value,实测 engram_search 返回 score=26.6,
-    // 远超 SimpleSearchResult 注释承诺的"严格 ∈ [0, 1]"。这是 plan AI-9 硬门
-    // "score 归一化到 [0, 1]"的真未完成投影 —— in-memory SearchOrchestrator.search
-    // 已归一化,SQLite 路径跳过了。
-    //
-    // 归一化策略(与 in-memory 路径一致):除以本批 max,让 top hit = 1.0,
-    // 其他按比例缩放。排序不变(max 是 top hit,归一化后仍 = 1.0 ≥ 其他)。
-    //
-    // 边界:
-    //   - LIKE 路径所有 score=0 → maxScore=0 → 保留 0(无相关度信号,正确)
-    //   - FTS 召回 0 条 fallback 到 LIKE → 同上
-    //   - applyPostFilter 过滤掉原 top hit → 基于过滤后的次高归一化(正确)
-    //
-    // 语义损失:丢失 bm25 绝对强度信号(查询 A top=10 vs 查询 B top=2 归一化后
-    // 都 1.0)。换取:与 in-memory 路径行为一致 + 用户可读的 [0,1] 区间 + LLM
-    // 能跨查询比较"这条 top hit 比那条 top hit 相关度 0.9 vs 0.6"。
-    const maxScore = filtered.reduce(
-      (m, r) => (r.score > m ? r.score : m),
-      0,
-    );
+    // bm25 raw(正数)归一化到 [0,1] 作四因子 relevance 项。LIKE 路径 score 全 0
+    // → maxRaw=0 → relevance 全 0,四因子退化为 β·recency + γ·effImp + δ·strength
+    // (纯增值信号排序,因 LIKE 无文本相关度分)。
+    const maxRaw = filtered.reduce((m, r) => (r.score > m ? r.score : m), 0);
+    const now = this.nowFn();
 
-    const results: SimpleSearchResult[] = filtered.map((r) => ({
+    // T7:四因子重排(relevance + recency + effImp + strength),与 in-memory
+    // SearchOrchestrator 同公式同权重,让高价值记忆在宽泛搜索中浮现。
+    const scored = filtered
+      .map((r) => {
+        const relevance = maxRaw > 0 ? r.score / maxRaw : 0;
+        const score = computeFourFactorScore(
+          relevance,
+          {
+            importance: r.importance,
+            createdAt:
+              r.createdAtMs > 0
+                ? new Date(r.createdAtMs).toISOString()
+                : new Date(0).toISOString(),
+            lastEffectiveAt:
+              r.lastEffectiveAtMs != null && r.lastEffectiveAtMs > 0
+                ? new Date(r.lastEffectiveAtMs).toISOString()
+                : null,
+            verificationStatus: r.verificationStatus,
+            reinforcementScore: r.reinforcementScore,
+          },
+          { now },
+        );
+        return { r, score };
+      })
+      .sort((a, b) => {
+        if (a.score !== b.score) return b.score - a.score;
+        // 稳定排序:同分按 id 字典序(与 in-memory 一致,prompt cache 友好)
+        return a.r.id < b.r.id ? -1 : 1;
+      });
+
+    const results: SimpleSearchResult[] = scored.slice(0, limit).map(({ r, score }) => ({
       id: r.id,
-      score: maxScore > 0 ? r.score / maxScore : 0,
+      score,
       entry: {
         id: r.id,
         title: r.title,
         kind: r.kind as EngramKind,
         domainTags: r.domainTags,
       },
-      // AI-9: SQLite FTS5 trigram tokenizer 不暴露 per-field 命中信息
-      // (engram_fts 是合并列 title + summary + content_tokens 的单索引),
-      // matchReason 留空数组。后续可用 FTS5 highlight() API 扩展。
+      // SQLite FTS5 trigram tokenizer 不暴露 per-field 命中信息(engram_fts 是
+      // title + summary + content_tokens 合并列的单索引),matchReason 留空。
       matchReason: [],
     }));
 
@@ -130,6 +149,10 @@ export class SqliteSearchOrchestrator {
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
+        e.created_at AS created_at,
+        e.last_effective_at AS last_effective_at,
+        e.reinforcement_score AS reinforcement_score,
+        e.verification_status AS verification_status,
         bm25(engram_fts) AS fts_score
       FROM engram_fts
       JOIN engrams e ON e.id = engram_fts.id
@@ -146,6 +169,10 @@ export class SqliteSearchOrchestrator {
       domainTags: splitCsv(r.domain_tags),
       // bm25 返回负值,反转成正数(score 越大越优,与 in-memory 一致)
       score: -r.fts_score,
+      createdAtMs: r.created_at ?? 0,
+      lastEffectiveAtMs: r.last_effective_at ?? null,
+      reinforcementScore: r.reinforcement_score ?? 0,
+      verificationStatus: r.verification_status ?? null,
     }));
   }
 
@@ -162,7 +189,11 @@ export class SqliteSearchOrchestrator {
   private searchByLike(q: string, limit: number): RawSearchRow[] {
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
-        (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags
+        (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
+        e.created_at AS created_at,
+        e.last_effective_at AS last_effective_at,
+        e.reinforcement_score AS reinforcement_score,
+        e.verification_status AS verification_status
       FROM engrams e
       JOIN engram_fts f ON f.id = e.id
       WHERE e.title LIKE ? ESCAPE '\\'
@@ -184,6 +215,10 @@ export class SqliteSearchOrchestrator {
       importance: r.importance,
       domainTags: splitCsv(r.domain_tags),
       score: 0,
+      createdAtMs: r.created_at ?? 0,
+      lastEffectiveAtMs: r.last_effective_at ?? null,
+      reinforcementScore: r.reinforcement_score ?? 0,
+      verificationStatus: r.verification_status ?? null,
     }));
   }
 
@@ -247,6 +282,11 @@ interface RawSearchRow {
   readonly importance: number;
   readonly domainTags: readonly string[];
   readonly score: number;
+  // T7:四因子重排需要(epoch ms / 原始值,search() 转 ISO 后喂 computeFourFactorScore)
+  readonly createdAtMs: number;
+  readonly lastEffectiveAtMs: number | null;
+  readonly reinforcementScore: number;
+  readonly verificationStatus: string | null;
 }
 
 /** FTS5 路径返回的 SQL row(snake_case,直接对应 SELECT alias) */
@@ -256,6 +296,10 @@ interface SqliteFtsRow {
   readonly kind: string;
   readonly importance: number;
   readonly domain_tags: string | null;
+  readonly created_at: number | null;
+  readonly last_effective_at: number | null;
+  readonly reinforcement_score: number | null;
+  readonly verification_status: string | null;
   readonly fts_score: number;
 }
 
@@ -266,6 +310,10 @@ interface SqliteLikeRow {
   readonly kind: string;
   readonly importance: number;
   readonly domain_tags: string | null;
+  readonly created_at: number | null;
+  readonly last_effective_at: number | null;
+  readonly reinforcement_score: number | null;
+  readonly verification_status: string | null;
 }
 
 /** group_concat(domain, ',') 拆回数组(null / "" → []) */

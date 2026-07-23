@@ -360,6 +360,8 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **副作用:** 创建 engram、移除该 cluster、在审计日志中追加 `accept`。
 
+**`external-markdown` 来源 —— 原地纳管（2026-07）：** 当提案来自 dataRoot 下手动添加的 `.md`（携带 `payload.sourcePath`）时，accept **不会**在 `imported/` 下新建副本，而是原地纳管源文件——裸 md 被原地改写为 engram 格式（路径不变，原正文作为 `content` 保留）；已是合法 engram 的孤儿文件原地 adopt（字节不动）。仅当源文件已不存在时，才退化到默认推导路径。
+
 ### `engram_dismiss_proposal`
 
 暂时驳回一个提案(默认 30 天,之后若该主题再次出现,可重新浮现)。

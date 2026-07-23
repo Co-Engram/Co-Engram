@@ -653,7 +653,8 @@ P1:tool-sequence 执行参数化工具链;prompt-template 渲染并返回 prompt
   "tool.engram_accept_proposal.technical": `接受提案。输入:{ entityId, title?, content?, domainTags?, kind?, createdBy? }
 副作用:创建 engram(内部调 engram_create);标记提案 status=accepted;抑制同主题未来重复提案;append audit。
 错误条件:提案未找到抛错;已 accepted/dismissed 抛错。
-不变量:默认 createdBy 回退链:explicit > ctx.defaultCreatedBy > 'unknown'。`,
+不变量:默认 createdBy fallback chain: explicit > ctx.defaultCreatedBy > 'unknown'。
+external-markdown 来源:原地纳管 payload.sourcePath 源文件(裸 md 改写为 engram 格式;合法 engram 孤儿原地 adopt,字节不动)——不在 imported/ 建副本;源文件不存在时退化到推导路径。`,
   "tool.engram_dismiss_proposal.technical": `驳回提案。输入:{ entityId, reason?, dismissDays? }
 默认 dismissDays=0(永久);reason 记入元学习。
 副作用:标记提案 status=dismissed;dismissDays>0 时设置 dismissedUntil=N 天后,=0 时 dismissedUntil=undefined(永不重开);append audit。

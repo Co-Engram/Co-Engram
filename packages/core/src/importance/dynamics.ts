@@ -22,14 +22,7 @@
 import type { EngramKind } from "../types/engram.js";
 
 const LTP_GAIN = Number(process.env.CO_ENGRAM_LTP_GAIN ?? 0.1);
-const RETRIEVAL_GAIN = Number(process.env.CO_ENGRAM_RETRIEVAL_GAIN ?? 0.05);
 const FAILURE_LOSS = Number(process.env.CO_ENGRAM_FAILURE_LOSS ?? 0.1);
-const TASK_SUCCESS_GAIN = Number(
-  process.env.CO_ENGRAM_TASK_SUCCESS_GAIN ?? 0.15,
-);
-const TASK_FAILURE_LOSS = Number(
-  process.env.CO_ENGRAM_TASK_FAILURE_LOSS ?? 0.05,
-);
 /**
  * 半衰期基准(天)。50 是经验值:让 importance=0.5 的 fact 记忆半衰期 ≈ 23 天
  * (50 × 0.6^1.5 ≈ 23.2),符合"中等记忆遗忘速度"的语义。
@@ -60,28 +53,12 @@ function clamp01(n: number): number {
   return Math.max(0, Math.min(1, n));
 }
 
-export function updateOnCreate(initial?: number): number {
-  return clamp01(initial ?? 0.5);
-}
-
 export function updateOnReinforce(current: number, eff: number): number {
   return clamp01(current + eff * LTP_GAIN);
 }
 
-export function updateOnRetrieveHit(current: number): number {
-  return clamp01(current + RETRIEVAL_GAIN);
-}
-
 export function updateOnReportFailure(current: number): number {
   return clamp01(current - FAILURE_LOSS);
-}
-
-export function updateOnTaskSuccess(current: number, value: number): number {
-  return clamp01(current + value * TASK_SUCCESS_GAIN);
-}
-
-export function updateOnTaskFailure(current: number): number {
-  return clamp01(current - TASK_FAILURE_LOSS);
 }
 
 /**

@@ -1,26 +1,11 @@
 // packages/core/test/importance-dynamics.test.ts
 import { describe, expect, it } from "vitest";
 import {
-  updateOnCreate,
-  updateOnReinforce,
-  updateOnRetrieveHit,
-  updateOnReportFailure,
-  updateOnTaskSuccess,
-  updateOnTaskFailure,
   deriveHalfLifeDays,
   effectiveImportance,
 } from "../src/importance/dynamics.js";
 
 describe("importance dynamics", () => {
-  describe("updateOnCreate", () => {
-    it("default importance = 0.5", () => {
-      expect(updateOnCreate()).toBe(0.5);
-    });
-    it("custom initial", () => {
-      expect(updateOnCreate(0.8)).toBe(0.8);
-    });
-  });
-
   describe("deriveHalfLifeDays", () => {
     // 2026-07:指数从 2.5 降到 1.5(消除低 importance 坠落),数值随之调整
     it("returns ~23 days at importance=0.5", () => {

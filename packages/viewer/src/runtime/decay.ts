@@ -8,8 +8,8 @@
  *   ageDays <= halfLife * 4  -> stale
  *   ageDays >  halfLife * 4  -> forgotten
  *
- * 半衰期从 importance 实时派生(机制 D,与 core/src/importance/dynamics.ts 一致):
- *   halflife = BASE_HALFLIFE_DAYS * (importance + 0.1) ^ 2.5  (BASE 默认 50)
+ * 半衰期从 importance + kind 实时派生(机制 D,与 core/src/importance/dynamics.ts:deriveHalfLifeDays 一致):
+ *   halflife = BASE_HALFLIFE_DAYS * (importance + 0.1) ^ 1.5 * kindMultiplier(kind)  (BASE 默认 50)
  *
  * 进度条分母用 halfLife*4(完整衰退周期),让用户直观看到"还能撑多久才 forgotten"。
  *
@@ -24,16 +24,26 @@ window.CO_ENGRAM_DECAY = (function() {
   'use strict';
 
   // 与 core/src/importance/dynamics.ts:deriveHalfLifeDays 保持同频
-  // importance=0.5 -> ~14 天;importance=1.0 -> ~63 天
+  // importance=0.5 fact -> ~23 天;importance=1.0 fact -> ~58 天(kind 倍率另乘)
   var BASE_HALFLIFE_DAYS = 50;
 
-  function deriveHalfLifeDays(importance) {
+  // kind → halfLife 倍率,与 core KIND_HALFLIFE_MULTIPLIER 一致
+  var KIND_HALFLIFE_MULTIPLIER = {
+    observation: 0.6,
+    hypothesis: 0.7,
+    procedure: 0.8,
+    fact: 1.0,
+    pattern: 1.5
+  };
+
+  function deriveHalfLifeDays(importance, kind) {
     var imp = Number(importance);
     if (!isFinite(imp) || imp < 0) imp = 0;
-    return BASE_HALFLIFE_DAYS * Math.pow(imp + 0.1, 2.5);
+    var mul = (kind && KIND_HALFLIFE_MULTIPLIER[kind]) ? KIND_HALFLIFE_MULTIPLIER[kind] : 1.0;
+    return BASE_HALFLIFE_DAYS * Math.pow(imp + 0.1, 1.5) * mul;
   }
 
-  function computeDecayState(lastEffectiveAt, createdAt, importance, now) {
+  function computeDecayState(lastEffectiveAt, createdAt, importance, now, kind) {
     var nowMs = (now || new Date()).getTime();
 
     // 衰退起点 = lastEffectiveAt ?? createdAt(未生效用创建时间)
@@ -52,7 +62,7 @@ window.CO_ENGRAM_DECAY = (function() {
       ageMs = 0;
     }
     var ageDays = ageMs / (1000 * 60 * 60 * 24);
-    var halfLife = deriveHalfLifeDays(importance);
+    var halfLife = deriveHalfLifeDays(importance, kind);
     if (!(halfLife > 0)) {
       return null;
     }

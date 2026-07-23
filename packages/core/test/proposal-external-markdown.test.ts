@@ -1,7 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+  readFileSync,
+  mkdirSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { EngramRepository } from "../src/storage/repository.js";
 import { SearchOrchestrator } from "../src/retrieval/orchestrator.js";
@@ -360,5 +367,218 @@ describe("engram_list_proposals · cursor 分页 shape", () => {
     }
     expect(seenIds.size).toBe(25);
     expect(cursor).toBeNull();
+  });
+});
+
+// ============================================================
+// external-markdown accept · 原地纳管（源文件存在时）
+// ============================================================
+//
+// 真实流程：用户手动放 .md 到 dataRoot → watcher 扫到 → propose(sourcePath=相对路径)。
+// accept 应基于源文件原地创建 engram，目录 / 路径不变，不在 imported/ 下新建副本。
+// 裸 md → 原地提升（加 frontmatter）；合法 engram orphan → 原地 adopt（文件不动）。
+// 源文件不存在（虚拟 proposal / 已被外部删除）→ 退化默认路径创建（向后兼容）。
+
+describe("engram_accept_proposal · external-markdown 原地纳管", () => {
+  function seedFile(relPath: string, content: string): string {
+    const abs = join(tmpDir, relPath);
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, content, "utf8");
+    return abs;
+  }
+
+  it("裸 md 源文件 accept → 原地提升为 engram，路径不变，imported/ 无新建", () => {
+    const rel = "项目信息/协同规范.md";
+    const body = "# 协同规范\n\n统一需求管理流程。";
+    seedFile(rel, body);
+    engine.proposeExternalMarkdown({
+      sourcePath: rel,
+      title: "协同规范",
+      content: body,
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute({ entityId }, buildCtx());
+
+    expect(result.status).toBe("accepted");
+    // 原文件路径仍在，且被提升为合法 engram（zh 模式 frontmatter 在底部，
+    // 故不断言 startsWith("---")；改用 readEngramByPath 验证可解析 + 原正文保留）
+    const raw = readFileSync(join(tmpDir, rel), "utf8");
+    expect(raw).toContain(body);
+    const promoted = repo.readEngramByPath(rel);
+    expect(promoted?.title).toBe("协同规范");
+    expect(promoted?.kind).toBe("observation");
+    // imported/ 下没有新建副本
+    expect(existsSync(join(tmpDir, "imported"))).toBe(false);
+    // engram 入索引，可读
+    const engram = repo.readEngram(result.engramId);
+    expect(engram.title).toBe("协同规范");
+    expect(engram.content).toBe(body);
+  });
+
+  it("源文件在深层子目录 → accept 后保留原目录层级（目录不动）", () => {
+    const rel = "产品支持/终端/无线-adb.md";
+    seedFile(rel, "无线 adb 调试正文");
+    engine.proposeExternalMarkdown({
+      sourcePath: rel,
+      title: "无线 ADB",
+      content: "无线 adb 调试正文",
+      domainTags: ["imported"],
+      kind: "fact",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    engramAcceptProposalTool.execute({ entityId }, buildCtx());
+
+    expect(existsSync(join(tmpDir, rel))).toBe(true);
+    expect(repo.readEngramByPath(rel)?.title).toBe("无线 ADB");
+    expect(existsSync(join(tmpDir, "imported"))).toBe(false);
+  });
+
+  it("accept 时 caller 覆盖 title → frontmatter 用新值，但路径仍保留 sourcePath", () => {
+    const rel = "in-place-override.md";
+    seedFile(rel, "正文内容");
+    engine.proposeExternalMarkdown({
+      sourcePath: rel,
+      title: "原标题",
+      content: "正文内容",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute(
+      { entityId, title: "新标题" },
+      buildCtx(),
+    );
+
+    expect(repo.readEngram(result.engramId).title).toBe("新标题");
+    expect(existsSync(join(tmpDir, rel))).toBe(true);
+    expect(existsSync(join(tmpDir, "imported"))).toBe(false);
+  });
+
+  it("已是合法 engram 的源文件 accept → 原地 adopt，文件字节不变（幂等）", () => {
+    const rel = "existing-engram.md";
+    // 经 createEngram 写一个合法 engram（已在 index）
+    const created = repo.createEngram({
+      title: "Existing",
+      content: "existing body",
+      kind: "fact",
+      domainTags: ["imported"],
+      createdBy: "tester",
+      pathHint: rel,
+    });
+    const bytesBefore = readFileSync(join(tmpDir, rel), "utf8");
+
+    engine.proposeExternalMarkdown({
+      sourcePath: rel,
+      title: "Existing",
+      content: "existing body",
+      domainTags: ["imported"],
+      kind: "fact",
+    });
+    const entityId = engine
+      .listAll()
+      .find((p) => p.sourcePath === rel)!.entityId;
+
+    engramAcceptProposalTool.execute({ entityId }, buildCtx());
+
+    // adopt：文件字节不变（未被 promote 覆盖）
+    const bytesAfter = readFileSync(join(tmpDir, rel), "utf8");
+    expect(bytesAfter).toBe(bytesBefore);
+    // 原有 engram 仍可读
+    expect(repo.readEngram(created.id).title).toBe("Existing");
+    expect(existsSync(join(tmpDir, "imported"))).toBe(false);
+  });
+
+  it("源文件不存在（虚拟 proposal）→ 退化默认路径创建，不报错（向后兼容）", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "virtual-no-file.md",
+      title: "虚拟",
+      content: "无对应文件",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute({ entityId }, buildCtx());
+
+    expect(result.status).toBe("accepted");
+    expect(repo.readEngram(result.engramId).title).toBe("虚拟");
+  });
+
+  it("sourcePath 路径逃逸 → 拒绝（抛错，不做路径遍历）", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "../../etc/passwd",
+      title: "逃逸",
+      content: "x",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    expect(() =>
+      engramAcceptProposalTool.execute({ entityId }, buildCtx()),
+    ).toThrow(/escapes dataRoot/);
+  });
+
+  it("acceptBatch：源文件存在 → 原地纳管；源文件不存在 → 退化（混合）", () => {
+    seedFile("batch-real.md", "真实文件正文");
+    engine.proposeExternalMarkdown({
+      sourcePath: "batch-real.md",
+      title: "Real",
+      content: "真实文件正文",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+    engine.proposeExternalMarkdown({
+      sourcePath: "batch-virtual.md",
+      title: "Virtual",
+      content: "虚拟正文",
+      domainTags: ["imported"],
+      kind: "observation",
+    });
+
+    const result = engine.acceptBatch(
+      { source: "external-markdown" },
+      { createdBy: "tester" },
+    );
+
+    expect(result.acceptedIds.length).toBe(2);
+    expect(result.failures.length).toBe(0);
+    // batch-real.md：原位提升为合法 engram（zh 底部 frontmatter），imported/ 无它的副本
+    expect(repo.readEngramByPath("batch-real.md")?.title).toBe("Real");
+    // batch-virtual.md：无源文件 → 退化默认路径（imported/ 下创建）
+    expect(existsSync(join(tmpDir, "imported", "virtual.md"))).toBe(true);
+  });
+
+  it("端到端：watcher hook 扫到裸 md → proposal → accept → 原地提升（完整链路）", async () => {
+    const rel = "e2e/协同规范.md";
+    const abs = join(tmpDir, rel);
+    const fileBody = "# 协同规范\n\n统一需求管理。";
+    mkdirSync(dirname(abs), { recursive: true });
+    writeFileSync(abs, fileBody, "utf8");
+
+    // 模拟 scanForExternalMarkdown 对裸 md 的 hook 调用（parsed=null → 路径 2 异步提取）
+    const hook = engine.createExternalMarkdownHook();
+    hook({ absPath: abs, relPath: rel, raw: fileBody, parsed: null });
+    // proposeBareMarkdownAsync 是 fire-and-forget async，等它落 proposals.jsonl
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const proposal = engine.listAll().find((p) => p.sourcePath === rel);
+    expect(proposal).toBeTruthy();
+    expect(proposal!.source).toBe("external-markdown");
+
+    const result = engramAcceptProposalTool.execute(
+      { entityId: proposal!.entityId },
+      buildCtx(),
+    );
+    expect(result.status).toBe("accepted");
+
+    // 原地提升为合法 engram，imported/ 无新建（死循环根除）
+    expect(repo.readEngramByPath(rel)?.title).toBeTruthy();
+    expect(existsSync(join(tmpDir, "imported"))).toBe(false);
   });
 });
