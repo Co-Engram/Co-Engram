@@ -126,7 +126,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
 
 export const EngramListPathsInputSchema = z
   .object({
-    maxDepth: z
+    maxDepth: z.coerce
       .number()
       .int()
       .positive()

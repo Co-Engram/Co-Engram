@@ -100,8 +100,8 @@ export const EngramCreateInputSchema = z.object({
   domainTags: z.array(z.string().min(1)).min(1),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
-  importance: z.number().min(0).max(1).optional(),
-  confidence: z.number().min(0).max(1).optional(),
+  importance: z.coerce.number().min(0).max(1).optional(),
+  confidence: z.coerce.number().min(0).max(1).optional(),
   sourceType: EngramSourceTypeSchema.optional(),
   visibility: EngramVisibilitySchema.optional(),
   /**
@@ -145,12 +145,12 @@ export const EngramGetInputSchema = z.object({
   /** tier='auto' 时使用的 token 预算；省略则用默认 4K */
   contextBudget: z
     .object({
-      totalTokens: z.number().int().positive(),
+      totalTokens: z.coerce.number().int().positive(),
       reserved: z.number().min(0).default(0),
     })
     .optional(),
   /** auto 模式下传入的相关度分数（默认 1.0，表示 top 候选） */
-  score: z.number().min(0).max(1).optional(),
+  score: z.coerce.number().min(0).max(1).optional(),
 });
 
 // ============================================================
@@ -166,8 +166,8 @@ export const EngramUpdateInputSchema = z.object({
   domainTags: z.array(z.string().min(1)).min(1).optional(),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
-  importance: z.number().min(0).max(1).optional(),
-  confidence: z.number().min(0).max(1).optional(),
+  importance: z.coerce.number().min(0).max(1).optional(),
+  confidence: z.coerce.number().min(0).max(1).optional(),
   visibility: EngramVisibilitySchema.optional(),
   updatedBy: z.string().min(1),
 });
@@ -187,7 +187,7 @@ export const EngramDeleteInputSchema = z.object({
 export const EngramReinforceInputSchema = z.object({
   id: ulidField,
   /** 有效性 [0,1]，1=完全有效，0.5=部分有效 */
-  effectiveness: z.number().min(0).max(1).default(1),
+  effectiveness: z.coerce.number().min(0).max(1).default(1),
   /** 可选：有效性说明（供审计） */
   note: z.string().max(500).optional(),
 });
@@ -239,7 +239,7 @@ export const SearchFilterSchema = z
     createdBy: z.array(z.string()).optional(),
     createdAfter: z.string().optional(),
     createdBefore: z.string().optional(),
-    minImportance: z.number().min(0).max(1).optional(),
+    minImportance: z.coerce.number().min(0).max(1).optional(),
     // P0-3 修复:此前 contextTags 字段在 SearchFilter interface / Zod schema /
     // matchesFilter 三方都缺失,用户传入被 Zod 默认 strip 静默吞掉
     contextTags: z.array(z.string()).optional(),
@@ -282,7 +282,7 @@ export const LearningOutcomeSchema = z.enum(["success", "failure", "partial"]);
 export const CloseLearningLoopInputSchema = z.object({
   engramId: z.string().min(1),
   outcome: LearningOutcomeSchema,
-  effectiveness: z.number().min(0).max(1).optional(),
+  effectiveness: z.coerce.number().min(0).max(1).optional(),
   reason: z.string().max(500).optional(),
   reportedBy: z.string().min(1),
 });
@@ -307,7 +307,7 @@ export const UpgradeVerificationInputSchema = z.object({
   /** 验证人 / 升级发起人 */
   verifiedBy: z.string().min(1),
   /** 证据置信度（0..1，可选） */
-  confidence: z.number().min(0).max(1).optional(),
+  confidence: z.coerce.number().min(0).max(1).optional(),
   /** 跨情境 domainTags（用于 distinct 统计） */
   evidenceDomainTags: z.array(z.string().min(1)).optional(),
   /** 强制升级（跳过条件检查，但仍然校验状态机） */
@@ -329,7 +329,7 @@ export const GetEvolutionLineageInputSchema = z.object({
   /** 追溯方向（默认 both） */
   direction: LineageDirectionSchema.optional(),
   /** 最大深度（默认 10） */
-  maxDepth: z.number().int().positive().max(20).optional(),
+  maxDepth: z.coerce.number().int().positive().max(20).optional(),
   /** 限制使用的 synapse kind */
   kinds: z.array(SynapseKindSchema).optional(),
 });
@@ -337,7 +337,7 @@ export const GetEvolutionLineageInputSchema = z.object({
 export const EngramSearchInputSchema = z.object({
   query: z.string().min(1),
   filter: SearchFilterSchema.optional(),
-  limit: z.number().int().positive().max(100).default(20),
+  limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
 // ============================================================
@@ -347,7 +347,7 @@ export const EngramSearchInputSchema = z.object({
 export const EngramListInputSchema = z
   .object({
     filter: SearchFilterSchema.optional(),
-    limit: z.number().int().positive().max(500),
+    limit: z.coerce.number().int().positive().max(500),
     cursor: z.string().nullable().optional(),
   })
   .strict();
@@ -377,7 +377,7 @@ export interface EngramListToolResult {
 export const SynapseEvidenceInputSchema = z.object({
   description: z.string().min(1),
   source: z.string().optional(),
-  confidence: z.number().min(0).max(1).optional(),
+  confidence: z.coerce.number().min(0).max(1).optional(),
   addedBy: z.string().min(1),
 });
 
@@ -385,7 +385,7 @@ export const SynapseCreateInputSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
   kind: SynapseKindSchema,
-  weight: z.number().min(0).max(1).default(0.5),
+  weight: z.coerce.number().min(0).max(1).default(0.5),
   direction: SynapseDirectionSchema.default("directional"),
   evidence: z.array(SynapseEvidenceInputSchema).optional(),
   /**
@@ -450,7 +450,7 @@ export const EngramListProposalsInputSchema = z
      * 提案列表通常远小于 engram 列表(典型 <100),但保留 cursor 分页保持
      * API 形态一致性,也覆盖 proposal-engine 候选量随观察窗口增长的场景。
      */
-    limit: z.number().int().positive().max(500),
+    limit: z.coerce.number().int().positive().max(500),
     /**
      * 分页 cursor(上一页返回的 nextCursor)。
      *
@@ -560,7 +560,7 @@ export const EngramDismissProposalInputSchema = z.object({
   /** 拒绝原因（可选，便于元学习） */
   reason: z.string().max(500).optional(),
   /** 多少天内不再提示（默认 30） */
-  dismissDays: z.number().int().positive().max(365).optional(),
+  dismissDays: z.coerce.number().int().positive().max(365).optional(),
 });
 
 // ============================================================
@@ -603,7 +603,7 @@ export const EngramAcceptProposalsBySourceInputSchema = z
      * 防止意外一次性创建海量 engram 触发 N+1 性能问题。
      * 超过的部分留 pending,用户可再次调用本工具。
      */
-    limit: z.number().int().min(1).max(500).default(200),
+    limit: z.coerce.number().int().min(1).max(500).default(200),
   })
   .strict();
 
@@ -642,14 +642,14 @@ export const EngramDismissProposalsByFilterInputSchema = z
      *
      * 对 batch 场景,通常希望永久驳回(clear out load-test),所以默认是永久。
      */
-    dismissDays: z.number().int().min(0).max(365).optional(),
+    dismissDays: z.coerce.number().int().min(0).max(365).optional(),
     /**
      * 批量上限(默认 1000,最大 5000)。
      *
      * batch dismiss 通常面向数千条候选(load-test 场景),上限比 batch accept 宽松。
      * 超过的部分留 pending,用户可再次调用。
      */
-    limit: z.number().int().min(1).max(5000).default(1000),
+    limit: z.coerce.number().int().min(1).max(5000).default(1000),
   })
   .strict();
 
