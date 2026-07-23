@@ -3778,22 +3778,22 @@ window.CO_ENGRAM_MAINTENANCE = {
       var modifiedItems = null;
       var modifiedLabel = '';
       var actionText = null;
-      if (stage === 'rem' && lastResult.downstreamSummary.remModified && lastResult.downstreamSummary.remModified.length > 0) {
-        modifiedItems = lastResult.downstreamSummary.remModified;
+      if (stage === 'rem' && _ds && _ds.remModified && _ds.remModified.length > 0) {
+        modifiedItems = _ds.remModified;
         modifiedLabel = T.t('viewer.maintenance.remModifiedLabel');
         actionText = function(m) {
           return m.action === 'evaluated'
             ? T.t('viewer.maintenance.remAction.evaluated')
             : (T.enumLabel('verificationStatus', m.action) || m.action);
         };
-      } else if (stage === 'light' && lastResult.downstreamSummary.lightModified && lastResult.downstreamSummary.lightModified.length > 0) {
-        modifiedItems = lastResult.downstreamSummary.lightModified;
+      } else if (stage === 'light' && _ds && _ds.lightModified && _ds.lightModified.length > 0) {
+        modifiedItems = _ds.lightModified;
         modifiedLabel = T.t('viewer.maintenance.lightModifiedLabel');
         actionText = function(m) {
           return (m.delta >= 0 ? '+' : '') + Number(m.delta).toFixed(2);
         };
-      } else if (stage === 'deep' && lastResult.downstreamSummary.deepModified && lastResult.downstreamSummary.deepModified.length > 0) {
-        modifiedItems = lastResult.downstreamSummary.deepModified;
+      } else if (stage === 'deep' && _ds && _ds.deepModified && _ds.deepModified.length > 0) {
+        modifiedItems = _ds.deepModified;
         modifiedLabel = T.t('viewer.maintenance.deepModifiedLabel');
         actionText = function(m) {
           return T.t('viewer.maintenance.deepAction.' + m.action) || m.action;
