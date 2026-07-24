@@ -215,7 +215,7 @@ describe("P4 maintenance - light 阶段", () => {
 // ============================================================
 
 describe("P4 maintenance - rem 阶段", () => {
-  it("高质量 engram（跨域 + extends + 老）→ runRem 升级 verificationStatus", async () => {
+  it("高质量 engram → runRem 生成升级 proposal(审批化,不直接改 verificationStatus)", async () => {
     const host = createMemoryHost();
     const ctx = registerCoEngramTools(host, { dataRoot: tmpDir });
 
@@ -259,12 +259,20 @@ describe("P4 maintenance - rem 阶段", () => {
     const report = await engine.runRem();
     expect(report.errors).toHaveLength(0);
 
+    // REM 审批化:不直接改 verificationStatus,而是记录升级建议到 remModified
     const engram = ctx.repository.readEngram(main.id);
-    // unverified → plausible（upgrade_one_level 路径）
-    expect(engram.verificationStatus).toBe("plausible");
+    expect(engram.verificationStatus).toBe("unverified"); // 审批化:不变(等用户 accept proposal)
+
+    // applyMetacognition 算出 upgrade recommendation → remModified 记录
+    const remModified = (report.downstreamReport as { remModified?: unknown[] }).remModified ?? [];
+    expect(remModified).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ engramId: main.id, action: "plausible" }),
+      ]),
+    );
   });
 
-  it("低质量 engram + contradicts synapse → runRem 触发 refute", async () => {
+  it("低质量 + contradicts → runRem 生成 refute proposal(审批化,不直接改 verificationStatus)", async () => {
     const host = createMemoryHost();
     const ctx = registerCoEngramTools(host, { dataRoot: tmpDir });
 
@@ -305,10 +313,18 @@ describe("P4 maintenance - rem 阶段", () => {
       dreamingScheduler: scheduler,
     });
 
-    await engine.runRem();
+    const report = await engine.runRem();
 
+    // REM 审批化:不直接改 verificationStatus,而是记录 refute 建议到 remModified
     const engram = ctx.repository.readEngram(target.id);
-    expect(engram.verificationStatus).toBe("refuted");
+    expect(engram.verificationStatus).toBe("unverified"); // 审批化:不变
+
+    const remModified = (report.downstreamReport as { remModified?: unknown[] }).remModified ?? [];
+    expect(remModified).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ engramId: target.id, action: "refuted" }),
+      ]),
+    );
   });
 });
 
