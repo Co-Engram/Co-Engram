@@ -1,6 +1,6 @@
 {
   "name": "@co-engram/openclaw",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "description": "Co-Engram adapter for OpenClaw (plugin SDK).",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",
