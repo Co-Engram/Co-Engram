@@ -14,7 +14,7 @@ flowchart LR
 
 - OpenClaw scans the `extensions/` directory for packages with `openclaw.extensions` in their `package.json`
 - The plugin entry (default export) must be an object with a `register(api)` method
-- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for each of the 29 native tools plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers (31 total)
+- `register` receives an `OpenClawPluginApi` and calls `api.registerTool(...)` for every native tool in the registry plus 2 OpenClaw-compatible `memory_search` / `memory_get` wrappers
 - The manifest `openclaw.plugin.json` declares `kind: "memory"` (making Co-Engram the primary memory plugin, mutually exclusive with `memory-core`) and lists every tool name under `contracts.tools`
 
 ## Installation
@@ -56,48 +56,49 @@ plugins:
       enabled: true
       config:
         dataRoot: /home/your/team-memory
-        defaultCreatedBy: openclaw
         startMaintenance: true
         maintenanceConfig:
           enabledStages: [light, deep, rem]
           lightIntervalMs: 300000
           deepIntervalMs: 3600000
-          remIntervalMs: 604800000
+          remIntervalMs: 86400000
           learningRate: 0.1
         proposalEnabled: true
         proposalConfig:
           threshold: 3
           similarityThreshold: 0.75
-        startViewer: false
+        startViewer: true
         viewerConfig:
           port: 18899
 ```
+
+> **`dataRoot` in plugin config is deprecated.** The effective data root is resolved solely from the bootstrap file `~/.co-engram/config.json` (shared with the Claude Code host). Setting `dataRoot` here no longer takes effect — the plugin only emits a deprecation warning and ignores the value. Change the data root via `co-engram config data-root <path>` or the viewer's config tab, then restart.
 
 **Fields:**
 
 | Field                  | Type           | Default             | Purpose                                                                                                         |
 | ---------------------- | -------------- | ------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `enabled`              | boolean        | `true`              | Toggle tool registration                                                                                        |
-| `dataRoot`             | string         | `$HOME/team-memory` | Absolute path to data Git repo                                                                                  |
-| `defaultCreatedBy`     | string         | `"openclaw"`        | Default author for new engrams                                                                                  |
-| `language`             | `"en" \| "zh"` | `"en"`              | Language for tool descriptions, viewer UI, system prompts. Falls back to team-memory persisted config if unset. |
-| `startMaintenance`     | boolean        | `false`             | Start the maintenance engine                                                                                    |
+| `dataRoot`             | string         | `$HOME/team-memory` | Absolute path to data Git repo. **Deprecated in plugin config** — see note below; effective value comes from `~/.co-engram/config.json`. |
+| `defaultCreatedBy`     | string         | _(runtime)_         | Default author for new engrams. When unset, resolved at runtime from git author → persisted config → env (avoid tool names like `openclaw`/`claude-code`). |
+| `language`             | `"en" \| "zh"` | `"zh"`              | Language for tool descriptions, viewer UI, system prompts. Falls back to team-memory persisted config, then `DEFAULT_LANGUAGE` (`zh`). |
+| `startMaintenance`     | boolean        | `true`              | Start the maintenance engine                                                                                    |
 | `maintenanceConfig`    | object         | (see below)         | Maintenance engine tuning                                                                                       |
 | `auditEnabled`         | boolean        | `true`              | Append-only audit log                                                                                           |
 | `effectivenessEnabled` | boolean        | `true`              | Track retrieve_hit → effective/inconclusive                                                                     |
 | `proposalEnabled`      | boolean        | `false`             | Implicit memory proposal engine                                                                                 |
 | `proposalConfig`       | object         | (see below)         | Proposal engine tuning                                                                                          |
-| `startViewer`          | boolean        | `false`             | Start web viewer at 127.0.0.1:18899 (requires `@co-engram/claude-code`)                                         |
+| `startViewer`          | boolean        | `true`              | Start web viewer at 127.0.0.1:18899 (requires `@co-engram/claude-code`)                                         |
 | `viewerConfig`         | object         | `{ port: 18899 }`   | Viewer port and optional token                                                                                  |
 
 ### Memory Capability & Self-Evolving Prompts
 
 Because `openclaw.plugin.json` declares `"kind": "memory"`, OpenClaw treats Co-Engram as the **primary memory plugin** (mutually exclusive with `memory-core`). On startup the plugin calls `api.registerMemoryCapability({ promptBuilder })` to inject a "## Memory Recall" section into the agent system prompt. The section is rebuilt every conversation turn with three layers:
 
-1. **Base guidance (always on)** — when to call `memory_search` / when to skip / how to interpret `truthScore`. Also embeds a depth=1 repo-structure overview (top-level directories + engram counts) so the LLM sees the warehouse layout before searching; deeper levels are pulled on demand via `engram_list_paths(maxDepth=N)`.
+1. **Base guidance (always on)** — when to call `memory_search` / when to skip / how to interpret `truthScore`. Also embeds a depth=2 repo-structure overview (second-level directories + engram counts) so the LLM sees the warehouse layout before searching; deeper levels are pulled on demand via `engram_list_paths(maxDepth=N)`.
 2. **Proposal reminder (conditional)** — if the proposal engine has pending candidates, a one-liner names the count and tool to invoke.
 3. **Self-evolving signals (conditional)** — populated from `<dataRoot>/.co-engram/prompt-signals.json`, written by the `light` maintenance stage every 5 minutes:
-   - `topTags`: the 5 most frequent domain tags across all engrams (threshold: ≥3 occurrences).
+   - `topTags`: the 20 most frequent domain tags across all engrams (no minimum-occurrence threshold; `minCount = 1`).
    - `lowConfidenceTopics`: tags whose engrams have `confidence < 0.4` AND `retrievalCount ≥ 2` — RPE feedback that tells the LLM "these areas are shaky, verify before citing".
    - `missedTopics`: reserved for future expansion (conversation-history mining).
 
@@ -112,7 +113,7 @@ rm ~/team-memory/.co-engram/prompt-signals.json
 # (or wait for the next light maintenance tick)
 ```
 
-If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all 31 tools still work, the LLM just won't get the guided "Memory Recall" section.
+If the host does not implement `registerMemoryCapability`, the plugin logs a warning and continues — all native tools plus the 2 wrappers still work, the LLM just won't get the guided "Memory Recall" section.
 
 ### Memory Proposals
 
@@ -178,7 +179,7 @@ The plugin will dynamically import `@co-engram/claude-code` and start its viewer
 | `enabledStages`   | `("light"\|"deep"\|"rem")[]` | `["light","deep","rem"]` |
 | `lightIntervalMs` | number                       | `300000`                 |
 | `deepIntervalMs`  | number                       | `3600000`                |
-| `remIntervalMs`   | number                       | `604800000`              |
+| `remIntervalMs`   | number                       | `86400000`               |
 | `learningRate`    | number                       | `0.1`                    |
 
 ## Verifying
@@ -200,7 +201,7 @@ Expected:
     "status": "loaded",
     "activated": true,
     "toolNames": [
-      "engram_create", "engram_get", ...  // 31 tools total (29 native + memory_search + memory_get)
+      "engram_create", "engram_get", ...  // all native tools (registry) + memory_search + memory_get
     ]
   }
 }

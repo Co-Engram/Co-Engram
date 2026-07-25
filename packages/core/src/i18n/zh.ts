@@ -1867,7 +1867,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 工具 profile =====
   "viewer.help.profilesTitle": "工具 profile",
   "viewer.help.profilesBody":
-    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(19,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>)。<strong>full(28)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
+    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(21,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>),以及批量提案清理(<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>)。<strong>full(30)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
 
   // ===== 保存与同步 =====
   "viewer.help.syncTitle": "保存与同步到远端",

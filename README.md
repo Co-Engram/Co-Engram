@@ -114,7 +114,19 @@ Twelve synapse kinds are available (see [Synapse Schema](#synapse-schema)). Sear
 
 ### Tiered disclosure: pay only for what you need
 
-The LLM's context window is finite and expensive. Co-Engram's `tier` system lets the agent request the cheapest representation that answers the question, then deepen only when necessary.
+The LLM's context window is finite and expensive. Co-Engram's progressive disclosure runs along **two orthogonal axes** — survey the repo structure first (breadth), then read a single memory (depth). Each layer returns only the minimum information the current question needs.
+
+#### Breadth axis: inject the second-level directory into the system prompt to aid recall
+
+A directory is **structural** information — static and cheap, independent of how often a memory is retrieved. So co-engram puts it at the very front of the recall chain:
+
+- **Always-on second-level injection** — the moment a session starts, a second-level directory overview (each project domain + its sub-domain directories, each with a cumulative engram count) is injected into the system prompt. Without calling any tool, the agent can see "which domains the team's memory concentrates in, and how many entries each holds."
+- **The pacer for recall** — with the second-level directory in view, the LLM can judge which domain a question likely belongs to, craft precise search terms, and proactively recall relevant memories when asked. Without this structural preview, the LLM can only search blind — either missing (the query term never hits) or empty (it doesn't know what to search for).
+- **Drill down on demand** — when a finer structure is needed, call `engram_list_paths(maxDepth=N)` for a nested directory tree. Each node carries an `engramCount` (cumulative subtree total) but **returns no body text**. See where work is concentrated, then decide what to search for.
+
+#### Depth axis: pay per layer once you open a memory
+
+Once a specific memory is located, the `tier` system on `engram_get` lets the agent request the cheapest representation and deepen only when necessary:
 
 | Tier | Returns | Use when |
 |------|---------|----------|
@@ -125,7 +137,11 @@ The LLM's context window is finite and expensive. Co-Engram's `tier` system lets
 
 > Agent calls `engram_get(id="01J...", tier="auto", contextBudget={totalTokens:800})` → the system measures the JSON size and picks the deepest tier that fits within budget.
 
-This is transparent to the user — the agent learns to use `tier=auto` by default and only switches to `content` when it needs the body.
+The two axes form one call chain, where every step pays only for what that step truly needs:
+
+> Always-on second-level directory (see that `design-principles/co-engram` holds 10 engrams) → `engram_search(filter.domainTags=["co-engram"])` (narrow to 3 candidates) → `engram_get(tier="digest")` (skim, then escalate only one to `tier="content"`).
+
+This is transparent to the user — the agent learns to default to "breadth before depth" and only switches to `content` when it truly needs the body.
 
 ### Close the learning loop: feedback changes importance
 
@@ -151,7 +167,7 @@ Every successful use reinforces the engram along multiple pathways:
 |---------|--------|---------------------|
 | `engram_search` returns engram | Retrieval count +1; last score recorded | `retrievalCount`, `lastRetrievalScore` |
 | `engram_create` returns `DUPLICATE` | Original engram gets a reinforcement bump (same RPE math as `close_learning_loop`) | `reinforcementScore` |
-| `close_learning_loop(outcome="success")` | Importance rises by `Δ = learningRate × effectiveness × (1 - oldImportance)` | `importance`, `reinforcementScore`, `effectiveRetrievals` |
+| `close_learning_loop(outcome="success")` | Importance rises by `Δ = effectiveness × learningRate × min(1, confidence × 2)` (importance clamped to [0,1]) | `importance`, `reinforcementScore`, `effectiveRetrievals` |
 | `synapse_create(kind="extends"\|"consolidates")` | Neighbors get Hebbian boost proportional to edge weight on each `close_learning_loop(success)` of the connected engram | `importance` on neighbor |
 | `engram_reinforce` (direct call) | Manual boost, same RPE math as success loop | `reinforcementScore` |
 
@@ -164,15 +180,15 @@ The reverse side is equally important — **unlearning**:
 | Trigger | Effect | Threshold |
 |---------|--------|-----------|
 | `close_learning_loop(outcome="failure")` | Importance drops; `failedUses` counter increments | — |
-| `failedUses >= 3` | System suggests archiving: status → `archived`, excluded from default search results | 3 failures |
+| `failedUses >= 3` | System suggests archiving: status → `frozen`, excluded from default search results | 3 failures |
 | `failedUses >= 5` | System suggests forgetting: status → `forgotten`, moved to `.trash/` (if trash is enabled) after `CO_ENGRAM_TRASH_AFTER_DAYS` | 5 failures |
-| Ebbinghaus decay (Deep stage) | `importance *= e^(-Δt / halfLife)` — engrams that haven't been retrieved in `halfLife` days lose ~63% of their importance | `decayHalfLifeDays` (default varies by kind; `null` = never decays) |
+| Freshness-driven forgetting (Deep stage) | Deep does **not** decay `importance` over time (importance is event-driven). It acts on `freshness` instead: `forgotten` → forget; `stale` + `importance < 0.2` → forget; `stale` + `importance ≥ 0.2` → archive (`frozen`) | `freshness` = age vs `halfLife`; `halfLife = 50 × (importance+0.1)^1.5 × kindMultiplier` (derived, not stored) |
 | `engram_report_failure` | Mark a specific retrieval as harmful; increments `failedUses` | — |
 
 The **forgetting pipeline** has two paths:
 
 ```
-active ──(failedUses>=3)──→ archived ──(engram_restore)──→ active
+active ──(failedUses>=3)──→ frozen ──(engram_restore)──→ active
 active ──(failedUses>=5)──→ forgotten ──(CO_ENGRAM_TRASH_AFTER_DAYS)──→ .trash/ ──(CO_ENGRAM_TRASH_PURGE_AFTER_DAYS)──→ deleted
                     forgotten ──(engram_restore)──→ active
 ```
@@ -208,7 +224,7 @@ unverified → plausible → probable → verified
 
 New engrams start as `unverified` — "someone said this, we haven't checked." As the memory is used successfully, referenced by other engrams, and survives contradiction checks, the REM maintenance stage evaluates it and presents upgrade suggestions as proposals on the Proposals page, applied only after you accept them. A memory that is consistently contradicted moves to `refuted` — it stays in the repository (you may still want to know it was once believed), but is clearly marked as unreliable.
 
-At the **REM stage** (every 7 days by default), the system evaluates each engram across five dimensions:
+At the **REM stage** (every 1 day by default), the system evaluates each engram across five dimensions:
 
 | Dimension | What it checks |
 |-----------|---------------|
@@ -222,15 +238,15 @@ Each dimension contributes to a composite truth score. You don't need to track a
 
 ### Auto-maintenance: light → deep → REM
 
-No one has time to curate a knowledge base. If `CO_ENGRAM_MAINTENANCE=1` is set, Co-Engram runs three stages on background timers:
+No one has time to curate a knowledge base. The maintenance engine is **enabled by default** — out of the box, Co-Engram runs three stages on background timers. To turn it off, set `maintenance.enabled: false` in `config.json` (there is no env-var switch; the `CO_ENGRAM_MAINTENANCE*` env vars are not consumed):
 
 | Stage | Interval (default) | What it does |
 |-------|--------------------|--------------|
 | **Light** | 5 min | Applies RPE to recently-returned engrams, boosts retrieval stats |
-| **Deep** | 1 hour | Merges fragmented engrams, recalculates composite importance, applies Ebbinghaus decay |
-| **REM** | 7 days | Runs metacognition evaluation + pattern abstraction: scores each engram's truthfulness and clusters similar memories into pattern proposals (see the Proposals page; applied after you accept) |
+| **Deep** | 1 hour | Merges fragmented engrams, recalculates composite importance, archives/forgets engrams by freshness |
+| **REM** | 1 day | Runs metacognition evaluation + pattern abstraction + synapse operations: scores each engram's truthfulness, clusters similar memories into pattern proposals, and suggests synapse add/delete/retype operations (see the Proposals page; applied after you accept) |
 
-Light and Deep are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, Ebbinghaus forgetting curve, Hebbian plasticity), and writes back updated fields. **REM runs its analysis automatically, but its upgrade / refute / pattern-abstraction suggestions are presented as proposals on the Proposals page, applied only after you approve them**, so the system never rewrites your memory unconfirmed. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
+Light and Deep are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, freshness-based forgetting, Hebbian plasticity), and writes back updated fields. **REM runs its analysis automatically, but its upgrade / refute / pattern-abstraction / synapse-operation suggestions are presented as proposals on the Proposals page, applied only after you approve them**, so the system never rewrites your memory unconfirmed. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
 
 ### Access the web viewer
 
@@ -243,16 +259,18 @@ claude mcp add co-engram \
   ... -- co-engram-mcp
 ```
 
-For OpenClaw, set `startViewer: true` in the plugin manifest — viewer also defaults to 18899.
+For OpenClaw, the viewer is **enabled by default** (`startViewer` defaults to `true` in the plugin schema). Set `startViewer: false` only if you want to opt out. Viewer also defaults to port 18899.
 
 Open **http://127.0.0.1:18899** in your browser. Override per-process with `CO_ENGRAM_VIEWER_PORT`.
 
 | Tab | What you see |
 |-----|-------------|
+| **Stats** | KPI dashboard — total engrams / synapses, pending-proposal count (click to jump), verification-status distribution |
 | **Engrams** | Filterable table — sort by importance, filter by tags/status/verification, click to read full content |
 | **Graph** | Interactive force-directed synapse graph — nodes are engrams, edges are typed connections; click a node to jump to its content |
-| **Audit** | Chronological log of every `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` call — who, when, what changed |
-| **Health** | Per-stage maintenance reports, verification status pie chart, RPE score distribution |
+| **Proposals** | Pending memory candidates from implicit capture and REM (upgrade / refute / pattern / synapse operations). A pulsing badge on the tab shows the pending count (caps at 99+) |
+| **Maintenance** ("Memory Dream") | Per-stage maintenance reports (light / deep / REM run state and next scheduled run), dream-state, verification-status pie, RPE score distribution |
+| **More ▾** (dropdown) | Team Memory Merges · Audit (chronological log of every `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` call) · Trash · Health (repo health overview) · Config · Help |
 
 For a deeper walkthrough, see [docs/concepts.md](./docs/concepts.md) and [docs/tool-reference.md](./docs/tool-reference.md).
 
@@ -296,9 +314,19 @@ The tool runs a full **pull → commit → push** pipeline:
 - Invokes system `git` directly, inheriting the user's SSH config, credentials, and HTTP proxy. No hostnames or URLs hardcoded.
 - Does **not** write `Change-Id` itself. If you've installed the Gerrit `commit-msg` hook (`gitdir/hooks/commit-msg`), it adds `Change-Id` automatically.
 - Respects the user's `.git/config` `push` refspec. If you configured `push = refs/heads/*:refs/for/*` for Gerrit review, pushes go to review; otherwise they go straight to the tracked branch.
+- **Gerrit auto-fallback**: if a direct push is rejected by a Gerrit-protected branch (e.g. `prohibited by Gerrit` / `need 'Push' rights`), the tool automatically retries with `HEAD:refs/for/<branch>` for code review — no manual `.git/config` refspec needed. On fallback the push result reports `mode: "gerrit-review"` with `autoFallback: true`; the top-level `ok` field summarizes overall success.
 - Pure-local repos work fine — sync just stops at the commit phase.
 
 Use `dryRun: true` to preview which files `git status` reports before touching anything.
+
+#### Automatic sync lifecycle (Claude Code MCP)
+
+Beyond the manual `engram_sync` tool, the Claude Code MCP server runs a sync lifecycle automatically — you do not need to wire anything:
+
+- **On start**: `git pull --no-edit` (30s timeout). Pulls teammate updates so a new session begins with the latest memory. Silently skipped when there is no remote or the repo is already up to date.
+- **On session exit** (`SIGINT` / `SIGTERM`): an auto-commit of any pending writes, followed by `git push` (30s timeout). Failures only emit a stderr warning — they never block shutdown.
+
+This is what makes multi-machine usage seamless: every host pulls on launch and pushes on exit, and the structured merge driver resolves conflicts between them. Pure-local repos (no remote configured) silently skip the pull/push phases.
 
 ## Architecture
 
@@ -315,7 +343,7 @@ flowchart TB
   end
 
   subgraph Core["@co-engram/core<br/>(host-agnostic)"]
-    Tools["27 tools<br/>engrams · synapses · skills · doctor"]
+    Tools["26 tools<br/>engrams · synapses · skills · doctor"]
     Engine["Maintenance engine<br/>light · deep · rem"]
     Retrieval["FTS + graph retrieval"]
   end
@@ -387,20 +415,17 @@ Every engram is one Markdown file with YAML frontmatter. Fields are grouped by r
 |                     | `updatedBy` / `updatedAt`             | string / ISO timestamp | Last modifier and modification time.                                                                                                                      |
 |                     | `version`                             | integer                | Monotonically increments on `engram_update`.                                                                                                              |
 | **Value**           | `importance`                          | number `[0, 1]`        | Composite importance score; drives ranking and decay.                                                                                                     |
-|                     | `importanceVector`                    | object (optional)      | Per-audience weights: `personal/team/project/network/temporal/composite`.                                                                                 |
-|                     | `confidence`                          | number `[0, 1]`        | Initial confidence derived from `sourceType` (`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`).                                                      |
+|                     | `confidence`                          | number `[0, 1]`        | Initial value derived from `sourceType` (`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`), then dynamically adjusted with use: effective retrieval +0.05, failed retrieval −0.05, refute ×0.3, verify +0.2. |
 |                     | `sourceType`                          | enum                   | `firsthand` \| `secondhand` \| `inferred`.                                                                                                                |
-|                     | `emotionalValence`                    | enum (optional)        | `positive` \| `neutral` \| `negative`.                                                                                                                    |
-|                     | `evidenceCount`                       | integer                | Number of supporting synapses/evidence entries.                                                                                                           |
+|                     | `evidenceCount`                       | integer                | Derived: count of verdict evidence entries (description prefixed `[plausible\|probable\|verified\|refuted]`) on outgoing `derives_from` synapses. The frontmatter value is ignored. |
 | **Retrieval stats** | `retrievalCount`                      | integer                | Total times returned by `engram_search`.                                                                                                                  |
 |                     | `effectiveRetrievals`                 | integer                | Times the caller reported success (via `engram_reinforce` or `close_learning_loop`).                                                                      |
 |                     | `failedUses`                          | integer                | Times the caller reported failure (via `engram_report_failure`). At 3 → archive suggestion; at 5 → forget suggestion.                                     |
 |                     | `reinforcementScore`                  | number                 | Accumulated RPE-driven reinforcement.                                                                                                                     |
 |                     | `lastRetrievedAt` / `lastEffectiveAt` | ISO timestamp          | Last retrieval / last effective use.                                                                                                                      |
 |                     | `lastRetrievalScore`                  | number `[0, 1]`        | Most recent relevance score; RPE baseline.                                                                                                                |
-| **Lifecycle**       | `status`                              | enum                   | `draft` \| `active` \| `archived` \| `forgotten`.                                                                                                         |
+| **Lifecycle**       | `status`                              | enum                   | `draft` \| `active` \| `frozen` \| `forgotten`.                                                                                                         |
 |                     | `forcedFreshness`                     | enum (optional)        | `fresh` \| `aging` \| `stale` \| `forgotten`. Set by lifecycle tools to override derived freshness.                                                       |
-|                     | `decayHalfLifeDays`                   | number or null         | Ebbinghaus half-life in days. `null` = never decays.                                                                                                      |
 |                     | `visibility`                          | enum                   | `private` \| `team` \| `public`. The LLM proactively asks before storing credential / personal / internal / sensitive content; see [Memory visibility & risk recognition](#memory-visibility--risk-recognition). |
 | **Verification**    | `verificationStatus`                  | enum                   | `unverified` \| `plausible` \| `probable` \| `verified` \| `refuted`. Upgraded by the REM maintenance stage; can be force-set via `upgrade_verification`. |
 | **Context**         | `encodingContext`                     | string (optional)      | What the agent was doing when this engram was recorded.                                                                                                   |
@@ -426,7 +451,6 @@ confidence: 0.85
 sourceType: firsthand
 status: active
 verificationStatus: unverified
-decayHalfLifeDays: 30
 visibility: team
 createdBy: Yang Yang
 createdAt: 2026-06-21T10:30:00.000Z
@@ -541,10 +565,10 @@ retrievalWeight: 0.8
 
 ## Tool Catalog
 
-Co-Engram exposes **27 native tools** grouped into five concerns, plus 2 OpenClaw-compatible `memory_*` wrappers (registered only under `@co-engram/openclaw`).
+Co-Engram exposes **26 native tools** grouped into five concerns, plus 2 OpenClaw-compatible `memory_*` wrappers (registered only under `@co-engram/openclaw`).
 
-**Engrams** (12) — the core memory units
-`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget` · `engram_recompute_importance`
+**Engrams** (11) — the core memory units
+`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget`
 
 **Synapses** (4) — typed connections between engrams
 `synapse_create` · `synapse_get` · `synapse_list` · `synapse_delete`
@@ -610,7 +634,7 @@ If you call it again with near-identical content:
 
 ### 2. Search with filters
 
-`engram_search` runs an in-memory FTS query (bigram tokenizer for CJK, word tokenizer for English) plus graph expansion via `extends` / `consolidates` edges. Use `filter` to narrow the result set.
+`engram_search` runs an FTS query (word-level tokenizer — `Intl.Segmenter` for CJK so whole words like `记忆` / `系统` are recognized as single tokens, whitespace/punctuation split for English) plus graph expansion via `extends` / `consolidates` edges. Use `filter` to narrow the result set.
 
 ```json
 // tool input
@@ -775,12 +799,6 @@ All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 | ----------------------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `CO_ENGRAM_DEFAULT_CREATED_BY`            | `unknown`            | Default author for new engrams                                                                                                      |
 | `CO_ENGRAM_LANGUAGE`                      | `en`                 | Language for tool descriptions / viewer UI / prompts (`en` \| `zh`). Falls back to `~/team-memory/.co-engram/config.json` if unset. |
-| `CO_ENGRAM_MAINTENANCE`                   | `0`                  | Set to `1` to start the maintenance engine                                                                                          |
-| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,rem`     | Comma-separated stage list                                                                                                          |
-| `CO_ENGRAM_MAINTENANCE_LIGHT_INTERVAL_MS` | `300000` (5 min)     | Light stage interval                                                                                                                |
-| `CO_ENGRAM_MAINTENANCE_DEEP_INTERVAL_MS`  | `3600000` (1 hour)   | Deep stage interval                                                                                                                 |
-| `CO_ENGRAM_MAINTENANCE_REM_INTERVAL_MS`   | `604800000` (7 days) | REM stage interval                                                                                                                  |
-| `CO_ENGRAM_MAINTENANCE_LEARNING_RATE`     | `0.1`                | RPE learning rate                                                                                                                   |
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`                  | Set to `1` to move forgotten engrams to `.trash/` instead of deleting                                                               |
 | `CO_ENGRAM_TRASH_AFTER_DAYS`              | `30`                 | Days after `forgotten` before an engram enters `.trash/`                                                                            |
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`                | Days in `.trash/` before physical purge (`0` = never)                                                                               |
@@ -790,6 +808,48 @@ All optional. Set them in `claude mcp add -e KEY=value` or your shell.
 | `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                  | Claude Code only. `0` disables the watcher that mirrors `~/.claude/projects/*/memory/*.md` into **proposals** (pending your accept; see [host-claude-code.md](./docs/host-claude-code.md#auto-memory-sync-claude-code--co-engram-proposals)). Co-Engram prompts still direct LLM agents to call `engram_create` directly — auto-memory remains a fallback for agents that have not adopted co-engram's native tools. |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | Override the auto-memory projects root (Claude Code only)                                                                           |
 | `CO_ENGRAM_SEARCH_ENGINE`                 | `sqlite`             | Search backend. `sqlite` = derived SQLite index with FTS5 trigram + LIKE fallback (default; scales to 5k+ engrams; requires Node 22.17+ — auto-falls back to `memory` on older Node or filesystem errors). `memory` = in-process FTS over digest lines (scales poorly past ~1k engrams; opt-out for restricted / read-only-fs / embedded deployments). Unknown values fall back to `sqlite` (fail-safe toward the stronger engine). See [docs/architecture.md](./docs/architecture.md#search-engine). |
+
+### Tunable defaults (`config.json`)
+
+Beyond data root, the persisted config at `<dataRoot>/.co-engram/config.json` accepts three tuning sections that have **no env-var equivalents** — `config.json` is the only channel. Omit a section (or field) to keep the default.
+
+| Section        | Field              | Default | Meaning                                                                                                        |
+| -------------- | ------------------ | ------- | -------------------------------------------------------------------------------------------------------------- |
+| `reinforcement` | `hebbianRatio`     | `0.5`   | Fraction of an engram's Δimportance that spreads to directly-connected neighbors (per `extends`/`consolidates`) |
+| `reinforcement` | `archiveThreshold` | `3`     | `failedUses` count at which archiving (`frozen`) is suggested                                                  |
+| `reinforcement` | `forgetThreshold`  | `5`     | `failedUses` count at which forgetting is suggested                                                            |
+| `search`       | `relevance`        | `0.5`   | Weight on query-text relevance (FTS / cosine)                                                                  |
+| `search`       | `recency`          | `0.15`  | Weight on freshness / time-decay                                                                               |
+| `search`       | `importance`       | `0.25`  | Weight on the engram's `importance`                                                                            |
+| `search`       | `strength`         | `0.1`   | Weight on reinforcement / edge strength                                                                        |
+| `observation`  | `observation`      | `6h`    | Effectiveness window for `kind=observation`                                                                    |
+| `observation`  | `fact`             | `24h`   | Effectiveness window for `kind=fact`                                                                           |
+| `observation`  | `pattern`          | `48h`   | Effectiveness window for `kind=pattern`                                                                        |
+| `observation`  | `procedure`        | `48h`   | Effectiveness window for `kind=procedure`                                                                      |
+| `observation`  | `hypothesis`       | `7d`    | Effectiveness window for `kind=hypothesis`                                                                     |
+
+The four `search` weights **must sum to 1**. `observation` values are durations (milliseconds). Example:
+
+```json
+{
+  "reinforcement": { "hebbianRatio": 0.7 },
+  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1 },
+  "observation": { "pattern": 172800000 }
+}
+```
+
+### Merge driver CLI
+
+The `co-engram` binary also exposes six subcommands for the structured git merge driver — useful after pulling teammates' changes or for diagnosing sync health. Run them inside the data repo (or pass `--cwd PATH`).
+
+| Command                                         | What it does                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `co-engram stats [--window-days N] [--json]`    | Merge statistics over the window (default 7 days): engrams/synapses merged, conflicts, auto-resolved count |
+| `co-engram anomalies [--window-days N] [--json]`| Anomaly detection over recent merges — flags unusual conflict rates or resolution failures (exits non-zero on `critical`) |
+| `co-engram install-post-merge-hook`             | Install the git `post-merge` hook into the data repo (auto-runs a consistency check after every `git pull`) |
+| `co-engram uninstall-post-merge-hook`           | Remove the `post-merge` hook                                                                |
+| `co-engram hook-status`                         | Report whether the `post-merge` hook is installed and where                                 |
+| `co-engram post-merge`                          | Hook entry point — runs the post-merge consistency check. Normally invoked by git, not manually |
 
 ### OpenClaw manifest config
 

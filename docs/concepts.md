@@ -112,7 +112,7 @@ rpe     = actual - expected                        // expected = retrievalScore 
 
 ## Metacognition
 
-A five-dimension truth scoring system that runs during the REM maintenance stage. Decides whether to upgrade or refute an engram's `verificationStatus`.
+A five-dimension truth scoring system that runs during the REM maintenance stage. Scores each engram and recommends whether to upgrade or refute its `verificationStatus`; the recommendation becomes a `rem-verification` proposal that only lands on disk after the user accepts it on the Proposals page (no longer auto-applied).
 
 **Dimensions:**
 | Dimension | Weight | What it measures |

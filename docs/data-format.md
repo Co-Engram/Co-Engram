@@ -45,6 +45,7 @@ Co-Engram's storage is built on three principles:
     ├── engram-index.json               # {version, engrams: {ULID → entry}, lastRebuiltAt}
     ├── graph.json                      # synapse graph snapshot
     ├── audit.jsonl                     # append-only audit log
+    ├── doctor-report.json              # last runDoctor() self-heal snapshot (written by deep stage)
     └── signals.jsonl                   # pending tool-call events (drained by light stage)
 ```
 
@@ -70,10 +71,8 @@ tags:
 summary: Use Object.assign({}, ...parts) to merge readonly configs
 importance: 0.62
 confidence: 0.85
-emotionalValence: neutral
 sourceType: firsthand
 visibility: team
-decayHalfLifeDays: 30
 verificationStatus: unverified
 status: active
 createdBy: Yang Yang
@@ -115,10 +114,9 @@ const merged = Object.assign({}, ...parts)
 | `tags`                                                | string[]            | Free-form context tags                                                       |
 | `summary`                                             | string              | One-line summary                                                             |
 | `importance`                                          | number `[0, 1]`     | Composite importance score                                                   |
-| `confidence`                                          | number `[0, 1]`     | Initial confidence based on `sourceType`                                     |
+| `confidence`                                          | number `[0, 1]`     | Initial value derived from `sourceType`; then dynamically adjusted by feedback signals (effective use +0.05, failure −0.05, refute ×0.3, verify +0.2 capped at 0.95) |
 | `sourceType`                                          | enum                | `firsthand` / `secondhand` / `inferred`; affects default confidence          |
-| `decayHalfLifeDays`                                   | number or null      | Ebbinghaus half-life; `null` = never decays                                  |
-| `status`                                              | enum                | `draft` / `active` / `archived` / `forgotten`                                |
+| `status`                                              | enum                | `draft` / `active` / `frozen` / `forgotten`                                |
 | `verificationStatus`                                  | enum                | `unverified` / `plausible` / `verified` / `refuted`                          |
 | `forcedFreshness`                                     | enum (optional)     | Override derived freshness (written by lifecycle tools)                      |
 | `retrievalCount`, `effectiveRetrievals`, `failedUses` | integer             | Three-signal plasticity counters                                             |
@@ -157,10 +155,8 @@ const merged = Object.assign({}, ...parts)
   摘要: Use Object.assign({}, ...parts) to merge readonly configs
   重要性: 0.62
   置信度: 0.85
-  情感极性: neutral
   来源类型: firsthand
   可见性: team
-  半衰期天数: 30
   验证状态: unverified
   状态: active
   创建者: claude-code
@@ -182,6 +178,25 @@ const merged = Object.assign({}, ...parts)
 - User-defined values (`标签`, `领域标签`, `创建者`, `摘要` text, body content) are not translated
 
 The parser accepts both formats transparently. Old English-mode files in a Chinese repo get rewritten by the first-launch migration (see below).
+
+### Derived Synapses Segment (Obsidian integration)
+
+Every engram `.md` file may carry a derived body segment at the end, regenerated whenever a touching synapse changes (and by `engram_doctor`). It lets you open the data root as an Obsidian vault and see the memory network in graph view without a custom plugin.
+
+```markdown
+<!-- co-engram-derived:synapses -->
+## Synapses (derived)
+
+- → [[strict-mode-gotcha|TypeScript strict mode readonly gotcha · extends]]
+- ← [[object-merge-pattern|Object.assign merge pattern · similar_to]]
+```
+
+- The segment opens with the `<!-- co-engram-derived:synapses -->` marker (invisible in rendered Markdown) followed by the `## Synapses (derived)` heading, then one bullet per resolved edge.
+- The wikilink **target is the file name** (without `.md`), not the ULID — Obsidian resolves it natively. The display text is `<title> · <kind>` so the graph stays human-readable.
+- `→` denotes outgoing edges (this engram is `from`); `←` denotes incoming edges (this engram is `to`). `contradicts` edges are pinned to the top of the segment as a warning.
+- The segment is **only written when at least one edge resolves** — engrams with no synapses keep a clean body.
+- The authoritative source is `synapses/*.yaml`. This body segment is a denormalized view: it is stripped and rebuilt on every synapse mutation and by `engram_doctor`. Filename drift (a manual rename outside co-engram) breaks the wikilinks until the next rebuild.
+- The `aliases` frontmatter field is **not** injected. Historical `aliases` values are stripped on the next serialize (a one-shot warning is logged), because the bottom frontmatter in Chinese-mode files is invisible to Obsidian — filename-based wikilinks replace the earlier ULID + `aliases` scheme.
 
 ## Synapse File Format
 
@@ -334,6 +349,12 @@ Tracked actions: `create`, `update`, `update_lifecycle`, `reinforce`, `report_fa
 
 Approximate size: 200 bytes/event. With default rotation the file stays bounded at ~50MB worst-case (size cap), typically much smaller.
 
+### `doctor-report.json`
+
+Persisted snapshot of the most recent `runDoctor()` self-heal scan. The maintenance engine's **deep** stage runs `runDoctor()` (detecting dangling synapses, orphan markdown, SQLite ghosts — auto-fixing where safe) and writes the resulting `DoctorReport` here so the viewer's health panel can show "what deep just fixed" even after auto-fix. The `/api/doctor` endpoint prefers this cached file; pass `?rescan=1` to force a fresh doctor run instead of reading the cache.
+
+Shape: `{ startedAt, finishedAt, issues: DoctorIssue[], fixes: DoctorIssue[], pendingManualReview: DoctorIssue[] }`. Writing is best-effort — if it fails, deep maintenance continues without blocking.
+
 ### `signals.jsonl` (inside `.co-engram/`)
 
 JSON Lines file collecting `ToolCallEvent`s. Drained every light stage. Pruned to 7-day retention.
@@ -381,13 +402,14 @@ Repo-level configuration, applied in addition to env vars / plugin config:
 ```yaml
 defaultCreatedBy: claude-code
 defaultVisibility: team
-defaultDecayHalfLifeDays: 30
 maintenance:
   learningRate: 0.1
   enabledStages: [light, deep, rem]
 ```
 
 Env vars and plugin config take precedence over this file.
+
+> Note: the decay half-life is no longer a config key — it is derived live from `importance` + `kind` (`BASE_HALFLIFE_DAYS × (importance + 0.1)^1.5 × kindMultiplier`), so `defaultDecayHalfLifeDays` is no longer accepted.
 
 ### `.co-engram/config.json` — team memory config
 
@@ -427,7 +449,7 @@ After thousands of engrams, consider:
 
 - **Shallow clones** for CI: `git clone --depth 1`
 - **Git LFS** if content includes many large Markdown files with embedded images
-- **Periodic archive sweeps**: `engram_list({ filter: { status: [archived] }, limit: 500 })` then bulk forget (cursor-paginate if more than 500 archived)
+- **Periodic archive sweeps**: `engram_list({ filter: { status: [frozen] }, limit: 500 })` then bulk forget (cursor-paginate if more than 500 frozen)
 
 ## Backup Strategy
 

@@ -12,7 +12,7 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 Common causes:
 
-- **Node version < 22** — check with `node --version`. MCP SDK requires Node 22+.
+- **Node version < 22.17** — check with `node --version`. Co-engram's default `sqlite` search engine requires Node 22.17+ (`node:sqlite` stabilized at 22.17); on older Node the search engine silently falls back to `memory`.
 - **`CO_ENGRAM_DATA_ROOT` is relative** — must be an absolute path (e.g. `/home/you/team-memory`, not `~/team-memory` in some shells)
 - **Data directory not a Git repo** — `cd ~/team-memory && git init`
 - **Missing dependencies** (source build) — run `pnpm install` at repo root

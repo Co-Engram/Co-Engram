@@ -21,8 +21,8 @@ flowchart TB
   end
 
   subgraph L3["3. Core Layer (host-agnostic)"]
-    Tools["Tools (28)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
-    Retrieval["Retrieval<br/>FTS (bigram+word) · graph traversal"]
+    Tools["Tools (30)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
+    Retrieval["Retrieval<br/>FTS (word-level) · graph traversal"]
     Engine["Maintenance Engine<br/>light · deep · rem"]
     Signals["Signals<br/>event sink · extract · RPE"]
     Verify["Verification<br/>metacognition · upgrade/refute"]
@@ -86,8 +86,8 @@ Co-Engram 的核心。零宿主依赖 — 不依赖 `@modelcontextprotocol/sdk`,
 
 五个子模块:
 
-- **Tools** — 28 个自描述工具,使用 Zod schema,被 MCP adapter 和 plugin adapter 共同使用
-- **Retrieval** — 基于 `digest.jsonl` 的内存倒排索引(CJK 使用 bigram 分词器 + 英文使用 word 分词器),以及基于 synapse 边的图遍历
+- **Tools** — 30 个自描述工具,使用 Zod schema,被 MCP adapter 和 plugin adapter 共同使用
+- **Retrieval** — 基于 `digest.jsonl` 的内存倒排索引(CJK 使用 Intl.Segmenter 词级分词器 + 英文使用 word 分词器),以及基于 synapse 边的图遍历
 - **Maintenance Engine** — 按间隔运行 `light` / `deep` / `rem` 阶段(详见 [maintenance-engine](./maintenance-engine.zh-CN.md))
 - **Signals** — 收集 `ToolCallEvent`,提取行为信号,计算 RPE(预测误差)
 - **Verification** — 五维真值评分(跨上下文 / 时间稳定 / 相互支持 / 来源可靠 / 可执行)
@@ -138,7 +138,7 @@ Host tool call → Adapter → Tool.execute(ctx, input)
 
 ```
 Host tool call → Adapter → engram_search
-  → FTS query (bigram + word tokenizer)
+  → FTS query (Intl.Segmenter word-level tokenizer)
   → Graph expansion (follow consolidates/extends edges)
   → Score by: relevance · recency · importance · reinforcementScore
   → Bump retrieval stats (effectiveRetrievals, lastRetrievalScore)
@@ -155,13 +155,13 @@ Every 5 min (light):
 
 Every 1 hour (deep):
   re-run light dreaming (extra consolidation pass)
-  → apply Ebbinghaus decay to importance, archive/forget stragglers
+  → evaluate freshness decay (age vs halfLife); forget/archive stragglers by importance threshold
   → sweep long-forgotten engrams into .trash/
 
-Every 7 days (rem):
+Every 1 day (rem):
   run abstraction dreaming
   + metacognition 5-dim scoring
-  → upgrade or refute verificationStatus
+  → generate rem-verification proposals (land only after user accepts in Proposals)
 ```
 
 ## 搜索引擎
@@ -184,7 +184,7 @@ Co-Engram 在 `SearchEngine` 接口后面提供两个可互换的搜索后端。
 
 ### `memory`(opt-out)
 
-进程内 FTS,基于 `digest.jsonl` 行。分词器是 bigram + word。适用于仓库规模 ≤ ~1k engram —— 每次 `rebuildSearchIndex()` 都要重新解析 `digest.jsonl`,FTS 索引驻留在堆内存。
+进程内 FTS,基于 `digest.jsonl` 行。分词器是 Intl.Segmenter 词级(CJK)+ word(英文)。适用于仓库规模 ≤ ~1k engram —— 每次 `rebuildSearchIndex()` 都要重新解析 `digest.jsonl`,FTS 索引驻留在堆内存。
 
 - 除 `digest.jsonl` 外零磁盘占用。
 - 每次 watcher 失效都重新计算(小规模下代价低)。

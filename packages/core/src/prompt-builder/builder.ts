@@ -86,7 +86,7 @@ function buildExclusivitySection(language: Language): readonly string[] {
  *
  * 包含:
  *   - section header
- *   - 仓库目录概览(条件性,depth=1 常驻注入)
+ *   - 仓库目录概览(条件性,depth=2 常驻注入)
  *   - 何时调用 memory_search(语义检索场景)
  *   - 何时调用 engram_list(列举场景,仅当 engram_list 可用时注入)
  *   - 何时跳过(负向引导)
@@ -102,7 +102,7 @@ function buildBaseSection(
   const lines: string[] = [
     translatePrompt(language, "prompt.memory.section_header"),
   ];
-  // 仓库结构概览:depth=1 顶级目录,常驻注入(结构信息不走自进化)
+  // 仓库结构概览:depth=2 二级目录,常驻注入(结构信息不走自进化)
   // 让 LLM 在 search 之前先看到仓库布局;空列表跳过。
   if (pathOverview && pathOverview.length > 0) {
     const overview = formatPathOverview(pathOverview, language);
@@ -225,7 +225,7 @@ export function buildCoEngramMemoryPrompt(
  *   - language:固定(adapter 注册时确定)
  *   - signals:固定 snapshot(adapter 注册时读取,下次重启刷新)
  *   - proposalCount:动态(每次调用时通过 provider 获取)
- *   - pathOverview:动态(每次调用时通过 provider 获取 depth=1 目录概览)
+ *   - pathOverview:动态(每次调用时通过 provider 获取 depth=2 目录概览)
  */
 export function createPromptBuilder(options: {
   readonly language?: Language;

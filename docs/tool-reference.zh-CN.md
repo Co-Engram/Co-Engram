@@ -1,6 +1,6 @@
 # 工具参考
 
-Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
+Co-Engram 提供 30 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`)或 OpenClaw 插件 API 访问。在 `@co-engram/openclaw` 下,还会额外注册两个包装工具(`memory_search`、`memory_get`),用于满足 OpenClaw 的 memory 插件契约 —— 它们内部会调用 `engram_search` / `engram_get`。
 
 本页逐一列出每个原生工具及其必填输入。为简洁起见,省略了可选字段 —— 完整字段以源码中的 Zod schema 为准。
 
@@ -11,8 +11,8 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 | Profile   | 计数 | 适用场景                                                                            |
 | --------- | ---- | ----------------------------------------------------------------------------------- |
 | `minimal` | 12   | 仅核心读写 —— 只做回忆 + 记录的对话 agent。                                          |
-| `standard`| 19   | 默认值。加仓库健康(`engram_doctor`、`engram_list_paths`、`engram_audit_query`)+ 提案 + 验证。 |
-| `full`    | 29   | 全部,包括矛盾裁决、演化谱系、技能元信息查看。                                          |
+| `standard`| 21   | 默认值。加仓库健康(`engram_doctor`、`engram_list_paths`、`engram_audit_query`)+ 提案 + 验证 + 批量提案 + LLM 综合(`engram_synthesize`)。 |
+| `full`    | 30   | 全部,包括矛盾裁决、演化谱系、技能元信息查看。                                          |
 
 `skill_invoke` 在源码里存在,但是**实验性**的——默认不在任何 profile 里,因为 skill body 的执行逻辑目前是 P0 占位实现。如需查看 skill 元信息,使用 `skill_get`(只读,在 `full` profile)。
 
@@ -42,7 +42,10 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
   targetId?: string,                  // set when verdict is DUPLICATE / UPDATE (the existing engram)
   reason?: string,                    // why the dedup verdict was chosen
   confidence?: number,                // dedup confidence in [0, 1]
-  candidatesConsidered?: number       // how many existing engrams were compared
+  candidatesConsidered?: number,      // how many existing engrams were compared
+  warnings?: readonly string[]        // 非阻塞安全告警 —— 内容含 unsafe 模式(script 标签、
+                                      // javascript: URI、onX 事件、iframe)时返回。engram 仍正常创建,
+                                      // viewer 渲染时会做净化。
 }
 ```
 
@@ -70,9 +73,11 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 - `id: string`
 - `updatedBy: string`
 
-**关键可选:** `title`、`content`、`summary`、`kinds`、`domainTags`、`importance`、`confidence`、`decayHalfLifeDays`、`visibility`
+**关键可选:** `title`、`content`、`summary`、`kinds`、`domainTags`、`importance`、`confidence`、`visibility`
 
 **副作用:** 刷新 `updatedAt`,并递增 engram 的 version。
+
+**visibility 单向门(2026-07):** 写盘前仓库会 assert 转换合法性。从 `public` / `team` / `restricted` **降级到** `private` 一律 throw,文件保持原样 —— 因为 `private/` 进了 `.gitignore`,这种降级会隐性删除队友工作树里的该条记忆。反方向(`private` → `public` / `team`)放行,`public` / `team` / `restricted` 之间也可逆。守卫仅在 `visibility` 显式传入且与当前值不同时触发,no-op 更新不受影响。
 
 ### `engram_delete`
 
@@ -90,8 +95,10 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 **关键可选:**
 
-- `filter: { domainTags, kinds, status, freshness, emotionalValence, createdBy, createdAfter, createdBefore, minImportance }`
+- `filter: { domainTags, kinds, status, freshness, createdBy, createdAfter, createdBefore, minImportance, contextTags }`
 - `limit: number`(默认 20,最大 100)
+
+filter 走**严格匹配**(Zod `.strict()`):未知 key 直接拒绝,不再静默 strip —— filter 字段拼错会立刻报错,而不是悄悄返回全量 engram。ULID 输入(`id`、`fromId`、`toId`、`synapseId`)做大小写归一化,小写 ULID 会被接受并归一化为大写。
 
 **返回值:**
 
@@ -152,7 +159,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 ### `engram_archive`
 
-将一个 engram 移出默认检索,但仍保留可恢复性。默认不会出现在检索结果中,除非 `filter.status` 包含 `archived`。
+将一个 engram 移出默认检索,但仍保留可恢复性。默认不会出现在检索结果中,除非 `filter.status` 包含 `frozen`。
 
 **必填输入:** `id: string` | **可选:** `reason: string`
 
@@ -337,13 +344,23 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
   items: Array<{ entityId: string, occurrences: number, sampleQuotes: string[],
                  centroidExcerpt: string, firstSeenAt: string, lastSeenAt: string,
                  createdAt: string, status: "pending" | "accepted" | "dismissed",
-                 source: "conversation" | "auto-memory" | "external-markdown",
-                 /* auto-memory 来源还携带 proposedTitle/proposedContent 等 */ }>,
+                 source: "conversation" | "auto-memory" | "external-markdown"
+                       | "rem-verification" | "rem-pattern" | "rem-synapse",
+                 /* auto-memory / external-markdown 来源还携带 proposedTitle/proposedContent 等;
+                    rem-synapse 来源携带 synapseOp / synapseFrom / synapseTo / synapseKind
+                    / synapseOldKind / synapseId / synapseConfidence / synapseReason
+                    / synapseFromTitle / synapseToTitle */ }>,
   nextCursor: string | null  // 没有更多结果时为 null
 }
 ```
 
 排序:`createdAt DESC, entityId ASC`(稳定排序)。每个提案都包含样例引用、出现次数以及首次/末次出现的时间戳 —— 足以在不重读原始对话的情况下决定是接受还是驳回。
+
+`source` 枚举共六个值。前三个(`conversation` / `auto-memory` / `external-markdown`)由提案引擎被动观察得到;后三个由 REM(dreaming)维护阶段生成,**必须用户审批 accept 后**才会落盘:
+
+- `rem-verification` —— REM 元认知建议升级或反驳已有 engram 的 `verificationStatus`。`engram_accept_proposal` **不会**创建新 engram,而是把验证状态变更应用到已有 engram 上。
+- `rem-pattern` —— REM 模式抽象建议从一组相关 engram 提炼出一个新的 `pattern` engram。`engram_accept_proposal` 会创建该 pattern engram,并对每个源 engram 创建一条 `derives_from` 突触(pattern → source)。
+- `rem-synapse` —— REM 建议在两个已有 engram 之间新增 / 改类型 / 删除一条突触。`engram_accept_proposal` 根据提案上投影的 `synapseOp: "add" | "delete" | "retype"`,配合 `synapseFrom` / `synapseTo` / `synapseKind` / `synapseOldKind` / `synapseId` 字段执行对应突触操作。
 
 ### `engram_accept_proposal`
 
@@ -356,7 +373,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 - `content: string`(Markdown)
 - `domainTags: string[]`
 
-**可选:** `kind: EngramKind`(默认 `fact`)、`createdBy: string` —— **已废弃(2026-07):值被忽略**,系统决定,走与 `engram_create.createdBy` 相同的解析链。例外:`external-markdown` 来源的 proposal 保留 `payload.createdBy`(外部文档原作者,从 frontmatter 解析——事实信息,非 LLM 自填)。
+**可选:** `kind: EngramKind`(默认 `fact`)、`createdBy: string` —— **已废弃(2026-07):值被忽略**,系统决定,走与 `engram_create.createdBy` 相同的解析链。例外:`external-markdown` 来源的 proposal 保留 `payload.createdBy`(外部文档原作者,从 frontmatter 解析——事实信息,非 LLM 自填)。`visibility: EngramVisibility`(`"public" | "team" | "private" | "restricted"`)—— 显式指定 accept 后 engram 的可见性。解析优先级:caller 传入的 `visibility` > `proposal.payload.visibility` > `createEngram` 默认 `public`。当内容含风险信号时,LLM 应(向用户确认后)传 `"private"`。
 
 **副作用:** 创建 engram、移除该 cluster、在审计日志中追加 `accept`。
 
@@ -364,13 +381,13 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 ### `engram_dismiss_proposal`
 
-暂时驳回一个提案(默认 30 天,之后若该主题再次出现,可重新浮现)。
+驳回一个提案。默认**永久驳回**(2026-07 行为翻转):提案进入 `dismissed` 后不再自动复活。仅当你想要 N 天冷却、之后由新的 `proposeAutoMemory` / `proposeExternalMarkdown` / `observe` 事件重新激活时,才显式传 `dismissDays > 0`。
 
 **必填输入:** `entityId: string`
 
-**可选:** `reason: string`、`dismissDays: number`(默认 30)
+**可选:** `reason: string`、`dismissDays: number`(默认 0 即永久;传值范围 1–365)
 
-**副作用:** 将提案标记为 `dismissed`,记录 reason 以供后续元学习使用。
+**副作用:** 将提案标记为 `dismissed`,记录 `reason` 以供后续元学习使用,并写入永久 tombstone —— 即便后续执行「清空已驳回」清理,驳回状态依然存活,不会复活成僵尸提案。
 
 ### `engram_accept_proposals_by_source`
 
@@ -405,7 +422,7 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 **可选输入:**
 
 - `engramId: string` —— 过滤某个 engram 的完整历史
-- `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`)
+- `action: AuditAction` —— 按事件类型过滤(`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`、`noise_filtered`、`necessity_rejected`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`、`maintenance_run`)
 - `since: string`(ISO 8601,包含)、`until: string`(ISO 8601,不包含)
 - `cursor: string | null` —— 分页 token(编码上一页 oldest entry 的 `ts`;原样回传到下一页的 `cursor` 参数即可继续翻更早的事件)。与 `until` 互斥(同时传时 cursor 优先)。
 
@@ -418,17 +435,21 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
     actor: "user" | "system" | "llm-arbiter",
     action: AuditAction,
     engramId?: string,
+    host?: string,       // 发起宿主标识("claude-code-mcp" | "openclaw-plugin" | string);
+                         // 旧调用路径未注入 host 时省略
     metadata: Record<string, unknown>
   }>,
   nextCursor: string | null  // 没有更多结果时为 null
 }
 ```
 
+`maintenance_run` 由维护引擎在维护阶段(light / deep / REM)完成时写入(携带 `stage` / `durationMs` / `errorCount` 等元数据),作为高价值事件保留约 365 天,便于通过 `engram_audit_query({ action: "maintenance_run" })` 回答「REM 跑过了吗?」。每条 item 上可选的 `host` 字段记录发起该事件的宿主 adapter,用于跨宿主行为归因。
+
 事件按时间升序返回(在过滤范围内取最新 N 条,页内升序)。常见用法:"谁在什么时候强化了这个 engram?"、"为什么这个 engram 的 importance 跳变?"、"上次合并冲突的裁决是什么?"。
 
 ### `engram_doctor`
 
-对 data root 运行自愈扫描并报告问题。自动修复文件移动(更新索引)、标题变更(重新 slug 化并重命名)、文件缺失(清理索引条目)。对于悬挂的 synapse 引用和孤立的 Markdown,则报告给人工处理。
+对 data root 运行自愈扫描并报告问题。自动修复:文件移动(更新索引)、标题变更(重新 slug 化并重命名)、文件缺失(清理索引条目)、SQLite ghost(条目对应的 markdown 已不存在)、悬挂 synapse(端点 engram 已不存在时自动删除)以及陈旧的 `archived` frontmatter(自动迁移为 `frozen`)。文件扫描前还会先跑 infra-doctor 预检,重建缺失的派生索引 / 自动配置 merge driver。需要人工处理的:重复 id、相似 engram、孤立 Markdown、frontmatter 错误。
 
 **可选:** `incremental: boolean`(默认 `false` —— 全量扫描)
 
@@ -447,12 +468,17 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 
 | kind               | autoFixed | 含义                                                                                                                                                                                                                          |
 | ------------------ | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index_rebuilt`           | ✅        | 文件扫描前先跑的 infra-doctor 预检发现派生索引(`digest.jsonl` / `graph.json` / observation-windows)缺失,已全量重建。触发时会出现在 `issues` 数组头部。 |
+| `merge_driver_installed`  | ✅        | infra-doctor 预检自动配置了 co-engram 的 git merge driver(首次安装或升级)。触发时会出现在 `issues` 数组头部。 |
 | `moved_file`       | ✅        | 文件路径变更;索引已重新指向。                                                                                                                                                                                                 |
 | `title_changed`    | ✅        | 标题变更;通过重新 slug 化对文件进行了重命名。                                                                                                                                                                                 |
 | `missing_file`     | ✅        | 索引条目指向了一个已不存在的文件;条目已清理。                                                                                                                                                                                 |
 | `slug_conflict`    | ⚠️        | 新 slug 会与另一个文件冲突;保留旧 slug。需人工解决。                                                                                                                                                                          |
 | `orphan_markdown`  | ⚠️        | 没有 frontmatter 的 Markdown 文件。仓库约定文档(`README.md` / `LICENSE.md` / `CONTRIBUTING.md` / `CHANGELOG.md` / `CODE_OF_CONDUCT.md` / `SECURITY.md`,大小写不敏感)可豁免。其他文件请删除,或添加带有稳定 id 的 frontmatter。 |
-| `dangling_synapse` | ⚠️        | synapse 引用了一个已不存在的 engram;请人工清理或恢复该 engram。                                                                                                                                                               |
+| `dangling_synapse` | ⚠️        | synapse 引用了一个已不存在的 engram(在 engram 被旁路删除时为可见性而上报);后续扫描会把这些 synapse 自动删除并以 `dangling_synapse_cleaned` 上报。若想保留 synapse,请恢复对应 engram。 |
+| `dangling_synapse_cleaned` | ✅        | synapse 的 `from` / `to` 引用的 engram 已不存在;doctor 已自动删除该 synapse 文件(SQLite 行通过外键 `ON DELETE CASCADE` 级联清理)。在报告中暴露以便用户知晓删除情况。 |
+| `status_renamed`          | ✅        | 2026-07 `archived` → `frozen` 重命名:frontmatter 仍写着旧值 `archived`;doctor 已自动迁移为 `frozen`。(`archived` 仅作为只读兼容别名保留;新写入一律用 `frozen`。) |
+| `sqlite_ghost`            | ✅        | SQLite `engrams` 表存在条目,但对应的 markdown 源文件已不存在;doctor 已自动级联清理(FTS / `engram_domains` / `synapses` 由外键 `ON DELETE CASCADE` 自动清)。覆盖了此前 markdown-only 扫描漏掉的 SQLite-vs-markdown 漂移。 |
 | `duplicate_id`     | ⚠️        | 两个 engram 文件共用同一个 ULID。请人工为其中一个分配新的 ULID。                                                                                                                                                              |
 | `duplicate_engram`        | ⚠️        | 两个 engram 的标题/内容非常相似;可考虑用 `consolidates` synapse 进行整合。                                                                                                                                                    |
 | `invalid_frontmatter`     | ⚠️        | frontmatter 中存在 YAML 语法错误(与 `orphan_markdown` 分开报告)。需手动修复:重新解析该文件的 YAML。                                                                                                                          |
@@ -468,6 +494,42 @@ Co-Engram 提供 29 个原生工具,全部可通过 MCP(`mcp__co-engram__<name>`
 **可选:** `maxDepth: number`(1-10,默认 5)
 
 **返回值:** `{ root: { path: '/', engramCount, children: [...] } }`
+
+### `engram_synthesize`
+
+手工触发 REM 风格的模式综合:让 LLM 从一组相关 engram 提炼出更高阶的 `pattern` engram,并在真正落盘时为每个源 engram 创建一条 `derives_from` 突触(pattern → source)。典型用途是复盘式归纳 —— 某主题下的几条 engram 反复出现,你想抽出可复用的经验/原则。已注入 `standard` 与 `full` profile;需要 host 注入 `llmClient`,未注入时调用会显式报错(而不是悄悄退化)。
+
+**必填输入:**
+
+- `ids: string[2..20]` —— 源 engram id 列表(自动去重;不存在的 id 会抛错并指出缺哪个)。少于 2 条没有综合价值;多于 20 条有上下文超长 + 成本失控风险。
+
+**可选:**
+
+- `domainTags: string[]`(最多 5 个)—— 综合结果的 domain tags;不传时由 LLM 推断。
+- `synthesisHints: string`(最多 500 字符)—— 给 LLM 的综合方向提示(如「聚焦测试稳定性」)。让调用方在不手改 LLM 输出的前提下引导综合方向。
+- `createdBy: string` —— **已废弃(2026-07):值被忽略**,系统决定,走与 `engram_create.createdBy` 相同的解析链。
+- `dryRun: boolean` —— 为 `true` 时,LLM 仍会草拟 `title` / `content` / `summary` / `domainTags`,但**不会**创建 engram 与突触;返回值带 `draft`,`patternEngramId` / `synapseIds` 为空。用于预览综合质量再决定是否落盘。
+
+**返回值:**
+
+```ts
+{
+  patternEngramId?: string,           // dryRun = true 时为 undefined
+  synapseIds: readonly string[],      // dryRun = true 时为空数组
+  sourceIds: readonly string[],       // 实际参与综合的源 id(去重后)
+  draft: {
+    title: string,
+    content: string,
+    summary: string,
+    domainTags: readonly string[],
+    confidence: number,               // LLM 自评置信度,[0, 1]
+    reason: string                    // LLM 给出的综合理由
+  },
+  dryRun: boolean
+}
+```
+
+`dryRun: true` 依然会调 LLM(因为要产出 draft),只是跳过 engram + 突触的写盘。`ctx.llmClient` 必须已配置 —— 未注入 LLM client 的 host 会在调用入口直接拒绝,而不是悄悄退化。
 
 ## 常用模式
 

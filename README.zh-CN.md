@@ -114,7 +114,19 @@ agent 用 `synapse_create` 连接两条 engram 后,后续的 `engram_search` 会
 
 ### 渐进披露:只为实际需要的内容付费
 
-LLM 的上下文窗口有限且昂贵。Co-Engram 的 `tier` 系统让 agent 先请求能回答问题的最廉价表示,只在必要时加深。
+LLM 的上下文窗口有限且昂贵。Co-Engram 的渐进披露沿**两个正交维度**展开——先看仓库结构(广度),再读单条记忆(深度),每一层都只返回回答当前问题所需的最小信息。
+
+#### 广度维度:把二级目录注入系统提示,帮助有效召回
+
+目录是**结构信息**——静态、廉价,与"记忆被检索多少次"无关。Co-engram 据此把目录放在召回链的最前面:
+
+- **常驻注入二级目录** —— 会话一启动,仓库的二级目录概览(每个项目域 + 其下的领域级子目录,各带累计 engram 数)就被注入系统提示。Agent 不调任何工具,就能看到"团队的记忆集中在哪些领域、每个领域有多少条"。
+- **召回的起搏点** —— 看到二级目录,LLM 才能主动判断问题归属哪个领域、构造精准检索词、被问到时主动召回。没有这层结构预览,LLM 只能盲搜——要么漏召(查询词没命中),要么空召(不知道该搜什么)。
+- **按需下钻** —— 需要更细结构时调用 `engram_list_paths(maxDepth=N)`,拿到嵌套目录树,每节点带 `engramCount`(子树累计),但**不返回正文**。看清工作集中在哪里,再决定搜什么。
+
+#### 深度维度:打开后再分层读取
+
+定位到具体记忆后,`engram_get` 的 `tier` 系统让 agent 请求最廉价的表示,只在必要时加深:
 
 | Tier | 返回内容 | 适用场景 |
 |------|---------|---------|
@@ -125,7 +137,11 @@ LLM 的上下文窗口有限且昂贵。Co-Engram 的 `tier` 系统让 agent 先
 
 > agent 调用 `engram_get(id="01J...", tier="auto", contextBudget={totalTokens:800})` → 系统测量 JSON 大小,自选能装进预算的最深 tier。
 
-这对用户完全透明——agent 学会默认用 `tier=auto`,只在真正需要正文时才切到 `content`。
+两个维度构成一条贯穿始终的调用链,每一步都只为本步真正需要的信息付费:
+
+> 常驻二级目录(看到"设计原则/co-engram"下有 10 条)→ `engram_search(filter.domainTags=["co-engram"])`(定位到 3 条候选)→ `engram_get(tier="digest")`(略读后只对 1 条切到 `tier="content"`)。
+
+这对用户完全透明——agent 学会默认走"先广度后深度",只在真正需要正文时才切到 `content`。
 
 ### 闭合学习回路:反馈改变重要性
 
@@ -151,7 +167,7 @@ Co-Engram 仿照大脑建模记忆可塑性——不是一个静态仓库,而是
 |---------|------|---------|
 | `engram_search` 返回该 engram | 检索计数 +1;记录最近分数 | `retrievalCount`, `lastRetrievalScore` |
 | `engram_create` 返回 `DUPLICATE` | 原始 engram 获得强化加成(与 `close_learning_loop` 相同的 RPE 数学) | `reinforcementScore` |
-| `close_learning_loop(outcome="success")` | 重要性上升: `Δ = learningRate × effectiveness × (1 - oldImportance)` | `importance`, `reinforcementScore`, `effectiveRetrievals` |
+| `close_learning_loop(outcome="success")` | 重要性上升:`Δ = effectiveness × learningRate × min(1, confidence × 2)`(importance 截断到 [0,1]) | `importance`, `reinforcementScore`, `effectiveRetrievals` |
 | `synapse_create(kind="extends"\|"consolidates")` | 连接 engram 每次 `close_learning_loop(success)` 时,邻居按边权重获得 Hebbian 加成 | 邻居的 `importance` |
 | `engram_reinforce`(直接调用) | 手动加成,与 success loop 相同的 RPE 数学 | `reinforcementScore` |
 
@@ -164,15 +180,15 @@ Co-Engram 仿照大脑建模记忆可塑性——不是一个静态仓库,而是
 | 触发条件 | 效果 | 阈值 |
 |---------|------|------|
 | `close_learning_loop(outcome="failure")` | 重要性下降;`failedUses` 计数器 +1 | — |
-| `failedUses >= 3` | 系统建议归档:status → `archived`,默认搜索结果中排除 | 3 次失败 |
+| `failedUses >= 3` | 系统建议归档:status → `frozen`,默认搜索结果中排除 | 3 次失败 |
 | `failedUses >= 5` | 系统建议遗忘:status → `forgotten`,经过 `CO_ENGRAM_TRASH_AFTER_DAYS` 后移入 `.trash/` | 5 次失败 |
-| Ebbinghaus 衰减(Deep 阶段) | `importance *= e^(-Δt / halfLife)` — 超过 `halfLife` 天未被检索的 engram 失去约 63% 的重要性 | `decayHalfLifeDays`(默认按 kind 而异;`null` = 永衰减) |
+| Freshness 驱动的遗忘(Deep 阶段) | Deep **不**随时间衰减 `importance`(importance 纯事件驱动),而是按 `freshness` 行动:`forgotten` → 遗忘;`stale` + `importance < 0.2` → 遗忘;`stale` + `importance ≥ 0.2` → 归档(`frozen`) | `freshness` = 年龄 vs `halfLife`;`halfLife = 50 × (importance+0.1)^1.5 × kind 倍率`(派生,不存储) |
 | `engram_report_failure` | 标记某次检索为有害;递增 `failedUses` | — |
 
 **遗忘管道**有两条路径:
 
 ```
-active ──(failedUses>=3)──→ archived ──(engram_restore)──→ active
+active ──(failedUses>=3)──→ frozen ──(engram_restore)──→ active
 active ──(failedUses>=5)──→ forgotten ──(CO_ENGRAM_TRASH_AFTER_DAYS)──→ .trash/ ──(CO_ENGRAM_TRASH_PURGE_AFTER_DAYS)──→ deleted
                     forgotten ──(engram_restore)──→ active
 ```
@@ -208,7 +224,7 @@ unverified → plausible → probable → verified
 
 新 engram 起步于 `unverified`——"有人说过这个,还未核实"。随着记忆被成功使用、被其他 engram 引用、以及通过矛盾检测,REM 维护阶段会评估它并把升级建议作为提案呈现在「记忆提案」页,经你采纳后才落盘。被持续矛盾的记忆则走向 `refuted`——它仍留在仓库中(你可能还想知道它曾经被相信过),但被明确标记为不可靠。
 
-**REM 阶段**(默认每 7 天)对每条 engram 从五个维度做评估:
+**REM 阶段**(默认每 1 天)对每条 engram 从五个维度做评估:
 
 | 维度 | 检查内容 |
 |------|---------|
@@ -222,15 +238,15 @@ unverified → plausible → probable → verified
 
 ### 自动维护:light → deep → REM
 
-没人有时间为知识库做人工管理。设置 `CO_ENGRAM_MAINTENANCE=1` 后,Co-Engram 在后台定时运行三个阶段:
+没人有时间为知识库做人工管理。维护引擎**默认启用**——开箱即用,Co-Engram 在后台定时运行三个阶段。如需关闭,在 `config.json` 设置 `maintenance.enabled: false`(没有 env 开关;`CO_ENGRAM_MAINTENANCE*` 系列环境变量不再被消费):
 
 | 阶段 | 间隔(默认) | 做什么 |
 |------|-----------|--------|
 | **Light** | 5 分钟 | 对最近返回的 engram 施加 RPE,更新检索统计 |
-| **Deep** | 1 小时 | 合并碎片化 engram,重算综合重要性,施加 Ebbinghaus 遗忘衰减 |
-| **REM** | 7 天 | 运行元认知评估 + 模式提炼:评估每条 engram 真值、聚类相似记忆提炼模式,生成升级/反驳/模式提案(见「记忆提案」页,采纳后生效) |
+| **Deep** | 1 小时 | 合并碎片化 engram,重算综合重要性,按 freshness 归档/遗忘 |
+| **REM** | 1 天 | 运行元认知评估 + 模式提炼 + 突触操作:评估每条 engram 真值、聚类相似记忆提炼模式、建议突触建立/移除/更正类型操作,生成升级/反驳/模式/突触提案(见「记忆提案」页,采纳后生效) |
 
-Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、Ebbinghaus 遗忘曲线、Hebbian 可塑性),写回更新后的字段。**REM 阶段自动做分析,但升级/反驳/模式提炼建议会以提案形式呈现在「记忆提案」页,由你审批采纳后才落盘**,避免系统未经确认就改动你的记忆。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
+Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、freshness 驱动的遗忘、Hebbian 可塑性),写回更新后的字段。**REM 阶段自动做分析,但升级/反驳/模式提炼/突触操作建议会以提案形式呈现在「记忆提案」页,由你审批采纳后才落盘**,避免系统未经确认就改动你的记忆。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 
 ### 访问 Web 查看器
 
@@ -243,16 +259,18 @@ claude mcp add co-engram \
   ... -- co-engram-mcp
 ```
 
-OpenClaw 在插件 manifest 中设置 `startViewer: true` —— viewer 同样默认 18899。
+OpenClaw 的 viewer **默认启用**(插件 schema 中 `startViewer` 缺省为 `true`)。仅在需要关闭时显式设 `startViewer: false`。viewer 同样默认端口 18899。
 
 浏览器打开 **http://127.0.0.1:18899**。用 `CO_ENGRAM_VIEWER_PORT` 覆盖。
 
 | 标签 | 内容 |
 |------|------|
-| **Engrams** | 可筛选的记忆表格——按重要性排序、按标签/状态/验证级别过滤,点击查看全文 |
-| **Graph** | 交互式力导向 synapse 图——节点为 engram,边为有类型连接;点击节点跳转内容 |
-| **Audit** | 每次 `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` 调用的时间线——谁、何时、改了什么 |
-| **Health** | 各阶段维护报告、验证状态饼图、RPE 分数分布 |
+| **统计(Stats)** | KPI 仪表板——engram / synapse 总数、待处理提案数(点击跳转)、验证状态分布 |
+| **记忆印迹(Engrams)** | 可筛选的记忆表格——按重要性排序、按标签/状态/验证级别过滤,点击查看全文 |
+| **记忆突触(Graph)** | 交互式力导向 synapse 图——节点为 engram,边为有类型连接;点击节点跳转内容 |
+| **记忆提案(Proposals)** | 隐式捕获与 REM 产生的待处理候选(升级 / 反驳 / 模式 / 突触操作)。tab 上的脉动徽标显示待处理数(≥99 显示 99+) |
+| **记忆梦境(Maintenance)** | 各阶段维护报告(light / deep / REM 运行状态与下次触发时间)、梦境状态、验证状态饼图、RPE 分数分布 |
+| **更多 ▾**(下拉) | 团队记忆合并 · 审计(每次 `engram_create` / `engram_update` / `engram_delete` / `close_learning_loop` 调用的时间线)· 回收站 · 健康(仓库健康概览)· 配置 · 帮助 |
 
 更详细的使用指南见 [docs/concepts.zh-CN.md](./docs/concepts.zh-CN.md) 和 [docs/tool-reference.zh-CN.md](./docs/tool-reference.zh-CN.md)。
 
@@ -296,9 +314,19 @@ engram_sync({ message?: string, dryRun?: boolean, pull?: boolean, push?: boolean
 - 直接调用系统 `git`,继承用户本机的 SSH 配置、凭据、HTTP proxy。**不硬编码任何主机名或 URL**。
 - **不主动写 `Change-Id`**。如果你装了 Gerrit 的 `commit-msg` hook(`gitdir/hooks/commit-msg`),它会自动加 `Change-Id`。
 - **尊重用户 `.git/config` 的 push refspec**。若你为 Gerrit review 配置了 `push = refs/heads/*:refs/for/*`,push 会走 review;否则直接推到 tracking 分支。
+- **Gerrit 自动 fallback**:若直推被 Gerrit 受保护分支拒绝(如 `prohibited by Gerrit`、`need 'Push' rights`),工具会自动改走 `HEAD:refs/for/<branch>` 提交 code-review —— 无需手动配置 `.git/config` 的 refspec。fallback 时 push 结果返回 `mode: "gerrit-review"` 且 `autoFallback: true`;顶层 `ok` 字段汇总整体成功与否。
 - 纯本地仓库也能用——sync 在 commit 阶段自然停下。
 
 用 `dryRun: true` 可以预览 `git status` 会涉及哪些文件,不真改任何东西。
+
+#### 自动同步生命周期(Claude Code MCP)
+
+除了手动的 `engram_sync` 工具,Claude Code MCP server 还会自动跑一套同步生命周期——无需任何配置:
+
+- **启动时**:执行 `git pull --no-edit`(30s 超时)。拉取队友更新,让新会话以最新记忆起步。无远端或仓库已最新时静默跳过。
+- **会话退出时**(`SIGINT` / `SIGTERM`):先 auto-commit 任何未提交写入,再执行 `git push`(30s 超时)。失败只发 stderr 警告——绝不阻塞退出。
+
+这正是多机协作无缝的原因:每台主机启动即 pull、退出即 push,结构化 merge driver 负责解决它们之间的冲突。纯本地仓库(未配置 remote)静默跳过 pull/push 阶段。
 
 ## 架构
 
@@ -315,7 +343,7 @@ flowchart TB
   end
 
   subgraph Core["@co-engram/core<br/>(host-agnostic)"]
-    Tools["27 个工具<br/>engrams · synapses · skills · doctor"]
+    Tools["26 个工具<br/>engrams · synapses · skills · doctor"]
     Engine["维护引擎<br/>light · deep · rem"]
     Retrieval["FTS + 图检索"]
   end
@@ -387,20 +415,17 @@ flowchart TB
 |              | `updatedBy` / `updatedAt`             | 字符串 / ISO 时间戳 | 最近修改者与时间。                                                                                                                      |
 |              | `version`                             | 整数                | `engram_update` 时单调递增。                                                                                                            |
 | **价值**     | `importance`                          | 数值 `[0, 1]`       | 综合重要性;驱动排序与衰减。                                                                                                             |
-|              | `importanceVector`                    | 对象(可选)          | 按受众的权重:`personal/team/project/network/temporal/composite`。                                                                       |
-|              | `confidence`                          | 数值 `[0, 1]`       | 由 `sourceType` 派生的初始置信度(`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`)。                                                |
+|              | `confidence`                          | 数值 `[0, 1]`       | 由 `sourceType` 派生初始值(`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`),随后随使用反馈动态调整:有效检索 +0.05、失败检索 −0.05、refute ×0.3、verify +0.2。 |
 |              | `sourceType`                          | 枚举                | `firsthand` \| `secondhand` \| `inferred`。                                                                                             |
-|              | `emotionalValence`                    | 枚举(可选)          | `positive` \| `neutral` \| `negative`。                                                                                                 |
-|              | `evidenceCount`                       | 整数                | 支持性 synapse/evidence 数量。                                                                                                          |
+|              | `evidenceCount`                       | 整数                | 派生值: outgoing `derives_from` synapse 上 verdict evidence 条目数(description 以 `[plausible\|probable\|verified\|refuted]` 开头)。frontmatter 字段已废弃、不再读取。 |
 | **检索统计** | `retrievalCount`                      | 整数                | `engram_search` 命中的总次数。                                                                                                          |
 |              | `effectiveRetrievals`                 | 整数                | 调用方上报成功的次数(`engram_reinforce` 或 `close_learning_loop`)。                                                                     |
 |              | `failedUses`                          | 整数                | 调用方上报失败的次数(`engram_report_failure`)。达 3 → 建议归档;达 5 → 建议遗忘。                                                        |
 |              | `reinforcementScore`                  | 数值                | RPE 累积强化分。                                                                                                                        |
 |              | `lastRetrievedAt` / `lastEffectiveAt` | ISO 时间戳          | 最近一次检索 / 最近一次有效使用。                                                                                                       |
 |              | `lastRetrievalScore`                  | 数值 `[0, 1]`       | 最近一次相关性分数;RPE 基准。                                                                                                           |
-| **生命周期** | `status`                              | 枚举                | `draft` \| `active` \| `archived` \| `forgotten`。                                                                                      |
+| **生命周期** | `status`                              | 枚举                | `draft` \| `active` \| `frozen` \| `forgotten`。                                                                                      |
 |              | `forcedFreshness`                     | 枚举(可选)          | `fresh` \| `aging` \| `stale` \| `forgotten`。由 lifecycle 工具显式覆盖派生值。                                                         |
-|              | `decayHalfLifeDays`                   | 数值或 null         | Ebbinghaus 半衰期(天)。`null` = 永不衰减。                                                                                              |
 |              | `visibility`                          | 枚举                | `private` \| `team` \| `public`。LLM 在存储含凭据 / 个人 / 内部 / 敏感信息的记忆前会主动询问;详见[记忆可见性与风险识别](#记忆可见性与风险识别)。                              |
 | **验证**     | `verificationStatus`                  | 枚举                | `unverified` \| `plausible` \| `probable` \| `verified` \| `refuted`。REM 维护阶段会自动升级;也可通过 `upgrade_verification` 强制设置。 |
 | **上下文**   | `encodingContext`                     | 字符串(可选)        | 记录该 engram 时 agent 在做什么。                                                                                                       |
@@ -426,7 +451,6 @@ confidence: 0.85
 sourceType: firsthand
 status: active
 verificationStatus: unverified
-decayHalfLifeDays: 30
 visibility: team
 createdBy: claude-code
 createdAt: 2026-06-21T10:30:00.000Z
@@ -541,10 +565,10 @@ retrievalWeight: 0.8
 
 ## 工具目录
 
-Co-Engram 暴露 **27 个原生工具**,按五个关注点分组;此外 `@co-engram/openclaw` 还会注册 2 个 OpenClaw 兼容的 `memory_*` 包装工具。
+Co-Engram 暴露 **26 个原生工具**,按五个关注点分组;此外 `@co-engram/openclaw` 还会注册 2 个 OpenClaw 兼容的 `memory_*` 包装工具。
 
-**Engrams**(12 个)— 核心记忆单元
-`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget` · `engram_recompute_importance`
+**Engrams**(11 个)— 核心记忆单元
+`engram_create` · `engram_get` · `engram_update` · `engram_delete` · `engram_search` · `engram_list` · `engram_reinforce` · `engram_report_failure` · `engram_archive` · `engram_restore` · `engram_forget`
 
 **Synapses**(4 个)— engram 之间的有类型连接
 `synapse_create` · `synapse_get` · `synapse_list` · `synapse_delete`
@@ -610,7 +634,7 @@ LLM 遇到可复用的洞察时会调用 `engram_create`。当 `dedupe: true`(�
 
 ### 2. 带过滤的搜索
 
-`engram_search` 跑一次内存 FTS 查询(CJK 用 bigram 分词,英文用 word 分词),再通过 `extends` / `consolidates` 边做图扩展。用 `filter` 缩小结果集。
+`engram_search` 跑一次 FTS 查询(词级分词:CJK 用 `Intl.Segmenter`,`记忆` / `系统` 等整词被识别为单个 token;英文按空白 / 标点切分),再通过 `extends` / `consolidates` 边做图扩展。用 `filter` 缩小结果集。
 
 ```json
 // 工具输入
@@ -775,12 +799,6 @@ viewer 自 2026-07 起使用统一默认端口(`18899`),两宿主共用。早先
 | ----------------------------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `CO_ENGRAM_DEFAULT_CREATED_BY`            | `unknown`           | 新建 engram 的默认作者                                                                                                  |
 | `CO_ENGRAM_LANGUAGE`                      | `en`                | 工具描述 / 查看器 UI / 提示词的语言(`en` \| `zh`)。未设置时回退到 `~/team-memory/.co-engram/config.json` 中持久化的值。 |
-| `CO_ENGRAM_MAINTENANCE`                   | `0`                 | 设为 `1` 启动维护引擎                                                                                                   |
-| `CO_ENGRAM_MAINTENANCE_ENABLED_STAGES`    | `light,deep,rem`    | 逗号分隔的阶段列表                                                                                                      |
-| `CO_ENGRAM_MAINTENANCE_LIGHT_INTERVAL_MS` | `300000`(5 分钟)    | light 阶段间隔                                                                                                          |
-| `CO_ENGRAM_MAINTENANCE_DEEP_INTERVAL_MS`  | `3600000`(1 小时)   | deep 阶段间隔                                                                                                           |
-| `CO_ENGRAM_MAINTENANCE_REM_INTERVAL_MS`   | `604800000`(7 天)   | rem 阶段间隔                                                                                                            |
-| `CO_ENGRAM_MAINTENANCE_LEARNING_RATE`     | `0.1`               | RPE 学习率                                                                                                              |
 | `CO_ENGRAM_TRASH_ENABLED`                 | `0`                 | 设为 `1` 后,forgotten 的 engram 会移入 `.trash/` 而非直接删除                                                           |
 | `CO_ENGRAM_TRASH_AFTER_DAYS`              | `30`                | 进入 `forgotten` 状态多少天后才移入 `.trash/`                                                                           |
 | `CO_ENGRAM_TRASH_PURGE_AFTER_DAYS`        | `365`               | 在 `.trash/` 中多少天后物理删除(`0` = 永不)                                                                             |
@@ -790,6 +808,48 @@ viewer 自 2026-07 起使用统一默认端口(`18899`),两宿主共用。早先
 | `CO_ENGRAM_AUTO_MEMORY_SYNC`              | `1`                 | 仅 Claude Code。设为 `0` 关闭监听器 —— 该监听器把 `~/.claude/projects/*/memory/*.md` 镜像成 **待审批 proposal**(需 accept 才成为 engram;详见 [host-claude-code.md](./docs/host-claude-code.zh-CN.md#auto-memory-同步claude-code--co-engram-proposal))。co-engram 提示词仍会引导 LLM agent 直接调 `engram_create` —— auto-memory 作为未接入 co-engram 原生工具的 agent 的兜底入口。 |
 | `CO_ENGRAM_CLAUDE_PROJECTS_ROOT`          | `~/.claude/projects` | 覆盖 auto-memory 项目根目录(仅 Claude Code)                                                                              |
 | `CO_ENGRAM_SEARCH_ENGINE`                 | `sqlite`            | 搜索后端。`sqlite` = 派生 SQLite 索引,FTS5 trigram 分词 + LIKE 回退(默认;支持 5k+ engram 规模;需 Node 22.17+——旧 Node 或文件系统错误时自动回退到 `memory`)。`memory` = 进程内 FTS(基于 digest 行,engram 数超过 ~1k 性能下降;适用于受限环境 / 只读 fs / 嵌入式部署的显式 opt-out)。未知值回退到 `sqlite`(fail-safe 走向更强引擎)。详见 [architecture.md](./docs/architecture.zh-CN.md#搜索引擎)。 |
+
+### 可调默认值(`config.json`)
+
+除 dataRoot 外,持久化配置 `<dataRoot>/.co-engram/config.json` 还接受三个调参 section,**没有对应的 env var** —— `config.json` 是唯一通道。省略整个 section(或单个字段)即保持默认。
+
+| Section        | 字段               | 默认值  | 含义                                                                                                    |
+| -------------- | ------------------ | ------- | ------------------------------------------------------------------------------------------------------- |
+| `reinforcement` | `hebbianRatio`     | `0.5`   | 邻居获得本 engram Δimportance 的比例(沿 `extends` / `consolidates` 边扩散)                              |
+| `reinforcement` | `archiveThreshold` | `3`     | `failedUses` 达到该次数时建议归档(`frozen`)                                                                  |
+| `reinforcement` | `forgetThreshold`  | `5`     | `failedUses` 达到该次数时建议遗忘                                                                          |
+| `search`       | `relevance`        | `0.5`   | 查询文本相关性权重(FTS / 余弦)                                                                            |
+| `search`       | `recency`          | `0.15`  | 新鲜度 / 时间衰减权重                                                                                     |
+| `search`       | `importance`       | `0.25`  | engram 自身 `importance` 权重                                                                             |
+| `search`       | `strength`         | `0.1`   | 强化分 / 边强度权重                                                                                       |
+| `observation`  | `observation`      | `6h`    | `kind=observation` 的有效使用窗口                                                                          |
+| `observation`  | `fact`             | `24h`   | `kind=fact` 的有效使用窗口                                                                                |
+| `observation`  | `pattern`          | `48h`   | `kind=pattern` 的有效使用窗口                                                                              |
+| `observation`  | `procedure`        | `48h`   | `kind=procedure` 的有效使用窗口                                                                            |
+| `observation`  | `hypothesis`       | `7d`    | `kind=hypothesis` 的有效使用窗口                                                                           |
+
+四个 `search` 权重**必须求和为 1**。`observation` 值为时长(毫秒)。示例:
+
+```json
+{
+  "reinforcement": { "hebbianRatio": 0.7 },
+  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1 },
+  "observation": { "pattern": 172800000 }
+}
+```
+
+### Merge driver 命令行
+
+`co-engram` 二进制还暴露六个结构化 git merge driver 子命令——拉取队友更新后、或排查同步健康度时很有用。在数据仓库目录内运行(或用 `--cwd PATH` 指定)。
+
+| 命令                                            | 用途                                                                                          |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `co-engram stats [--window-days N] [--json]`    | 统计时间窗内(默认 7 天)的合并情况:engram/synapse 合并数、冲突数、自动解决数                        |
+| `co-engram anomalies [--window-days N] [--json]`| 对近期合并做异常检测——标记异常冲突率或解决失败(出现 `critical` 时以非零码退出)                    |
+| `co-engram install-post-merge-hook`             | 在数据仓库安装 git `post-merge` 钩子(每次 `git pull` 后自动跑一致性检查)                            |
+| `co-engram uninstall-post-merge-hook`           | 卸载 `post-merge` 钩子                                                                          |
+| `co-engram hook-status`                         | 查询 `post-merge` 钩子是否已安装及安装位置                                                          |
+| `co-engram post-merge`                          | 钩子入口——执行 post-merge 一致性检查。通常由 git 触发,无需手动调用                                  |
 
 ### OpenClaw manifest 配置
 

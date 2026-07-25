@@ -12,7 +12,7 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 常见原因:
 
-- **Node 版本 < 22** —— 用 `node --version` 检查。MCP SDK 要求 Node 22+。
+- **Node 版本 < 22.17** —— 用 `node --version` 检查。co-engram 默认的 `sqlite` 搜索引擎需要 Node 22.17+(`node:sqlite` 在 22.17 才稳定);更旧版本会让搜索引擎静默回退到 `memory`。
 - **`CO_ENGRAM_DATA_ROOT` 是相对路径** —— 必须是绝对路径(例如 `/home/you/team-memory`,在某些 shell 中不能写 `~/team-memory`)
 - **数据目录不是 Git 仓库** —— `cd ~/team-memory && git init`
 - **缺少依赖**(源码构建)—— 在仓库根目录运行 `pnpm install`

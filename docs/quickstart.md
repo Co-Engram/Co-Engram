@@ -4,7 +4,7 @@ This is the extended quickstart. For the 3-command version, see the main [README
 
 ## Prerequisites
 
-- **Node.js 22+** — check with `node --version`
+- **Node.js 22.17+** — check with `node --version`
 - **Git** — for the data repository
 - **pnpm** — only needed for source builds; npm users can skip
 - A host that supports MCP (Claude Code, Cursor, Continue.dev, ...) or OpenClaw
@@ -112,13 +112,13 @@ You should see:
 
 ```
 co-engram: ✓ Connected
-  Tools: 16    # standard profile by default; 11 (minimal) or 27 (full) if you set CO_ENGRAM_TOOLS_PROFILE
+  Tools: 21    # standard profile by default; 12 (minimal) or 30 (full) if you set CO_ENGRAM_TOOLS_PROFILE
 ```
 
 The MCP server also writes a startup line to stderr (visible in `claude mcp logs co-engram`):
 
 ```
-[co-engram] Loaded 0 engrams, profile=standard (17/28 tools visible to LLM)
+[co-engram] Loaded 0 engrams, profile=standard (21/30 tools visible to LLM)
 [co-engram] No memories yet — the LLM will start capturing once you discuss decisions, preferences, or lessons learned.
 ```
 
@@ -161,13 +161,13 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 Run the binary directly — you'll see stderr. Common causes:
 
-- **Node version too old** — needs Node 22+
+- **Node version too old** — needs Node 22.17+ (`node:sqlite` stabilizes at 22.17; on older Node the search engine silently falls back to memory)
 - **`CO_ENGRAM_DATA_ROOT` not set or not absolute** — must be an absolute path
 - **Data directory not a Git repo** — run `git init` inside it
 
 ### `/mcp` shows 0 tools despite `✓ Connected`
 
-The manifest is missing `contracts.tools` entries. This shouldn't happen if you installed from npm — if building from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 30 tools (28 native + 2 `memory_*` wrappers). The OpenClaw loader silently drops undeclared tools.
+The manifest is missing `contracts.tools` entries. This shouldn't happen if you installed from npm — if building from source, verify `packages/openclaw-plugin/openclaw.plugin.json` lists all 33 tools (31 native + 2 `memory_*` wrappers). The OpenClaw loader silently drops undeclared tools.
 
 ### Tools registered but calls return errors
 

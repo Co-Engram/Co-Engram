@@ -14,7 +14,7 @@ flowchart LR
 
 - OpenClaw 扫描 `extensions/` 目录,寻找 `package.json` 中带 `openclaw.extensions` 字段的包
 - 插件入口(默认导出)必须是一个含 `register(api)` 方法的对象
-- `register` 接收一个 `OpenClawPluginApi`,并为 29 个原生工具加上 2 个 OpenClaw 兼容的 `memory_search` / `memory_get` 包装器(共 31 个)逐一调用 `api.registerTool(...)`
+- `register` 接收一个 `OpenClawPluginApi`,并为 registry 中的全部原生工具加上 2 个 OpenClaw 兼容的 `memory_search` / `memory_get` 包装器逐一调用 `api.registerTool(...)`
 - manifest `openclaw.plugin.json` 声明 `kind: "memory"`(使 Co-Engram 成为首要记忆插件,与 `memory-core` 互斥),并在 `contracts.tools` 下罗列每个工具名
 
 ## 安装
@@ -56,48 +56,49 @@ plugins:
       enabled: true
       config:
         dataRoot: /home/your/team-memory
-        defaultCreatedBy: openclaw
         startMaintenance: true
         maintenanceConfig:
           enabledStages: [light, deep, rem]
           lightIntervalMs: 300000
           deepIntervalMs: 3600000
-          remIntervalMs: 604800000
+          remIntervalMs: 86400000
           learningRate: 0.1
         proposalEnabled: true
         proposalConfig:
           threshold: 3
           similarityThreshold: 0.75
-        startViewer: false
+        startViewer: true
         viewerConfig:
           port: 18899
 ```
+
+> **plugin config 中的 `dataRoot` 已废弃。** 实际数据根目录统一从 bootstrap 文件 `~/.co-engram/config.json` 解析(与 Claude Code 宿主共享)。在此处设置 `dataRoot` 不再生效 —— 插件仅输出 deprecation 警告并忽略其值。请通过 `co-engram config data-root <path>` 或查看器配置栏修改数据根目录,然后重启。
 
 **字段说明:**
 
 | 字段                   | 类型           | 默认值              | 用途                                                                             |
 | ---------------------- | -------------- | ------------------- | -------------------------------------------------------------------------------- |
 | `enabled`              | boolean        | `true`              | 切换工具注册                                                                     |
-| `dataRoot`             | string         | `$HOME/team-memory` | 数据 Git 仓库的绝对路径                                                          |
-| `defaultCreatedBy`     | string         | `"openclaw"`        | 新 engram 的默认作者                                                             |
-| `language`             | `"en" \| "zh"` | `"en"`              | 工具描述、查看器 UI、系统提示词所用语言。未设置时回退到 team-memory 持久化配置。 |
-| `startMaintenance`     | boolean        | `false`             | 启动维护引擎                                                                     |
+| `dataRoot`             | string         | `$HOME/team-memory` | 数据 Git 仓库的绝对路径。**在 plugin config 中已废弃** —— 见下方说明;实际值取自 `~/.co-engram/config.json`。 |
+| `defaultCreatedBy`     | string         | _(运行时解析)_      | 新 engram 的默认作者。未设置时运行时按 git 身份 → 持久化配置 → env 解析(避免填 `openclaw`/`claude-code` 这类工具名)。 |
+| `language`             | `"en" \| "zh"` | `"zh"`              | 工具描述、查看器 UI、系统提示词所用语言。未设置时回退到 team-memory 持久化配置,再回退到 `DEFAULT_LANGUAGE`(`zh`)。 |
+| `startMaintenance`     | boolean        | `true`              | 启动维护引擎                                                                     |
 | `maintenanceConfig`    | object         | (见下文)            | 维护引擎调优                                                                     |
 | `auditEnabled`         | boolean        | `true`              | 仅追加的审计日志                                                                 |
 | `effectivenessEnabled` | boolean        | `true`              | 跟踪 retrieve_hit → effective/inconclusive                                       |
 | `proposalEnabled`      | boolean        | `false`             | 隐式记忆候选引擎                                                                 |
 | `proposalConfig`       | object         | (见下文)            | 候选引擎调优                                                                     |
-| `startViewer`          | boolean        | `false`             | 在 127.0.0.1:18899 启动 web 查看器(需要 `@co-engram/claude-code`)                |
+| `startViewer`          | boolean        | `true`              | 在 127.0.0.1:18899 启动 web 查看器(需要 `@co-engram/claude-code`)                |
 | `viewerConfig`         | object         | `{ port: 18899 }`   | 查看器端口及可选 token                                                           |
 
 ### memory 能力与自演化提示词
 
 由于 `openclaw.plugin.json` 声明了 `"kind": "memory"`,OpenClaw 会将 Co-Engram 视作**首要记忆插件**(与 `memory-core` 互斥)。启动时插件调用 `api.registerMemoryCapability({ promptBuilder })`,向 agent 系统提示词注入一个 "## Memory Recall" 小节。该小节在每一轮对话时都会重建,分三层:
 
-1. **基础引导(始终启用)** —— 何时调用 `memory_search` / 何时跳过 / 如何解读 `truthScore`。同时内嵌 depth=1 仓库结构概览(顶级目录 + engram 数量),让 LLM 在 search 之前先看到仓库布局;更深层级通过 `engram_list_paths(maxDepth=N)` 按需展开。
+1. **基础引导(始终启用)** —— 何时调用 `memory_search` / 何时跳过 / 如何解读 `truthScore`。同时内嵌 depth=2 仓库结构概览(二级目录 + engram 数量),让 LLM 在 search 之前先看到仓库布局;更深层级通过 `engram_list_paths(maxDepth=N)` 按需展开。
 2. **候选提醒(条件触发)** —— 若候选引擎有待处理候选,会以一行文案点出数量及应调用的工具。
 3. **自演化信号(条件触发)** —— 取自 `<dataRoot>/.co-engram/prompt-signals.json`,由 `light` 维护阶段每 5 分钟写入一次:
-   - `topTags`:所有 engram 中出现频次最高的 5 个 domain 标签(阈值:≥3 次)。
+   - `topTags`:所有 engram 中出现频次最高的 20 个 domain 标签(无最低频次门槛;`minCount = 1`)。
    - `lowConfidenceTopics`:其 engram 的 `confidence < 0.4` 且 `retrievalCount ≥ 2` 的标签 —— 这是 RPE 反馈,告知 LLM "这些领域不稳固,引用前先验证"。
    - `missedTopics`:预留给未来扩展(对话历史挖掘)。
 
@@ -112,7 +113,7 @@ rm ~/team-memory/.co-engram/prompt-signals.json
 # (或等待下一次 light 维护 tick)
 ```
 
-若宿主未实现 `registerMemoryCapability`,插件会记录告警并继续 —— 全部 31 个工具仍可用,只是 LLM 不会得到引导式的 "Memory Recall" 小节。
+若宿主未实现 `registerMemoryCapability`,插件会记录告警并继续 —— 全部原生工具加 2 个包装器仍可用,只是 LLM 不会得到引导式的 "Memory Recall" 小节。
 
 ### 记忆候选(Proposals)
 
@@ -178,7 +179,7 @@ plugins:
 | `enabledStages`   | `("light"\|"deep"\|"rem")[]` | `["light","deep","rem"]` |
 | `lightIntervalMs` | number                       | `300000`                 |
 | `deepIntervalMs`  | number                       | `3600000`                |
-| `remIntervalMs`   | number                       | `604800000`              |
+| `remIntervalMs`   | number                       | `86400000`               |
 | `learningRate`    | number                       | `0.1`                    |
 
 ## 验证
@@ -200,7 +201,7 @@ openclaw plugins inspect co-engram --runtime --json
     "status": "loaded",
     "activated": true,
     "toolNames": [
-      "engram_create", "engram_get", ...  // 31 tools total (29 native + memory_search + memory_get)
+      "engram_create", "engram_get", ...  // 全部原生工具(registry)+ memory_search + memory_get
     ]
   }
 }

@@ -20,7 +20,7 @@
               ▼                       ▼
         ┌──────────────────────────────────┐
         │     Engram(记忆印迹)            │
-        │   draft → active → archived      │
+        │   draft → active → frozen      │
         │                ↘ forgotten       │
         └──────────────┬───────────────────┘
                        │ synapse_create / 自动
@@ -58,7 +58,7 @@
 | ----------- | --------------------------------------------- | ---------------- | ------------------ |
 | `draft`     | 已创建未激活(预留给未来"草稿"工作流)          | 否               | 主目录             |
 | `active`    | 默认状态,正常参与检索                         | 是               | 主目录             |
-| `archived`  | 归档:不参与默认检索,但完全可恢复              | 否               | 主目录             |
+| `frozen`  | 归档:不参与默认检索,但完全可恢复              | 否               | 主目录             |
 | `forgotten` | 遗忘:从所有默认检索移除,30 天后进入 `.trash/` | 否               | 主目录 → `.trash/` |
 
 ### 2.2 状态迁移图
@@ -68,7 +68,7 @@
               │
               ▼
           ┌───────┐  engram_archive   ┌──────────┐
-          │active │ ────────────────▶ │ archived │
+          │active │ ────────────────▶ │ frozen │
           └───┬───┘                   └────┬─────┘
               │                            │
               │ engram_forget              │ engram_restore
@@ -92,14 +92,14 @@
 | 工具             | 起点 → 终点                       | 说明                                                 |
 | ---------------- | --------------------------------- | ---------------------------------------------------- |
 | `engram_create`  | (无) → `active`                   | 新建;若命中去重则进入 UPDATE/DUPLICATE 分支(见 §2.4) |
-| `engram_archive` | `active`/`forgotten` → `archived` | 仅状态变更,内容不动                                  |
-| `engram_forget`  | `active`/`archived` → `forgotten` | 同时把 freshness 标为 `forgotten`                    |
-| `engram_restore` | `archived`/`forgotten` → `active` | 若文件已在 `.trash/` 还会先物理移回                  |
+| `engram_archive` | `active`/`forgotten` → `frozen` | 仅状态变更,内容不动                                  |
+| `engram_forget`  | `active`/`frozen` → `forgotten` | 同时把 freshness 标为 `forgotten`                    |
+| `engram_restore` | `frozen`/`forgotten` → `active` | 若文件已在 `.trash/` 还会先物理移回                  |
 | `engram_delete`  | 任意 → (物理删除)                 | 硬删除:内容 + 元数据 + 关联 synapse                  |
 
 ### 2.3 派生属性 `freshness`
 
-`packages/core/src/lifecycle/freshness.ts:30-63` 根据 `lastEffectiveAt` + `decayHalfLifeDays`(默认 90 天,`null` 表示永不衰减)实时计算,不持久化:
+`packages/core/src/lifecycle/freshness.ts` 根据 `lastEffectiveAt`/`createdAt` + 由 `importance` + `kind` 派生的 halfLife(`halfLife = 50 × (importance+0.1)^1.5 × kind 倍率`)实时计算,不持久化:
 
 | 距离 lastEffectiveAt | freshness                          |
 | -------------------- | ---------------------------------- |
@@ -136,11 +136,13 @@ unverified → plausible → probable → verified
 | `probable`  | `evidenceCount ≥ 2`,且来自 ≥2 个不同 domain                      |
 | `verified`  | `evidenceCount ≥ 3`,且 ≥2 个 domain,且 `ageDays ≥ stabilityDays` |
 
-降级路径只有一条:REM 阶段的元认知扫描(`verification/metacognition.ts:88,114,142-147`)在 `overall confidence < 0.30` 且存在 `contradicts` 突触时,可自动将 engram 标为 `refuted`。
+升级成功还会把 `confidence` +0.2(上限 0.95),经 `applyConfidenceSignal(..., "verify")` 处理;反驳则暴跌至 ×0.3(`upgrade.ts:416-421`)。
+
+降级路径只有一条:REM 阶段的元认知扫描(`verification/metacognition.ts`)计算 truth score,在 `overall confidence < 0.30` 且存在 `contradicts` 突触时**建议**反驳。反驳不再自动落盘——维护引擎改为生成 `rem-verification` 提案,用户在 Proposals 页 accept 后状态才会变更。
 
 ### 2.6 自动衰减触发器
 
-以下三种自动路径会把 engram 推向 `archived`/`forgotten`:
+以下三种自动路径会把 engram 推向 `frozen`/`forgotten`:
 
 1. **LTD 阈值**(`reinforcement/ltd.ts:96-97`):`failedUses ≥ 3 → shouldArchive`,`≥ 5 → shouldForget`。这是返回给调用方的 _建议标志_,不会自动执行;由维护引擎或上层应用决定。
 2. **Deep 阶段衰减**(`dreaming/decay.ts:55,90`):深睡阶段强制检查 `importance < forgetThreshold` 的 engram。
@@ -206,10 +208,10 @@ unverified → plausible → probable → verified
 
 | verdict    | 副作用                          |
 | ---------- | ------------------------------- |
-| `keep_new` | 旧 engram 标为 `refuted`        |
-| `keep_old` | 新 engram 标为 `refuted`        |
+| `keep_new` | 旧 engram 标为 `refuted` + 败方 `confidence ×0.3`        |
+| `keep_old` | 新 engram 标为 `refuted` + 败方 `confidence ×0.3`        |
 | `merge`    | 内容合并到保留方,删除该 synapse |
-| `archive`  | 较新方标为 `archived`           |
+| `archive`  | 较新方标为 `frozen`           |
 
 **特殊副作用**:创建一个 `contradicts` synapse 时会同时(`synapse-tools.ts:82-94`):
 
@@ -288,11 +290,15 @@ unverified → plausible → probable → verified
 | 工具                      | 行为                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `engram_accept_proposal`  | 调用 `repository.createEngram` 创建一个 `active` engram;`kind` 由调用方指定(默认 `fact`);原 cluster 从待处理队列移除 |
-| `engram_dismiss_proposal` | 标记 `dismissedUntil = now + 30d`(可配),过期后允许重新提升                                                           |
+| `engram_dismiss_proposal` | **默认永久驳回**(`dismissedUntil` 不设置);显式传 `dismissDays > 0` 时 N 天后可重新提升                                   |
 
 ### 4.5 kind 推断
 
 proposal 本身没有 `kind` 字段。晋升时由审批者(用户或 LLM)显式传入。Viewer 的抽屉编辑器提供下拉选择;若不传,默认为 `fact`。
+
+### 4.6 外部 Markdown 提案(external-markdown)
+
+除了对话聚类管线(§4.1–4.2),`dataRoot` 下任何裸 `.md` 文件被 watcher 捕获后都会生成一条 pending proposal。提取分两层:有 LLM client 时智能抽取 `title` / `kind` / `domainTags` / `summary`;不可用或失败时降级到规则版(H1 或文件名→`title`,`kind = observation`,`domainTags = ["imported"]`)。因此往 `dataRoot` 丢任何 `.md` 都会在「记忆提案」tab 出现一条 pending proposal,不再被静默忽略。这类提案带 `source: "external-markdown"`,可通过 `engram_accept_proposals_by_source` 批量 accept。
 
 ---
 
@@ -335,7 +341,7 @@ rpe       = actual - expected
 | --------- | -------- | ------------------------------------------------------------------------------------------------ |
 | **Light** | 5 分钟   | 抽取信号 → 计算 RPE → 更新 engram `reinforcementScore`/`failedUses` → 刷新 `prompt-signals.json` |
 | **Deep**  | 1 小时   | 触发 dreaming(deep):衰减检查 + 抽象新 engram                                                     |
-| **REM**   | 7 天     | 触发 dreaming(rem):元认知扫描,可能自动 `refute` 或升级 `verificationStatus`                      |
+| **REM**   | 1 天     | 触发 dreaming(rem):元认知扫描生成 `rem-verification` / `rem-pattern` 提案(用户 accept 后落盘)      |
 
 阶段切换、阈值均可通过环境变量或配置覆盖。
 
@@ -353,8 +359,8 @@ rpe       = actual - expected
 | `engram_list_paths`       | —          | 只读目录树                                                                                  |
 | `engram_create`           | engram     | NEW → `active` / DUPLICATE → reinforce / UPDATE → merge                                     |
 | `engram_update`           | engram     | 字段变更,`version++`                                                                        |
-| `engram_reinforce`        | engram     | LTP:`effectiveRetrievals++`,`importance += eff × 0.02`,Hebbian 邻居加成                     |
-| `engram_report_failure`   | engram     | LTD:`failedUses++`,`importance -= 0.03`(escalated 时 ×1.5);返回 `shouldArchive/Forget` 建议 |
+| `engram_reinforce`        | engram     | LTP:`effectiveRetrievals++`,`importance += eff × 0.02`(×`min(1, confidence×2)`,confidence<0.5 被抑制),Hebbian 邻居加成 |
+| `engram_report_failure`   | engram     | LTD:`failedUses++`,`importance -= 0.03`(×`1+max(0,(0.5-confidence)×2)`,confidence<0.5 加速衰减;escalated 时 ×1.5);返回 `shouldArchive/Forget` 建议 |
 | `engram_delete`           | engram     | 硬删除(内容 + 元 + 关联 synapse)                                                            |
 | `synapse_create`          | synapse    | 创建连接;`contradicts` 触发裁决流程 + 审计 + 负向信号                                       |
 | `close_learning_loop`     | engram     | success → LTP + Hebbian;failure → LTD;partial → 按 effectiveness 缩放 LTP                   |

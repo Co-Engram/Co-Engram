@@ -1,13 +1,13 @@
 /**
  * 仓库目录概览(host-agnostic 工具)
  *
- * 用于 system prompt 的"目录深度渐进式披露":常驻注入 depth=1 顶级目录,
+ * 用于 system prompt 的"目录深度渐进式披露":常驻注入 depth=2 二级目录(项目域 + 领域级子目录),
  * 让 LLM 在 search 前看到仓库结构。
  *
  * 设计判断(详见对话样本 2026-07-04):
  *   - 目录是**结构信息**(静态、廉价),不是统计信息(动态、需算频次)
  *   - 因此走常驻 system prompt,不走 prompt-signals 自进化路径
- *   - 深度梯度靠 maxDepth 参数:system prompt=1、engram_list_paths 工具按需调用
+ *   - 深度梯度靠 maxDepth 参数:system prompt=2、engram_list_paths 工具按需调用
  *
  * @module @co-engram/core/prompt-builder
  */
@@ -27,11 +27,11 @@ export interface PathOverviewItem {
 /**
  * 从完整 PathTreeNode 截断到指定深度,返回扁平概览列表。
  *
- * @param maxDepth - 1=顶级目录(项目级),2=加孙目录(领域级),以此类推
+ * @param maxDepth - 1=顶级目录(项目级),2=含二级子目录(领域级),以此类推
  */
 export function pathOverviewFromTree(
   tree: PathTreeNode,
-  maxDepth = 1,
+  maxDepth = 2,
 ): readonly PathOverviewItem[] {
   const out: PathOverviewItem[] = [];
   const walk = (node: PathTreeNode, depth: number): void => {

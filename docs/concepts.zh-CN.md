@@ -112,7 +112,7 @@ rpe     = actual - expected                        // expected = retrievalScore 
 
 ## Metacognition
 
-在 REM 维护阶段运行的五维真值评分系统。决定是否升级或反驳某个 engram 的 `verificationStatus`。
+在 REM 维护阶段运行的五维真值评分系统。对每个 engram 评分,并给出升级或反驳其 `verificationStatus` 的建议;该建议会生成一个 `rem-verification` 提案,只有用户在 Proposals 页 accept 之后才会落盘(不再自动应用)。
 
 **维度:**
 | 维度 | 权重 | 衡量内容 |

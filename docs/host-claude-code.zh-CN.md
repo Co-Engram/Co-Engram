@@ -16,6 +16,8 @@ flowchart LR
 - MCP server 加载 `@co-engram/core`,装配好各工具,可选启动维护引擎
 - 工具在 Claude Code 会话中以 `mcp__co-engram__<tool_name>` 的形式暴露
 
+> **单进程 daemon 模式(2026-07 起为默认)。** 每次 `co-engram-mcp` 启动会 thin-launch 到一个共享的常驻 **daemon** —— 同一 data root 上所有 Claude Code 会话复用同一个 `ToolContext` —— 因此第二个会话起跳过冷启动。daemon 空闲 30 分钟自动退出。设 `CO_ENGRAM_DAEMON=0` 回退到每会话一进程;daemon 启动 / 连接失败也会透明回退到 in-process 路径。仅 Claude Code 受影响 —— OpenClaw 不变。详见[环境变量](#环境变量)。
+
 ## 安装
 
 ### 方案 A:全局安装(推荐)
@@ -111,7 +113,10 @@ co-engram: ✓ Connected
 - `ANTHROPIC_API_KEY` —— proposal engine Layer 2 必要性评估用的 Claude API key。Claude Code 环境通常已配置,适配器会自动读取。不配置时 Layer 2 走规则版评估器(零 LLM 成本)。详见 [observability 双层过滤](./observability.zh-CN.md#proposal-引擎)。
 - `CO_ENGRAM_VIEWER_ENABLED=1` —— 在 `http://127.0.0.1:18899` 启动 web 查看器
 - `CO_ENGRAM_LANGUAGE` —— 工具描述/查看器/提示词所用语言(`en` | `zh`;默认 `en` 或已持久化的 team-memory 配置)
-- `CO_ENGRAM_TOOLS_PROFILE` —— 暴露给 LLM 的工具集合:`minimal`(12 个 —— 8 个核心读/写 + 3 个 proposal 处理 + `engram_sync`,确保维护引擎自动生成的候选始终能闭环)、`standard`(19 个,默认 —— 加上学习回路、contradiction、自愈、渐进式披露、LLM 综合与审计查询)、`full`(29 个,包含管理类 + 内部管理工具)。数值由源码中的 `PROFILE_TOOL_COUNTS` 经 `.size` 自动算出,不会静默漂移。无效值会告警并回退为 `standard`。
+- `CO_ENGRAM_TOOLS_PROFILE` —— 暴露给 LLM 的工具集合:`minimal`(12 个 —— 8 个核心读/写 + 3 个 proposal 处理 + `engram_sync`,确保维护引擎自动生成的候选始终能闭环)、`standard`(19 个,默认 —— 加上学习回路、contradiction、自愈、渐进式披露、LLM 综合与审计查询)、`full`(29 个,包含管理类 + 内部管理工具)。数值由源码中的 `PROFILE_TOOL_COUNTS` 经 `.size` 自动算出,不会静默漂移。无效值会告警并退为 `standard`。
+- `CO_ENGRAM_DAEMON` —— 单进程 daemon 模式(默认 `1`):每个 Claude Code 会话连接到一个共享的常驻 daemon(同一 data root 上所有会话复用同一个 `ToolContext`)。设为 `0` 回退到每会话一进程;daemon 启动 / 连接失败也会透明回退。仅 Claude Code 受影响;OpenClaw 忽略。
+- `CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS` —— daemon 在无客户端连接超过此值时自动退出(默认 `1800000` = 30 分钟)。
+- `CO_ENGRAM_DAEMON_SOCKET_DIR` —— daemon 的 unix socket 文件目录(默认 `<tmpdir>/co-engram`)。
 
 ## Web 查看器
 
@@ -191,6 +196,37 @@ MCP 启动时如果看到这行日志,说明 watcher 正在跑:
 ```
 
 OpenClaw 没有等价的 auto-memory 写入器,所以本子系统**仅 claude-code-mcp 启动** —— openclaw-plugin 不会启动它。
+
+### 外部 Markdown 提案(dataRoot `.md` → Co-Engram Proposal)
+
+除了 Claude Code 的 auto-memory 目录,watcher 同时监听 data root 本身。**任何丢进 `CO_ENGRAM_DATA_ROOT` 的 `.md` 文件** —— 手写笔记、导出文档、从其他机器同步过来的文件 —— 都会被捕获并转成 pending proposal,绝不会被静默忽略。
+
+- 文件已带合法 engram frontmatter(`title` + `kind`)→ 直接从 frontmatter 生成 proposal。
+- **裸 `.md`**(无 frontmatter,或 frontmatter 缺 `title` / `kind`)→ 引擎先自动提取缺失字段再提案:
+  - **`ANTHROPIC_API_KEY` 可用**(Claude Code 默认):走 LLM 智能抽取 `title` / `kind` / `domainTags` / `summary`。
+  - **LLM 不可用或失败**:规则版降级 —— 首行 H1 或文件名 → `title`、`kind = observation`、`domainTags = ["imported"]`。
+
+提案带 `source: "external-markdown"`(区别于 `conversation` 与 `auto-memory`),payload 已预填,可用 `engram_list_proposals` / `engram_accept_proposal` 分诊,或用 `engram_accept_proposals_by_source({ source: "external-markdown" })` 批量入库。提取为异步 fire-and-forget,不会阻塞 watcher。
+
+与 auto-memory 同步不同,该子系统位于 `@co-engram/core`,**两个宿主共用**(Claude Code 与 OpenClaw)。提取细节见 [observability 双层过滤机制](./observability.zh-CN.md#proposal-引擎)。
+
+## 自动同步生命周期
+
+data root 是一个 Git 仓库,Claude Code 宿主会自动与远端保持同步 —— 例行的跨机更新无需手动调 `engram_sync`。
+
+**启动时**(MCP server —— 或 daemon 模式下的共享 daemon —— 启动时):
+
+- `git pull --no-edit`(30 秒超时)拉取远端的他人变更。
+- merge driver 自动解决 YAML 冲突,无需干预。
+- 无远端 / 无网络 / 已是最新时静默跳过(不打印日志)。
+
+**退出时**(会话结束,或 daemon 空闲超时退出前):
+
+1. `git commit`(自动)—— 若本会话有记忆变更,提交之。
+2. `git push`(30 秒超时)—— 推送新 commit 到远端。
+3. push 失败仅打印警告,不阻塞退出 —— 下次启动的 `git pull` 会补同步。
+
+如需按需控制(自定义 commit message、`dryRun`、冲突复核、Gerrit review 回退),显式调 `engram_sync` —— 见 [README → 保存并同步到远端](../README.zh-CN.md#保存并同步到远端-engram_sync)。两条路径互补:自动生命周期负责日常流量,`engram_sync` 是手动 override。
 
 ## 项目本地配置(`.mcp.json`)
 

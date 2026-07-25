@@ -21,8 +21,8 @@ flowchart TB
   end
 
   subgraph L3["3. Core Layer (host-agnostic)"]
-    Tools["Tools (28)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
-    Retrieval["Retrieval<br/>FTS (bigram+word) · graph traversal"]
+    Tools["Tools (30)<br/>engrams · synapses · skills · learning · doctor · synthesize"]
+    Retrieval["Retrieval<br/>FTS (word-level) · graph traversal"]
     Engine["Maintenance Engine<br/>light · deep · rem"]
     Signals["Signals<br/>event sink · extract · RPE"]
     Verify["Verification<br/>metacognition · upgrade/refute"]
@@ -86,8 +86,8 @@ The heart of Co-Engram. Zero host dependencies — no `@modelcontextprotocol/sdk
 
 Five sub-modules:
 
-- **Tools** — 28 self-describing tools with Zod schemas, used by both MCP and plugin adapters
-- **Retrieval** — in-memory inverted index over `digest.jsonl` (bigram tokenizer for CJK + word tokenizer for English), plus graph traversal via synapse edges
+- **Tools** — 30 self-describing tools with Zod schemas, used by both MCP and plugin adapters
+- **Retrieval** — in-memory inverted index over `digest.jsonl` (Intl.Segmenter word-level tokenizer for CJK + word tokenizer for English), plus graph traversal via synapse edges
 - **Maintenance Engine** — runs `light` / `deep` / `rem` stages on intervals (see [maintenance-engine.md](./maintenance-engine.md))
 - **Signals** — collects `ToolCallEvent`s, extracts behavioral signals, computes RPE (prediction error)
 - **Verification** — five-dimension truth scoring (cross-context / time-stable / mutually-supported / source-reliable / executable)
@@ -138,7 +138,7 @@ Host tool call → Adapter → Tool.execute(ctx, input)
 
 ```
 Host tool call → Adapter → engram_search
-  → FTS query (bigram + word tokenizer)
+  → FTS query (Intl.Segmenter word-level tokenizer)
   → Graph expansion (follow consolidates/extends edges)
   → Score by: relevance · recency · importance · reinforcementScore
   → Bump retrieval stats (effectiveRetrievals, lastRetrievalScore)
@@ -155,13 +155,13 @@ Every 5 min (light):
 
 Every 1 hour (deep):
   re-run light dreaming (extra consolidation pass)
-  → apply Ebbinghaus decay to importance, archive/forget stragglers
+  → evaluate freshness decay (age vs halfLife); forget/archive stragglers by importance threshold
   → sweep long-forgotten engrams into .trash/
 
-Every 7 days (rem):
+Every 1 day (rem):
   run abstraction dreaming
   + metacognition 5-dim scoring
-  → upgrade or refute verificationStatus
+  → generate rem-verification proposals (land only after user accepts in Proposals)
 ```
 
 ## Search Engine
@@ -184,7 +184,7 @@ Derived SQLite index at `.co-engram/index.db` (WAL mode, FTS5 trigram tokenizer)
 
 ### `memory` (opt-out)
 
-In-process FTS over `digest.jsonl` lines. Tokenizer is bigram + word. Suitable for repos up to ~1k engrams — `digest.jsonl` is parsed on every `rebuildSearchIndex()` call, and the FTS index lives in heap.
+In-process FTS over `digest.jsonl` lines. Tokenizer is Intl.Segmenter word-level (CJK) + word (English). Suitable for repos up to ~1k engrams — `digest.jsonl` is parsed on every `rebuildSearchIndex()` call, and the FTS index lives in heap.
 
 - Zero disk footprint beyond `digest.jsonl`.
 - Recomputed on every watcher invalidation (cheap at small scale).

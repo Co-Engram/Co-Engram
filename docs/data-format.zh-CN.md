@@ -45,6 +45,7 @@ Co-Engram 的存储基于三条原则:
     ├── engram-index.json               # {version, engrams: {ULID → entry}, lastRebuiltAt}
     ├── graph.json                      # synapse 图快照
     ├── audit.jsonl                     # 只追加的审计日志
+    ├── doctor-report.json              # 最近一次 runDoctor() 自愈扫描快照(由 deep stage 写入)
     └── signals.jsonl                   # 待处理的 tool-call 事件(由 light stage 消费)
 ```
 
@@ -70,10 +71,8 @@ tags:
 summary: Use Object.assign({}, ...parts) to merge readonly configs
 importance: 0.62
 confidence: 0.85
-emotionalValence: neutral
 sourceType: firsthand
 visibility: team
-decayHalfLifeDays: 30
 verificationStatus: unverified
 status: active
 createdBy: Yang Yang
@@ -115,10 +114,9 @@ const merged = Object.assign({}, ...parts)
 | `tags`                                                | string[]        | 自由格式的上下文标签                                                 |
 | `summary`                                             | string          | 一行摘要                                                             |
 | `importance`                                          | number `[0, 1]` | 综合重要性分数                                                       |
-| `confidence`                                          | number `[0, 1]` | 基于 `sourceType` 的初始置信度                                       |
+| `confidence`                                          | number `[0, 1]` | 初始值由 `sourceType` 派生;随后按反馈信号动态调整(effective +0.05、failure −0.05、refute ×0.3、verify +0.2 上限 0.95) |
 | `sourceType`                                          | enum            | `firsthand` / `secondhand` / `inferred`;影响默认 confidence          |
-| `decayHalfLifeDays`                                   | number 或 null  | Ebbinghaus 半衰期;`null` = 永不衰减                                  |
-| `status`                                              | enum            | `draft` / `active` / `archived` / `forgotten`                        |
+| `status`                                              | enum            | `draft` / `active` / `frozen` / `forgotten`                        |
 | `verificationStatus`                                  | enum            | `unverified` / `plausible` / `verified` / `refuted`                  |
 | `forcedFreshness`                                     | enum(可选)      | 覆盖派生的新鲜度(由生命周期工具写入)                                 |
 | `retrievalCount`、`effectiveRetrievals`、`failedUses` | integer         | 三信号可塑性计数器                                                   |
@@ -157,10 +155,8 @@ const merged = Object.assign({}, ...parts)
   摘要: Use Object.assign({}, ...parts) to merge readonly configs
   重要性: 0.62
   置信度: 0.85
-  情感极性: neutral
   来源类型: firsthand
   可见性: team
-  半衰期天数: 30
   验证状态: unverified
   状态: active
   创建者: claude-code
@@ -182,6 +178,25 @@ const merged = Object.assign({}, ...parts)
 - 用户自定义的值(`标签`、`领域标签`、`创建者`、`摘要` 文本、正文内容)不会被翻译
 
 解析器透明地接受两种格式。中文仓库里的旧英文文件会在首次启动迁移时被重写(见下文)。
+
+### 派生 Synapse 段(Obsidian 集成)
+
+每个 engram `.md` 文件末尾可能带有一段派生正文段,在任意相关 synapse 变更时(以及 `engram_doctor` 运行时)重建。它让你可以直接把 data root 当作 Obsidian vault 打开,无需自定义插件就能在 graph 视图里看到记忆网络。
+
+```markdown
+<!-- co-engram-derived:synapses -->
+## Synapses (derived)
+
+- → [[strict-mode-gotcha|TypeScript strict mode readonly gotcha · extends]]
+- ← [[object-merge-pattern|Object.assign merge pattern · similar_to]]
+```
+
+- 段以 `<!-- co-engram-derived:synapses -->` 标记(在渲染后的 Markdown 中不可见)开头,紧跟 `## Synapses (derived)` 标题,然后每条解析成功的边一行。
+- wikilink **target 是文件名**(去 `.md`),不是 ULID —— Obsidian 原生就能解析。display 文本为 `<标题> · <kind>`,让 graph 视图保持人类可读。
+- `→` 表示出边(本 engram 是 `from`);`←` 表示入边(本 engram 是 `to`)。`contradicts` 边会被钉在段顶部作为警示。
+- **仅当至少有一条边解析成功时才写入该段** —— 没有 synapse 的 engram 保持正文干净。
+- 权威源是 `synapses/*.yaml`。这段正文是 denormalized 视图:每次 synapse 变更与 `engram_doctor` 都会先剥离再重建。文件名漂移(co-engram 之外的手动重命名)会断开 wikilink,直到下次重建。
+- frontmatter 的 `aliases` 字段**不会**被注入。历史遗留的 `aliases` 值会在下次 serialize 时被剥离(打印一次性 warn),因为中文模式文件底部的 frontmatter 对 Obsidian 不可见 —— 文件名 wikilink 取代了早期的 ULID + `aliases` 方案。
 
 ## Synapse 文件格式
 
@@ -334,6 +349,12 @@ synapse 图的快照,用于快速遍历。在每次 `synapse_create` / `synapse_
 
 大致大小:200 字节/事件。默认开启轮转后,文件大小受 ~50MB 硬上限约束(实际通常远低于此)。
 
+### `doctor-report.json`
+
+最近一次 `runDoctor()` 自愈扫描的持久化快照。维护引擎的 **deep** 阶段会跑一次 `runDoctor()`(检测 dangling synapse、orphan markdown、SQLite ghost —— 能安全自动修复的直接修),并把结果 `DoctorReport` 写到这里,这样 viewer 的健康栏就能显示「deep 刚修了什么」(即便已 autoFixed 也能看到修复前的问题)。`/api/doctor` 端点优先读这个缓存文件;传 `?rescan=1` 可强制重跑 doctor,而非读缓存。
+
+结构:`{ startedAt, finishedAt, issues: DoctorIssue[], fixes: DoctorIssue[], pendingManualReview: DoctorIssue[] }`。写入是 best-effort —— 失败也不会阻塞 deep 维护。
+
 ### `signals.jsonl`(位于 `.co-engram/` 内)
 
 收集 `ToolCallEvent` 的 JSON Lines 文件。每个 light stage 消费一次。保留期剪枝为 7 天。
@@ -381,13 +402,14 @@ synapse 图的快照,用于快速遍历。在每次 `synapse_create` / `synapse_
 ```yaml
 defaultCreatedBy: claude-code
 defaultVisibility: team
-defaultDecayHalfLifeDays: 30
 maintenance:
   learningRate: 0.1
   enabledStages: [light, deep, rem]
 ```
 
 环境变量与插件配置优先级高于此文件。
+
+> 注:decay half-life 不再是配置项 —— 它由 `importance` + `kind` 实时派生(`BASE_HALFLIFE_DAYS × (importance + 0.1)^1.5 × kindMultiplier`),因此 `defaultDecayHalfLifeDays` 键不再被接受。
 
 ### `.co-engram/config.json` —— team memory 配置
 
@@ -427,7 +449,7 @@ create(synapse): 01J...A --extends--> 01J...C
 
 - **CI 浅克隆**:`git clone --depth 1`
 - 若内容包含许多内嵌图片的大型 Markdown 文件,使用 **Git LFS**
-- **周期性归档清扫**:`engram_list({ filter: { status: [archived] }, limit: 500 })` 然后批量 forget(超过 500 条用 cursor 翻页)
+- **周期性归档清扫**:`engram_list({ filter: { status: [frozen] }, limit: 500 })` 然后批量 forget(超过 500 条用 cursor 翻页)
 
 ## 备份策略
 

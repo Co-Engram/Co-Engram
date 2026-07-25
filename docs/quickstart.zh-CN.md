@@ -4,7 +4,7 @@
 
 ## 前置条件
 
-- **Node.js 22+** — 使用 `node --version` 检查
+- **Node.js 22.17+** —— 使用 `node --version` 检查
 - **Git** — 用于数据仓库
 - **pnpm** — 仅源码构建需要;npm 用户可跳过
 - 支持 MCP 的宿主(Claude Code、Cursor、Continue.dev ……)或 OpenClaw
@@ -112,13 +112,13 @@ claude mcp get co-engram
 
 ```
 co-engram: ✓ Connected
-  Tools: 16    # 默认 standard profile;若设置了 CO_ENGRAM_TOOLS_PROFILE,可能是 11(minimal)或 27(full)
+  Tools: 21    # 默认 standard profile;若设置了 CO_ENGRAM_TOOLS_PROFILE,可能是 12(minimal)或 30(full)
 ```
 
 MCP server 还会向 stderr 写入一行启动信息(可在 `claude mcp logs co-engram` 中查看):
 
 ```
-[co-engram] Loaded 0 engrams, profile=standard (17/28 tools visible to LLM)
+[co-engram] Loaded 0 engrams, profile=standard (21/30 tools visible to LLM)
 [co-engram] No memories yet — the LLM will start capturing once you discuss decisions, preferences, or lessons learned.
 ```
 
@@ -161,13 +161,13 @@ CO_ENGRAM_DATA_ROOT=$HOME/team-memory co-engram-mcp
 
 直接运行可执行文件 —— 你会看到 stderr。常见原因:
 
-- **Node 版本过旧** —— 需要 Node 22+
+- **Node 版本过旧** —— 需要 Node 22.17+(`node:sqlite` 在 22.17 才稳定;更旧版本会让搜索引擎静默回退到 memory)
 - **`CO_ENGRAM_DATA_ROOT` 未设置或不是绝对路径** —— 必须是绝对路径
 - **数据目录不是 Git 仓库** —— 在其中运行 `git init`
 
 ### `/mcp` 显示 0 个工具,但状态是 `✓ Connected`
 
-manifest 缺少 `contracts.tools` 条目。如果你是从 npm 安装的不应出现此问题 —— 若是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 30 个工具(28 个原生 + 2 个 `memory_*` 包装)。OpenClaw loader 会静默丢弃未声明的工具。
+manifest 缺少 `contracts.tools` 条目。如果你是从 npm 安装的不应出现此问题 —— 若是从源码构建,请确认 `packages/openclaw-plugin/openclaw.plugin.json` 列出了全部 33 个工具(31 个原生 + 2 个 `memory_*` 包装)。OpenClaw loader 会静默丢弃未声明的工具。
 
 ### 工具已注册但调用返回错误
 

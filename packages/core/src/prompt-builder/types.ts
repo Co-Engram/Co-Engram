@@ -39,7 +39,7 @@ export interface BuildPromptInput {
   /** 待处理 proposal 数量;0 时不注入 proposal 提醒 */
   readonly proposalCount?: number;
   /**
-   * 仓库目录概览(常驻 system prompt 注入,depth=1)。
+   * 仓库目录概览(常驻 system prompt 注入,depth=2)。
    *
    * undefined / 空数组时跳过。提供时由 host adapter 从
    * `repository.listPathTree()` 截断后传入。

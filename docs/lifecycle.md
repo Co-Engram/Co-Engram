@@ -20,7 +20,7 @@ This page systematically walks through the full lifecycle of co-engram's three c
               ▼                       ▼
         ┌──────────────────────────────────┐
         │     Engram                       │
-        │   draft → active → archived      │
+        │   draft → active → frozen      │
         │                ↘ forgotten       │
         └──────────────┬───────────────────┘
                        │ synapse_create / auto
@@ -57,7 +57,7 @@ Relationship among the three:
 | ----------- | -------------------------------------------------------------------- | ----------------- | -------------------- |
 | `draft`     | Created but not activated (reserved for future draft workflows)      | No                | Main dir             |
 | `active`    | Default state, normal retrieval                                      | Yes               | Main dir             |
-| `archived`  | Excluded from default retrieval, fully recoverable                   | No                | Main dir             |
+| `frozen`  | Excluded from default retrieval, fully recoverable                   | No                | Main dir             |
 | `forgotten` | Removed from all default retrieval; moved to `.trash/` after 30 days | No                | Main dir → `.trash/` |
 
 ### 2.2 State transition diagram
@@ -67,7 +67,7 @@ Relationship among the three:
               │
               ▼
           ┌───────┐  engram_archive   ┌──────────┐
-          │active │ ────────────────▶ │ archived │
+          │active │ ────────────────▶ │ frozen │
           └───┬───┘                   └────┬─────┘
               │                            │
               │ engram_forget              │ engram_restore
@@ -91,14 +91,14 @@ Transition tools (`packages/core/src/tools/engram-tools.ts`):
 | Tool             | From → To                         | Notes                                                        |
 | ---------------- | --------------------------------- | ------------------------------------------------------------ |
 | `engram_create`  | (none) → `active`                 | New; if dedup hit, enters UPDATE/DUPLICATE branch (see §2.4) |
-| `engram_archive` | `active`/`forgotten` → `archived` | State change only, content untouched                         |
-| `engram_forget`  | `active`/`archived` → `forgotten` | Also marks freshness as `forgotten`                          |
-| `engram_restore` | `archived`/`forgotten` → `active` | If file is in `.trash/`, first physically moves it back      |
+| `engram_archive` | `active`/`forgotten` → `frozen` | State change only, content untouched                         |
+| `engram_forget`  | `active`/`frozen` → `forgotten` | Also marks freshness as `forgotten`                          |
+| `engram_restore` | `frozen`/`forgotten` → `active` | If file is in `.trash/`, first physically moves it back      |
 | `engram_delete`  | any → (purged)                    | Hard delete: content + metadata + linked synapses            |
 
 ### 2.3 Derived property `freshness`
 
-`packages/core/src/lifecycle/freshness.ts:30-63` computes on the fly from `lastEffectiveAt` + `decayHalfLifeDays` (default 90 days, `null` = never decay); not persisted:
+`packages/core/src/lifecycle/freshness.ts` computes on the fly from `lastEffectiveAt`/`createdAt` + a halfLife derived from `importance` + `kind` (`halfLife = 50 × (importance+0.1)^1.5 × kindMultiplier`); not persisted:
 
 | Time since lastEffectiveAt | freshness                              |
 | -------------------------- | -------------------------------------- |
@@ -135,11 +135,13 @@ Upgrade conditions (`verification/upgrade.ts:10-12`):
 | `probable`  | `evidenceCount ≥ 2`, from ≥2 distinct domains              |
 | `verified`  | `evidenceCount ≥ 3`, ≥2 domains, `ageDays ≥ stabilityDays` |
 
-Only one downgrade path exists: REM-stage metacognition scan (`verification/metacognition.ts:88,114,142-147`) auto-refutes when `overall confidence < 0.30` and a `contradicts` synapse exists.
+A successful upgrade also bumps `confidence` by +0.2 (capped at 0.95) via `applyConfidenceSignal(..., "verify")`; a refutation crashes it to ×0.3 (`upgrade.ts:416-421`).
+
+Only one downgrade path exists: the REM-stage metacognition scan (`verification/metacognition.ts`) computes a truth score and, when `overall confidence < 0.30` and a `contradicts` synapse exists, **recommends** refutation. Refutation is no longer auto-applied — the maintenance engine emits a `rem-verification` proposal, and the status only changes once the user accepts it in the Proposals tab.
 
 ### 2.6 Auto-decay triggers
 
-Three automatic paths push engrams toward `archived`/`forgotten`:
+Three automatic paths push engrams toward `frozen`/`forgotten`:
 
 1. **LTD thresholds** (`reinforcement/ltd.ts:96-97`): `failedUses ≥ 3 → shouldArchive`, `≥ 5 → shouldForget`. These are advisory flags returned to the caller, not auto-executed.
 2. **Deep-stage decay** (`dreaming/decay.ts:55,90`): deep-sleep stage enforces `importance < forgetThreshold` check.
@@ -205,10 +207,10 @@ Verdicts (`auto-degrade.ts:60-67`):
 
 | verdict    | Side effect                                     |
 | ---------- | ----------------------------------------------- |
-| `keep_new` | Old engram marked `refuted`                     |
-| `keep_old` | New engram marked `refuted`                     |
+| `keep_new` | Old engram marked `refuted` + loser `confidence ×0.3`  |
+| `keep_old` | New engram marked `refuted` + loser `confidence ×0.3`  |
 | `merge`    | Content merged into the keeper; synapse deleted |
-| `archive`  | Newer side marked `archived`                    |
+| `archive`  | Newer side marked `frozen`                    |
 
 **Special side effects**: creating a `contradicts` synapse also (`synapse-tools.ts:82-94`):
 
@@ -291,11 +293,15 @@ a word segmenter.
 | Tool                      | Behavior                                                                                                                                      |
 | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `engram_accept_proposal`  | Calls `repository.createEngram` to create an `active` engram; `kind` is caller-specified (default `fact`); the originating cluster is removed |
-| `engram_dismiss_proposal` | Marks `dismissedUntil = now + 30d` (configurable); re-promotion allowed after expiry                                                          |
+| `engram_dismiss_proposal` | **Permanent dismiss** by default (`dismissedUntil` unset); pass `dismissDays > 0` for an N-day cooldown that re-activates after expiry         |
 
 ### 4.5 Kind inference
 
 Proposals themselves have no `kind`. When promoted, the approver (user or LLM) passes it explicitly. The viewer's drawer editor offers a dropdown; if omitted, defaults to `fact`.
+
+### 4.6 External-markdown proposals
+
+Besides the conversation cluster pipeline (§4.1–4.2), any bare `.md` file written under `dataRoot` is picked up by the watcher and turned into a pending proposal. The extractor runs in two tiers: when an LLM client is available it extracts `title` / `kind` / `domainTags` / `summary` intelligently; otherwise it falls back to a rule-based pass (H1 or filename → `title`, `kind = observation`, `domainTags = ["imported"]`). So dropping any `.md` into `dataRoot` now surfaces a proposal in the Proposals tab instead of being silently ignored. These carry `source: "external-markdown"` and can be accepted in bulk via `engram_accept_proposals_by_source`.
 
 ---
 
@@ -338,7 +344,7 @@ Application rules:
 | --------- | ----------------- | --------------------------------------------------------------------------------------------------------------- |
 | **Light** | 5 min             | Extract signals → compute RPE → update engram `reinforcementScore`/`failedUses` → refresh `prompt-signals.json` |
 | **Deep**  | 1 hr              | Trigger dreaming (deep): decay check + abstraction of new engrams                                               |
-| **REM**   | 7 days            | Trigger dreaming (rem): metacognition scan, may auto-`refute` or upgrade `verificationStatus`                   |
+| **REM**   | 1 day             | Trigger dreaming (rem): metacognition scan emits `rem-verification` / `rem-pattern` proposals (user accepts to land) |
 
 Stage timing and thresholds can be overridden via env vars or config.
 
@@ -356,8 +362,8 @@ Stage timing and thresholds can be overridden via env vars or config.
 | `engram_list_paths`       | —               | Read-only directory tree                                                                        |
 | `engram_create`           | engram          | NEW → `active` / DUPLICATE → reinforce / UPDATE → merge                                         |
 | `engram_update`           | engram          | Field mutation, `version++`                                                                     |
-| `engram_reinforce`        | engram          | LTP: `effectiveRetrievals++`, `importance += eff × 0.02`, Hebbian neighbor boost                |
-| `engram_report_failure`   | engram          | LTD: `failedUses++`, `importance -= 0.03` (×1.5 when escalated); returns `shouldArchive/Forget` |
+| `engram_reinforce`        | engram          | LTP: `effectiveRetrievals++`, `importance += eff × 0.02` (×`min(1, confidence×2)`, so confidence<0.5 is suppressed), Hebbian neighbor boost |
+| `engram_report_failure`   | engram          | LTD: `failedUses++`, `importance -= 0.03` (×`1+max(0,(0.5-confidence)×2)`, so confidence<0.5 decays faster; ×1.5 when escalated); returns `shouldArchive/Forget` |
 | `engram_delete`           | engram          | Hard delete (content + meta + linked synapses)                                                  |
 | `synapse_create`          | synapse         | Create edge; `contradicts` triggers arbitration + audit + negative signal                       |
 | `close_learning_loop`     | engram          | success → LTP + Hebbian; failure → LTD; partial → scaled LTP                                    |

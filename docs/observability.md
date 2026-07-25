@@ -24,6 +24,8 @@ Records state mutations + necessary events. Stored as JSONL at `$DATA_ROOT/.co-e
 
 **Git merge driver events:** `merge_resolved` (driver auto-resolved a conflict), `merge_backup_failed` (loser-side backup failed to persist), `merge_conflict_escalated` (driver left a marker and escalated to human), `merge_llm_arbitrated` / `merge_llm_arbitrated_escalated` / `merge_llm_arbitrated_failed` (Phase 3 LLM arbiter outcomes)
 
+**Maintenance triggers:** `maintenance_run` — written only when the `rem` or `daily` stage of the [maintenance engine](./maintenance-engine.md) finishes (`actor=system`, `metadata` carries `stage` / `durationMs` / `errorCount` / optional `errorMessage`). Light/deep are too frequent and are intentionally not audited. Query via `engram_audit_query({ action: "maintenance_run" })` to answer "did REM/daily actually run?".
+
 **No longer written** (kept in the `AuditAction` enum only to read old logs):
 
 - `noise_filtered` (Layer 1 prefilter rejects — every conversation message could produce one)
@@ -66,7 +68,7 @@ Retention runs along two axes:
 
 | Tier            | Default retention | Actions                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | --------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **High-value**  | 365 days          | `create`, `update`, `update_lifecycle`, `importance_update`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `accept`, `dismiss`, `contradicted`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`, `learning_loop_success`, `learning_loop_partial`, `learning_loop_failure` |
+| **High-value**  | 365 days          | `create`, `update`, `update_lifecycle`, `importance_update`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `accept`, `dismiss`, `contradicted`, `merge_resolved`, `merge_backup_failed`, `merge_conflict_escalated`, `merge_llm_arbitrated`, `merge_llm_arbitrated_escalated`, `merge_llm_arbitrated_failed`, `learning_loop_success`, `learning_loop_partial`, `learning_loop_failure`, `maintenance_run` |
 | **Low-value** (default) | 90 days   | `propose`, `reinforce`, `report_failure`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `noise_filtered`, `necessity_rejected`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 
 Rationale: high-value = state mutations + user decisions + cross-process coordination + learning-loop closures. These are the core purpose of an audit log (tracing "why was this engram deleted/merged/accepted/dismissed?"). Low-value = high-frequency but low forensic interest (every tool call, every search hit) — individually useless for retrospectives.
@@ -171,6 +173,21 @@ For ad-hoc string formatting inside core (e.g., embedding a score in an audit re
 
 Watches conversation messages via `proposalEngine.observe({ role, content })`. Hash-based embedder produces a 128-dim L2-normalized vector. Vectors are clustered via cosine similarity (default `DEFAULT_HASHER_SIMILARITY_THRESHOLD = 0.35`, tuned for hash embedder). When a cluster reaches the occurrence threshold (default `3`), the engine runs **two-layer filtering** to decide whether to promote it to a proposal.
 
+### Proposal Sources
+
+Conversation clustering is one of several ingest paths. Each proposal carries a `source` field so the UI/LLM can tell them apart:
+
+| Source               | Origin                                                                 | Payload                                                            |
+| -------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `conversation`       | `observe()` clustering (the path described above)                       | None — only sample quotes; LLM fills `title`/`content` at accept   |
+| `auto-memory`        | Claude Code auto-memory `.md` files detected under the data root        | Full payload (title/content/kind/domainTags) — accept as-is        |
+| `external-markdown`  | Any other bare `.md` written under the data root (watcher-detected)     | Full payload + `sourcePath`; LLM/rule-based extraction (see below) |
+| `rem-verification` / `rem-pattern` / `rem-synapse` | REM stage output (see [maintenance engine](./maintenance-engine.md)) | Targeted payload; accept lands the change (no auto-apply)          |
+
+`auto-memory` and `external-markdown` proposals carry a pre-filled payload, so they can be accepted verbatim or in bulk via `engram_accept_proposals_by_source` (LLM does not need to fill `title`/`content`). `conversation` proposals only carry sample quotes, so the LLM must concretize them per-item via `engram_accept_proposal`.
+
+**External-markdown extraction:** when the watcher sees a `.md` file under the data root without usable frontmatter (missing `title` / `kind`), it no longer silently ignores it. The host extracts `title` / `kind` / `domainTags` and writes a pending proposal — using the injected `LlmClient` when available, or a rule-based fallback (`H1` / filename → `title`, `kind = observation`, `domainTags = ["imported"]`) when the LLM is absent or fails. Dropping any `.md` into the data root therefore surfaces a proposal in the "Memory Proposals" tab instead of being dropped on the floor.
+
 ### Two-Layer Filtering
 
 To prevent mechanical repetition from being incorrectly submitted as proposals, the proposal engine sets a filter layer at the `observe()` entry and another at `maybePromoteToProposal()`.
@@ -187,6 +204,7 @@ conversation → observe()
    │   trivial_pattern (>60%)        │     — Layer 1 is high-frequency)
    │   only_punct                    │
    │   low_density (<4 tokens)       │
+   │   conversational_artifact       │
    └────────┬────────────────────────┘
             │ accepted
             ▼
@@ -196,12 +214,13 @@ conversation → observe()
    ┌─────────────────────────────────┐
    │ Layer 2: necessity evaluation   │  NecessityEvaluator.evaluate()
    │                                  │
-   │   RuleBasedNecessityEvaluator    │  ← default, 5 rules
+   │   RuleBasedNecessityEvaluator    │  ← default, 6 rules
    │     few_unique_samples /         │     (zero LLM cost)
    │     high_repetition /            │
    │     too_short /                  │
    │     low_density /                │
-   │     trivial_dominated            │
+   │     trivial_dominated /          │
+   │     conversational_artifact      │
    │          ↓ fallback              │
    │   LlmNecessityEvaluator          │  ← optional, semantic judgment
    │     Repeatable + Transferable    │     failure/parse error → rules
@@ -223,6 +242,7 @@ conversation → observe()
 | `trivial_pattern` | trivial word ratio > 60%              | catches `ok ok ok done done` repetition  |
 | `only_punct`      | punctuation/symbols only              | test input                               |
 | `low_density`     | meaningful tokens < 4                 | stopword-heavy filler                    |
+| `conversational_artifact` | conversational bookkeeping signals hit (tense-dominated / deictic refs / process signature / enumerated options / self-meta) | in-conversation process output that recurs but has zero long-term value |
 
 The trivial word set covers English + Chinese (`ok / hello / 测试 / 好的`, 30+ entries) and uses token ratio to catch repetitive trivial phrases.
 
@@ -238,8 +258,9 @@ The trivial word set covers English + Chinese (`ok / hello / 测试 / 好的`, 3
 | `too_short`          | avg length < 30 chars          | samples too short              |
 | `low_density`        | avg meaningful tokens < 5      | low information density        |
 | `trivial_dominated`  | 70%+ samples hit trivial       | dominated by trivial content   |
+| `conversational_artifact` | ≥50% samples hit conversational-artifact signals (defense-in-depth — Layer 1 already filters these per-message) | process output that slipped past Layer 1 |
 
-All pass → `necessary=true`, reason looks like `Passed 5 rule checks: 4 unique samples, avg 100 chars, 27.8 tokens`.
+All pass → `necessary=true`, reason looks like `Passed 6 rule checks: 4 unique samples, avg 100 chars, 27.8 tokens`.
 
 **`LlmNecessityEvaluator` (optional, semantic)** — when host injects a `LlmClient`, the LLM judges "is this worth saving as a team memory" using these criteria:
 
@@ -280,7 +301,7 @@ All three are derived state. Deleting them is safe — already-recorded engrams 
 
 ## Viewer
 
-A loopback-only HTTP server for browsing the data repo in a browser. Disabled by default — enable via `CO_ENGRAM_VIEWER_ENABLED=1` (MCP) or `startViewer: true` (OpenClaw plugin).
+A loopback-only HTTP server for browsing the data repo in a browser. On the MCP host it is disabled by default — enable via `CO_ENGRAM_VIEWER_ENABLED=1`. The OpenClaw plugin enables it by default (opt-out); set `startViewer: false` in the plugin config to turn it off.
 
 Default port: `18899` (unified across both hosts since 2026-07). Optional bearer token via `CO_ENGRAM_VIEWER_TOKEN`.
 
@@ -299,11 +320,16 @@ See [host-claude-code.md](./host-claude-code.md) and [host-openclaw.md](./host-o
 | GET    | `/api/search?q=`               | FTS search                                                                                                                                                                                                       |
 | GET    | `/api/graph`                   | Nodes + edges for graph view. Edges carry full metadata: `id`, `weight`, `evidenceCount`, `direction`, optional `resolutionStatus`. Nodes carry optional `slug` for human-friendly display.                      |
 | GET    | `/api/proposals`               | Pending/all proposals                                                                                                                                                                                            |
+| POST   | `/api/proposals/purge-accepted` | Bulk-delete `status=accepted` proposal records from `proposals.jsonl` to reclaim space. The engrams created at accept time are **kept**. Returns `{ ok, purgedCount, purgedIds }` (each purge also writes a `dismiss` audit entry with `metadata.purged=true`). |
+| POST   | `/api/proposals/purge-dismissed` | Bulk-delete `status=dismissed` proposal records from `proposals.jsonl`. Returns `{ ok, purgedCount, purgedIds }` (same audit trail as purge-accepted). |
 | GET    | `/api/audit`                   | Audit log with filters                                                                                                                                                                                           |
 | GET    | `/api/effectiveness?engramId=` | Effectiveness report for one engram                                                                                                                                                                              |
 | GET    | `/api/trash`                   | Trashed engrams                                                                                                                                                                                                  |
 | GET    | `/api/path-tree?maxDepth=`     | Directory tree for progressive disclosure. Returns `{ enabled, root: { path, engramCount, children } }`.                                                                                                         |
-| GET    | `/api/doctor?incremental=`     | Trigger a self-healing scan and return the report. `incremental=1` for mtime-delta scan only. Returns `{ enabled, report: { startedAt, finishedAt, totalEngrams, totalSynapses, fixes, pendingManualReview } }`. |
+| GET    | `/api/doctor?incremental=&rescan=` | Self-healing scan report. By default returns the persisted `.co-engram/doctor-report.json` written by the [maintenance](./maintenance-engine.md) deep stage (so the health tab can show "what deep fixed" even after auto-fix). `rescan=1` ignores the cache and re-runs the scan live; `incremental=1` restricts a live re-run to mtime-delta only. Returns `{ enabled, cached?, report: { startedAt, finishedAt, totalEngrams, totalSynapses, fixes, pendingManualReview } }`. |
+| GET    | `/api/maintenance-state`       | Maintenance run state for the viewer's maintenance tab. Returns `{ enabled, state, intervals: { light, deep, rem } }` — `state` is the persisted `maintenance-state.json` (last-run timestamps per stage), `intervals` are the default stage intervals so the UI can compute "is a stage overdue / how long until next fire". Missing/corrupt file → empty state ("never run"). |
+| GET    | `/api/merge-stats?windowDays=` | Merge-driver stats for the viewer's Merges tab. Aggregates `merge_*` audit actions over a window (default 7 days, clamped 1–365). Returns `{ enabled, stats, windowDays }`. Equivalent CLI: `co-engram stats [--window-days N] [--json]`. |
+| GET    | `/api/merge-anomalies?windowDays=` | Merge-driver anomaly alerts (KPI thresholds from spec §13). Returns `{ enabled, anomalies, windowDays }`. Equivalent CLI: `co-engram anomalies [--window-days N] [--json]` (exits non-zero on critical). |
 
 All `/api/*` endpoints require `Authorization: Bearer <token>` if a token is configured.
 

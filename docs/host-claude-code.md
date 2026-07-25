@@ -16,6 +16,8 @@ flowchart LR
 - The MCP server loads `@co-engram/core`, wires up tools, optionally starts the maintenance engine
 - Tools are exposed as `mcp__co-engram__<tool_name>` in the Claude Code session
 
+> **Single-daemon mode (default since 2026-07).** Each `co-engram-mcp` spawn thin-launches to a shared long-lived **daemon** — one `ToolContext` reused across every Claude Code session on the same data root — so the second session onward skips cold boot. The daemon auto-exits after 30 min idle. Set `CO_ENGRAM_DAEMON=0` to fall back to one-process-per-session; any daemon spawn/connect failure also falls back transparently to the in-process path. Claude Code-only — OpenClaw is unaffected. See [Environment Variables](#environment-variables).
+
 ## Installation
 
 ### Option A: Global install (recommended)
@@ -112,6 +114,9 @@ Key ones:
 - `CO_ENGRAM_VIEWER_ENABLED=1` — start the web viewer at `http://127.0.0.1:18899`
 - `CO_ENGRAM_LANGUAGE` — language for tool descriptions / viewer / prompts (`en` | `zh`; default `en` or persisted team-memory config)
 - `CO_ENGRAM_TOOLS_PROFILE` — tool surface for the LLM: `minimal` (12 tools — 8 core read/write + 3 proposal triage + `engram_sync`, so the maintenance engine's auto-generated candidates can always be closed-loop handled), `standard` (19, default — adds learning loop, contradiction, self-healing, progressive disclosure, LLM synthesis, audit query), `full` (29, includes admin + internal management tools). Counts are derived from `PROFILE_TOOL_COUNTS` in source via `.size`, so they cannot silently drift. Invalid values warn and fall back to `standard`.
+- `CO_ENGRAM_DAEMON` — single-daemon mode (default `1`): each Claude Code session connects to a shared long-lived daemon (one `ToolContext` reused across sessions on the same data root). Set to `0` to fall back to one-process-per-session; daemon spawn/connect failure also falls back transparently. Claude Code-only; OpenClaw ignores it.
+- `CO_ENGRAM_DAEMON_IDLE_TIMEOUT_MS` — daemon auto-shutdown when no clients are connected for this long (default `1800000` = 30 min).
+- `CO_ENGRAM_DAEMON_SOCKET_DIR` — override directory for the daemon's unix socket files (default `<tmpdir>/co-engram`).
 
 ## Web Viewer
 
@@ -191,6 +196,37 @@ Watch for this log line at MCP startup to confirm it's running:
 ```
 
 OpenClaw doesn't have an equivalent auto-memory writer, so this subsystem is **claude-code-mcp only** — the openclaw-plugin does not start it.
+
+### External-Markdown Proposals (dataRoot `.md` → Co-Engram Proposals)
+
+Beyond Claude Code's auto-memory directory, the watcher also observes the data root itself. **Any `.md` file you drop into `CO_ENGRAM_DATA_ROOT`** — hand-authored notes, exported docs, or files synced from another machine — is picked up and turned into a pending proposal, never silently ignored.
+
+- File already has valid engram frontmatter (`title` + `kind`) → proposal is created directly from the frontmatter.
+- **Bare `.md`** (no frontmatter, or frontmatter missing `title` / `kind`) → the engine auto-extracts the missing fields before proposing:
+  - **`ANTHROPIC_API_KEY` available** (default in Claude Code): an LLM pass extracts `title` / `kind` / `domainTags` / `summary` from the body.
+  - **LLM unavailable or fails**: rule-based fallback — first H1 or filename → `title`, `kind = observation`, `domainTags = ["imported"]`.
+
+The proposal carries `source: "external-markdown"` (distinguishable from `conversation` and `auto-memory`) and a pre-filled payload, so you can triage it via `engram_list_proposals` / `engram_accept_proposal`, or bulk-accept with `engram_accept_proposals_by_source({ source: "external-markdown" })`. Extraction runs asynchronously (fire-and-forget), never blocking the watcher.
+
+Unlike auto-memory sync, this subsystem lives in `@co-engram/core` and is **shared by both hosts** (Claude Code and OpenClaw). See [observability two-layer filtering](./observability.md#proposal-engine) for extraction details.
+
+## Automatic Sync Lifecycle
+
+The data root is a Git repo, and the Claude Code host keeps it in sync with the remote automatically — routine cross-machine updates do not require invoking `engram_sync`.
+
+**On startup** (when the MCP server — or the shared daemon, in daemon mode — boots):
+
+- `git pull --no-edit` (30 s timeout) pulls teammate changes from the remote.
+- The merge driver resolves YAML conflicts automatically; nothing for you to do.
+- Silently skipped when there is no remote, no network, or the repo is already up to date (no log noise).
+
+**On shutdown** (when the session ends, or the daemon idle-times-out after committing):
+
+1. `git commit` (auto) — commits this session's memory writes, if anything changed.
+2. `git push` (30 s timeout) — pushes the new commit to the remote.
+3. Push failure only logs a warning and never blocks exit — the next startup's `git pull` will sync the missed changes.
+
+For on-demand control (custom commit message, `dryRun`, conflict review, Gerrit review fallback), invoke `engram_sync` explicitly — see [README → Save and sync to remote](../README.md#save-and-sync-to-remote-engram_sync). The two paths are complementary: the auto lifecycle handles routine traffic; `engram_sync` is the manual override.
 
 ## Project-Local Config (`.mcp.json`)
 

@@ -24,6 +24,8 @@ Co-Engram 自带三组件的可观测性栈。三者都是可选的,但默认开
 
 **Git merge driver 事件:** `merge_resolved`(driver 自动解决冲突)、`merge_backup_failed`(输方备份落盘失败)、`merge_conflict_escalated`(driver 留 marker 升级人工)、`merge_llm_arbitrated` / `merge_llm_arbitrated_escalated` / `merge_llm_arbitrated_failed`(Phase 3 LLM 仲裁结果)
 
+**维护触发:** `maintenance_run` —— 仅在[维护引擎](./maintenance-engine.zh-CN.md)的 `rem` 或 `daily` 阶段完成时写入(`actor=system`,`metadata` 携带 `stage` / `durationMs` / `errorCount` / 可选 `errorMessage`)。light/deep 频率太高,刻意不记 audit。通过 `engram_audit_query({ action: "maintenance_run" })` 可查询「REM/daily 是否真的跑过」。
+
 **不再写入**(只在 `AuditAction` 枚举里保留以便读旧日志):
 
 - `noise_filtered`(Layer 1 预过滤拒绝 —— 每条对话消息都可能产生)
@@ -66,7 +68,7 @@ LLM agent 想"查询某个 engram 发生了什么",又不想打开 viewer 或直
 
 | 层级              | 默认保留 | 包含的 action                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | ----------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **高价值**        | 365 天   | `create`、`update`、`update_lifecycle`、`importance_update`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`accept`、`dismiss`、`contradicted`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`、`learning_loop_success`、`learning_loop_partial`、`learning_loop_failure` |
+| **高价值**        | 365 天   | `create`、`update`、`update_lifecycle`、`importance_update`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`accept`、`dismiss`、`contradicted`、`merge_resolved`、`merge_backup_failed`、`merge_conflict_escalated`、`merge_llm_arbitrated`、`merge_llm_arbitrated_escalated`、`merge_llm_arbitrated_failed`、`learning_loop_success`、`learning_loop_partial`、`learning_loop_failure`、`maintenance_run` |
 | **低价值(默认)** | 90 天    | `propose`、`reinforce`、`report_failure`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`noise_filtered`、`necessity_rejected`                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 分层理由:高价值 = 状态变更 + 用户决策 + 跨进程协同 + 学习回路闭环,这些是审计的核心目的(追溯"为什么这条 engram 被删/合并/接受/驳回")。低价值 = 高频但低追溯价值(每次工具调用、每次检索命中都产生,但单独看一行对复盘几乎无用)。
@@ -171,6 +173,21 @@ interface ScoreField {
 
 通过 `proposalEngine.observe({ role, content })` 观察对话消息。基于哈希的 embedder 生成一个 128 维 L2 归一化向量。向量通过余弦相似度进行聚类(默认 `DEFAULT_HASHER_SIMILARITY_THRESHOLD = 0.35`,适用于 hash embedder)。当一个聚类的出现次数达到阈值(默认 `3`),引擎会执行**双层过滤**判断是否晋升为提案。
 
+### 候选来源(Proposal Sources)
+
+对话聚类只是其中一条 ingest 路径。每条 proposal 携带 `source` 字段,便于 UI / LLM 区分:
+
+| Source               | 来源                                                                   | payload                                                            |
+| -------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| `conversation`       | `observe()` 聚类(即上文描述的路径)                                     | 无 —— 仅样本片段;LLM 在 accept 时填 `title` / `content`            |
+| `auto-memory`        | dataRoot 下检测到的 Claude Code auto-memory `.md` 文件                  | 完整 payload(title/content/kind/domainTags)—— accept 直接落盘     |
+| `external-markdown`  | dataRoot 下其它裸 `.md` 文件(watcher 检测)                            | 完整 payload + `sourcePath`;LLM/规则提取(见下文)                  |
+| `rem-verification` / `rem-pattern` / `rem-synapse` | REM 阶段产出(见[维护引擎](./maintenance-engine.zh-CN.md)) | 定向 payload;accept 后才落盘(不自动应用)                          |
+
+`auto-memory` 与 `external-markdown` 来源的 proposal 自带完整 payload,可直接 accept,或用 `engram_accept_proposals_by_source` 批量入库(LLM 无需填 `title` / `content`)。`conversation` 来源只有样本片段,LLM 必须逐条用 `engram_accept_proposal` 具象化。
+
+**External-markdown 提取:** watcher 看到 dataRoot 下的 `.md` 文件没有可用 frontmatter(缺 `title` / `kind`)时,不再静默忽略,而是提取 `title` / `kind` / `domainTags` 生成一条 pending proposal —— 注入了 `LlmClient` 时走 LLM 智能提取,LLM 不可用或失败时走规则版降级(`H1` / 文件名 → `title`、`kind = observation`、`domainTags = ["imported"]`)。因此往 dataRoot 丢任何 `.md` 文件,都会在「记忆提案」tab 出现一条候选,而不是被默默丢弃。
+
 ### 双层过滤机制
 
 为了挡住机械重复对话被错误地提交为提案,proposal engine 在 `observe()` 入口和 `maybePromoteToProposal()` 各设一层过滤。
@@ -186,6 +203,7 @@ interface ScoreField {
    │   trivial_pattern(>60%)        │  → 静默丢弃(不写 audit
    │   only_punct                   │     —— Layer 1 是高频路径)
    │   low_density(<4 tokens)       │
+   │   conversational_artifact      │
    └────────┬────────────────────────┘
             │ accepted
             ▼
@@ -195,12 +213,13 @@ interface ScoreField {
    ┌─────────────────────────────────┐
    │ Layer 2: 必要性评估              │  NecessityEvaluator.evaluate()
    │                                  │
-   │   RuleBasedNecessityEvaluator    │  ← 默认,5 条规则
+   │   RuleBasedNecessityEvaluator    │  ← 默认,6 条规则
    │     few_unique_samples /         │     (零 LLM 成本)
    │     high_repetition /            │
    │     too_short /                  │
    │     low_density /                │
-   │     trivial_dominated            │
+   │     trivial_dominated /          │
+   │     conversational_artifact      │
    │          ↓ fallback              │
    │   LlmNecessityEvaluator          │  ← 可选,语义判断
    │     Repeatable + Transferable    │     失败/解析错 → 规则版
@@ -222,6 +241,7 @@ interface ScoreField {
 | `trivial_pattern` | trivial 词占比 > 60%                      | 识别 `ok ok ok done done` 这类重复琐碎 |
 | `only_punct`      | 仅标点/符号                               | 测试输入                               |
 | `low_density`     | 去停用词后有效 token < 4                  | 全停用词长字符串                       |
+| `conversational_artifact` | 命中对话内务信号(时态主导 / 指代依赖 / 过程签名 / 枚举选项 / 自我元层) | 对话过程性产物,反复出现但长期价值为零 |
 
 trivial 词集合覆盖中英文(`ok / hello / 测试 / 好的` 等 30 余个),按 token 比例判断,避免漏掉 `ok ok ok ok` 这类整句重复。
 
@@ -237,8 +257,9 @@ trivial 词集合覆盖中英文(`ok / hello / 测试 / 好的` 等 30 余个),�
 | `too_short`          | 平均长度 < 30 chars                   | 样本过短                |
 | `low_density`        | 平均有效 token < 5                    | 信息密度过低            |
 | `trivial_dominated`  | 70%+ samples 命中 trivial             | 琐碎内容主导            |
+| `conversational_artifact` | ≥50% samples 命中对话内务信号(防御性兜底 —— Layer 1 已逐条挡过) | 漏过 Layer 1 的过程性产物 |
 
-全部通过 → `necessary=true`,reason 形如 `Passed 5 rule checks: 4 unique samples, avg 100 chars, 27.8 tokens`。
+全部通过 → `necessary=true`,reason 形如 `Passed 6 rule checks: 4 unique samples, avg 100 chars, 27.8 tokens`。
 
 **`LlmNecessityEvaluator`(可选,语义判断)** 宿主注入 `LlmClient` 实例后,会用 LLM 判断"是否值得固化为团队记忆",评估标准:
 
@@ -279,7 +300,7 @@ core 只定义 `LlmClient` 接口(`complete(prompt, opts) → string`),具体 pr
 
 ## 查看器
 
-一个仅绑定 loopback 的 HTTP 服务器,用于在浏览器中浏览数据仓库。默认关闭 —— 通过 `CO_ENGRAM_VIEWER_ENABLED=1`(MCP)或 `startViewer: true`(OpenClaw plugin)启用。
+一个仅绑定 loopback 的 HTTP 服务器,用于在浏览器中浏览数据仓库。MCP 宿主默认关闭 —— 通过 `CO_ENGRAM_VIEWER_ENABLED=1` 启用;OpenClaw 插件默认开启(opt-out),在插件配置里设置 `startViewer: false` 可显式关闭。
 
 默认端口:`18899`(2026-07 起两宿主统一)。可选 bearer token,通过 `CO_ENGRAM_VIEWER_TOKEN` 设置。
 
@@ -298,11 +319,16 @@ core 只定义 `LlmClient` 接口(`complete(prompt, opts) → string`),具体 pr
 | GET    | `/api/search?q=`               | FTS 搜索                                                                                                                                                                      |
 | GET    | `/api/graph`                   | 图视图的节点 + 边。边携带完整元数据:`id`、`weight`、`evidenceCount`、`direction`、可选的 `resolutionStatus`。节点可选携带 `slug`,用于更友好的显示。                           |
 | GET    | `/api/proposals`               | pending 或全部候选                                                                                                                                                            |
+| POST   | `/api/proposals/purge-accepted` | 批量删除 `proposals.jsonl` 中 `status=accepted` 的候选记录以释放空间。**保留** accept 时已创建的 engram。返回 `{ ok, purgedCount, purgedIds }`(每条清理会写一条 `dismiss` audit,带 `metadata.purged=true`)。 |
+| POST   | `/api/proposals/purge-dismissed` | 批量删除 `proposals.jsonl` 中 `status=dismissed` 的候选记录。返回 `{ ok, purgedCount, purgedIds }`(审计留痕同 purge-accepted)。 |
 | GET    | `/api/audit`                   | 带过滤的审计日志                                                                                                                                                              |
 | GET    | `/api/effectiveness?engramId=` | 单个 engram 的有效性报告                                                                                                                                                      |
 | GET    | `/api/trash`                   | 回收站中的 engram                                                                                                                                                             |
 | GET    | `/api/path-tree?maxDepth=`     | 用于渐进式披露的目录树。返回 `{ enabled, root: { path, engramCount, children } }`。                                                                                           |
-| GET    | `/api/doctor?incremental=`     | 触发自愈扫描并返回报告。`incremental=1` 仅做 mtime 增量扫描。返回 `{ enabled, report: { startedAt, finishedAt, totalEngrams, totalSynapses, fixes, pendingManualReview } }`。 |
+| GET    | `/api/doctor?incremental=&rescan=` | 自愈扫描报告。默认返回 [维护引擎](./maintenance-engine.zh-CN.md) deep 阶段写入的持久化 `.co-engram/doctor-report.json`(这样健康栏能展示"deep 修了什么",即使问题已被 auto-fix)。`rescan=1` 忽略缓存强制重跑;`incremental=1` 仅在现场重跑时做 mtime 增量扫描。返回 `{ enabled, cached?, report: { startedAt, finishedAt, totalEngrams, totalSynapses, fixes, pendingManualReview } }`。 |
+| GET    | `/api/maintenance-state`       | viewer 维护 tab 的运行状态。返回 `{ enabled, state, intervals: { light, deep, rem } }` —— `state` 是持久化的 `maintenance-state.json`(各阶段上次执行时间戳),`intervals` 是默认阶段间隔,供 UI 计算「某阶段是否过期 / 距下次触发还有多久」。文件缺失/损坏 → 空 state(「从未跑过」)。 |
+| GET    | `/api/merge-stats?windowDays=` | merge driver 统计,viewer「合并」tab 数据源。按时间窗(默认 7 天,clamp 1–365)聚合 `merge_*` audit 事件。返回 `{ enabled, stats, windowDays }`。对应 CLI:`co-engram stats [--window-days N] [--json]`。 |
+| GET    | `/api/merge-anomalies?windowDays=` | merge driver 异常告警(KPI 阈值见 spec §13)。返回 `{ enabled, anomalies, windowDays }`。对应 CLI:`co-engram anomalies [--window-days N] [--json]`(出现 critical 时退出码非 0)。 |
 
 如果配置了 token,所有 `/api/*` 端点都需要 `Authorization: Bearer <token>`。
 
