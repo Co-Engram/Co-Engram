@@ -65,13 +65,17 @@ export function extractBareMarkdownDefaults(
 ): ExtractedEngramFields {
   const fileName = basename(sourcePath, ".md");
   const h1Match = raw.match(/^#\s+(.+)$/m);
-  const title = h1Match?.[1]?.trim() || fileName || "imported-note";
+  const title = h1Match?.[1]?.trim() || fileName || "untitled-note";
 
   return {
     title: title.slice(0, 200),
     content: raw,
     kind: "observation",
-    domainTags: ["imported"],
+    // 未配置 LLM / LLM 失败时的兜底标签。用 uncategorized(待刷新)而非 imported:
+    // imported 是来源类型不是内容语义,且会让 REM delete 的「domainTags 无交集」
+    // 判定对所有导入 engram 永远不触发。REM 首次扫描时 baseline 不存在 = 100%
+    // 变化,会无条件刷新成真实语义标签。
+    domainTags: ["uncategorized"],
   };
 }
 
@@ -135,9 +139,12 @@ An engram is a team memory entry with these fields:
 Read the markdown content and output ONLY a JSON object (no prose, no markdown fences):
 {"title": "...", "kind": "observation|fact|pattern|procedure|hypothesis", "domainTags": ["...", "..."], "summary": "..."}
 
-If the content is too short or ambiguous, default to:
-- kind: "observation"
-- domainTags: ["imported"]
+Rules for domainTags:
+- They must describe the CONTENT domain / topic (e.g. "testing", "architecture", "adb", "git-workflow"), NEVER the source type.
+- Do NOT use "imported" or any source/origin label as a domainTag — it carries no content semantics.
+- Always extract at least 1 content-derived tag. If the content is genuinely too short to infer any domain, use the single tag "uncategorized" (it marks the engram for a later REM refresh); whenever any topic word is present, prefer it over "uncategorized".
+
+If the content is too short or ambiguous to classify the kind, default kind to "observation".
 
 Markdown content:
 ${content}`;

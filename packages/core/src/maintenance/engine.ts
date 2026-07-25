@@ -46,6 +46,7 @@ import {
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
 import { writeStageState, readMaintenanceState } from "./state.js";
+import { refreshDomainTagsOnDrift } from "./tag-refresh.js";
 import { join, dirname } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
 import type { DoctorReport } from "../types/repository-types.js";
@@ -296,6 +297,16 @@ export class MaintenanceEngine {
       // 1. 触发 REM Dreaming（聚类 + 抽象）
       const dreamRecord = this.deps.dreamingScheduler.trigger("rem");
 
+      // 1.5 标签漂移刷新:对内容显著变化(≥阈值)的 engram 用 LLM 重提内容语义
+      //     domainTags,修正导入/历史 engram 的笼统标签(imported/uncategorized)。
+      //     先于 metacognition 跑,让 crossContext 维度拿到准确的 domainTags 数量。
+      //     无 indexDb 时 noop;无 llmClient 时只更新 baseline 不调 LLM。不阻塞 REM。
+      const tagRefresh = await refreshDomainTagsOnDrift(
+        this.deps.repository,
+        this.deps.auditLog,
+        this.deps.llmClient,
+      );
+
       // 2. 对所有 active 且未 refuted 的 engram 跑 metacognition
       //    遍历 unverified / plausible / probable / verified
       //
@@ -373,6 +384,7 @@ export class MaintenanceEngine {
           metacognitionTotal: candidates.length,
           remModified,
           patternProposals,
+          tagRefresh,
         },
       };
     });

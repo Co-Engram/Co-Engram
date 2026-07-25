@@ -1436,7 +1436,7 @@ describe("ProposalEngine.createExternalMarkdownHook", () => {
     // 规则版:title 取 H1,无 H1 时 fallback 文件名(去 .md)
     expect(p.title).toBe("foo");
     expect(p.kind).toBe("observation");
-    expect(p.domainTags).toEqual(["imported"]);
+    expect(p.domainTags).toEqual(["uncategorized"]);
   });
 
   it("frontmatter 缺 title 或 kind → 同样走规则版提取(等同裸 .md)", () => {
@@ -1457,7 +1457,7 @@ describe("ProposalEngine.createExternalMarkdownHook", () => {
     // raw="..." 无 H1,规则版 fallback 文件名
     expect(all[0]!.payload!.title).toBe("foo");
     expect(all[0]!.payload!.kind).toBe("observation");
-    expect(all[0]!.payload!.domainTags).toEqual(["imported"]);
+    expect(all[0]!.payload!.domainTags).toEqual(["uncategorized"]);
   });
 
   it("合法 frontmatter → 创建 pending proposal,sourcePath 来自 relPath", () => {

@@ -114,6 +114,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS engram_fts USING fts5(
 
 -- schema 版本号。open() 时若版本不符,DROP 全部表后重建。SQLite 是纯派生数据,
 -- 重建在 cold-start 阶段从 .md 灌回,语义等价于"清缓存",避免 ALTER TABLE 复杂度。
+-- schema v5:标签漂移刷新基线(REM tag-refresh 用)。token_set 存 JSON 数组,
+-- content_hash 用于 L0 判变;FK CASCADE 让 engram 删除时基线自动清。
+CREATE TABLE IF NOT EXISTS tag_refresh_baseline (
+  engram_id TEXT NOT NULL,
+  token_set TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  refreshed_at TEXT NOT NULL,
+  PRIMARY KEY (engram_id),
+  FOREIGN KEY (engram_id) REFERENCES engrams(id) ON DELETE CASCADE
+);
+
 CREATE TABLE IF NOT EXISTS schema_version (
   version INTEGER NOT NULL
 );
@@ -136,7 +147,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
  * reinforceRelated / findCandidatesSync 等)。readEngram 单次 ~1s,1026 条
  * 卡 20 分钟,与 graph-builder.ts 的 N+1 反模式同根。
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -257,6 +268,7 @@ export class IndexDb {
     if (diskVersion === SCHEMA_VERSION) return;
     // 版本不符 → DROP 派生表,SCHEMA_SQL 会重建空表
     this.db!.exec("DROP TABLE IF EXISTS engram_fts");
+    this.db!.exec("DROP TABLE IF EXISTS tag_refresh_baseline");
     this.db!.exec("DROP TABLE IF EXISTS synapses");
     this.db!.exec("DROP TABLE IF EXISTS engram_domains");
     this.db!.exec("DROP TABLE IF EXISTS engrams");
@@ -997,6 +1009,115 @@ export class IndexDb {
       this.prepare("DELETE FROM engrams WHERE id = ?").run(engramId);
       this.prepare("DELETE FROM engram_fts WHERE id = ?").run(engramId);
     });
+  }
+
+  // ============================================================
+  // schema v5:tag_refresh_baseline CRUD(REM 标签漂移刷新用)
+  // ============================================================
+
+  /**
+   * UPSERT 标签刷新基线。REM 扫描时 L0 用 content_hash 判变,L1 用 token_set 算 Jaccard。
+   */
+  upsertTagRefreshBaseline(input: {
+    readonly engramId: string;
+    readonly tokenSet: readonly string[];
+    readonly contentHash: string;
+    readonly refreshedAt: string;
+  }): void {
+    this.transaction(() => {
+      this.prepare(
+        `INSERT INTO tag_refresh_baseline (engram_id, token_set, content_hash, refreshed_at)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT(engram_id) DO UPDATE SET
+           token_set = excluded.token_set,
+           content_hash = excluded.content_hash,
+           refreshed_at = excluded.refreshed_at`,
+      ).run(
+        input.engramId,
+        JSON.stringify(input.tokenSet),
+        input.contentHash,
+        input.refreshedAt,
+      );
+    });
+  }
+
+  /** 读单条基线;不存在返回 undefined。 */
+  readTagRefreshBaseline(
+    engramId: string,
+  ):
+    | {
+        readonly engramId: string;
+        readonly tokenSet: readonly string[];
+        readonly contentHash: string;
+        readonly refreshedAt: string;
+      }
+    | undefined {
+    const row = this.prepare(
+      `SELECT engram_id, token_set, content_hash, refreshed_at
+       FROM tag_refresh_baseline WHERE engram_id = ?`,
+    ).get(engramId) as
+      | {
+          engram_id: string;
+          token_set: string;
+          content_hash: string;
+          refreshed_at: string;
+        }
+      | undefined;
+    if (!row) return undefined;
+    return {
+      engramId: row.engram_id,
+      tokenSet: JSON.parse(row.token_set) as string[],
+      contentHash: row.content_hash,
+      refreshedAt: row.refreshed_at,
+    };
+  }
+
+  /**
+   * 批量读全部基线(REM 全量扫描用,一次 SQL 避免 N 次 prepare)。
+   * 返回 Map<engramId, baseline>。
+   */
+  readAllTagRefreshBaselines(): ReadonlyMap<
+    string,
+    {
+      readonly engramId: string;
+      readonly tokenSet: readonly string[];
+      readonly contentHash: string;
+      readonly refreshedAt: string;
+    }
+  > {
+    const rows = this.prepare(
+      `SELECT engram_id, token_set, content_hash, refreshed_at FROM tag_refresh_baseline`,
+    ).all() as Array<{
+      engram_id: string;
+      token_set: string;
+      content_hash: string;
+      refreshed_at: string;
+    }>;
+    const map = new Map<
+      string,
+      {
+        readonly engramId: string;
+        readonly tokenSet: readonly string[];
+        readonly contentHash: string;
+        readonly refreshedAt: string;
+      }
+    >();
+    for (const row of rows) {
+      map.set(row.engram_id, {
+        engramId: row.engram_id,
+        tokenSet: JSON.parse(row.token_set) as string[],
+        contentHash: row.content_hash,
+        refreshedAt: row.refreshed_at,
+      });
+    }
+    return map;
+  }
+
+  /** 删单条基线(engram 删除时由 FK CASCADE 自动触发,此方法供显式清理/测试用)。 */
+  deleteTagRefreshBaseline(engramId: string): void {
+    this.prepare(
+      "DELETE FROM tag_refresh_baseline WHERE engram_id = ?",
+    ).run(engramId);
   }
 }
 
