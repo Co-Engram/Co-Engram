@@ -472,10 +472,13 @@ export class ProposalEngine {
     if (existing?.status === "accepted") return false;
     if (
       existing?.status === "dismissed" &&
-      existing.dismissedUntil &&
-      existing.dismissedUntil > new Date().toISOString()
+      (existing.dismissedUntil === null || // null = 永久屏蔽(之前 bug:null && → false → 不冷却 → 复活)
+        (!!existing.dismissedUntil &&
+          existing.dismissedUntil > new Date().toISOString()))
     )
       return false;
+    // tombstone 检查:purgeDismissed 清 proposals.jsonl 后,tombstone 仍记录 dismiss → 防复活
+    if (this.isTombstoned(entityId)) return false;
 
     const now = new Date().toISOString();
     const proposal: Proposal = {
@@ -540,10 +543,13 @@ export class ProposalEngine {
     if (existing?.status === "accepted") return false;
     if (
       existing?.status === "dismissed" &&
-      existing.dismissedUntil &&
-      existing.dismissedUntil > new Date().toISOString()
+      (existing.dismissedUntil === null || // null = 永久屏蔽(之前 bug:null && → false → 不冷却 → 复活)
+        (!!existing.dismissedUntil &&
+          existing.dismissedUntil > new Date().toISOString()))
     )
       return false;
+    // tombstone 检查:purgeDismissed 清 proposals.jsonl 后,tombstone 仍记录 dismiss → 防复活
+    if (this.isTombstoned(entityId)) return false;
 
     const now = new Date().toISOString();
     const proposal: Proposal = {
@@ -616,10 +622,13 @@ export class ProposalEngine {
     if (existing?.status === "accepted") return false;
     if (
       existing?.status === "dismissed" &&
-      existing.dismissedUntil &&
-      existing.dismissedUntil > new Date().toISOString()
+      (existing.dismissedUntil === null || // null = 永久屏蔽(之前 bug:null && → false → 不冷却 → 复活)
+        (!!existing.dismissedUntil &&
+          existing.dismissedUntil > new Date().toISOString()))
     )
       return false;
+    // tombstone 检查:purgeDismissed 清 proposals.jsonl 后,tombstone 仍记录 dismiss → 防复活
+    if (this.isTombstoned(entityId)) return false;
 
     const now = new Date().toISOString();
     const proposal: Proposal = {
