@@ -737,10 +737,12 @@ export class EngramRepository {
     if (!this.externalMarkdownHook) return;
     // 直接读 index.json(getIndex 会触发 rebuild,污染"未追踪"判定)
     const knownPaths = new Set<string>();
+    const knownIds = new Set<StableEngramId>();
     try {
       const raw = readEngramIndex(this.config.rootPath);
       for (const entry of raw.entries.values()) {
         knownPaths.add(entry.path);
+        knownIds.add(entry.id);
       }
     } catch {
       // index.json 不存在或损坏 → 视为空集合,所有 .md 都未追踪
@@ -757,7 +759,7 @@ export class EngramRepository {
         continue;
       }
       // parsed 取值:isEngramFile=true(合法 engram)→ parseEngramFile 结果;
-      // 裸 md / 解析失败 → null。注意 769 无条件通知 hook —— 裸 md 也会进入提案
+      // 裸 md / 解析失败 → null。注意下方无条件通知 hook —— 裸 md 也会进入提案
       // 流程(hook 路径 2 走 LLM/规则提取),accept 时由 adoptOrPromoteEngramAt 原地纳管。
       let parsed: EngramFile | null = null;
       if (isEngramFile(raw)) {
@@ -766,6 +768,19 @@ export class EngramRepository {
         } catch {
           parsed = null;
         }
+      }
+      // 防御:合法 engram 且 stable id 已在 index → 已入库(路径未同步 / 迁移漏判 /
+      // scanForDeletedEngrams 被异常跳过)。守住「已 accept 的 engram 不因路径变更
+      // 复活成 proposal」的不变量,不依赖上游时序。外部 cp 进来的带 id .md(id 不在
+      // index)仍走提案,语义不变。
+      const parsedId = parsed?.frontmatter.id;
+      if (
+        parsed &&
+        typeof parsedId === "string" &&
+        isStableEngramId(parsedId) &&
+        knownIds.has(parsedId)
+      ) {
+        continue;
       }
       try {
         this.externalMarkdownHook({ absPath, relPath, raw, parsed });
@@ -814,16 +829,42 @@ export class EngramRepository {
       return;
     }
     const root = this.config.rootPath;
-    // 先收集 orphans 再清理:虽然这里 index 是 readEngramIndex 的快照,
-    // deleteEngram 不会修改它,但先收集让语义更清晰。
+    // 磁盘合法 engram 的 id→path 映射,用于区分「路径迁移」与「真删除」。
+    // engram 的稳定身份是 frontmatter 的 stable id(ULID),path 只是当前位置
+    // (EngramIndexEntry.path 注释:可能因人类操作而变化)。原实现只看 entry.path
+    // 是否存在 → 重命名目录 / 移动文件会让整批已 accept 的 engram 被判为孤儿,
+    // 触发 deleteEngram(误删 synapse / SQLite / 磁盘文件),随后被
+    // scanForExternalMarkdown 当成新文件重新提案。改用 stable id 判定:
+    // id 仍在磁盘 → 路径迁移,只更新 entry.path;id 不在 → 真删除。
+    const diskIds = this.collectDiskEngramIds();
+    // 先收集再清理:readEngramIndex 快照不会被 deleteEngram 修改,先收集让语义清晰。
     const orphans: StableEngramId[] = [];
+    let moved = false;
     for (const [id, entry] of index.entries) {
       // path 校验:理论上是 trusted,但 doctor 自愈后可能含异常路径
       if (!isPathWithinRoot(root, entry.path)) continue;
       const absPath = safeJoinWithinRoot(root, entry.path);
-      if (!existsSync(absPath)) {
+      if (existsSync(absPath)) continue; // 原路径还在 → 非孤儿,交给 scanForModifiedEngrams
+      // 原路径消失:stable id 仍在磁盘 → 路径迁移;否则 → 真删除
+      const diskPath = diskIds.get(id);
+      if (diskPath && diskPath !== entry.path) {
+        // 路径迁移:id 不变,只更新 entry.path + 刷新 mtime。
+        // 不调 deleteEngram —— SQLite EngramIndexEntry 无 path 字段(index-db.ts),
+        // 迁移无需动派生层;调 deleteEngram 反会误删 synapse / SQLite / 磁盘文件。
+        let mtime = entry.mtime;
+        try {
+          mtime = statSync(safeJoinWithinRoot(root, diskPath)).mtimeMs;
+        } catch {
+          // 用旧 mtime 兜底,scanForModifiedEngrams 下轮校正
+        }
+        index.entries.set(id, { ...entry, path: diskPath, mtime });
+        moved = true;
+      } else {
         orphans.push(id);
       }
+    }
+    if (moved) {
+      this.persistIndex(index);
     }
     for (const id of orphans) {
       try {
@@ -835,6 +876,41 @@ export class EngramRepository {
         // 部分清理失败不阻塞其他孤儿,下次扫描重试
       }
     }
+  }
+
+  /**
+   * 扫描 dataRoot 下所有合法 engram 文件,返回 stable id → 相对路径 映射。
+   * 供 scanForDeletedEngrams 区分「路径迁移」(id 仍在磁盘)与「真删除」。
+   *
+   * 只收集合法 engram(isEngramFile + 合法 ULID frontmatter.id);裸 md / 残缺
+   * frontmatter 无稳定 id,不参与迁移判定(仍由 scanForExternalMarkdown 走提案)。
+   * 同 id 多文件(duplicate_id)取首次出现,不覆盖 —— doctor 会单独报告并处理。
+   */
+  private collectDiskEngramIds(): Map<StableEngramId, string> {
+    const root = this.config.rootPath;
+    const mdFiles = collectMarkdownFiles(root);
+    const disk = new Map<StableEngramId, string>();
+    for (const absPath of mdFiles) {
+      let raw: string;
+      try {
+        raw = readFileSync(absPath, "utf8");
+      } catch {
+        continue;
+      }
+      if (!isEngramFile(raw)) continue;
+      let parsed: EngramFile;
+      try {
+        parsed = parseEngramFile(raw);
+      } catch {
+        continue;
+      }
+      const id = parsed.frontmatter.id;
+      if (!id || !isStableEngramId(id)) continue;
+      if (disk.has(id)) continue;
+      const relPath = relative(root, absPath).split(sep).join("/");
+      disk.set(id, relPath);
+    }
+    return disk;
   }
 
   /**
