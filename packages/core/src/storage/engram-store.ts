@@ -90,7 +90,8 @@ export interface ValidationIssue {
     | "invalid_format"
     | "missing_required"
     | "unknown_field"
-    | "derived_mismatch";
+    | "derived_mismatch"
+    | "multiple_frontmatter";
   readonly severity: "critical" | "high" | "medium" | "low";
   /** 人类可读说明,如 "kind must be one of: observation, fact, pattern, procedure, hypothesis" */
   readonly message: string;
@@ -711,6 +712,23 @@ export function parseEngramFile(raw: string): EngramFile {
   // rebuildEngramIndex 用 try/catch 把它们路由到 onInvalidFrontmatter。
   const normalizedFm = normalizeFrontmatter(normalized);
   const validationIssues = validateFrontmatter(normalizedFm, body);
+
+  // 检测双/多 frontmatter(底部 marker 出现 >1):外部编辑或 git 合并解决冲突时
+  // 可能误留多个 frontmatter block。parseEngramFile 只取第一个 marker,多余的会
+  // 被静默丢弃 → doctor 盲区(看不到损坏)。这里显式收集 issue,让 doctor 检测并
+  // 自愈(保留第一个 frontmatter,删多余 block)。
+  const markerGlobal = new RegExp(BOTTOM_META_MARKER_RE.source, "g");
+  const markerCount = (raw.match(markerGlobal) ?? []).length;
+  if (markerCount > 1) {
+    validationIssues.push({
+      field: "__file__",
+      category: "multiple_frontmatter",
+      severity: "high",
+      message: `File contains ${markerCount} frontmatter blocks (expected 1); extra blocks are corrupt duplicates and will be stripped by doctor`,
+      currentValue: markerCount,
+      expectedType: "1 frontmatter block",
+    });
+  }
 
   // 把 normalized 包装成 EngramFrontmatter(类型断言;runtime 已是 plain object)。
   // 旧字段级 throw(id/title 缺失)已移除 — 改走 _validationIssues 由 doctor 处理。

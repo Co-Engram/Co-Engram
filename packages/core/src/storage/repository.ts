@@ -2980,7 +2980,10 @@ export class EngramRepository {
       i.category === "derived_mismatch" ||
       (i.category === "out_of_range" &&
         EngramRepository.CLAMPABLE_NUMERIC.has(i.field)) ||
-      i.category === "unknown_field";
+      i.category === "unknown_field" ||
+      // multiple_frontmatter:mutateFrontmatter 无条件 readEngramFile(parse 取第一个
+      // fm+body)+ writeEngramFile(覆盖写单 frontmatter),identity mutator 即可删多余 block
+      i.category === "multiple_frontmatter";
 
     const autoFixable = issues.filter(isAutoFixable);
     const manual = issues.filter((i) => !isAutoFixable(i));
@@ -3023,7 +3026,9 @@ export class EngramRepository {
           const kind: DoctorIssue["kind"] =
             issue.category === "derived_mismatch"
               ? "derived_field_stale"
-              : "invalid_field_value";
+              : issue.category === "multiple_frontmatter"
+                ? "multiple_frontmatter"
+                : "invalid_field_value";
           fixes.push({
             kind,
             stableId: stableId as StableEngramId,
@@ -3132,6 +3137,7 @@ export class EngramRepository {
       case "out_of_range":
       case "unknown_field":
       case "derived_mismatch":
+      case "multiple_frontmatter":
         return {
           tool: "(auto-fixed)",
           argsHint: "",
@@ -3228,6 +3234,25 @@ export class EngramRepository {
             argsHint: `Fix YAML syntax in ${invalidPath}`,
             explanation:
               "File has frontmatter marker but parsing failed. Common causes: tab indentation, unbalanced quotes, malformed YAML.",
+          },
+        };
+        issues.push(issue);
+        pendingManualReview.push(issue);
+      },
+      (dupId, existingPath, duplicatePath) => {
+        // duplicate_id:同 id 多文件(用户复制记忆到多目录 / 手动 cp 带 id)。
+        // doctor 不自动删(删哪个由用户决定,可能丢演化内容)→ manual review + nextAction。
+        // 这正是「已有记忆却重复 propose」的根因:被覆盖的副本不在 index → orphan → propose。
+        const issue: DoctorIssue = {
+          kind: "duplicate_id",
+          stableId: dupId as StableEngramId,
+          path: duplicatePath,
+          message: `Duplicate id ${dupId}: also at "${existingPath}" — keep one, delete the other (or change one's id)`,
+          autoFixed: false,
+          nextAction: {
+            tool: "engram_delete",
+            argsHint: `id=<one of the duplicates>  // decide which copy is canonical, delete the other`,
+            explanation: `Two files share stable id "${dupId}": "${existingPath}" and "${duplicatePath}". Usually a memory was manually copied to multiple directories. Decide which is canonical, delete the other (engram_delete), or change one's id. The non-canonical copy otherwise becomes an orphan and generates duplicate import proposals.`,
           },
         };
         issues.push(issue);

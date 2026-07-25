@@ -193,6 +193,11 @@ export function rebuildEngramIndex(
   dataRoot: string,
   onOrphan?: (relativePath: string) => void,
   onInvalidFrontmatter?: (relativePath: string, errorMessage: string) => void,
+  onDuplicate?: (
+    id: string,
+    existingPath: string,
+    duplicatePath: string,
+  ) => void,
 ): EngramIndexMap {
   const index = createEmptyEngramIndex();
 
@@ -246,6 +251,12 @@ export function rebuildEngramIndex(
           mtime: stat.mtimeMs,
           contentHash: parsed.frontmatter.contentHash ?? "",
         });
+        const existingEntry = index.entries.get(entryRecord.id);
+        if (existingEntry) {
+          // duplicate_id:同 id 多文件(用户复制记忆到多目录 / 手动 cp 带 id)。
+          // 报 issue 让 doctor/用户处理(删哪个用户决定);index 仍 set(保留最后扫到的)。
+          onDuplicate?.(entryRecord.id, existingEntry.path, relativePath);
+        }
         index.entries.set(entryRecord.id, entryRecord);
       } catch (err) {
         // parseEngramFile/stat 抛错(YAML 结构错等):有 marker 走 invalid,无 marker 走 orphan

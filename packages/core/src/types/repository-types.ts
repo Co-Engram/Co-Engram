@@ -114,6 +114,7 @@ export interface DoctorIssue {
     // ── frontmatter 值合法性校验(2026-07 增强)──
     | "invalid_frontmatter" // YAML 语法错(从 orphan_markdown 分流;有 marker 但 parse 失败)
     | "invalid_field_value" // 字段类型/枚举/范围/格式/必填错(category 通过 message 区分)
+    | "multiple_frontmatter" // 文件含多个 frontmatter block(外部编辑/merge 误留);doctor 保留第一个,删多余
     | "derived_field_stale" // contentHash/contentSize 与实际 content 不符(可自动修)
     | "status_renamed" // 2026-07 archived→frozen 重命名:doctor 自动迁移旧 frontmatter
     | "dangling_synapse_cleaned" // synapse 的 from/to 引用不存在的 engram,doctor 自动删除
