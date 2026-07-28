@@ -81,6 +81,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     // AI-8 batch proposal(让用户一次清空数千 load-test 候选)
     "engram_accept_proposals_by_source",
     "engram_dismiss_proposals_by_filter",
+    // S1 skill CRUD（读 + 管理；invoke 不进任何 profile，S3 再放）
+    "skill_get",
+    "skill_list",
+    "skill_create",
+    "skill_update",
+    "skill_delete",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -100,6 +106,10 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "synapse_list",
     "synapse_delete",
     "skill_get",
+    "skill_list",
+    "skill_create",
+    "skill_update",
+    "skill_delete",
     "close_learning_loop",
     "contradiction_resolve",
     "get_evolution_lineage",
