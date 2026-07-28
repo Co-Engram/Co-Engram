@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { EngramRepository } from "../src/storage/repository.js";
+import { SkillRepository } from "../src/skill/skill-repository.js";
 import { SearchOrchestrator } from "../src/retrieval/orchestrator.js";
 import { collectDigestLines } from "../src/index/digest-builder.js";
 import {
@@ -1343,82 +1344,111 @@ describe("synapse_list", () => {
 });
 
 // ============================================================
-// skill_get / skill_invoke（P0 框架）
+// skill_get / skill_invoke（S1 持久化版）
 // ============================================================
 
 describe("skill_get", () => {
-  it("从 registry 读取 skill", () => {
-    const skill = makeStubSkill("skill-1", "主动 Skill");
-    const extCtx = { ...ctx, skills: new Map([["skill-1", skill]]) };
-    const result = skillGetTool.execute({ id: "skill-1" }, extCtx);
-    expect(result.title).toBe("主动 Skill");
+  it("从 SkillRepository 读取 skill", () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "skill-test-"));
+    try {
+      const repo = new SkillRepository(tmpDir);
+      repo.createSkill({
+        skillId: "skill-1",
+        sourcePath: "tools/skill-1",
+        initiationSet: "测试",
+        termination: "完成",
+        policy: { kind: "claude-skill", ref: "SKILL.md" },
+        createdBy: "tester",
+      });
+
+      const extCtx = { ...ctx, skillRepository: repo };
+      const result = skillGetTool.execute({ id: "skill-1" }, extCtx);
+      expect(result.skillId).toBe("skill-1");
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
-  it("未注入 registry 抛错", () => {
+  it("未注入 skillRepository 抛错", () => {
     expect(() => skillGetTool.execute({ id: "x" }, ctx)).toThrow(
-      /Skill registry/,
+      /skillRepository/,
     );
   });
 
   it("不存在抛错", () => {
-    const extCtx = { ...ctx, skills: new Map() };
-    expect(() => skillGetTool.execute({ id: "x" }, extCtx)).toThrow(
-      /not found/,
-    );
+    const tmpDir = mkdtempSync(join(tmpdir(), "skill-test-"));
+    try {
+      const repo = new SkillRepository(tmpDir);
+      const extCtx = { ...ctx, skillRepository: repo };
+      expect(() => skillGetTool.execute({ id: "x" }, extCtx)).toThrow(
+        /not found/,
+      );
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 
 describe("skill_invoke", () => {
-  it("未注入 executor 返回 P0 stub", async () => {
-    const skill = makeStubSkill("skill-1", "主动");
-    const extCtx = { ...ctx, skills: new Map([["skill-1", skill]]) };
-    const result = await skillInvokeTool.execute(
-      { id: "skill-1", args: { k: "v" } },
-      extCtx,
-    );
-    expect(result.success).toBe(true);
-    expect(result.output).toMatch(/P0 stub/);
-  });
+  it("S1 stub 返回占位结果", async () => {
+    const tmpDir = mkdtempSync(join(tmpdir(), "skill-test-"));
+    try {
+      const repo = new SkillRepository(tmpDir);
+      repo.createSkill({
+        skillId: "skill-1",
+        sourcePath: "tools/skill-1",
+        initiationSet: "测试",
+        termination: "完成",
+        policy: { kind: "claude-skill", ref: "SKILL.md" },
+        createdBy: "tester",
+      });
 
-  it("deprecated skill 拒绝执行", async () => {
-    const skill = makeStubSkill("skill-1", "已弃用", { level: "deprecated" });
-    const extCtx = { ...ctx, skills: new Map([["skill-1", skill]]) };
-    const result = await skillInvokeTool.execute(
-      { id: "skill-1", args: {} },
-      extCtx,
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/deprecated/);
+      const extCtx = { ...ctx, skillRepository: repo };
+      const result = await skillInvokeTool.execute(
+        { id: "skill-1", args: { k: "v" } },
+        extCtx,
+      );
+      expect(result.success).toBe(true);
+      expect(result.output).toMatch(/S1 stub/);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it("forgotten stage skill 拒绝执行", async () => {
-    const skill = makeStubSkill("skill-1", "遗忘", {}, "forgotten");
-    const extCtx = { ...ctx, skills: new Map([["skill-1", skill]]) };
-    const result = await skillInvokeTool.execute(
-      { id: "skill-1", args: {} },
-      extCtx,
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/forgotten/);
-  });
-
-  it("注入 executor 时委托", async () => {
-    const skill = makeStubSkill("skill-1", "主动");
-    const extCtx = {
-      ...ctx,
-      skills: new Map([["skill-1", skill]]),
-      skillExecutor: (_s, args) => ({
+    const tmpDir = mkdtempSync(join(tmpdir(), "skill-test-"));
+    try {
+      const repo = new SkillRepository(tmpDir);
+      repo.createSkill({
         skillId: "skill-1",
-        success: true,
-        output: `executed with ${JSON.stringify(args)}`,
-        executedAt: "2026-06-20T00:00:00.000Z",
-      }),
-    };
-    const result = await skillInvokeTool.execute(
-      { id: "skill-1", args: { x: 1 } },
-      extCtx,
-    );
-    expect(result.output).toBe('executed with {"x":1}');
+        sourcePath: "tools/skill-1",
+        initiationSet: "测试",
+        termination: "完成",
+        policy: { kind: "claude-skill", ref: "SKILL.md" },
+        createdBy: "tester",
+      });
+
+      // 直接修改 imprint 文件模拟 forgotten 状态（正常通过 dynamics 计算）
+      const { writeImprint } = await import("../src/skill/imprint.js");
+      const skill = repo.readSkill("skill-1");
+      const forgottenSkill = {
+        ...skill,
+        retentionStage: "forgotten" as const,
+        lastUsedAt: new Date(Date.now() - 30 * 86_400_000).toISOString(), // 30天前
+        updatedAt: new Date().toISOString(),
+      };
+      writeImprint(tmpDir, forgottenSkill);
+
+      const extCtx = { ...ctx, skillRepository: repo };
+      const result = await skillInvokeTool.execute(
+        { id: "skill-1", args: {} },
+        extCtx,
+      );
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/forgotten/);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -1427,9 +1457,9 @@ describe("skill_invoke", () => {
 // ============================================================
 
 describe("ToolRegistry", () => {
-  it("列出所有工具（31 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1）", () => {
+  it("列出所有工具（35 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1 + skill CRUD 4）", () => {
     const reg = createToolRegistry();
-    expect(reg.list().length).toBe(31);
+    expect(reg.list().length).toBe(35);
   });
 
   it("按名查工具", () => {
@@ -1446,7 +1476,7 @@ describe("ToolRegistry", () => {
     // 11 engram_*_* + 3 engram_*_proposal* + 2 engram_*_proposals_by_* (AI-8) + 2 engram_doctor / engram_list_paths + 1 engram_synthesize + 1 engram_sync + 1 engram_audit_query = 21
     expect(reg.listByNamespace("engram").length).toBe(21);
     expect(reg.listByNamespace("synapse").length).toBe(4);
-    expect(reg.listByNamespace("skill").length).toBe(2);
+    expect(reg.listByNamespace("skill").length).toBe(6); // skill_create/list/get/update/delete/invoke
     // contradiction_resolve 不属于 engram/synapse/skill 命名空间
     expect(reg.listByNamespace("contradiction").length).toBe(1);
   });
@@ -1494,52 +1524,29 @@ describe("validateInput", () => {
 // ============================================================
 
 function makeStubSkill(
-  id: string,
-  title: string,
-  automation: {
-    level: "suggest" | "auto-execute" | "deprecated";
-    reason?: string;
-  } = { level: "suggest" },
-  decayStage: "active" | "aging" | "stale" | "forgotten" = "active",
+  skillId: string,
+  retentionStage: "active" | "aging" | "stale" | "forgotten" = "active",
 ): Skill {
   return {
-    id,
-    title,
-    trigger: { pattern: "test", keywords: ["test"], taskType: "other" },
-    template: {
-      type: "prompt-template",
-      body: "stub",
-      variables: [],
-    },
-    evolvedFrom: null,
-    applicableContext: "testing",
-    boundaryConditions: [],
-    automation: {
-      level: automation.level,
-      reason: automation.reason ?? "",
-      lastAutoExecuteAt: null,
-    },
-    activeInScenes: [],
-    inhibitedInScenes: [],
-    composes: [],
-    decay: {
-      stage: decayStage,
-      lastUsedAt: null,
-      consecutiveFailures: 0,
-      successRate: 1,
-    },
-    stats: {
-      totalInvocations: 0,
-      successfulInvocations: 0,
-      failedInvocations: 0,
-      lastInvocationAt: null,
-      avgExecutionTimeMs: 0,
-    },
-    reflectAfterConsecutiveFailures: 3,
-    relatedEngrams: [],
-    visibility: "public",
+    schemaVersion: 1,
+    skillId,
+    sourcePath: `tools/${skillId}`,
+    contentHash: "sha256:stub",
+    initiationSet: "测试触发",
+    termination: "测试终止",
+    policy: { kind: "claude-skill", ref: "SKILL.md" },
+    utility: 0.5,
+    sampleSize: 0,
+    invocationCount: 0,
+    successCount: 0,
+    failureCount: 0,
+    lastUsedAt: null,
+    acquisitionStage: "draft",
+    retentionStage,
+    visibility: "team",
     createdBy: "tester",
-    createdAt: "2026-06-20T00:00:00.000Z",
-    updatedAt: "2026-06-20T00:00:00.000Z",
+    createdAt: "2026-07-28T00:00:00.000Z",
+    updatedAt: "2026-07-28T00:00:00.000Z",
+    version: 1,
   };
 }
