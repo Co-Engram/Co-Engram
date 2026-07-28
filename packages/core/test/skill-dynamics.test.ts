@@ -54,6 +54,20 @@ describe("computeRetention (Oblivion exp(-n/S))", () => {
     const high = computeRetention({ ...base, utility: 0.9 }, new Date("2026-07-15T00:00:00.000Z").getTime());
     expect(high).toBeGreaterThan(low);
   });
+  it("null lastUsedAt 降级为 nowMs（n=0，retention≈1）", () => {
+    const r = computeRetention(
+      { utility: 0.5, invocationCount: 10, lastUsedAt: null },
+      new Date("2026-07-15T00:00:00.000Z").getTime(),
+    );
+    expect(r).toBeGreaterThan(0.99);
+  });
+  it("时钟回拨（nowMs < lastUsedAt）钳到 n=0", () => {
+    const r = computeRetention(
+      { utility: 0.5, invocationCount: 10, lastUsedAt: "2026-07-20T00:00:00.000Z" },
+      new Date("2026-07-15T00:00:00.000Z").getTime(), // 早于 lastUsedAt
+    );
+    expect(r).toBeGreaterThan(0.99); // Math.max(0, nDays) → 0 天
+  });
 });
 
 describe("projectRetentionStage", () => {

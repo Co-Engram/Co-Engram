@@ -10,6 +10,9 @@ export const DEFAULT_LEARNING_RATE = 0.1;
 const OBLIVION_T = 10;
 const OBLIVION_EPSILON = 0.1;
 const FREQUENCY_CAP = 20;
+const RETENTION_THRESHOLD_ACTIVE = 0.75;
+const RETENTION_THRESHOLD_AGING = 0.5;
+const RETENTION_THRESHOLD_STALE = 0.25;
 
 export function clamp01(x: number): number {
   if (Number.isNaN(x)) return 0;
@@ -35,9 +38,9 @@ export function computeRetention(
 }
 
 export function projectRetentionStage(retention: number): RetentionStage {
-  if (retention > 0.75) return "active";
-  if (retention > 0.5) return "aging";
-  if (retention > 0.25) return "stale";
+  if (retention > RETENTION_THRESHOLD_ACTIVE) return "active";
+  if (retention > RETENTION_THRESHOLD_AGING) return "aging";
+  if (retention > RETENTION_THRESHOLD_STALE) return "stale";
   return "forgotten";
 }
 
