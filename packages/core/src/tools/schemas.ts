@@ -436,6 +436,44 @@ export const SkillInvokeInputSchema = z.object({
 });
 
 // ============================================================
+// skill_create / skill_list / skill_update（S1）
+// ============================================================
+
+export const SkillCreateInputSchema = z.object({
+  skillId: z.string().min(1),
+  sourcePath: z.string().min(1),
+  initiationSet: z.string().min(1),
+  termination: z.string().min(1),
+  policy: z.object({
+    kind: z.enum(["claude-skill", "openclaw-skill", "prompt", "code", "workflow"]),
+    ref: z.string().min(1),
+  }),
+  visibility: z.enum(["public", "team", "private"]).optional(),
+  createdBy: z.string().min(1),
+}).strict();
+
+export const SkillListInputSchema = z.object({
+  acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
+  retentionStage: z.enum(["active", "aging", "stale", "forgotten"]).optional(),
+}).strict();
+
+export const SkillUpdateInputSchema = z.object({
+  id: z.string().min(1),
+  initiationSet: z.string().optional(),
+  termination: z.string().optional(),
+  policy: z.object({
+    kind: z.enum(["claude-skill", "openclaw-skill", "prompt", "code", "workflow"]),
+    ref: z.string().min(1),
+  }).optional(),
+  visibility: z.enum(["public", "team", "private"]).optional(),
+  acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
+}).strict();
+
+export type SkillCreateToolInput = z.infer<typeof SkillCreateInputSchema>;
+export type SkillListToolInput = z.infer<typeof SkillListInputSchema>;
+export type SkillUpdateToolInput = z.infer<typeof SkillUpdateInputSchema>;
+
+// ============================================================
 // engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal
 // （M1：候选提示机制）
 // ============================================================
