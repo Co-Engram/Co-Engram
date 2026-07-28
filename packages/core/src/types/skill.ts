@@ -1,155 +1,75 @@
 /**
- * Skill 类型定义（程序性记忆）
+ * Skill 类型（程序性记忆，spec v2 精简版）
  *
- * 与业界 Skill 的本质差异：业界把 Skill 当"工具"（静态、无记忆、无进化），
- * Co-Engram 把 Skill 当"神经通路"（活的、可进化、会衰退）。
- *
+ * 科学根基：ACT-R utility(动力学) + Options 三元组(结构) + Oblivion retention(衰退)。
+ * 三层分离：不变本体 / 可变投影 / 可插拔载体(policy)。
  * @module @co-engram/core/types
  */
 
-import type { EngramId, IntentionId, SceneId, SkillId } from "./engram.js";
-
-/** Skill 触发器 */
-export interface SkillTrigger {
-  readonly pattern: string;
-  readonly keywords: readonly string[];
-  readonly taskType: TaskType;
+/** 执行载体（可插拔，不进本体语义） */
+export interface SkillPolicy {
+  readonly kind: "claude-skill" | "openclaw-skill" | "prompt" | "code" | "workflow";
+  readonly ref: string;
 }
 
-/** 任务类型 */
-export type TaskType =
-  | "debug"
-  | "test"
-  | "deploy"
-  | "document"
-  | "refactor"
-  | "review"
-  | "explore"
-  | "other";
+/** 习得深度轴（ACT-R compilation，单向不可逆） */
+export type AcquisitionStage = "draft" | "compiled" | "tuned";
 
-/** Skill 模板类型 */
-export type SkillTemplateType =
-  | "tool-sequence"
-  | "prompt-template"
-  | "code-snippet"
-  | "workflow";
+/** 时间强度轴投影（Oblivion retention 离散化） */
+export type RetentionStage = "active" | "aging" | "stale" | "forgotten";
 
-/** Skill 模板 */
-export interface SkillTemplate {
-  readonly type: SkillTemplateType;
-  readonly content: string;
-  readonly variables: readonly SkillVariable[];
-}
-
-/** Skill 变量 */
-export interface SkillVariable {
-  readonly name: string;
-  readonly description: string;
-  readonly required: boolean;
-  readonly defaultValue?: string;
-}
-
-/** Skill 自动化级别 */
-export type SkillAutomationLevel = "suggest" | "auto-execute" | "deprecated";
-
-/** Skill 自动化元数据 */
-export interface SkillAutomation {
-  readonly level: SkillAutomationLevel;
-  readonly confidence: number;
-}
-
-/** Skill 衰退阶段 */
-export type SkillDecayStage = "active" | "aging" | "stale" | "forgotten";
-
-/** Skill 衰退状态 */
-export interface SkillDecay {
-  readonly halfLifeDays: number | null;
-  readonly currentStrength: number;
-  readonly stage: SkillDecayStage;
-}
-
-/** Skill 使用统计 */
-export interface SkillStats {
+/** sidecar imprint.json 的磁盘格式（JSON，英文 key） */
+export interface SkillImprint {
+  readonly schemaVersion: 1;
+  readonly skillId: string;
+  readonly sourcePath: string;
+  readonly contentHash: string;
+  readonly initiationSet: string;
+  readonly termination: string;
+  readonly policy: SkillPolicy;
+  readonly utility: number;
+  readonly sampleSize: number;
+  readonly invocationCount: number;
   readonly successCount: number;
   readonly failureCount: number;
-  readonly avgEffectiveness: number;
-  readonly lastUsedAt?: string;
-}
-
-/**
- * Skill 完整对象
- *
- * 与 Engram 一样有完整生命周期（含衰退机制）
- */
-export interface Skill {
-  readonly id: SkillId;
-
-  /* === 基础 === */
-  readonly title: string;
-  readonly trigger: SkillTrigger;
-  readonly template: SkillTemplate;
-
-  /* === 差异化 1：进化来源 === */
-  readonly evolvedFrom: EngramId | IntentionId | null;
-
-  /* === 差异化 2：适用边界（元认知） === */
-  readonly applicableContext: string;
-  readonly boundaryConditions: readonly string[];
-
-  /* === 差异化 3：自动化级别（闭合回路） === */
-  readonly automation: SkillAutomation;
-
-  /* === 差异化 4：场景过滤 === */
-  readonly activeInScenes: readonly SceneId[];
-  readonly inhibitedInScenes: readonly SceneId[];
-
-  /* === 组合性（Skill 网络） === */
-  readonly composes: readonly SkillId[];
-
-  /* === 差异化 5：衰退机制 === */
-  readonly decay: SkillDecay;
-
-  /* === 使用统计 === */
-  readonly stats: SkillStats;
-
-  /* === 安全机制 === */
-  readonly reflectAfterConsecutiveFailures: number;
-
-  /* === 可解释性 === */
-  readonly relatedEngrams: readonly EngramId[];
-
-  /* === 群体共享 === */
+  readonly lastUsedAt: string | null;
+  readonly acquisitionStage: AcquisitionStage;
+  readonly retentionStage: RetentionStage;
   readonly visibility: "public" | "team" | "private";
-
-  /* === 审计 === */
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly version: number;
 }
 
-/** Skill 执行结果 */
+/** 运行时 Skill 对象（= SkillImprint，语义别名） */
+export type Skill = SkillImprint;
+
+export interface SkillCreateInput {
+  readonly skillId: string;
+  readonly sourcePath: string;
+  readonly initiationSet: string;
+  readonly termination: string;
+  readonly policy: SkillPolicy;
+  readonly visibility?: "public" | "team" | "private";
+  readonly createdBy: string;
+}
+
+export interface SkillUpdateInput {
+  readonly initiationSet?: string;
+  readonly termination?: string;
+  readonly policy?: SkillPolicy;
+  readonly visibility?: "public" | "team" | "private";
+  /** 手动迁移习得深度轴（draft→compiled→tuned） */
+  readonly acquisitionStage?: AcquisitionStage;
+}
+
+/** Skill 执行结果（skill_invoke stub 用，S1 不变） */
 export interface SkillResult {
-  readonly skillId: SkillId;
+  readonly skillId: string;
   readonly success: boolean;
   readonly output: string;
   readonly effectiveness?: number;
   readonly error?: string;
   readonly executedAt: string;
-}
-
-/** 创建 Skill 的输入 */
-export interface SkillCreateInput {
-  readonly title: string;
-  readonly trigger: SkillTrigger;
-  readonly template: SkillTemplate;
-  readonly evolvedFrom?: EngramId | IntentionId;
-  readonly applicableContext: string;
-  readonly boundaryConditions?: readonly string[];
-  readonly automation?: SkillAutomation;
-  readonly activeInScenes?: readonly SceneId[];
-  readonly inhibitedInScenes?: readonly SceneId[];
-  readonly composes?: readonly SkillId[];
-  readonly relatedEngrams?: readonly EngramId[];
-  readonly visibility?: "public" | "team" | "private";
-  readonly createdBy: string;
 }
