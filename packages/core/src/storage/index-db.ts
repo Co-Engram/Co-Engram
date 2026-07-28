@@ -147,7 +147,11 @@ CREATE TABLE IF NOT EXISTS schema_version (
  * reinforceRelated / findCandidatesSync 等)。readEngram 单次 ~1s,1026 条
  * 卡 20 分钟,与 graph-builder.ts 的 N+1 反模式同根。
  */
-const SCHEMA_VERSION = 5;
+// v6(2026-07):开启 auto_vacuum=INCREMENTAL(F28 治本)。
+// bump 触发现有库 migrateSchema DROP 全表(空库)→ open() 在建表前设
+// auto_vacuum=INCREMENTAL(SQLite 语义:有表时设不生效,空库才生效)→ 建表
+// → cold-start rebuild 灌回。一次性切到增量回收 + 回收历史膨胀(实测 29MB→~1.5MB)。
+const SCHEMA_VERSION = 6;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -240,7 +244,21 @@ export class IndexDb {
     // 版本检查:旧版 db 或损坏 db → DROP 后重建。SQLite 是纯派生数据,
     // 缺失行由 cold-start rebuild 从 .md 灌回。SCHEMA_SQL 用 IF NOT EXISTS 兜底,
     // 但版本不符时主动 DROP 整张表强制同步到当前 schema。
-    this.migrateSchema();
+    const migrated = this.migrateSchema();
+    if (migrated) {
+      // 版本不符(含全新库首次)→ migrateSchema 已 DROP 全表(空库)。
+      // 三步缺一不可(实测):
+      //   1. PRAGMA auto_vacuum=INCREMENTAL 设内存值(只改内存,文件头未变)
+      //   2. VACUUM 重建文件头写入 INCREMENTAL(auto_vacuum→2,freelist→0)
+      //   3. wal_checkpoint(TRUNCATE) 截断物理文件(WAL 模式下 VACUUM 不截断主文件,
+      //      实测 28.5MB→0MB 空库)
+      // 空库三者都快(几 ms)。之后 SCHEMA_SQL 建表 + cold-start rebuild,新库带
+      // INCREMENTAL 文件头,配合 maintenance light 的 incremental_vacuum 防膨胀(F28 治本)。
+      // 正常启动(版本符)不进此分支,避免每次 open 都 VACUUM(大库几秒)。
+      this.db.exec("PRAGMA auto_vacuum = INCREMENTAL");
+      this.db.exec("VACUUM");
+      this.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    }
     // 初始化 schema(内联 SCHEMA_SQL,无外部文件依赖)
     this.db.exec(SCHEMA_SQL);
     // 写入当前版本(schema_version 表 IF NOT EXISTS 后,首行未初始化时插入)
@@ -256,7 +274,7 @@ export class IndexDb {
    *
    * 比 ALTER TABLE 简单:不写迁移脚本、不留兼容代码、不担心半迁移状态。
    */
-  private migrateSchema(): void {
+  private migrateSchema(): boolean {
     // schema_version 表可能不存在(首次创建)→ 创建后 version 默认 0
     this.db!.exec(`
       CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -265,7 +283,7 @@ export class IndexDb {
       "SELECT version FROM schema_version LIMIT 1",
     ).get() as { version?: number } | undefined;
     const diskVersion = row?.version ?? 0;
-    if (diskVersion === SCHEMA_VERSION) return;
+    if (diskVersion === SCHEMA_VERSION) return false;
     // 版本不符 → DROP 派生表,SCHEMA_SQL 会重建空表
     this.db!.exec("DROP TABLE IF EXISTS engram_fts");
     this.db!.exec("DROP TABLE IF EXISTS tag_refresh_baseline");
@@ -273,6 +291,7 @@ export class IndexDb {
     this.db!.exec("DROP TABLE IF EXISTS engram_domains");
     this.db!.exec("DROP TABLE IF EXISTS engrams");
     this.db!.exec("DROP TABLE IF EXISTS schema_version");
+    return true;
   }
 
   /** 把 SCHEMA_VERSION 写入 schema_version 表(单行) */

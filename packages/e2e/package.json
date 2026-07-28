@@ -1,7 +1,7 @@
 {
   "name": "@co-engram/e2e",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.6",
   "description": "Co-Engram dual-host E2E tests (OpenClaw + Claude Code MCP).",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",

@@ -1,6 +1,6 @@
 {
   "name": "@co-engram/viewer",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Co-Engram host-agnostic viewer HTTP server. Inline SPA for browsing engrams, synapses, skills, audit, and effectiveness.",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",

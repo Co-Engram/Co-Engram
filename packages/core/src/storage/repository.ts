@@ -2983,7 +2983,11 @@ export class EngramRepository {
       i.category === "unknown_field" ||
       // multiple_frontmatter:mutateFrontmatter 无条件 readEngramFile(parse 取第一个
       // fm+body)+ writeEngramFile(覆盖写单 frontmatter),identity mutator 即可删多余 block
-      i.category === "multiple_frontmatter";
+      i.category === "multiple_frontmatter" ||
+      // contentHash 格式错(invalid_format):与 derived_mismatch 同源,都是 contentHash
+      // 派生字段问题。mutator 用 content 重算后格式自动正确(sha256:<hex>),故也自动修,
+      // 消除"格式错甩手动 / 值不符却自动修"的双标(F32)。
+      (i.category === "invalid_format" && i.field === "contentHash");
 
     const autoFixable = issues.filter(isAutoFixable);
     const manual = issues.filter((i) => !isAutoFixable(i));
@@ -3002,6 +3006,29 @@ export class EngramRepository {
 
     // autoFixable → 一次 mutateFrontmatter 批量改
     if (autoFixable.length > 0) {
+      // F34 修复:derived 字段(contentHash/contentSize)显式重算。原注释声称
+      // "mutateFrontmatter 内部用 oldFile.content 重算",但 mutateFrontmatter /
+      // serializeEngramFile 实际都不重算(只序列化 frontmatter 原值),导致
+      // derived_mismatch 标 autoFixed:true 但 frontmatter 未改 —— doctor 谎报修复,
+      // 同样的 stale 每次 doctor 重复报(实证:磁盘 contentSize 长期停在旧值)。
+      // 这里在 mutator 外读 content 闭包传入,真正重算。contentHash 格式错(F32)
+      // 与值不符(derived_mismatch)同源,统一靠重算修复。
+      let hasDerivedIssue = autoFixable.some(
+        (i) =>
+          i.category === "derived_mismatch" ||
+          (i.category === "invalid_format" && i.field === "contentHash"),
+      );
+      let derivedContent = "";
+      if (hasDerivedIssue) {
+        try {
+          derivedContent = readEngramFile(
+            join(this.config.rootPath, relativePath),
+          ).content;
+        } catch {
+          // 读失败:跳过 derived 重算,但仍走 mutateFrontmatter 处理其他 issue
+          hasDerivedIssue = false;
+        }
+      }
       try {
         this.mutateFrontmatter(stableId, (fm) => {
           const next = { ...fm } as Record<string, unknown>;
@@ -3014,9 +3041,12 @@ export class EngramRepository {
             } else if (issue.category === "unknown_field") {
               delete next[issue.field];
             }
-            // derived_mismatch(contentHash/contentSize):
-            //   mutateFrontmatter 内部用 oldFile.content 重算,identity 即可。
-            //   这里不手动写 hash/size,避免与 computeContentHash 实现不同步。
+          }
+          // derived 字段统一重算(闭包 derivedContent)。重算 idempotent:
+          // content 未变 → 值不变;content 变了 / 历史脏值 → 修正为真相。
+          if (hasDerivedIssue) {
+            next.contentHash = computeContentHash(derivedContent);
+            next.contentSize = computeContentSize(derivedContent);
           }
           return next as EngramFrontmatter;
         });
@@ -3024,7 +3054,9 @@ export class EngramRepository {
         // 记录 fixes(按 issue 类别选 kind)
         for (const issue of autoFixable) {
           const kind: DoctorIssue["kind"] =
-            issue.category === "derived_mismatch"
+            issue.category === "derived_mismatch" ||
+            (issue.category === "invalid_format" &&
+              issue.field === "contentHash")
               ? "derived_field_stale"
               : issue.category === "multiple_frontmatter"
                 ? "multiple_frontmatter"
