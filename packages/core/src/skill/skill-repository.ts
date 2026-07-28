@@ -1,0 +1,132 @@
+/**
+ * SkillRepository —— Skill CRUD over sidecar（对称 EngramRepository，但不接 SQLite/不接维护引擎）
+ * @module @co-engram/core/skill
+ */
+import { computeContentHash } from "../storage/hash.js";
+import { validationError, notFoundError } from "../tools/error-schema.js";
+import type { Skill, SkillCreateInput, SkillUpdateInput, SkillPolicy } from "../types/skill.js";
+import {
+  updateUtility,
+  computeRetention,
+  projectRetentionStage,
+  canTransitionAcquisition,
+  DEFAULT_LEARNING_RATE,
+} from "./dynamics.js";
+import { writeImprint, readImprint, deleteImprint, scanAllImprints } from "./imprint.js";
+
+export interface RecordUseInput {
+  readonly success: boolean;
+  readonly effectiveness?: number;
+}
+
+export class SkillRepository {
+  constructor(private readonly dataRoot: string) {}
+
+  createSkill(input: SkillCreateInput): Skill {
+    if (this.exists(input.skillId)) {
+      throw validationError(`Skill already exists: ${input.skillId}`, { resourceId: input.skillId });
+    }
+    const now = new Date().toISOString();
+    const skill: Skill = {
+      schemaVersion: 1,
+      skillId: input.skillId,
+      sourcePath: input.sourcePath,
+      contentHash: computePolicyHash(input.policy),
+      initiationSet: input.initiationSet,
+      termination: input.termination,
+      policy: input.policy,
+      utility: 0.5,
+      sampleSize: 0,
+      invocationCount: 0,
+      successCount: 0,
+      failureCount: 0,
+      lastUsedAt: null,
+      acquisitionStage: "draft",
+      retentionStage: "active",
+      visibility: input.visibility ?? "team",
+      createdBy: input.createdBy,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+    writeImprint(this.dataRoot, skill);
+    return skill;
+  }
+
+  readSkill(skillId: string): Skill {
+    const s = this.find(skillId);
+    if (!s) throw notFoundError("Skill", skillId);
+    return s;
+  }
+
+  listSkills(): Skill[] {
+    return scanAllImprints(this.dataRoot).sort((a, b) => a.skillId.localeCompare(b.skillId));
+  }
+
+  exists(skillId: string): boolean {
+    return !!this.find(skillId);
+  }
+
+  updateSkill(skillId: string, patch: SkillUpdateInput): Skill {
+    const cur = this.readSkill(skillId);
+    if (patch.acquisitionStage && patch.acquisitionStage !== cur.acquisitionStage) {
+      if (!canTransitionAcquisition(cur.acquisitionStage, patch.acquisitionStage)) {
+        throw validationError(
+          `Illegal acquisition transition: ${cur.acquisitionStage}→${patch.acquisitionStage} (only forward single-step draft→compiled→tuned)`,
+          { resourceId: skillId },
+        );
+      }
+    }
+    const next: Skill = {
+      ...cur,
+      ...(patch.initiationSet !== undefined ? { initiationSet: patch.initiationSet } : {}),
+      ...(patch.termination !== undefined ? { termination: patch.termination } : {}),
+      ...(patch.policy !== undefined ? { policy: patch.policy, contentHash: computePolicyHash(patch.policy) } : {}),
+      ...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
+      ...(patch.acquisitionStage !== undefined ? { acquisitionStage: patch.acquisitionStage } : {}),
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /** skill_invoke(S3) 与测试用：记录一次使用，Rescorla-Wagner 更新 utility + retention 重算 */
+  recordUse(skillId: string, use: RecordUseInput): Skill {
+    const cur = this.readSkill(skillId);
+    const reward = use.success ? (use.effectiveness ?? 1.0) : 0.0;
+    const utility = updateUtility(cur.utility, reward, DEFAULT_LEARNING_RATE);
+    const updatedSkill: Skill = {
+      ...cur,
+      utility,
+      sampleSize: cur.sampleSize + 1,
+      invocationCount: cur.invocationCount + 1,
+      successCount: cur.successCount + (use.success ? 1 : 0),
+      failureCount: cur.failureCount + (use.success ? 0 : 1),
+      lastUsedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
+    const retentionStage = projectRetentionStage(computeRetention(updatedSkill, Date.now()));
+    const next: Skill = {
+      ...updatedSkill,
+      retentionStage,
+    };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  deleteSkill(skillId: string): void {
+    const cur = this.find(skillId);
+    if (!cur) return;
+    deleteImprint(this.dataRoot, skillId, cur.sourcePath);
+  }
+
+  private find(skillId: string): Skill | undefined {
+    return scanAllImprints(this.dataRoot).find((s) => s.skillId === skillId);
+  }
+}
+
+function computePolicyHash(policy: SkillPolicy): string {
+  return computeContentHash(`${policy.kind}|${policy.ref}`);
+}
