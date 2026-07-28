@@ -34,6 +34,17 @@ export interface StageState {
   readonly lastResult: Readonly<Record<string, unknown>>;
   /** 最后一次错误信息(null = 成功) */
   readonly lastError: string | null;
+  /**
+   * 进行中 checkpoint(REM 容错长耗时用)。REM 含 LLM(dreaming/标签/突触)分钟级,
+   * 分步写 progress(phase + partial)记录「已跑到哪步」。**不影响 catch-up 判定**
+   * (catch-up 看 lastRunAt;progress 仅留痕)。REM 完整完成时 final writeStageState
+   * 覆盖(无 progress,等价清除)。
+   */
+  readonly progress?: Readonly<{
+    readonly phase: unknown;
+    readonly at: string;
+    readonly partial: Readonly<Record<string, unknown>>;
+  }>;
 }
 
 /** maintenance-state.json 完整 schema */
@@ -42,6 +53,18 @@ export interface MaintenanceState {
   readonly stages: Readonly<Record<MaintenanceStage, StageState | undefined>>;
   readonly updatedAt: string;
   readonly updatedBy: string;
+  /**
+   * REM 进行中 checkpoint(REM 容错长耗时用)。REM 含 LLM(dreaming/标签/突触)分钟级,
+   * 分步写 remCheckpoint(phase + partial)记录「已跑到哪步」。
+   * **顶层独立字段,不动 stages.rem**——避免污染 lastRunAt(完成时间)语义。
+   * catch-up 看 stages.rem.lastRunAt(未完成 = undefined/旧 → 重跑),remCheckpoint 仅留痕。
+   * REM 完整完成时 final writeStageState 清 remCheckpoint。
+   */
+  readonly remCheckpoint?: Readonly<{
+    readonly phase: unknown;
+    readonly at: string;
+    readonly partial: Readonly<Record<string, unknown>>;
+  }>;
 }
 
 /** 空 state(读失败 / 不存在时返回,触发启动 catch-up) */
@@ -87,6 +110,9 @@ export async function readMaintenanceState(
       stages: { ...EMPTY_STATE.stages, ...parsed.stages },
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
       updatedBy: typeof parsed.updatedBy === "string" ? parsed.updatedBy : "",
+      ...(parsed.remCheckpoint !== undefined
+        ? { remCheckpoint: parsed.remCheckpoint }
+        : {}),
     };
   } catch {
     return EMPTY_STATE;
@@ -126,6 +152,13 @@ export async function writeStageState(
     stages: { ...currentState.stages, [stage]: stageState },
     updatedAt: new Date().toISOString(),
     updatedBy: host,
+    // REM 完整完成(runStage final)→ 清 remCheckpoint(进行中标记)。
+    // 其他 stage 或 REM 未完成(中断)→ 保留 currentState.remCheckpoint。
+    ...(stage === "rem"
+      ? {}
+      : currentState.remCheckpoint !== undefined
+        ? { remCheckpoint: currentState.remCheckpoint }
+        : {}),
   };
 
   const dir = join(dataRoot, STATE_DIR);

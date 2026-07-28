@@ -96,6 +96,21 @@ export interface MaintenanceDeps {
       readonly sourceIds: readonly string[];
       readonly domainTags: readonly string[];
     }): boolean;
+    /**
+     * REM 突触语义关系刷新(synapse-refiner,二期)产出的 add/delete/retype 操作。
+     * 全审批:用户 accept 才落盘。结构同 ProposalEngine.proposeSynapseOp。
+     */
+    proposeSynapseOp?(input: {
+      readonly op: "add" | "delete" | "retype";
+      readonly from: string;
+      readonly to: string;
+      readonly kind: import("../types/synapse.js").SynapseKind;
+      readonly oldKind?: import("../types/synapse.js").SynapseKind;
+      readonly reason: string;
+      readonly confidence: number;
+      readonly fromTitle?: string;
+      readonly toTitle?: string;
+    }): boolean;
   };
   /**
    * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。

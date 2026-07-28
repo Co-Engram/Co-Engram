@@ -45,8 +45,15 @@ import {
   writePromptSignals,
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
-import { writeStageState, readMaintenanceState } from "./state.js";
+import {
+  writeStageState,
+  readMaintenanceState,
+  maintenanceStatePath,
+  type MaintenanceState,
+} from "./state.js";
+import { mkdir, writeFile } from "node:fs/promises";
 import { refreshDomainTagsOnDrift } from "./tag-refresh.js";
+import { refineSynapsesOnActiveGraph } from "../dreaming/synapse-refiner.js";
 import { join, dirname } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
 import type { DoctorReport } from "../types/repository-types.js";
@@ -179,6 +186,15 @@ export class MaintenanceEngine {
         }
       }
 
+      // F28 治本:回收 SQLite free page(auto_vacuum=INCREMENTAL 下生效)。
+      // light 的 RPE 更新 / deleteEngram / doctor ghost 清理产生 free page;
+      // incremental_vacuum 无 free page 时 no-op(毫秒),有则增量回收,防文件膨胀。
+      try {
+        this.deps.repository.indexDb?.exec("PRAGMA incremental_vacuum");
+      } catch {
+        // 回收失败不阻塞 light
+      }
+
       return {
         signalsProcessed,
         rpeUpdates,
@@ -297,6 +313,13 @@ export class MaintenanceEngine {
       // 1. 触发 REM Dreaming（聚类 + 抽象）
       const dreamRecord = this.deps.dreamingScheduler.trigger("rem");
 
+      // checkpoint:dreaming 是最慢的 LLM 步骤(聚类 pattern 抽象)。完成后立即写
+      // state,确保「dreaming 跑完」即使后续标签/突触/metacognition 中断也不丢。
+      await this.persistRemCheckpoint({
+        dream: dreamRecord,
+        phase: "post-dreaming",
+      });
+
       // 1.5 标签漂移刷新:对内容显著变化(≥阈值)的 engram 用 LLM 重提内容语义
       //     domainTags,修正导入/历史 engram 的笼统标签(imported/uncategorized)。
       //     先于 metacognition 跑,让 crossContext 维度拿到准确的 domainTags 数量。
@@ -306,6 +329,28 @@ export class MaintenanceEngine {
         this.deps.auditLog,
         this.deps.llmClient,
       );
+
+      // 1.6 突触候选对计算(二期,agent-driven):局部图遍历(活跃 engram + 1-hop 邻居)
+      //     → 候选对(A×A + A×N + Jaccard 预筛)。不调 LLM/不 propose——交 agent
+      //     (Claude Code)判断关系 + 调 synapse_create/delete/update。增量触发。
+      const lastRemState = this.deps.dataRoot
+        ? await readMaintenanceState(this.deps.dataRoot)
+        : undefined;
+      const synapseRefine = await refineSynapsesOnActiveGraph(
+        this.deps.repository,
+        this.deps.proposalEngine,
+        { lastRemAt: lastRemState?.stages.rem?.lastRunAt },
+      );
+
+      // checkpoint:LLM 阶段(dreaming + 标签刷新 + 突触候选对)完成,写 intermediate state。
+      // metacognition 纯计算(快),但容许 REM 长耗时——中途进程退出不丢「LLM 阶段已跑完」。
+      // 产物(标签 updateEngram / 突触 proposeSynapseOp 写 proposals.jsonl)已落盘。
+      await this.persistRemCheckpoint({
+        dream: dreamRecord,
+        tagRefresh,
+        synapseRefine,
+        phase: "post-llm-pre-metacognition",
+      });
 
       // 2. 对所有 active 且未 refuted 的 engram 跑 metacognition
       //    遍历 unverified / plausible / probable / verified
@@ -385,6 +430,7 @@ export class MaintenanceEngine {
           remModified,
           patternProposals,
           tagRefresh,
+          synapseRefine,
         },
       };
     });
@@ -478,6 +524,47 @@ export class MaintenanceEngine {
       } catch {
         // 单 stage catch-up 失败不阻塞下一个;错误已在 report 内记录
       }
+    }
+  }
+
+  /**
+   * REM 分步 checkpoint:记「进度」(phase + partial downstreamReport)到 state.json 的
+   * `stages.rem.progress` 字段。**不更新 lastRunAt/lastResult/lastError**(那些只在
+   * REM 完整完成时 final writeStageState 更新)。
+   *
+   * 一致性关键:lastRunAt 语义是「REM 完成时间」。checkpoint 若误更新 lastRunAt →
+   * catch-up 误判「rem 已完成(elapsed < interval)不重跑」→ metacognition 永不补跑。
+   * 所以 checkpoint 只写 progress(progress 字段不影响 catch-up 判定),lastRunAt 保持
+   * 旧值(未完成)→ 中断后 catch-up 重跑(标签/突触幂等,metacognition 补)。
+   *
+   * 容许 REM 长耗时(LLM 分钟级):中途进程退出不丢「已跑到哪步」(progress 留痕)。
+   */
+  private async persistRemCheckpoint(
+    partial: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    if (!this.deps.dataRoot || this.deps.processLock?.isHolder === false) return;
+    try {
+      const state = await readMaintenanceState(this.deps.dataRoot);
+      const nextState: MaintenanceState = {
+        ...state,
+        stages: state.stages, // 不动 stages.rem(lastRunAt 不污染)
+        updatedAt: new Date().toISOString(),
+        updatedBy: this.deps.host ?? "unknown",
+        remCheckpoint: {
+          phase: partial.phase,
+          at: new Date().toISOString(),
+          partial,
+        },
+      };
+      const filePath = maintenanceStatePath(this.deps.dataRoot);
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(
+        filePath,
+        JSON.stringify(nextState, null, 2) + "\n",
+        "utf8",
+      );
+    } catch {
+      // checkpoint 失败不阻塞 REM 继续
     }
   }
 

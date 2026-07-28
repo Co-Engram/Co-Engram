@@ -498,10 +498,9 @@ export async function runRemDreaming(
         continue; // 已建议 retype,跳过 delete 判断
       }
 
-      // P1 delete:两端 token Jaccard 低 + domainTags 完全不交
-      const fromTags = new Set(fromEng.domainTags);
-      const tagsIntersect = toEng.domainTags.some((t) => fromTags.has(t));
-      if (tagsIntersect) continue;
+      // P1 delete:两端 token Jaccard 低(关系失效)。
+      // domainTags 交集硬门槛已去(二期:synapse-refiner 用 LLM 判关系成立否,
+      // 此处旧规则保留 Jaccard 兜底,与 synapse-refiner 并存)。
       const fromTokens = tokenizeForDedup(
         `${fromEng.title} ${fromEng.summary} ${fromEng.content}`,
       );
