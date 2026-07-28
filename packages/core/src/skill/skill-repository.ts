@@ -91,7 +91,12 @@ export class SkillRepository {
     return next;
   }
 
-  /** skill_invoke(S3) 与测试用：记录一次使用，Rescorla-Wagner 更新 utility + retention 重算 */
+  /**
+   * skill_invoke(S3) 与测试用：记录一次使用，Rescorla-Wagner 更新 utility + retention 重算。
+   *
+   * S1 限制：不接 light stage 周期性重算，故 recordUse 后 retentionStage 总是 active
+   * （lastUsedAt=now → computeRetention≈1）；周期性衰退留 S3 维护引擎接入。
+   */
   recordUse(skillId: string, use: RecordUseInput): Skill {
     const cur = this.readSkill(skillId);
     const reward = use.success ? (use.effectiveness ?? 1.0) : 0.0;
@@ -122,6 +127,10 @@ export class SkillRepository {
     deleteImprint(this.dataRoot, skillId, cur.sourcePath);
   }
 
+  /**
+   * 按 skillId 查找。YAGNI: 走 scanAllImprints 全盘扫描——skill 数量预期几十，可接受；
+   * >100 时考虑加 skills-index.json（类比 engram-index.json）。
+   */
   private find(skillId: string): Skill | undefined {
     return scanAllImprints(this.dataRoot).find((s) => s.skillId === skillId);
   }

@@ -87,4 +87,20 @@ describe("SkillRepository CRUD", () => {
     const repo2 = new SkillRepository(root);
     expect(repo2.readSkill("icenter-contacts").skillId).toBe("icenter-contacts");
   });
+
+  it("update 不存在 skillId 抛 NOT_FOUND", () => {
+    expect(() => repo.updateSkill("nope", { initiationSet: "x" })).toThrow(/not found|NOT_FOUND/);
+  });
+
+  it("recordUse 不存在 skillId 抛 NOT_FOUND", () => {
+    expect(() => repo.recordUse("nope", { success: true })).toThrow(/not found|NOT_FOUND/);
+  });
+
+  it("recordUse failure 路径（failureCount++ + utility 下降）", () => {
+    repo.createSkill(input);
+    const after = repo.recordUse("icenter-contacts", { success: false });
+    expect(after.failureCount).toBe(1);
+    expect(after.successCount).toBe(0);
+    expect(after.utility).toBeLessThan(0.5); // reward=0 → Rescorla-Wagner 下降
+  });
 });
