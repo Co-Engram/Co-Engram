@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, existsSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { writeImprint, readImprint, deleteImprint, scanAllImprints, sidecarPath, fallbackPath, computeImprintHash } from "../src/skill/imprint.js";
 import type { SkillImprint } from "../src/types/skill.js";
 
@@ -53,5 +53,31 @@ describe("sidecar storage", () => {
   });
   it("computeImprintHash 对 skillId+sourcePath 稳定", () => {
     expect(computeImprintHash("s1", "tools/s1")).toBe(computeImprintHash("s1", "tools/s1"));
+  });
+  it("损坏 JSON 被跳过（不崩 scan）", () => {
+    const sc = sidecarPath(root, "tools/bad");
+    mkdirSync(dirname(sc), { recursive: true });
+    writeFileSync(sc, "{ not valid json");
+    writeImprint(root, sample({ skillId: "good", sourcePath: "tools/good" }));
+    expect(scanAllImprints(root).map((i) => i.skillId)).toEqual(["good"]);
+  });
+  it("schemaVersion≠1 被跳过", () => {
+    const sc = sidecarPath(root, "tools/v2");
+    mkdirSync(dirname(sc), { recursive: true });
+    writeFileSync(sc, JSON.stringify({ schemaVersion: 2, skillId: "v2" }));
+    writeImprint(root, sample({ skillId: "good", sourcePath: "tools/good" }));
+    expect(scanAllImprints(root).map((i) => i.skillId)).toEqual(["good"]);
+  });
+  it("sidecar 与 fallback 同时存在 → sidecar 胜出（真理源）", () => {
+    writeImprint(root, sample({ skillId: "dup", sourcePath: "tools/dup", utility: 0.9 }));
+    // 手动写一个 utility 不同的 fallback 模拟共存
+    const fb = fallbackPath(root, "dup");
+    mkdirSync(dirname(fb), { recursive: true });
+    writeFileSync(fb, JSON.stringify(sample({ skillId: "dup", utility: 0.1 })));
+    const scanned = scanAllImprints(root).find((i) => i.skillId === "dup");
+    expect(scanned?.utility).toBe(0.9); // sidecar 版本
+  });
+  it("空 dataRoot → scanAllImprints 返回 []", () => {
+    expect(scanAllImprints(root)).toEqual([]);
   });
 });

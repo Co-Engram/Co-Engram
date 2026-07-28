@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, readdir
 import { dirname, join } from "node:path";
 import { createHash } from "node:crypto";
 import { safeJoinWithinRoot } from "../storage/path.js";
+import { internalError } from "../tools/error-schema.js";
 import type { SkillImprint } from "../types/skill.js";
 
 export const SIDECAR_DIR = ".co-engram";
@@ -48,8 +49,17 @@ function tryWriteSidecar(dataRoot: string, imprint: SkillImprint): boolean {
 export function writeImprint(dataRoot: string, imprint: SkillImprint): void {
   if (tryWriteSidecar(dataRoot, imprint)) return;
   const fb = fallbackPath(dataRoot, imprint.skillId);
-  mkdirSync(dirname(fb), { recursive: true });
-  writeFileSync(fb, JSON.stringify(imprint, null, 2) + "\n", "utf8");
+  try {
+    mkdirSync(dirname(fb), { recursive: true });
+    writeFileSync(fb, JSON.stringify(imprint, null, 2) + "\n", "utf8");
+  } catch (e) {
+    // fail-loud：sidecar 与 fallback 都失败 = 系统真的写不了，必须让调用方知情
+    // wrap 成 internalError 带上下文（skillId），比裸 fs ENOSPC/EACCES 更可诊断
+    throw internalError(
+      `Failed to persist skill imprint (sidecar & fallback both unwritable): skillId=${imprint.skillId}`,
+      e,
+    );
+  }
 }
 
 export function readImprint(dataRoot: string, skillId: string, sourcePath: string): SkillImprint | null {
