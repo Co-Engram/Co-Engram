@@ -30,12 +30,12 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 29 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
+ * standard: 30 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
  *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5) +
- *   S5 skill compose(3)
+ *   S3 skill_invoke(报告使用) + S5 skill compose(3)
  *
- * full: 37 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
- *   但不含 skill_invoke —— 它是 S1 stub(S3 真正实现后再放回) +
+ * full: 38 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ *   含 skill_invoke(S3 已实现,用于报告 skill 使用结果) +
  *   S5 skill compose(3)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
@@ -83,12 +83,14 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     // AI-8 batch proposal(让用户一次清空数千 load-test 候选)
     "engram_accept_proposals_by_source",
     "engram_dismiss_proposals_by_filter",
-    // S1 skill CRUD（读 + 管理；invoke 不进任何 profile，S3 再放）
+    // S1 skill CRUD（读 + 管理）
     "skill_get",
     "skill_list",
     "skill_create",
     "skill_update",
     "skill_delete",
+    // S3 skill_invoke（报告使用结果，更新印迹）
+    "skill_invoke",
     // S5 skill compose（组合关系管理）
     "skill_compose_add",
     "skill_compose_remove",
@@ -116,6 +118,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_create",
     "skill_update",
     "skill_delete",
+    // S3 skill_invoke（报告使用结果，更新印迹）
+    "skill_invoke",
     // S5 skill compose（组合关系管理）
     "skill_compose_add",
     "skill_compose_remove",
