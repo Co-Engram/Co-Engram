@@ -1900,6 +1900,40 @@ div.vis-tooltip {
   border-radius: 8px;
   margin-left: 0.3rem;
 }
+
+/* 目录内联展开的直属文件行(2026-07) */
+.tree-direct-files { margin: 0.15rem 0 0.25rem 0.15rem; }
+.tree-file {
+  padding: 0.28rem 0.5rem;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.tree-file:hover { background: rgba(94, 234, 212, 0.08); color: var(--accent); }
+.tree-file-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tree-file-meta {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+.tree-more { margin: 0.25rem 0.5rem; }
+.tree-empty {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  font-style: italic;
+}
 .btn.mini {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;

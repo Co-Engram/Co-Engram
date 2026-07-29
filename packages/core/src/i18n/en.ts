@@ -1173,6 +1173,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.tree.cumulativeCount":
     "Cumulative count (this folder + all descendants)",
   "engrams.tree.rootDirect": "Root-level (no folder)",
+  "engrams.tree.directHere": "${n} direct here",
+  "engrams.tree.viewAllInCards": "View all ${n} in cards (incl. subfolders)",
+  "engrams.tree.emptyDir": "No direct memories in this folder",
   "engrams.pager.prev": "« Prev",
   "engrams.pager.next": "Next »",
   "engrams.pager.pageInfo": "Page ${current} / ${total} (${itemTotal} items)",
@@ -1937,7 +1940,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.tabStats":
     "<strong>Stats</strong> — overview dashboard: distribution by kind/status/family, contributors and top tags. Top search box does full-text retrieval.",
   "viewer.help.tabEngrams":
-    "<strong>Engrams</strong> — card/list view of all engrams with tag/kind/status filters; click to open detail (edit/delete/show synapses).",
+    "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status filters; click to open detail (edit/delete/show synapses). In tree view, click any folder to expand its <strong>direct memories</strong> and next-level subfolders inline (switch to card view to see all descendants when a folder holds many).",
   "viewer.help.tabGraph":
     "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind. Opening an engram detail highlights its neighbors.",
   "viewer.help.tabProposals":

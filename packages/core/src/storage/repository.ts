@@ -3733,6 +3733,9 @@ export class EngramRepository {
     const truthPaths = this.getTruthPaths();
     let ghostDetected = false;
     for (const entry of this.getIndex().entries.values()) {
+      // forgotten(软删除)不计入目录树:与卡片视图(status=active)口径一致。
+      // 文件仍保留(等 maintenance sweepToTrash 移入 .trash/),但目录浏览不应展示。
+      if ((entry.status ?? "active") === "forgotten") continue;
       if (!truthPaths.has(entry.path)) {
         ghostDetected = true;
         continue;

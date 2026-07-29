@@ -1147,6 +1147,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "engrams.viewInCards": "查看",
   "engrams.tree.cumulativeCount": "累积数量(本目录及所有子目录)",
   "engrams.tree.rootDirect": "根目录散落",
+  "engrams.tree.directHere": "本目录直属 ${n} 条",
+  "engrams.tree.viewAllInCards": "在卡片视图中查看全部 ${n} 条(含子目录)",
+  "engrams.tree.emptyDir": "本目录直属暂无记忆",
   "engrams.pager.prev": "« 上一页",
   "engrams.pager.next": "下一页 »",
   "engrams.pager.pageInfo": "第 ${current} / ${total} 页(共 ${itemTotal} 条)",
@@ -1875,7 +1878,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tabStats":
     "<strong>统计</strong>—总览仪表盘:按类型/状态/族分布,显示团队贡献者和 top 标签。顶部搜索框做全文检索。",
   "viewer.help.tabEngrams":
-    "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status 过滤,点击进入详情(可编辑/删除/查看突触)。",
+    "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status 过滤,点击进入详情(可编辑/删除/查看突触)。目录视图下点击任一目录即可展开其<strong>直属记忆</strong>与下一级子目录(直属过多时可切卡片视图查看全部后代)。",
   "viewer.help.tabGraph":
     "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点。打开 engram 详情时图谱会高亮其邻居。",
   "viewer.help.tabProposals":

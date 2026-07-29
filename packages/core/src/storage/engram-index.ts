@@ -174,6 +174,7 @@ export function buildIndexEntryFromFrontmatter(params: {
     tags: Array.isArray(frontmatter.tags) ? [...frontmatter.tags] : [],
     kind: frontmatter.kind,
     verificationStatus: frontmatter.verificationStatus,
+    status: frontmatter.status ?? "active",
     createdAt: frontmatter.createdAt,
     updatedAt: frontmatter.updatedAt,
     mtime,

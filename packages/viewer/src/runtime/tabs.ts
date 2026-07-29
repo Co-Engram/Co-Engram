@@ -495,10 +495,11 @@ window.CO_ENGRAM_ENGRAMS = {
     const T = CO_ENGRAM_T;
     body.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div>';
 
-    // path-tree 是目录树(不含 engram 叶子),目录数据相对稳定,可缓存整个 tab 生命周期
+    // path-tree 是目录树(不含 engram 叶子),目录数据相对稳定,可缓存整个 tab 生命周期。
+    // files=1 让 engramLocations 带上 title/kind/domainTags/createdAt,用于内联展开直属文件行。
     if (!CO_ENGRAM._pathTree) {
       try {
-        const resp = await CO_ENGRAM.apiGet('/api/path-tree?maxDepth=8');
+        const resp = await CO_ENGRAM.apiGet('/api/path-tree?maxDepth=10&files=1');
         if (!resp || !resp.enabled || !resp.root) {
           CO_ENGRAM._pathTree = null;
         } else {
@@ -509,6 +510,9 @@ window.CO_ENGRAM_ENGRAMS = {
             CO_ENGRAM._engramLocations = new Map(
               resp.engramLocations.map((x) => [x.id, x.path]),
             );
+            // 预计算「目录 → 直属 engram」Map(全量,与计数同源):
+            // 展开目录时用它懒填充直属文件行,O(n) 一次。
+            CO_ENGRAM._engramsByDir = CO_ENGRAM_ENGRAMS._buildEngramsByDir(resp.engramLocations);
           }
         }
       } catch (e) {
@@ -522,77 +526,137 @@ window.CO_ENGRAM_ENGRAMS = {
       return;
     }
 
-    // 递归渲染目录节点;depth 控制默认展开层级(只展开 depth=0,即 root 直系)
-    function renderNode(node, depth) {
+    // 累积计数 tooltip。注意:CO_ENGRAM.tip() 读硬编码 TOOLTIPS、不含 engrams.tree.*,
+    // 故这里直接用 T.t() 内联生成 title(顺带修掉原先 tip('...cumulativeCount') 的空 title)。
+    const cumTitle = ' title="' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.cumulativeCount')) + '"';
+
+    // 递归渲染目录节点;每个目录都是可展开 <details>,展开后内联显示「直属文件 + 子目录」。
+    // depth=0(顶层目录)默认展开,其余默认折叠;直属文件占位由 toggle 监听器懒填充。
+    const renderNode = (node, depth) => {
       const children = node.children || [];
-      // 目录自身直接拥有的 engram 数 = 累积 engramCount - 直系子目录累积数
-      // (path-tree 的 engramCount 是累积到子目录的,需要减去得到本目录直属)
+      // 直属 engram 数 = 累积 engramCount - 直系子目录累积数
       let childSum = 0;
       for (const c of children) childSum += (c.engramCount || 0);
       const direct = Math.max(0, (node.engramCount || 0) - childSum);
 
-      // 路径显示:用 basename,空路径显示 root 标识
       const segs = (node.path || '').split('/').filter(Boolean);
-      const basename = segs.length ? segs[segs.length - 1] : (node.path === '/' ? '/' : '/');
+      const basename = segs.length ? segs[segs.length - 1] : '/';
       const pathForFilter = node.path && node.path !== '/' ? node.path : '';
-      const isOpen = depth === 0; // 只默认展开 root 一层
+      const isOpen = depth === 0;
 
-      // 子目录递归(深度+1)
+      const summary = '<summary>'
+        + '<span class="tree-folder-icon">📁</span> '
+        + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
+        + '<span class="tree-count"' + cumTitle + '>' + (node.engramCount || 0) + '</span>'
+        + (direct > 0 ? ' <span class="tree-direct">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.directHere', { n: direct })) + '</span>' : '')
+        + '</summary>';
+      // 直属文件占位(展开时懒填充)+ 子目录;直属在前,符合「点目录看本目录文件」心智
+      const directFiles = '<div class="tree-direct-files" data-dir="' + CO_ENGRAM.escapeHtml(pathForFilter) + '"></div>';
       const childHtml = children.length
         ? '<div class="tree-group-body">' + children.map(c => renderNode(c, depth + 1)).join('') + '</div>'
         : '';
 
-      // 叶子目录无 children:只显示"查看"按钮;否则显示 details
-      const viewBtn = (node.engramCount || 0) > 0
-        ? '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS._filterByPath(\\'' + CO_ENGRAM.escapeHtml(pathForFilter) + '\\')">'
-          + CO_ENGRAM.escapeHtml(T.t('engrams.viewInCards')) + ' (' + (node.engramCount || 0) + ')</button>'
-        : '';
-
-      if (!children.length) {
-        // 叶子目录:单行 summary,无展开箭头,但保留查看按钮
-        return '<div class="tree-leaf-dir">'
-          + '<span class="tree-folder-icon">📁</span> '
-          + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
-          + '<span class="tree-count">' + (node.engramCount || 0) + '</span> '
-          + viewBtn
-          + '</div>';
-      }
-
       return '<details class="tree-group"' + (isOpen ? ' open' : '') + '>'
-        + '<summary>'
-        + '<span class="tree-folder-icon">📁</span> '
-        + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
-        + '<span class="tree-count"' + CO_ENGRAM.tip('engrams.tree.cumulativeCount') + '>' + (node.engramCount || 0) + '</span>'
-        + (direct > 0 ? ' <span class="tree-direct">+' + direct + ' here</span>' : '')
-        + ' ' + viewBtn
-        + '</summary>'
-        + childHtml
+        + summary + directFiles + childHtml
         + '</details>';
-    }
+    };
 
     let html = '<div class="tree-view">';
-    // root 节点(path="/" 或 "")特殊处理:不显示 basename,直接展开其 children
     const rootChildren = root.children || [];
     if (rootChildren.length === 0 && (root.engramCount || 0) === 0) {
       html += '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('engrams.empty')) + '</div>';
     } else {
-      // 把 root 的直属 engram("路径为空"的散落 engram)显示为顶部一个虚拟目录
+      // root 的直属散落 engram("路径为空")显示为顶部虚拟目录,data-dir="" 对应根散落
       const rootDirect = (root.engramCount || 0) - rootChildren.reduce((s, c) => s + (c.engramCount || 0), 0);
       if (rootDirect > 0) {
         html += '<details class="tree-group" open>'
           + '<summary><span class="tree-folder-icon">🏠</span> '
           + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootDirect')) + '</span> '
-          + '<span class="tree-count">' + rootDirect + '</span> '
-          + '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS._filterByPath(\\'\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.viewInCards')) + '</button>'
-          + '</summary></details>';
+          + '<span class="tree-count"' + cumTitle + '>' + rootDirect + '</span>'
+          + '</summary>'
+          + '<div class="tree-direct-files" data-dir=""></div>'
+          + '</details>';
       }
-      // 子目录递归
       for (const child of rootChildren) {
         html += renderNode(child, 0);
       }
     }
     html += '</div>';
     body.innerHTML = html;
+
+    // toggle 事件不冒泡 → 监听器必须 capture;挂在持久的 #engrams-body 上,
+    // 用 _treeToggleBound 守卫只挂一次(innerHTML 只换子节点,元素本身不变)。
+    if (!CO_ENGRAM._treeToggleBound) {
+      CO_ENGRAM._treeToggleBound = true;
+      body.addEventListener('toggle', function (ev) {
+        const d = ev.target;
+        if (!d || d.tagName !== 'DETAILS' || !d.classList.contains('tree-group') || !d.open) return;
+        const ph = d.querySelector(':scope > .tree-direct-files');
+        if (ph && ph.getAttribute('data-filled') !== '1') {
+          CO_ENGRAM_ENGRAMS._fillTreeDirectFiles(ph);
+          ph.setAttribute('data-filled', '1');
+        }
+      }, true);
+    }
+    // 初始 open 的目录不会触发 toggle → 渲染后主动填一次(幂等:data-filled 守卫)
+    body.querySelectorAll('details.tree-group[open] > .tree-direct-files').forEach(ph => {
+      if (ph.getAttribute('data-filled') !== '1') {
+        CO_ENGRAM_ENGRAMS._fillTreeDirectFiles(ph);
+        ph.setAttribute('data-filled', '1');
+      }
+    });
+  },
+
+  // 把增补后的 engramLocations 按 parent 目录分组成 Map<dirPath, engram[]>。
+  // key='' 表示根散落(路径无 '/');value 按 createdAt 降序。O(n) 一次,全量(与计数同源)。
+  _buildEngramsByDir(locations) {
+    const byDir = new Map();
+    for (const loc of locations) {
+      if (!loc || !loc.path) continue;
+      const slash = loc.path.lastIndexOf('/');
+      const dir = slash < 0 ? '' : loc.path.slice(0, slash);
+      let bucket = byDir.get(dir);
+      if (!bucket) { bucket = []; byDir.set(dir, bucket); }
+      bucket.push({ id: loc.id, title: loc.title, kind: loc.kind, domainTags: loc.domainTags, createdAt: loc.createdAt });
+    }
+    for (const bucket of byDir.values()) {
+      bucket.sort((a, b) => {
+        const ac = a.createdAt || '';
+        const bc = b.createdAt || '';
+        if (ac < bc) return 1;
+        if (ac > bc) return -1;
+        return 0;
+      });
+    }
+    return byDir;
+  },
+
+  // 单条直属文件行(复用 _renderCards 的 chip 模式;onclick 复用 open(id) 打开同一详情抽屉)
+  _treeEngramRow(e) {
+    const T = CO_ENGRAM_T;
+    return '<div class="tree-file" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">'
+      + '<span class="chip kind-' + CO_ENGRAM.escapeHtml(e.kind) + '"' + CO_ENGRAM.tip('kind.' + e.kind) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span>'
+      + '<span class="tree-file-name">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+      + (e.createdAt ? '<span class="tree-file-meta">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(e.createdAt)) + '</span>' : '')
+      + '</div>';
+  },
+
+  // 填充某目录的直属文件占位:>50 截断 + 溢出入口(切卡片视图展开该目录全部后代);空目录给提示。
+  _fillTreeDirectFiles(ph) {
+    const T = CO_ENGRAM_T;
+    const dir = ph.getAttribute('data-dir') || '';
+    const all = (CO_ENGRAM._engramsByDir && CO_ENGRAM._engramsByDir.get(dir)) || [];
+    if (!all.length) {
+      ph.innerHTML = '<div class="tree-empty">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.emptyDir')) + '</div>';
+      return;
+    }
+    const LIMIT = 50;
+    let h = all.slice(0, LIMIT).map(e => CO_ENGRAM_ENGRAMS._treeEngramRow(e)).join('');
+    if (all.length > LIMIT) {
+      h += '<button class="btn mini tree-more" onclick="CO_ENGRAM_ENGRAMS._filterByPath(\\'' + CO_ENGRAM.escapeHtml(dir) + '\\')">'
+        + CO_ENGRAM.escapeHtml(T.t('engrams.tree.viewAllInCards', { n: all.length })) + '</button>';
+    }
+    ph.innerHTML = h;
   },
 
   // path-tree 子目录"查看"按钮 → 切回 card 视图 + 路径前缀过滤

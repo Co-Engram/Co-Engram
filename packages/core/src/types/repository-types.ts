@@ -11,7 +11,7 @@
  */
 
 import type { EngramId } from "./engram.js";
-import type { EngramKind, VerificationStatus } from "./engram.js";
+import type { EngramKind, EngramStatus, VerificationStatus } from "./engram.js";
 
 /**
  * Stable Engram ID(ULID,26 字符 Crockford Base32)
@@ -56,6 +56,15 @@ export interface EngramIndexEntry {
   readonly kind: EngramKind;
   /** 验证状态 */
   readonly verificationStatus?: VerificationStatus;
+  /**
+   * 生命周期状态(draft/active/frozen/forgotten)。
+   *
+   * 用于目录树等视图排除 forgotten(软删除):buildIndexEntryFromFrontmatter
+   * 从 frontmatter.status 投影;旧 engram-index.json 缺该字段时视为 active。
+   * listPathTree 计数与 viewer engramLocations 据此过滤 forgotten,与卡片
+   * 视图(status=active)口径一致。
+   */
+  readonly status?: EngramStatus;
   /** 创建时间 */
   readonly createdAt: string;
   /** 最后更新时间 */

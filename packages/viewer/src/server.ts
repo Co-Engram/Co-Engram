@@ -1513,8 +1513,26 @@ async function routeApi(
       ? Math.min(10, Math.max(1, Number(rawDepth) || 5))
       : 5;
     const tree = ctx.repository.listPathTree();
-    const entries = ctx.repository.listEngramIndex();
-    const engramLocations = entries.map((e) => ({ id: e.id, path: e.path }));
+    // forgotten(软删除)不进 engramLocations:目录树计数(listPathTree)与内联文件
+    // 都排除 forgotten,与卡片视图(status=active)口径一致。
+    const entries = ctx.repository
+      .listEngramIndex()
+      .filter((e) => (e.status ?? "active") !== "forgotten");
+    // ?files=1:增补 title/kind/domainTags/createdAt(取 index entry 已有字段,零额外读盘),
+    // 供 viewer 目录树内联展开直属文件行。graph tab 不带 files=1 → payload 不变。
+    const withFiles = url.searchParams.get("files") === "1";
+    const engramLocations = entries.map((e) => ({
+      id: e.id,
+      path: e.path,
+      ...(withFiles
+        ? {
+            title: e.title,
+            kind: e.kind,
+            domainTags: e.domainTags,
+            createdAt: e.createdAt,
+          }
+        : {}),
+    }));
     respondJson(res, 200, {
       enabled: true,
       root: pruneTreeForJson(tree as unknown as MutablePathNode, maxDepth, 0),
