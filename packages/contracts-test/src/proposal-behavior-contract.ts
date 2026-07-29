@@ -24,7 +24,7 @@ import {
   registerCoEngramTools,
   type CoEngramPluginHostApi,
 } from "@co-engram/openclaw";
-import type { EngramRepository } from "@co-engram/core";
+import type { EngramRepository, Proposal } from "@co-engram/core";
 
 import type { ContractResult, ContractDiff } from "./index.js";
 
@@ -162,8 +162,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
       }
 
       // 从 listPending() 获取正确的 entityId(格式: rem-synapse:add:<hash>)
-      const pending = ccEngine.listPending();
-      const synapseProposal = pending.find((p: { source: string }) => p.source === "rem-synapse");
+      const pending = ccEngine.listPending() as Proposal[];
+      const synapseProposal = pending.find((p) => p.source === "rem-synapse");
       if (!synapseProposal) {
         diffs.push({
           kind: "proposal-behavior",
@@ -228,8 +228,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
       }
 
       // 从 listPending() 获取正确的 entityId(格式: rem-synapse:add:<hash>)
-      const ocPending = ocEngine.listPending();
-      const ocSynapseProposal = ocPending.find((p: { source: string }) => p.source === "rem-synapse");
+      const ocPending = ocEngine.listPending() as Proposal[];
+      const ocSynapseProposal = ocPending.find((p) => p.source === "rem-synapse");
       if (!ocSynapseProposal) {
         diffs.push({
           kind: "proposal-behavior",
@@ -312,8 +312,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
         });
       }
 
-      const ccPending = ccEngine.listPending();
-      const ccDeleteProposal = ccPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+      const ccPending = ccEngine.listPending() as Proposal[];
+      const ccDeleteProposal = ccPending.find((p) =>
         p.source === "rem-synapse" && p.payload?.synapseOp === "delete"
       );
       if (!ccDeleteProposal) {
@@ -390,8 +390,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
         });
       }
 
-      const ocPending = ocEngine.listPending();
-      const ocDeleteProposal = ocPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+      const ocPending = ocEngine.listPending() as Proposal[];
+      const ocDeleteProposal = ocPending.find((p) =>
         p.source === "rem-synapse" && p.payload?.synapseOp === "delete"
       );
       if (!ocDeleteProposal) {
@@ -476,8 +476,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
         });
       }
 
-      const ccPending = ccEngine.listPending();
-      const ccRetypeProposal = ccPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+      const ccPending = ccEngine.listPending() as Proposal[];
+      const ccRetypeProposal = ccPending.find((p) =>
         p.source === "rem-synapse" && p.payload?.synapseOp === "retype"
       );
       if (!ccRetypeProposal) {
@@ -554,8 +554,8 @@ export async function runProposalBehaviorContractTests(): Promise<ContractResult
         });
       }
 
-      const ocPending = ocEngine.listPending();
-      const ocRetypeProposal = ocPending.find((p: { source: string; payload?: { synapseOp?: string } }) =>
+      const ocPending = ocEngine.listPending() as Proposal[];
+      const ocRetypeProposal = ocPending.find((p) =>
         p.source === "rem-synapse" && p.payload?.synapseOp === "retype"
       );
       if (!ocRetypeProposal) {

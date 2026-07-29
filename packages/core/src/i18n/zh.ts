@@ -492,6 +492,57 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 没先查 skill_get(可能没选对 skill)
 
 返回:Skill 执行结果(取决于模板)。P0 阶段 output 字段形如 "[P0 stub] Skill X invoked with args: ..."。`,
+  "tool.skill_create.agent": `创建新 skill(程序性记忆)并配置参数和策略。
+
+何时调用:
+- 用户想保存可复用的流程或模板
+- 执行完值得未来复用的任务后
+- 创建新的 prompt 模板或 tool sequence
+
+何时不调用:
+- 一次性任务且无复用价值(陈述性记忆用 engram_create)
+- 缺少明确 skillId 和 policy 信息
+- 模板还不稳定(应该先打磨再创建)
+
+返回:创建的 skill 记录,utility=0.5、acquisitionStage=draft、retentionStage=active。`,
+  "tool.skill_list.agent": `列出所有 skill,可按习得深度/时间强度过滤。
+
+何时调用:
+- 用户问"有哪些 skill"/"显示所有程序性模板"
+- 审查程序性记忆库存
+- 按阶段查找 skill(draft/compiled/tuned 或 active/aging/stale/forgotten)
+
+何时不调用:
+- 读某个 skill 的详情(用 skill_get)
+- 搜索陈述性记忆(用 engram_search)
+
+返回:Skill 数组,含元数据(utility、阶段、调用次数)。`,
+  "tool.skill_update.agent": `更新 skill 元信息(initiation set、termination、policy、visibility 或习得深度轴)。
+
+何时调用:
+- 改进 skill 的触发条件或终止条件
+- 修改 skill 可见性(public/team/private)
+- 从 draft→compiled→tuned 迁移(只能前进,单步)
+
+何时不调用:
+- 修改 skillId(不可变——改创建新 skill)
+- 向后迁移(tuned→compiled、compiled→draft 非法)
+- 未确认用户想修改
+
+返回:更新后的 skill 记录,version 递增。`,
+  "tool.skill_delete.agent": `删除 skill 的 sidecar 印迹(不动 SKILL.md 本体)。
+
+何时调用:
+- 用户确认 skill 已废弃或错误
+- 清理测试/临时 skill
+- 移除不应再被调用的 skill
+
+何时不调用:
+- 想临时禁用 skill(用 skill_update 改 visibility)
+- 未确认删除(用户应批准)
+- 可能想恢复(删除是永久性的)
+
+返回:{ id, deleted: true }。SKILL.md 文件不变;仅删除 sidecar。`,
   "tool.memory_search.agent": `用自然语言搜索团队记忆。返回相关记忆片段及相关性分数。
 
 何时调用:

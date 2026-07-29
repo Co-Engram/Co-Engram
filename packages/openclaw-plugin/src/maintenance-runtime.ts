@@ -72,6 +72,8 @@ export function startMaintenanceRuntime(
       ...(deps.dataRoot ? { dataRoot: deps.dataRoot } : {}),
       ...(deps.llmClient ? { llmClient: deps.llmClient } : {}),
       ...(deps.proposalEngine ? { proposalEngine: deps.proposalEngine } : {}),
+      // S4 Task 3: 注入 skillRepository(供 light stage skill retention 衰退用)
+      ...(deps.skillRepository ? { skillRepository: deps.skillRepository } : {}),
     },
     config,
   );
