@@ -276,3 +276,52 @@ describe("accept skill proposal", () => {
     expect(acceptedProposals.length).toBe(2);
   });
 });
+
+describe("accept_proposals_by_source source=skill", () => {
+  const mockPolicy: SkillPolicy = { kind: "prompt", ref: "SKILL.md" };
+
+  it("批量 accept skill 提案", () => {
+    // 创建 2 个 skill proposal(pending)
+    const mockInput1 = {
+      sourcePath: "tools/test1",
+      skillId: "test1",
+      initiationSet: "测试1：",
+      termination: "结束",
+      policy: mockPolicy,
+    };
+    const mockInput2 = {
+      sourcePath: "tools/test2",
+      skillId: "test2",
+      initiationSet: "测试2：",
+      termination: "结束",
+      policy: mockPolicy,
+    };
+
+    engine.proposeSkill(mockInput1);
+    engine.proposeSkill(mockInput2);
+
+    // 验证 2 个 skill proposal 都是 pending
+    const proposalsBefore = engine.readProposals();
+    const skillProposals = proposalsBefore.filter((p) => p.source === "skill" && p.status === "pending");
+    expect(skillProposals.length).toBe(2);
+
+    // acceptBatch({source:"skill"})
+    const result = engine.acceptBatch({ source: "skill", limit: 200 }, { createdBy: "batch-user" });
+
+    // 验证结果：2 个 Skill 实体 + proposals accepted
+    expect(result.acceptedIds.length).toBe(2);
+    expect(result.engramIds.length).toBe(2);
+    expect(result.failures.length).toBe(0);
+
+    // 验证 Skill 实体已创建
+    const skill1 = skillRepo.readSkill("test1");
+    const skill2 = skillRepo.readSkill("test2");
+    expect(skill1).toBeDefined();
+    expect(skill2).toBeDefined();
+
+    // 验证 proposals 状态已更新为 accepted
+    const proposalsAfter = engine.readProposals();
+    const acceptedProposals = proposalsAfter.filter((p) => p.source === "skill" && p.status === "accepted");
+    expect(acceptedProposals.length).toBe(2);
+  });
+});

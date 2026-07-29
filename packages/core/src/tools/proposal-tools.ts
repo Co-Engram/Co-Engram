@@ -340,7 +340,7 @@ export const engramDismissProposalTool: Tool<
 export const engramAcceptProposalsBySourceTool: Tool<
   z.infer<typeof EngramAcceptProposalsBySourceInputSchema>,
   {
-    readonly source: "auto-memory" | "external-markdown";
+    readonly source: "auto-memory" | "external-markdown" | "skill";
     readonly acceptedCount: number;
     readonly dismissedCount: number;
     readonly remainingCount: number;
@@ -353,7 +353,7 @@ export const engramAcceptProposalsBySourceTool: Tool<
 > = {
   name: "engram_accept_proposals_by_source",
   description:
-    "AI-8 批量接受候选提案(按 source)。仅支持 source='auto-memory' 或 'external-markdown' —— 这两种 proposal 自带 payload,无需 LLM 填表。conversation 来源必须用单条 engram_accept_proposal(LLM 需要为每条填 title/content)。limit 默认 200(最大 500),超过的 pending 留到下次。单条 accept 失败不阻塞 batch,记录到 failures 数组。",
+    "AI-8 批量接受候选提案(按 source)。仅支持 source='auto-memory'、'external-markdown' 或 'skill' —— 这三种 proposal 自带 payload,无需 LLM 填表。conversation 来源必须用单条 engram_accept_proposal(LLM 需要为每条填 title/content)。limit 默认 200(最大 500),超过的 pending 留到下次。单条 accept 失败不阻塞 batch,记录到 failures 数组。",
   inputSchema: EngramAcceptProposalsBySourceInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<
