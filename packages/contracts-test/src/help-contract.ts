@@ -72,7 +72,7 @@ const KNOWN_GAPS: ReadonlyArray<{
 function isKnownGap(
   concept: string,
   surface: string,
-): KNOWN_GAPS[number] | undefined {
+): (typeof KNOWN_GAPS)[number] | undefined {
   return KNOWN_GAPS.find(
     (g) => g.concept === concept && g.missingSurfaces.includes(surface),
   );

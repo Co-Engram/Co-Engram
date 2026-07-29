@@ -62,9 +62,17 @@ import {
   verifyDerivedIntegrity,
   IndexOrchestrator,
   defaultCachePath,
+  SkillRepository,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
+/**
+ * OpenClaw skills 目录(用于 skill 分发目标)
+ */
+const OPENCLAW_SKILLS_DIR = process.env.CO_ENGRAM_OPENCLAW_SKILLS_DIR ?? join(homedir(), ".openclaw", "skills");
 import { adaptAllTools } from "./adapter.js";
 import { startMaintenanceRuntime } from "./maintenance-runtime.js";
 import { startViewerForOpenClaw, type ViewerRuntime } from "./viewer-loader.js";
@@ -175,6 +183,9 @@ export function createCoEngramContext(
   // P4: 创建 signal sink（默认 FileSignalSink,写 dataRoot/.co-engram/signals.jsonl）
   const signalSink = createDefaultSignalSink(fullConfig.dataRoot);
 
+  // S4 Task 3: 创建 SkillRepository(用于 skill_* 工具 + proposal skill hook)
+  const skillRepository = new SkillRepository(fullConfig.dataRoot);
+
   // M1: 按需构造 observability
   const auditLog = fullConfig.auditEnabled
     ? new AuditLog(fullConfig.dataRoot)
@@ -196,6 +207,8 @@ export function createCoEngramContext(
           dataRoot: fullConfig.dataRoot,
           ...(config.proposalConfig ? { config: config.proposalConfig } : {}),
           ...(necessityEvaluator ? { necessityEvaluator } : {}),
+          // S4 Task 3: 注入 skillRepository(供 proposal skill hook 用)
+          skillRepository,
         })
       : undefined;
 
@@ -209,6 +222,8 @@ export function createCoEngramContext(
     ...(auditLog ? { auditLog } : {}),
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(proposalEngine ? { proposalEngine } : {}),
+    // S4 Task 3: 注入 skillRepository(供 skill_* 工具使用)
+    ...(skillRepository ? { skillRepository } : {}),
     ...(fullConfig.defaultCreatedBy
       ? { defaultCreatedBy: fullConfig.defaultCreatedBy }
       : {}),
@@ -535,6 +550,8 @@ export function registerCoEngramTools(
         dataRoot: config.dataRoot ?? DEFAULT_CONFIG.dataRoot,
         ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
         ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
+        // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
+        ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
       },
       config.maintenanceConfig ?? {},
     );
@@ -616,6 +633,9 @@ export function registerCoEngramTools(
             : {}),
           dataRoot: config.dataRoot ?? DEFAULT_CONFIG.dataRoot,
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
+          ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
+          // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
+          ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
         },
         config.maintenanceConfig ?? {},
       );
@@ -641,6 +661,8 @@ export function registerCoEngramTools(
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
         }),
       );
+      // S4 Task 3: 注入 skill hook(参照 externalMarkdownHook 模式)
+      ctx.repository.setSkillHook(ctx.proposalEngine.createSkillHook());
     }
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {
@@ -779,6 +801,8 @@ export function registerCoEngramTools(
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
         }),
       );
+      // S4 Task 3: 注入 skill hook(参照 externalMarkdownHook 模式)
+      ctx.repository.setSkillHook(ctx.proposalEngine.createSkillHook());
     }
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {
