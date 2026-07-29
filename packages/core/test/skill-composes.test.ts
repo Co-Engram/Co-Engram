@@ -77,3 +77,60 @@ describe("composes/relatedEngrams", () => {
     expect(read.relatedEngrams).toEqual([]);
   });
 });
+
+describe("addCompose/removeCompose", () => {
+  it("addCompose 加关系 + version++", () => {
+    create("a");
+    const s = repo.addCompose("a", "b");
+    expect(s.composes).toEqual(["b"]);
+    expect(s.version).toBe(2);
+  });
+
+  it("addCompose 去重（已存在不重复）", () => {
+    create("a");
+    repo.addCompose("a", "b");
+    const s = repo.addCompose("a", "b");
+    expect(s.composes).toEqual(["b"]);
+    expect(s.version).toBe(2); // 第二次去重，version 不变
+  });
+
+  it("removeCompose 移除", () => {
+    create("a");
+    repo.addCompose("a", "b");
+    repo.addCompose("a", "c");
+    const s = repo.removeCompose("a", "b");
+    expect(s.composes).toEqual(["c"]);
+    expect(s.version).toBe(4); // create(1) + addCompose(2) + addCompose(3) + removeCompose(4)
+  });
+
+  it("持久化：新 repo 读回 composes", () => {
+    create("a");
+    repo.addCompose("a", "b");
+    const repo2 = new SkillRepository(root);
+    expect(repo2.readSkill("a").composes).toEqual(["b"]);
+  });
+});
+
+describe("addRelatedEngram/removeRelatedEngram", () => {
+  it("add 去重 + remove + 持久化", () => {
+    create("a");
+    repo.addRelatedEngram("a", "eng1");
+    repo.addRelatedEngram("a", "eng1");
+    expect(repo.readSkill("a").relatedEngrams).toEqual(["eng1"]);
+    repo.removeRelatedEngram("a", "eng1");
+    expect(repo.readSkill("a").relatedEngrams).toEqual([]);
+  });
+
+  it("addRelatedEngram version++", () => {
+    create("a");
+    const s = repo.addRelatedEngram("a", "eng1");
+    expect(s.version).toBe(2);
+  });
+
+  it("持久化：新 repo 读回 relatedEngrams", () => {
+    create("a");
+    repo.addRelatedEngram("a", "eng1");
+    const repo2 = new SkillRepository(root);
+    expect(repo2.readSkill("a").relatedEngrams).toEqual(["eng1"]);
+  });
+});
