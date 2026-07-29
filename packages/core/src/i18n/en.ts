@@ -485,20 +485,18 @@ WHEN NOT TO CALL:
 - For declarative memory (use engram_search / engram_get)
 
 RETURNS: Skill metadata (name, description, template kind, parameters).`,
-  "tool.skill_invoke.agent": `⚠ EXPERIMENTAL STUB — currently returns a placeholder string, does not actually execute the skill; real template execution lands in P1.
-
-Invoke a skill (procedural memory) with parameters.
+  "tool.skill_invoke.agent": `Report a Skill usage result (success/effectiveness) and update utility + retention via Rescorla-Wagner. **This tool only records usage, does not execute the skill itself** — skill execution is done by the host (Claude Code/OpenClaw); agents call this after using a skill to report results, letting the skill's procedural memory imprint evolve with usage. Forgotten skills reject.
 
 WHEN TO CALL:
-- User asks to execute a known procedural template
-- Following a skill_get that identified the right skill
-- Running a tool-sequence or prompt-template skill
+- After executing a skill through the host, need to report results
+- Skill succeeded: call with success=true + effectiveness
+- Skill failed: call with success=false
 
 WHEN NOT TO CALL:
-- For one-off tasks without a registered skill
-- Without first checking skill_get (you may not have the right skill)
+- Before executing the skill (let host execute first)
+- Just reading skill imprint (use skill_get)
 
-RETURNS: Skill execution result (template-specific). At P0 the output field looks like "[P0 stub] Skill X invoked with args: ...".`,
+RETURNS: Updated skill imprint (utility, retentionStage, successCount, failureCount).`,
   "tool.skill_create.agent": `Create a new skill (procedural memory) with parameters and policy.
 
 WHEN TO CALL:

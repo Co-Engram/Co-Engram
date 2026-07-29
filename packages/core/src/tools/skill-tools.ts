@@ -142,7 +142,7 @@ export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: tru
 export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   name: "skill_invoke",
   description:
-    "记录一次 Skill 使用结果（success/effectiveness），Rescorla-Wagner 更新 utility + retention。语义=记录使用+更新可塑性，不替代宿主执行（真实执行由宿主完成，本调用用于固化程序性记忆的印迹）。",
+    "报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 会拒绝。",
   inputSchema: SkillInvokeInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<SkillInvokeToolInput>(
