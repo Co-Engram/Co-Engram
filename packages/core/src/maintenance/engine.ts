@@ -195,7 +195,20 @@ export class MaintenanceEngine {
         // 回收失败不阻塞 light
       }
 
-      return {
+      // S3: skill retention 周期重算(Oblivion 衰退)。可选——未注入 skillRepository 时 noop。
+      let skillsDecayed: number | undefined = undefined;
+      let skillsScanned: number | undefined = undefined;
+      if (this.deps.skillRepository) {
+        try {
+          const result = this.deps.skillRepository.recomputeRetentionAll();
+          skillsScanned = result.scanned;
+          skillsDecayed = result.changed;
+        } catch {
+          // skill 衰退失败不阻塞 light
+        }
+      }
+
+      const baseResult = {
         signalsProcessed,
         rpeUpdates,
         windowsClosed,
@@ -208,6 +221,22 @@ export class MaintenanceEngine {
           lightModified,
         },
       };
+
+      // 只有当 skillRepository 存在时才添加 skill 衰退字段
+      if (skillsDecayed !== undefined && skillsScanned !== undefined) {
+        return {
+          ...baseResult,
+          skillsDecayed,
+          skillsScanned,
+          downstreamReport: {
+            ...baseResult.downstreamReport,
+            skillsDecayed,
+            skillsScanned,
+          },
+        };
+      }
+
+      return baseResult;
     });
   }
 
@@ -661,6 +690,8 @@ export class MaintenanceEngine {
       promptSignalsUpdated: body.promptSignalsUpdated,
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
+      ...(body.skillsDecayed !== undefined ? { skillsDecayed: body.skillsDecayed } : {}),
+      ...(body.skillsScanned !== undefined ? { skillsScanned: body.skillsScanned } : {}),
     };
 
     // 方案 A:写 maintenance-state.json(只在 dataRoot 注入 + 持锁时)。
