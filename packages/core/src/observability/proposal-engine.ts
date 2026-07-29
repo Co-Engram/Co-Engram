@@ -52,6 +52,7 @@ import {
 } from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
 import { notFoundError, validationError } from "../tools/error-schema.js";
+import { parseSkillMd, inferSkillFields } from "../skill/skill-detector.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -1469,6 +1470,144 @@ export class ProposalEngine {
           options?.onLlmError?.(err, relPath);
         },
       );
+    };
+  }
+
+  /**
+   * 把 watcher 检测到的 skill 目录转成 pending 提案（source="skill"）。
+   * 幂等：同 entityId 的 accepted/dismissed/tombstone → no-change；
+   * pending 且 payload 变 → updated；无 existing → proposed。
+   */
+  proposeSkill(input: {
+    readonly sourcePath: string;
+    readonly skillId: string;
+    readonly initiationSet: string;
+    readonly termination: string;
+    readonly policy: import("../types/skill.js").SkillPolicy;
+    readonly createdBy?: string;
+    readonly visibility?: EngramVisibility;
+    readonly at?: string;
+  }): "proposed" | "updated" | "no-change" {
+    const entityId = skillEntityId(input.sourcePath);
+    const now = input.at ?? new Date().toISOString();
+    const payload: ProposalPayload = {
+      title: input.skillId, // skill 提案的展示标题用 skillId
+      content: input.initiationSet, // centroidExcerpt 用 initiationSet 预览
+      kind: "procedure", // skill 是程序性记忆
+      domainTags: ["skill"],
+      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      sourcePath: input.sourcePath,
+      skillId: input.skillId,
+      skillSourcePath: input.sourcePath,
+      initiationSet: input.initiationSet,
+      termination: input.termination,
+      policy: input.policy,
+    };
+
+    // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") {
+      return "no-change";
+    }
+
+    if (existing?.status === "dismissed") {
+      // 永久驳回(或仍在 dismissDays 冷却期):源文件即使变化也不再重开
+      return "no-change";
+    }
+
+    // tombstone 检查(同 proposeExternalMarkdown)
+    if (this.isTombstoned(entityId)) {
+      return "no-change";
+    }
+
+    if (
+      existing &&
+      existing.payload &&
+      payloadEqual(existing.payload, payload)
+    ) {
+      return "no-change";
+    }
+
+    if (existing) {
+      const next: Proposal = {
+        ...existing,
+        sampleQuotes: [],
+        centroidExcerpt: input.initiationSet,
+        lastSeenAt: now,
+        status: "pending",
+        dismissedUntil: undefined,
+        dismissReason: undefined,
+        payload,
+      };
+      this.writeProposals(
+        proposals.map((p) => (p.entityId === entityId ? next : p)),
+      );
+      return "updated";
+    }
+
+    const proposal: Proposal = {
+      entityId,
+      occurrences: 1,
+      sampleQuotes: [],
+      centroidExcerpt: input.initiationSet,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      createdAt: now,
+      status: "pending",
+      source: "skill",
+      sourcePath: input.sourcePath,
+      payload,
+    };
+    this.writeProposals([...proposals, proposal]);
+    this.auditLog.append({
+      actor: "system",
+      action: "propose",
+      metadata: {
+        entityId,
+        source: "skill",
+        sourcePath: input.sourcePath,
+        skillId: input.skillId,
+      },
+    });
+    return "proposed";
+  }
+
+  /**
+   * 创建 skill 检测钩子（符合 EngramRepository.setSkillHook 签名）。
+   * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
+   */
+  createSkillHook(): (params: {
+    readonly absPath: string;
+    readonly relPath: string;
+    readonly raw: string;
+  }) => void {
+    return (params) => {
+      const { raw, relPath } = params;
+      const parsed = parseSkillMd(raw, relPath);
+      if (!parsed) {
+        this.auditLog.append({
+          actor: "system",
+          action: "noise_filtered",
+          metadata: {
+            entityId: skillEntityId(relPath),
+            source: "skill",
+            sourcePath: relPath,
+            reason: "not-a-skill-md",
+          },
+        });
+        return;
+      }
+      const fields = inferSkillFields(parsed);
+      this.proposeSkill({
+        sourcePath: relPath,
+        skillId: parsed.skillId,
+        initiationSet: fields.initiationSet,
+        termination: fields.termination,
+        policy: fields.policy,
+      });
     };
   }
 
