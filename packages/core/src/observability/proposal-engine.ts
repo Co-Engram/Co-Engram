@@ -37,6 +37,7 @@ import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
+import type { SkillRepository } from "../skill/skill-repository.js";
 import { upgradeVerification, refuteEngram } from "../verification/upgrade.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
@@ -51,7 +52,7 @@ import {
   extractEngramFieldsWithLlm,
 } from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
-import { notFoundError, validationError } from "../tools/error-schema.js";
+import { notFoundError, validationError, configError } from "../tools/error-schema.js";
 import { parseSkillMd, inferSkillFields } from "../skill/skill-detector.js";
 
 /** Embedder 接口:文本 → 向量 */
@@ -321,6 +322,7 @@ export class ProposalEngine {
   private readonly proposalsFile: string;
   private readonly tombstonesFile: string;
   private readonly necessityEvaluator: NecessityEvaluator;
+  private readonly skillRepository?: SkillRepository;
   /**
    * readProposals / readClusters 的 mtime-based cache。
    *
@@ -372,6 +374,7 @@ export class ProposalEngine {
      * host 可注入 LlmNecessityEvaluator(需 LlmClient)做语义判断。
      */
     readonly necessityEvaluator?: NecessityEvaluator;
+    readonly skillRepository?: SkillRepository;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -391,6 +394,7 @@ export class ProposalEngine {
     );
     this.necessityEvaluator =
       deps.necessityEvaluator ?? new RuleBasedNecessityEvaluator();
+    this.skillRepository = deps.skillRepository;
   }
 
   /**
@@ -952,6 +956,37 @@ export class ProposalEngine {
       this.writeProposals(updated);
       this.clustersCache = null;
       return patternEngram.id;
+    }
+
+    // skill proposal:accept → 创建 Skill 实体（skillRepository.createSkill），不创建 engram
+    if (target.source === "skill") {
+      const p = target.payload;
+      if (!p || !p.skillId || !p.skillSourcePath || !p.initiationSet || !p.termination || !p.policy) {
+        throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
+      }
+      if (!this.skillRepository) {
+        throw configError("skillRepository", "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).");
+      }
+      const skill = this.skillRepository.createSkill({
+        skillId: p.skillId,
+        sourcePath: p.skillSourcePath,
+        initiationSet: p.initiationSet,
+        termination: p.termination,
+        policy: p.policy,
+        createdBy: input.createdBy ?? "skill-proposal-accept",
+        ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+      });
+      const updatedSkill = proposals.map((pp) =>
+        pp.entityId === entityId ? { ...pp, status: "accepted" as const, acceptedEngramId: skill.skillId } : pp,
+      );
+      this.writeProposals(updatedSkill);
+      this.clustersCache = null;
+      this.auditLog.append({
+        actor: "user", action: "accept", engramId: skill.skillId,
+        metadata: { entityId, source: "skill", skillId: skill.skillId },
+      });
+      safeEmit({ type: "proposal_accepted", engramId: skill.skillId, at: new Date().toISOString() });
+      return skill.skillId;
     }
 
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
@@ -1717,7 +1752,7 @@ export class ProposalEngine {
    */
   acceptBatch(
     filter: {
-      readonly source: "auto-memory" | "external-markdown";
+      readonly source: "auto-memory" | "external-markdown" | "skill";
       readonly limit?: number;
     },
     input: {
@@ -1763,6 +1798,30 @@ export class ProposalEngine {
     // 它们的 payload 一定存在(设计约束)。
     for (const p of target) {
       try {
+        // skill proposal:acceptBatch → 调 skillRepository.createSkill，不走 createEngram
+        if (p.source === "skill") {
+          if (!this.skillRepository) {
+            failures.push({ entityId: p.entityId, reason: "skillRepository not injected (S4)" });
+            continue;
+          }
+          const p2 = p.payload;
+          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet || !p2.termination || !p2.policy) {
+            failures.push({ entityId: p.entityId, reason: "skill payload missing fields" });
+            continue;
+          }
+          const sk = this.skillRepository.createSkill({
+            skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
+            termination: p2.termination, policy: p2.policy,
+            createdBy: input.createdBy ?? "skill-batch-accept",
+            ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+          });
+          acceptedIds.push(p.entityId);
+          engramIds.push(sk.skillId);
+          acceptedMap.set(p.entityId, sk.skillId);
+          proposalMeta.set(p.entityId, p);
+          continue;
+        }
+
         const payload = p.payload;
         const title = payload?.title;
         const content = payload?.content;

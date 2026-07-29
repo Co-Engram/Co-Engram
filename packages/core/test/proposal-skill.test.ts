@@ -15,23 +15,27 @@ import {
   skillEntityId,
   SKILL_PROPOSAL_PREFIX,
 } from "../src/observability/proposal-engine.js";
+import { SkillRepository } from "../src/skill/skill-repository.js";
 import type { SkillPolicy } from "../src/types/skill.js";
 
 let tmpDir: string;
 let repo: EngramRepository;
 let audit: AuditLog;
 let engine: ProposalEngine;
+let skillRepo: SkillRepository;
 
 beforeEach(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "co-engram-skill-proposal-"));
   repo = new EngramRepository({ rootPath: tmpDir });
   audit = new AuditLog(tmpDir);
+  skillRepo = new SkillRepository(tmpDir);
   engine = new ProposalEngine({
     repository: repo,
     embedder: DEFAULT_HASHER_EMBEDDER,
     auditLog: audit,
     dataRoot: tmpDir,
     config: { similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD },
+    skillRepository: skillRepo,
   });
 });
 
@@ -178,5 +182,97 @@ description: 测试技能
     const skillNoise = auditEntries.find((e) => e.metadata.source === "skill");
     expect(skillNoise).toBeDefined();
     expect(skillNoise?.metadata.reason).toBe("not-a-skill-md");
+  });
+});
+
+describe("accept skill proposal", () => {
+  const mockPolicy: SkillPolicy = { kind: "prompt", ref: "SKILL.md" };
+  const mockInput = {
+    sourcePath: "tools/a",
+    skillId: "a",
+    initiationSet: "用时：",
+    termination: "结束",
+    policy: mockPolicy,
+  };
+
+  it("accept → skillRepository.createSkill + proposal accepted", () => {
+    // 先创建 skill proposal
+    engine.proposeSkill(mockInput);
+    const proposals = engine.readProposals();
+    const skillProposal = proposals.find((p) => p.entityId === skillEntityId("tools/a"));
+    expect(skillProposal?.status).toBe("pending");
+
+    // accept skill proposal
+    const entityId = skillEntityId("tools/a");
+    const skillId = engine.accept(entityId, { createdBy: "test-user" });
+
+    // 验证 Skill 实体已创建
+    const skill = skillRepo.readSkill(skillId);
+    expect(skill).toBeDefined();
+    expect(skill.skillId).toBe("a");
+    expect(skill.sourcePath).toBe("tools/a");
+    expect(skill.acquisitionStage).toBe("draft");
+    expect(skill.retentionStage).toBe("active");
+
+    // 验证 proposal 状态已更新为 accepted
+    const updatedProposals = engine.readProposals();
+    const acceptedProposal = updatedProposals.find((p) => p.entityId === entityId);
+    expect(acceptedProposal?.status).toBe("accepted");
+    expect(acceptedProposal?.acceptedEngramId).toBe(skillId);
+  });
+
+  it("未注入 skillRepository → 抛 CONFIG", () => {
+    // 创建不带 skillRepository 的 ProposalEngine
+    const engineWithoutSkillRepo = new ProposalEngine({
+      repository: repo,
+      embedder: DEFAULT_HASHER_EMBEDDER,
+      auditLog: audit,
+      dataRoot: tmpDir,
+      config: { similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD },
+      // 不传 skillRepository
+    });
+
+    // 创建 skill proposal
+    engineWithoutSkillRepo.proposeSkill(mockInput);
+    const proposals = engineWithoutSkillRepo.readProposals();
+    const skillProposal = proposals.find((p) => p.entityId === skillEntityId("tools/a"));
+
+    expect(skillProposal?.status).toBe("pending");
+
+    // accept 应该抛 configError
+    expect(() => {
+      engineWithoutSkillRepo.accept(skillEntityId("tools/a"), { createdBy: "test-user" });
+    }).toThrow("skillRepository");
+  });
+
+  it("acceptBatch source=skill", () => {
+    // 创建两个 skill proposal
+    const mockInput2 = { ...mockInput, skillId: "b", sourcePath: "tools/b" };
+    engine.proposeSkill(mockInput);
+    engine.proposeSkill(mockInput2);
+
+    const proposalsBefore = engine.readProposals();
+    const skillProposals = proposalsBefore.filter((p) => p.source === "skill");
+    expect(skillProposals.length).toBe(2);
+    expect(skillProposals.every((p) => p.status === "pending")).toBe(true);
+
+    // acceptBatch source=skill
+    const result = engine.acceptBatch({ source: "skill", limit: 10 }, { createdBy: "batch-test" });
+
+    // 验证两个 skill 都被 accept
+    expect(result.acceptedIds.length).toBe(2);
+    expect(result.engramIds.length).toBe(2);
+    expect(result.failures.length).toBe(0);
+
+    // 验证 Skill 实体已创建
+    const skillA = skillRepo.readSkill("a");
+    const skillB = skillRepo.readSkill("b");
+    expect(skillA).toBeDefined();
+    expect(skillB).toBeDefined();
+
+    // 验证 proposal 状态已更新
+    const proposalsAfter = engine.readProposals();
+    const acceptedProposals = proposalsAfter.filter((p) => p.source === "skill" && p.status === "accepted");
+    expect(acceptedProposals.length).toBe(2);
   });
 });
