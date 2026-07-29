@@ -72,14 +72,15 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
-/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 */
+/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 / skill 目录 */
 export type ProposalSource =
   | "conversation"
   | "auto-memory"
   | "external-markdown"
   | "rem-verification"
   | "rem-pattern"
-  | "rem-synapse";
+  | "rem-synapse"
+  | "skill";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -137,6 +138,16 @@ export interface ProposalPayload {
   readonly synapseFromTitle?: string;
   /** rem-synapse 专用:终点标题快照 */
   readonly synapseToTitle?: string;
+  /** skill 专用:skill 目录的 skillId（= frontmatter name 或目录名） */
+  readonly skillId?: string;
+  /** skill 专用:skill 目录相对路径（与 sourcePath 同义，显式命名便于区分） */
+  readonly skillSourcePath?: string;
+  /** skill 专用:Options I_ω 适用情境（规则版推断） */
+  readonly initiationSet?: string;
+  /** skill 专用:Options β_ω 边界/退出条件（规则版推断） */
+  readonly termination?: string;
+  /** skill 专用:Options π_ω 执行载体 */
+  readonly policy?: import("../types/skill.js").SkillPolicy;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -199,6 +210,9 @@ export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
 export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
+/** skill proposal 的 entityId 前缀 */
+export const SKILL_PROPOSAL_PREFIX = "skill:";
+
 /**
  * tombstone 文件的 unique entityId 上限,超过则触发 compact。
  *
@@ -247,6 +261,21 @@ export function externalMarkdownEntityId(relativePath: string): string {
 /** 判断 entityId 是否来自 external-markdown */
 export function isExternalMarkdownProposal(entityId: string): boolean {
   return entityId.startsWith(EXTERNAL_MARKDOWN_PROPOSAL_PREFIX);
+}
+
+/**
+ * skill proposal 的 entityId：基于 skill 目录 sourcePath 的稳定 hash
+ *
+ * 设计同 externalMarkdownEntityId：sha256(sourcePath) 取前 16 位 hex，
+ * 命名空间隔离为 skill: 前缀。同一 skill 目录反复触发 detector →
+ * 同一 entityId → proposeSkill 幂等去重。
+ */
+export function skillEntityId(sourcePath: string): string {
+  const hash = createHash("sha256")
+    .update(sourcePath)
+    .digest("hex")
+    .slice(0, 16);
+  return `${SKILL_PROPOSAL_PREFIX}${hash}`;
 }
 
 /** Proposal Engine 配置 */

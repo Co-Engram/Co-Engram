@@ -518,7 +518,8 @@ export interface EngramListProposalsToolResult {
       | "external-markdown"
       | "rem-verification"
       | "rem-pattern"
-      | "rem-synapse";
+      | "rem-synapse"
+      | "skill";
     slug?: string;
     proposedTitle?: string;
     proposedSummary?: string;
