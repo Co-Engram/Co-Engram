@@ -106,6 +106,7 @@ import {
   regenerateObsidianLinks,
   checkObsidianView,
 } from "./obsidian-links.js";
+import { collectSkillDirs, SKILL_MD_FILENAME } from "../skill/skill-detector.js";
 import { assertVisibilityTransitionAllowed } from "./visibility-gate.js";
 import {
   IndexDb,
@@ -170,6 +171,11 @@ export interface ExternalMarkdownHookParams {
  */
 export type ExternalMarkdownHook = (params: ExternalMarkdownHookParams) => void;
 
+/**
+ * skill 目录检测钩子签名（watcher 发现含 SKILL.md 的目录时回调）。
+ */
+export type SkillHook = (params: { readonly absPath: string; readonly relPath: string; readonly raw: string }) => void;
+
 const DEFAULT_IMPORTANCE = 0.5;
 const DEFAULT_CONFIDENCE_BY_SOURCE: Record<EngramSourceType, number> = {
   firsthand: 0.85,
@@ -225,6 +231,19 @@ function maxVisibility(
   b: EngramVisibility,
 ): EngramVisibility {
   return VIS_STRICTNESS[a] >= VIS_STRICTNESS[b] ? a : b;
+}
+
+/**
+ * 判断给定的相对路径是否在 skill 目录下。
+ *
+ * 用于解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）。
+ */
+function isUnderSkillRoot(relPath: string, skillRoots: readonly string[]): boolean {
+  for (const r of skillRoots) {
+    if (r === ".") return true; // dataRoot 本身是 skill 目录 → 所有文件都归 skill
+    if (relPath === r || relPath.startsWith(r + "/")) return true;
+  }
+  return false;
 }
 
 /**
@@ -302,6 +321,17 @@ export class EngramRepository {
    * 未设置时 → watcher 发现新 .md 仅记录 orphan,不自动接受(noop)。
    */
   private externalMarkdownHook: ExternalMarkdownHook | undefined;
+
+  /**
+   * skill 目录检测钩子(由 host 适配层设置)。
+   *
+   * watcher 扫描发现含 SKILL.md 的目录时调用，用于检测 superpowers 技能目录。
+   * host 适配层通常把回调绑到 ProposalEngine.proposeSkill，
+   * 让用户审批后再决定是否纳入团队记忆。
+   *
+   * 未设置时 → watcher 发现 skill 目录不自动接受(noop)。
+   */
+  private skillHook: SkillHook | undefined;
 
   private readonly config: RepositoryConfig;
 
@@ -585,6 +615,13 @@ export class EngramRepository {
         // 启动扫描失败不阻塞 watcher,后续 .md 变化仍可被捕获
       }
     }
+    if (this.skillHook) {
+      try {
+        this.scanForSkills();
+      } catch {
+        // 启动扫描失败不阻塞 watcher,后续 skill 目录变化仍可被捕获
+      }
+    }
     // 启动即清孤儿:覆盖"co-engram 启动前 .md 已被外部 rm 但 index 未同步"的场景。
     // 不依赖 externalMarkdownHook:索引一致性是基础保证,即使 host 未启用外部
     // 提案,也要让用户在重启后立即看到正确的 viewer 列表/统计。
@@ -607,6 +644,15 @@ export class EngramRepository {
     return () => {
       if (this.externalMarkdownHook === hook) {
         this.externalMarkdownHook = undefined;
+      }
+    };
+  }
+
+  setSkillHook(hook: SkillHook): () => void {
+    this.skillHook = hook;
+    return () => {
+      if (this.skillHook === hook) {
+        this.skillHook = undefined;
       }
     };
   }
@@ -749,8 +795,11 @@ export class EngramRepository {
     }
     const root = this.config.rootPath;
     const mdFiles = collectMarkdownFiles(root);
+    const skillRoots = collectSkillDirs(root); // 解冲突：收集 skill 目录，用于排除
     for (const absPath of mdFiles) {
       const relPath = relative(root, absPath).split(sep).join("/");
+      // 解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）
+      if (isUnderSkillRoot(relPath, skillRoots)) continue;
       if (knownPaths.has(relPath)) continue;
       let raw: string;
       try {
@@ -786,6 +835,31 @@ export class EngramRepository {
         this.externalMarkdownHook({ absPath, relPath, raw, parsed });
       } catch {
         // hook 内部异常不影响其他文件的通知
+      }
+    }
+  }
+
+  /**
+   * 扫描 skill 目录，调用 skillHook。
+   *
+   * 只读 SKILL.md（解析传给 hook），不写。
+   */
+  private scanForSkills(): void {
+    if (!this.skillHook) return;
+    const root = this.config.rootPath;
+    const skillDirs = collectSkillDirs(root);
+    for (const sourcePath of skillDirs) {
+      const absPath = sourcePath === "." ? join(root, SKILL_MD_FILENAME) : join(root, sourcePath, SKILL_MD_FILENAME);
+      let raw: string;
+      try {
+        raw = readFileSync(absPath, "utf8");
+      } catch {
+        continue;
+      }
+      try {
+        this.skillHook({ absPath, relPath: sourcePath, raw });
+      } catch {
+        // hook 内部异常不影响其他 skill 目录的通知
       }
     }
   }

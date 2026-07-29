@@ -518,7 +518,8 @@ export interface EngramListProposalsToolResult {
       | "external-markdown"
       | "rem-verification"
       | "rem-pattern"
-      | "rem-synapse";
+      | "rem-synapse"
+      | "skill";
     slug?: string;
     proposedTitle?: string;
     proposedSummary?: string;
@@ -614,6 +615,7 @@ const ProposalSourceSchema = z.enum([
   "conversation",
   "auto-memory",
   "external-markdown",
+  "skill",
 ]);
 
 export const EngramAcceptProposalsBySourceInputSchema = z
@@ -621,12 +623,12 @@ export const EngramAcceptProposalsBySourceInputSchema = z
     /**
      * 按 source 批量 accept。
      *
-     * 仅 auto-memory / external-markdown 来源的 proposal 可批量 accept ——
+     * 仅 auto-memory / external-markdown / skill 来源的 proposal 可批量 accept ——
      * 它们自带 payload(完整 title/content/domainTags/kind),无需 LLM 填表。
      * conversation 来源的 proposal 没有 payload,必须 LLM 显式提供 title/content,
      * 因此不支持 batch accept(防止批量创建垃圾 engram)。
      */
-    source: z.enum(["auto-memory", "external-markdown"]),
+    source: z.enum(["auto-memory", "external-markdown", "skill"]),
     /**
      * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
      * (user.name > user.email)解析,LLM 传入的值会被忽略

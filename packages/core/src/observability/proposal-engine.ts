@@ -37,6 +37,7 @@ import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
+import type { SkillRepository } from "../skill/skill-repository.js";
 import { upgradeVerification, refuteEngram } from "../verification/upgrade.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import {
@@ -51,7 +52,8 @@ import {
   extractEngramFieldsWithLlm,
 } from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
-import { notFoundError, validationError } from "../tools/error-schema.js";
+import { notFoundError, validationError, configError } from "../tools/error-schema.js";
+import { parseSkillMd, inferSkillFields } from "../skill/skill-detector.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -72,14 +74,15 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
-/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 */
+/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 / skill 目录 */
 export type ProposalSource =
   | "conversation"
   | "auto-memory"
   | "external-markdown"
   | "rem-verification"
   | "rem-pattern"
-  | "rem-synapse";
+  | "rem-synapse"
+  | "skill";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -137,6 +140,16 @@ export interface ProposalPayload {
   readonly synapseFromTitle?: string;
   /** rem-synapse 专用:终点标题快照 */
   readonly synapseToTitle?: string;
+  /** skill 专用:skill 目录的 skillId（= frontmatter name 或目录名） */
+  readonly skillId?: string;
+  /** skill 专用:skill 目录相对路径（与 sourcePath 同义，显式命名便于区分） */
+  readonly skillSourcePath?: string;
+  /** skill 专用:Options I_ω 适用情境（规则版推断） */
+  readonly initiationSet?: string;
+  /** skill 专用:Options β_ω 边界/退出条件（规则版推断） */
+  readonly termination?: string;
+  /** skill 专用:Options π_ω 执行载体 */
+  readonly policy?: import("../types/skill.js").SkillPolicy;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -199,6 +212,9 @@ export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
 export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
+/** skill proposal 的 entityId 前缀 */
+export const SKILL_PROPOSAL_PREFIX = "skill:";
+
 /**
  * tombstone 文件的 unique entityId 上限,超过则触发 compact。
  *
@@ -249,6 +265,21 @@ export function isExternalMarkdownProposal(entityId: string): boolean {
   return entityId.startsWith(EXTERNAL_MARKDOWN_PROPOSAL_PREFIX);
 }
 
+/**
+ * skill proposal 的 entityId：基于 skill 目录 sourcePath 的稳定 hash
+ *
+ * 设计同 externalMarkdownEntityId：sha256(sourcePath) 取前 16 位 hex，
+ * 命名空间隔离为 skill: 前缀。同一 skill 目录反复触发 detector →
+ * 同一 entityId → proposeSkill 幂等去重。
+ */
+export function skillEntityId(sourcePath: string): string {
+  const hash = createHash("sha256")
+    .update(sourcePath)
+    .digest("hex")
+    .slice(0, 16);
+  return `${SKILL_PROPOSAL_PREFIX}${hash}`;
+}
+
 /** Proposal Engine 配置 */
 export interface ProposalEngineConfig {
   /** 触发阈值(默认 3) */
@@ -291,6 +322,7 @@ export class ProposalEngine {
   private readonly proposalsFile: string;
   private readonly tombstonesFile: string;
   private readonly necessityEvaluator: NecessityEvaluator;
+  private readonly skillRepository?: SkillRepository;
   /**
    * readProposals / readClusters 的 mtime-based cache。
    *
@@ -342,6 +374,7 @@ export class ProposalEngine {
      * host 可注入 LlmNecessityEvaluator(需 LlmClient)做语义判断。
      */
     readonly necessityEvaluator?: NecessityEvaluator;
+    readonly skillRepository?: SkillRepository;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -361,6 +394,7 @@ export class ProposalEngine {
     );
     this.necessityEvaluator =
       deps.necessityEvaluator ?? new RuleBasedNecessityEvaluator();
+    this.skillRepository = deps.skillRepository;
   }
 
   /**
@@ -924,6 +958,37 @@ export class ProposalEngine {
       return patternEngram.id;
     }
 
+    // skill proposal:accept → 创建 Skill 实体（skillRepository.createSkill），不创建 engram
+    if (target.source === "skill") {
+      const p = target.payload;
+      if (!p || !p.skillId || !p.skillSourcePath || !p.initiationSet || !p.termination || !p.policy) {
+        throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
+      }
+      if (!this.skillRepository) {
+        throw configError("skillRepository", "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).");
+      }
+      const skill = this.skillRepository.createSkill({
+        skillId: p.skillId,
+        sourcePath: p.skillSourcePath,
+        initiationSet: p.initiationSet,
+        termination: p.termination,
+        policy: p.policy,
+        createdBy: input.createdBy ?? "skill-proposal-accept",
+        ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+      });
+      const updatedSkill = proposals.map((pp) =>
+        pp.entityId === entityId ? { ...pp, status: "accepted" as const, acceptedEngramId: skill.skillId } : pp,
+      );
+      this.writeProposals(updatedSkill);
+      this.clustersCache = null;
+      this.auditLog.append({
+        actor: "user", action: "accept", engramId: skill.skillId,
+        metadata: { entityId, source: "skill", skillId: skill.skillId },
+      });
+      safeEmit({ type: "proposal_accepted", engramId: skill.skillId, at: new Date().toISOString() });
+      return skill.skillId;
+    }
+
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
     // 注意:`??` 只在 null/undefined 时回落,空数组/空字符串需要显式判断(2026-07 修复):
     //   旧实现 `input.domainTags ?? payload?.domainTags` 在前端传 `domainTags: []` 时
@@ -1444,6 +1509,144 @@ export class ProposalEngine {
   }
 
   /**
+   * 把 watcher 检测到的 skill 目录转成 pending 提案（source="skill"）。
+   * 幂等：同 entityId 的 accepted/dismissed/tombstone → no-change；
+   * pending 且 payload 变 → updated；无 existing → proposed。
+   */
+  proposeSkill(input: {
+    readonly sourcePath: string;
+    readonly skillId: string;
+    readonly initiationSet: string;
+    readonly termination: string;
+    readonly policy: import("../types/skill.js").SkillPolicy;
+    readonly createdBy?: string;
+    readonly visibility?: EngramVisibility;
+    readonly at?: string;
+  }): "proposed" | "updated" | "no-change" {
+    const entityId = skillEntityId(input.sourcePath);
+    const now = input.at ?? new Date().toISOString();
+    const payload: ProposalPayload = {
+      title: input.skillId, // skill 提案的展示标题用 skillId
+      content: input.initiationSet, // centroidExcerpt 用 initiationSet 预览
+      kind: "procedure", // skill 是程序性记忆
+      domainTags: ["skill"],
+      ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
+      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      sourcePath: input.sourcePath,
+      skillId: input.skillId,
+      skillSourcePath: input.sourcePath,
+      initiationSet: input.initiationSet,
+      termination: input.termination,
+      policy: input.policy,
+    };
+
+    // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") {
+      return "no-change";
+    }
+
+    if (existing?.status === "dismissed") {
+      // 永久驳回(或仍在 dismissDays 冷却期):源文件即使变化也不再重开
+      return "no-change";
+    }
+
+    // tombstone 检查(同 proposeExternalMarkdown)
+    if (this.isTombstoned(entityId)) {
+      return "no-change";
+    }
+
+    if (
+      existing &&
+      existing.payload &&
+      payloadEqual(existing.payload, payload)
+    ) {
+      return "no-change";
+    }
+
+    if (existing) {
+      const next: Proposal = {
+        ...existing,
+        sampleQuotes: [],
+        centroidExcerpt: input.initiationSet,
+        lastSeenAt: now,
+        status: "pending",
+        dismissedUntil: undefined,
+        dismissReason: undefined,
+        payload,
+      };
+      this.writeProposals(
+        proposals.map((p) => (p.entityId === entityId ? next : p)),
+      );
+      return "updated";
+    }
+
+    const proposal: Proposal = {
+      entityId,
+      occurrences: 1,
+      sampleQuotes: [],
+      centroidExcerpt: input.initiationSet,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      createdAt: now,
+      status: "pending",
+      source: "skill",
+      sourcePath: input.sourcePath,
+      payload,
+    };
+    this.writeProposals([...proposals, proposal]);
+    this.auditLog.append({
+      actor: "system",
+      action: "propose",
+      metadata: {
+        entityId,
+        source: "skill",
+        sourcePath: input.sourcePath,
+        skillId: input.skillId,
+      },
+    });
+    return "proposed";
+  }
+
+  /**
+   * 创建 skill 检测钩子（符合 EngramRepository.setSkillHook 签名）。
+   * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
+   */
+  createSkillHook(): (params: {
+    readonly absPath: string;
+    readonly relPath: string;
+    readonly raw: string;
+  }) => void {
+    return (params) => {
+      const { raw, relPath } = params;
+      const parsed = parseSkillMd(raw, relPath);
+      if (!parsed) {
+        this.auditLog.append({
+          actor: "system",
+          action: "noise_filtered",
+          metadata: {
+            entityId: skillEntityId(relPath),
+            source: "skill",
+            sourcePath: relPath,
+            reason: "not-a-skill-md",
+          },
+        });
+        return;
+      }
+      const fields = inferSkillFields(parsed);
+      this.proposeSkill({
+        sourcePath: relPath,
+        skillId: parsed.skillId,
+        initiationSet: fields.initiationSet,
+        termination: fields.termination,
+        policy: fields.policy,
+      });
+    };
+  }
+
+  /**
    * 异步处理裸 .md:LLM 提取 → proposeExternalMarkdown
    *
    * 降级链:
@@ -1549,7 +1752,7 @@ export class ProposalEngine {
    */
   acceptBatch(
     filter: {
-      readonly source: "auto-memory" | "external-markdown";
+      readonly source: "auto-memory" | "external-markdown" | "skill";
       readonly limit?: number;
     },
     input: {
@@ -1595,6 +1798,30 @@ export class ProposalEngine {
     // 它们的 payload 一定存在(设计约束)。
     for (const p of target) {
       try {
+        // skill proposal:acceptBatch → 调 skillRepository.createSkill，不走 createEngram
+        if (p.source === "skill") {
+          if (!this.skillRepository) {
+            failures.push({ entityId: p.entityId, reason: "skillRepository not injected (S4)" });
+            continue;
+          }
+          const p2 = p.payload;
+          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet || !p2.termination || !p2.policy) {
+            failures.push({ entityId: p.entityId, reason: "skill payload missing fields" });
+            continue;
+          }
+          const sk = this.skillRepository.createSkill({
+            skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
+            termination: p2.termination, policy: p2.policy,
+            createdBy: input.createdBy ?? "skill-batch-accept",
+            ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+          });
+          acceptedIds.push(p.entityId);
+          engramIds.push(sk.skillId);
+          acceptedMap.set(p.entityId, sk.skillId);
+          proposalMeta.set(p.entityId, p);
+          continue;
+        }
+
         const payload = p.payload;
         const title = payload?.title;
         const content = payload?.content;
