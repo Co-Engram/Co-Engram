@@ -101,11 +101,11 @@ export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: tru
   },
 };
 
-// skill_invoke：S1 仍为 stub（S3 接 recordUse + 真实语义）
+// skill_invoke：记录一次 Skill 使用结果，更新印迹
 export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   name: "skill_invoke",
   description:
-    "⚠ EXPERIMENTAL STUB（S3 实现）：调用一个 Skill。当前仅返回占位结果，不更新印迹。",
+    "记录一次 Skill 使用结果（success/effectiveness），Rescorla-Wagner 更新 utility + retention。语义=记录使用+更新可塑性，不替代宿主执行（真实执行由宿主完成，本调用用于固化程序性记忆的印迹）。",
   inputSchema: SkillInvokeInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<SkillInvokeToolInput>(
@@ -113,20 +113,22 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
       input
     );
     const repo = requireSkillRepo(ctx);
-    const skill = repo.readSkill(parsed.id);
-    if (skill.retentionStage === "forgotten") {
+    const before = repo.readSkill(parsed.id);
+    if (before.retentionStage === "forgotten") {
       return {
         skillId: parsed.id,
         success: false,
         output: "",
-        error: `Skill ${parsed.id} decayed to forgotten`,
+        error: `Skill ${parsed.id} decayed to forgotten (re-instantiate or restore before use)`,
         executedAt: new Date().toISOString(),
       };
     }
+    const after = repo.recordUse(parsed.id, { success: parsed.success, effectiveness: parsed.effectiveness });
     return {
       skillId: parsed.id,
-      success: true,
-      output: `[S1 stub] invoked ${skill.skillId}`,
+      success: parsed.success,
+      output: `utility=${after.utility.toFixed(3)} successCount=${after.successCount} failureCount=${after.failureCount} retentionStage=${after.retentionStage}`,
+      effectiveness: parsed.effectiveness,
       executedAt: new Date().toISOString(),
     };
   },
