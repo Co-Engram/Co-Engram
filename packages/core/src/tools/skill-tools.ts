@@ -14,11 +14,15 @@ import {
   SkillCreateInputSchema,
   SkillListInputSchema,
   SkillUpdateInputSchema,
+  SkillComposeAddInputSchema,
+  SkillComposeListInputSchema,
   type SkillGetToolInput,
   type SkillInvokeToolInput,
   type SkillCreateToolInput,
   type SkillListToolInput,
   type SkillUpdateToolInput,
+  type SkillComposeAddToolInput,
+  type SkillComposeListToolInput,
 } from "./schemas.js";
 
 function requireSkillRepo(ctx: ToolContext) {
@@ -134,6 +138,53 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   },
 };
 
+// skill_compose_add：给 Skill 加一个组合关系（A 可编排进 B 的 workflow）
+export const skillComposeAddTool: Tool<SkillComposeAddToolInput, Skill> = {
+  name: "skill_compose_add",
+  description: "给 Skill 加一个组合关系（A 可编排进 B 的 workflow）。去重。",
+  inputSchema: SkillComposeAddInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillComposeAddToolInput>(
+      SkillComposeAddInputSchema,
+      input
+    );
+    return requireSkillRepo(ctx).addCompose(parsed.skillId, parsed.targetSkillId);
+  },
+};
+
+// skill_compose_remove：移除 Skill 的一个组合关系
+export const skillComposeRemoveTool: Tool<SkillComposeAddToolInput, Skill> = {
+  name: "skill_compose_remove",
+  description: "移除 Skill 的一个组合关系。",
+  inputSchema: SkillComposeAddInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillComposeAddToolInput>(
+      SkillComposeAddInputSchema,
+      input
+    );
+    return requireSkillRepo(ctx).removeCompose(parsed.skillId, parsed.targetSkillId);
+  },
+};
+
+// skill_compose_list：列出 Skill 的组合关系（composes）
+export const skillComposeListTool: Tool<
+  SkillComposeListToolInput,
+  { composes: readonly string[] }
+> = {
+  name: "skill_compose_list",
+  description: "列出 Skill 的组合关系（composes）。",
+  inputSchema: SkillComposeListInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillComposeListToolInput>(
+      SkillComposeListInputSchema,
+      input
+    );
+    return {
+      composes: requireSkillRepo(ctx).readSkill(parsed.skillId).composes,
+    };
+  },
+};
+
 export const ALL_SKILL_TOOLS: readonly Tool[] = [
   skillCreateTool,
   skillGetTool,
@@ -141,4 +192,7 @@ export const ALL_SKILL_TOOLS: readonly Tool[] = [
   skillUpdateTool,
   skillDeleteTool,
   skillInvokeTool,
+  skillComposeAddTool,
+  skillComposeRemoveTool,
+  skillComposeListTool,
 ];

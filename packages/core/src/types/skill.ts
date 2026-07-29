@@ -5,6 +5,7 @@
  * 三层分离：不变本体 / 可变投影 / 可插拔载体(policy)。
  * @module @co-engram/core/types
  */
+import { SkillId, EngramId } from "./engram.js";
 
 /** 执行载体（可插拔，不进本体语义） */
 export interface SkillPolicy {
@@ -40,6 +41,10 @@ export interface SkillImprint {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly version: number;
+  /** 组合关系：本 skill 可编排进哪些其他 skill 的 workflow（Skill Chaining） */
+  readonly composes: readonly SkillId[];
+  /** skill ↔ engram 关联：本 skill 关联哪些 engram（程序性 ↔ 陈述性） */
+  readonly relatedEngrams: readonly EngramId[];
 }
 
 /** 运行时 Skill 对象（= SkillImprint，语义别名） */
@@ -53,6 +58,8 @@ export interface SkillCreateInput {
   readonly policy: SkillPolicy;
   readonly visibility?: "public" | "team" | "private";
   readonly createdBy: string;
+  readonly composes?: readonly SkillId[];
+  readonly relatedEngrams?: readonly EngramId[];
 }
 
 export interface SkillUpdateInput {
@@ -62,6 +69,8 @@ export interface SkillUpdateInput {
   readonly visibility?: "public" | "team" | "private";
   /** 手动迁移习得深度轴（draft→compiled→tuned） */
   readonly acquisitionStage?: AcquisitionStage;
+  readonly composes?: readonly SkillId[];
+  readonly relatedEngrams?: readonly EngramId[];
 }
 
 /** Skill 执行结果（skill_invoke stub 用，S1 不变） */

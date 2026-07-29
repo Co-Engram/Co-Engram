@@ -48,6 +48,8 @@ export class SkillRepository {
       createdAt: now,
       updatedAt: now,
       version: 1,
+      composes: [...(input.composes ?? [])],
+      relatedEngrams: [...(input.relatedEngrams ?? [])],
     };
     writeImprint(this.dataRoot, skill);
     return skill;
@@ -145,6 +147,48 @@ export class SkillRepository {
       changed += 1;
     }
     return { scanned, changed };
+  }
+
+  /**
+   * 加组合关系（去重：已存在不重复加）。返回更新后的 skill。
+   */
+  addCompose(skillId: string, targetSkillId: string): Skill {
+    const cur = this.readSkill(skillId);
+    if (cur.composes.includes(targetSkillId)) return cur;  // 去重
+    const next: Skill = { ...cur, composes: [...cur.composes, targetSkillId], updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /**
+   * 移除组合关系。
+   */
+  removeCompose(skillId: string, targetSkillId: string): Skill {
+    const cur = this.readSkill(skillId);
+    const next: Skill = { ...cur, composes: cur.composes.filter((c) => c !== targetSkillId), updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /**
+   * 加 engram 关联（去重）。返回更新后的 skill。
+   */
+  addRelatedEngram(skillId: string, engramId: string): Skill {
+    const cur = this.readSkill(skillId);
+    if (cur.relatedEngrams.includes(engramId)) return cur;
+    const next: Skill = { ...cur, relatedEngrams: [...cur.relatedEngrams, engramId], updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /**
+   * 移除 engram 关联。返回更新后的 skill。
+   */
+  removeRelatedEngram(skillId: string, engramId: string): Skill {
+    const cur = this.readSkill(skillId);
+    const next: Skill = { ...cur, relatedEngrams: cur.relatedEngrams.filter((e) => e !== engramId), updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    writeImprint(this.dataRoot, next);
+    return next;
   }
 
   deleteSkill(skillId: string): void {

@@ -77,7 +77,15 @@ export function readImprint(dataRoot: string, skillId: string, sourcePath: strin
 function parseImprint(raw: string): SkillImprint | null {
   try {
     const obj = JSON.parse(raw);
-    if (obj && typeof obj === "object" && obj.schemaVersion === 1) return obj as SkillImprint;
+    if (obj && typeof obj === "object" && obj.schemaVersion === 1) {
+      // 向后兼容：旧 imprint（无 composes/relatedEngrams 字段）读取时默认 []
+      const typed = obj as SkillImprint & { composes?: unknown; relatedEngrams?: unknown };
+      return {
+        ...typed,
+        composes: Array.isArray(typed.composes) ? typed.composes : [],
+        relatedEngrams: Array.isArray(typed.relatedEngrams) ? typed.relatedEngrams : [],
+      } as SkillImprint;
+    }
     return null;
   } catch {
     return null;

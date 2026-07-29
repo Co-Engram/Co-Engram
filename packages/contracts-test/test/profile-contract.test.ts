@@ -34,15 +34,15 @@ describe("profile contract: claude-code-mcp ≡ openclaw-plugin", () => {
     }
   });
 
-  it("actual counts match observed real values (12/26/34)", () => {
-    // 15 轮拉通分析的 R13 实证 + Task 3.2 / 3.3 调整 + AI-8 batch proposal + S1 skill CRUD:
+  it("actual counts match observed real values (12/29/37)", () => {
+    // 15 轮拉通分析的 R13 实证 + Task 3.2 / 3.3 调整 + AI-8 batch proposal + S1 skill CRUD + S5 skill compose:
     // minimal 12(含 engram_sync),
-    // standard 26(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal × 2;S1 加 skill CRUD × 5),
-    // full 34(skill_invoke 是 P0 stub,Task 3.2 移出 full profile,
-    //         Task 3.3 加 engram_audit_query,AI-8 加 batch proposal × 2;S1 补齐 skill CRUD × 5)
+    // standard 29(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal × 2;S1 加 skill CRUD × 5;S5 加 skill compose × 3),
+    // full 37(skill_invoke 是 P0 stub,Task 3.2 移出 full profile,
+    //         Task 3.3 加 engram_audit_query,AI-8 加 batch proposal × 2;S1 补齐 skill CRUD × 5;S5 加 skill compose × 3)
     expect(CC.PROFILE_TOOL_SETS.minimal.size).toBe(12);
-    expect(CC.PROFILE_TOOL_SETS.standard.size).toBe(26);
-    expect(CC.PROFILE_TOOL_SETS.full.size).toBe(34);
+    expect(CC.PROFILE_TOOL_SETS.standard.size).toBe(29);
+    expect(CC.PROFILE_TOOL_SETS.full.size).toBe(37);
   });
 
   it("resolveProfile + filterToolsByProfile available from both hosts", () => {
