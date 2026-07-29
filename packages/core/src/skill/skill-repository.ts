@@ -121,6 +121,32 @@ export class SkillRepository {
     return next;
   }
 
+  /**
+   * 批量重算所有 skill 的 retentionStage（light stage 周期调用）。
+   * 用 Oblivion computeRetention(projectRetentionStage)；只改 retentionStage，不动 utility/stats/lastUsedAt。
+   * @returns scanned 扫描数；changed retentionStage 实际变更数
+   */
+  recomputeRetentionAll(nowMs: number = Date.now()): { readonly scanned: number; readonly changed: number } {
+    const all = scanAllImprints(this.dataRoot);
+    let scanned = 0;
+    let changed = 0;
+    for (const skill of all) {
+      scanned += 1;
+      const newStage = projectRetentionStage(computeRetention(skill, nowMs));
+      if (newStage === skill.retentionStage) continue;
+      // 只改 retentionStage（spread 新对象，字段 readonly）
+      const updated: Skill = {
+        ...skill,
+        retentionStage: newStage,
+        updatedAt: new Date(nowMs).toISOString(),
+        version: skill.version + 1,
+      };
+      writeImprint(this.dataRoot, updated);
+      changed += 1;
+    }
+    return { scanned, changed };
+  }
+
   deleteSkill(skillId: string): void {
     const cur = this.find(skillId);
     if (!cur) return;

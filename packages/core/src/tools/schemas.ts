@@ -432,8 +432,10 @@ export const SkillGetInputSchema = z.object({
 
 export const SkillInvokeInputSchema = z.object({
   id: z.string().min(1),
-  args: z.record(z.string(), z.unknown()).default({}),
-});
+  success: z.boolean(),
+  effectiveness: z.number().min(0).max(1).optional(),
+  args: z.record(z.string(), z.unknown()).optional(),
+}).strict();
 
 // ============================================================
 // skill_create / skill_list / skill_update（S1）

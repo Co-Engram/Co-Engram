@@ -1390,7 +1390,7 @@ describe("skill_get", () => {
 });
 
 describe("skill_invoke", () => {
-  it("S1 stub 返回占位结果", async () => {
+  it("S3 记录使用 + 更新 utility", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "skill-test-"));
     try {
       const repo = new SkillRepository(tmpDir);
@@ -1405,11 +1405,16 @@ describe("skill_invoke", () => {
 
       const extCtx = { ...ctx, skillRepository: repo };
       const result = await skillInvokeTool.execute(
-        { id: "skill-1", args: { k: "v" } },
+        { id: "skill-1", success: true, effectiveness: 0.8 },
         extCtx,
       );
       expect(result.success).toBe(true);
-      expect(result.output).toMatch(/S1 stub/);
+      expect(result.output).toMatch(/utility=0/);
+      expect(result.output).toMatch(/successCount=1/);
+      // 验证 utility 升
+      const skill = repo.readSkill("skill-1");
+      expect(skill.utility).toBeGreaterThan(0.5);
+      expect(skill.successCount).toBe(1);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1441,11 +1446,14 @@ describe("skill_invoke", () => {
 
       const extCtx = { ...ctx, skillRepository: repo };
       const result = await skillInvokeTool.execute(
-        { id: "skill-1", args: {} },
+        { id: "skill-1", success: true, effectiveness: 0.9 },
         extCtx,
       );
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/forgotten/);
+      // 验证 utility 未变（forgotten 分支在 recordUse 前返回）
+      const after = repo.readSkill("skill-1");
+      expect(after.utility).toBe(skill.utility);
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

@@ -149,6 +149,13 @@ export interface MaintenanceDeps {
    * 不注入时跳过 audit 写入(向后兼容,适用于测试场景)。
    */
   readonly auditLog?: AuditLog;
+  /**
+   * Skill 衰退引擎(可选,light 阶段调用 recomputeRetentionAll)。
+   *
+   * 如果注入,每次 light 阶段会扫描所有 skill 的 retention 分数,
+   * 按 Oblivion 模型进行时间驱动的衰退。未注入时跳过(向后兼容)。
+   */
+  readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
 }
 
 /** 默认配置常量 */
@@ -218,6 +225,15 @@ export interface MaintenanceReport {
    * 已在 0 / 1 边界无变化的 engram 不计入)。
    */
   readonly decayed?: number;
+  /**
+   * light 阶段衰退的 skill 数(retention 真的发生变化的条数;
+   * 已在 0 / 1 边界无变化的 skill 不计入)。
+   */
+  readonly skillsDecayed?: number;
+  /**
+   * light 阶段扫描的 skill 总数(用于审计/观察)。
+   */
+  readonly skillsScanned?: number;
   /** deep/rem 阶段的下游报告 */
   readonly downstreamReport?: unknown;
   /** 错误（不抛,记录后继续） */
