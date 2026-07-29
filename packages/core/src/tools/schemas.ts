@@ -476,6 +476,26 @@ export type SkillListToolInput = z.infer<typeof SkillListInputSchema>;
 export type SkillUpdateToolInput = z.infer<typeof SkillUpdateInputSchema>;
 
 // ============================================================
+// skill_compose（S5：Skill 组合关系）
+// ============================================================
+
+export const SkillComposeAddInputSchema = z
+  .object({
+    skillId: z.string().min(1),
+    targetSkillId: z.string().min(1),
+  })
+  .strict();
+
+export const SkillComposeListInputSchema = z
+  .object({
+    skillId: z.string().min(1),
+  })
+  .strict();
+
+export type SkillComposeAddToolInput = z.infer<typeof SkillComposeAddInputSchema>;
+export type SkillComposeListToolInput = z.infer<typeof SkillComposeListInputSchema>;
+
+// ============================================================
 // engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal
 // （M1：候选提示机制）
 // ============================================================

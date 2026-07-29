@@ -30,11 +30,13 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 26 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
- *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5)
+ * standard: 29 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
+ *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5) +
+ *   S5 skill compose(3)
  *
- * full: 34 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
- *   但不含 skill_invoke —— 它是 S1 stub(S3 真正实现后再放回)
+ * full: 37 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ *   但不含 skill_invoke —— 它是 S1 stub(S3 真正实现后再放回) +
+ *   S5 skill compose(3)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
@@ -87,6 +89,10 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_create",
     "skill_update",
     "skill_delete",
+    // S5 skill compose（组合关系管理）
+    "skill_compose_add",
+    "skill_compose_remove",
+    "skill_compose_list",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -110,6 +116,10 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_create",
     "skill_update",
     "skill_delete",
+    // S5 skill compose（组合关系管理）
+    "skill_compose_add",
+    "skill_compose_remove",
+    "skill_compose_list",
     "close_learning_loop",
     "contradiction_resolve",
     "get_evolution_lineage",
