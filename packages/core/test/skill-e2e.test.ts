@@ -39,7 +39,7 @@ describe("skill memory S1 e2e", () => {
     expect(scanAllImprints(root).length).toBe(0);
   });
 
-  it("非法 sourcePath → fallback 模式下 CRUD 仍工作", () => {
+  it("路径逃逸 sourcePath → fallback 模式下 CRUD 仍工作", () => {
     // controller 修正：用非法 sourcePath（路径逃逸）触发 safeJoinWithinRoot 抛 → writeImprint 走 fallback
     // （plan 原版用 "readonly/ro"，测试环境可写，实际走 sidecar 非兜底，测试名误导）
     const repo = new SkillRepository(root);

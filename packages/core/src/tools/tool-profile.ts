@@ -30,11 +30,11 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 19 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
- *   自愈/路径树 + engram_synthesize + engram_audit_query
+ * standard: 26 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
+ *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5)
  *
- * full: 28 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
- *   但不含 skill_invoke —— 它是 P0 stub(Task 3.2 移除,等 P1 真正实现再放回)
+ * full: 34 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ *   但不含 skill_invoke —— 它是 S1 stub(S3 真正实现后再放回)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
