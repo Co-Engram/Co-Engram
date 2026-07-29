@@ -53,7 +53,7 @@ import {
 } from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
 import { notFoundError, validationError, configError } from "../tools/error-schema.js";
-import { parseSkillMd, inferSkillFields } from "../skill/skill-detector.js";
+import { parseSkillMd, inferSkillFields, inferSkillFieldsWithLlm } from "../skill/skill-detector.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -961,17 +961,24 @@ export class ProposalEngine {
     // skill proposal:accept → 创建 Skill 实体（skillRepository.createSkill），不创建 engram
     if (target.source === "skill") {
       const p = target.payload;
-      if (!p || !p.skillId || !p.skillSourcePath || !p.initiationSet || !p.termination || !p.policy) {
+      if (
+        !p ||
+        !nonEmpty(p.skillId) ||
+        !nonEmpty(p.skillSourcePath) ||
+        !nonEmpty(p.initiationSet) ||
+        !nonEmpty(p.termination) ||
+        !p.policy
+      ) {
         throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
       }
       if (!this.skillRepository) {
         throw configError("skillRepository", "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).");
       }
       const skill = this.skillRepository.createSkill({
-        skillId: p.skillId,
-        sourcePath: p.skillSourcePath,
-        initiationSet: p.initiationSet,
-        termination: p.termination,
+        skillId: p.skillId!, // nonEmpty 已确保非空
+        sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
+        initiationSet: p.initiationSet!, // nonEmpty 已确保非空
+        termination: p.termination!, // nonEmpty 已确保非空
         policy: p.policy,
         createdBy: input.createdBy ?? "skill-proposal-accept",
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
@@ -1613,8 +1620,15 @@ export class ProposalEngine {
   /**
    * 创建 skill 检测钩子（符合 EngramRepository.setSkillHook 签名）。
    * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
+   *
+   * 两 tier 模式（S2.x）：
+   *   1. 有 llmClient → LLM 推断 initiationSet/termination（精准）
+   *   2. llmClient 未提供 或 LLM 抛错 → 规则版（description → initiationSet）
    */
-  createSkillHook(): (params: {
+  createSkillHook(options?: {
+    readonly llmClient?: LlmClient;
+    readonly onLlmError?: (err: unknown, sourcePath: string) => void;
+  }): (params: {
     readonly absPath: string;
     readonly relPath: string;
     readonly raw: string;
@@ -1635,6 +1649,35 @@ export class ProposalEngine {
         });
         return;
       }
+
+      // 路径 1:有 LLM → 异步推断（fire-and-forget，不阻塞 watcher）
+      if (options?.llmClient) {
+        inferSkillFieldsWithLlm(parsed, options.llmClient)
+          .then((fields) => {
+            this.proposeSkill({
+              sourcePath: relPath,
+              skillId: parsed.skillId,
+              initiationSet: fields.initiationSet,
+              termination: fields.termination,
+              policy: fields.policy,
+            });
+          })
+          .catch((err) => {
+            // LLM 失败 → 降级到规则版（保证用户能拿到 proposal）
+            const fallbackFields = inferSkillFields(parsed);
+            this.proposeSkill({
+              sourcePath: relPath,
+              skillId: parsed.skillId,
+              initiationSet: fallbackFields.initiationSet,
+              termination: fallbackFields.termination,
+              policy: fallbackFields.policy,
+            });
+            options.onLlmError?.(err, relPath);
+          });
+        return;
+      }
+
+      // 路径 2:未配置 LLM → 直接规则版
       const fields = inferSkillFields(parsed);
       this.proposeSkill({
         sourcePath: relPath,
