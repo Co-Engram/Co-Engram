@@ -822,6 +822,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.slogan": "Self-evolving team memory",
   "viewer.tab.stats": "Stats",
   "viewer.tab.engrams": "Engrams",
+  "viewer.tab.skills": "Skills",
   "viewer.tab.graph": "Graph",
   "viewer.tab.proposals": "Proposals",
   "viewer.tab.audit": "Audit",
@@ -838,6 +839,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Memory repository overview: engram/synapse counts, kind & status distributions, top contributors, popular tags",
   "viewer.tab.engrams.tip":
     "Browse and search all memory engrams (card view or directory view grouped by domain/kind)",
+  "viewer.tab.skills.tip":
+    "Browse and search skill memories: acquisition depth, trigger conditions, statistics, and retention status",
   "viewer.tab.graph.tip":
     "Memory synapse visualization; filter and color by family (structural/causal/evidential/temporal/modulatory) and kind",
   "viewer.tab.proposals.tip":
@@ -1070,6 +1073,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "enum.freshness.aging": "Aging",
   "enum.freshness.stale": "Stale",
   "enum.freshness.forgotten": "Forgotten",
+
+  "enum.acquisitionStage.draft": "Draft",
+  "enum.acquisitionStage.compiled": "Compiled",
+  "enum.acquisitionStage.tuned": "Tuned",
+
+  "enum.retentionStage.active": "Active",
+  "enum.retentionStage.aging": "Aging",
+  "enum.retentionStage.stale": "Stale",
+  "enum.retentionStage.forgotten": "Forgotten",
 
   "enum.status.draft": "Draft",
   "enum.status.active": "Active",
@@ -1992,6 +2004,27 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.obsidianBody":
     "Open the data root directly as an <strong>Obsidian vault</strong>. Whenever a synapse (<code>extends</code> / <code>similar_to</code> / <code>contradicts</code>, etc.) is created or changed, a derived wikilinks section is appended to the body of every touched engram: <code>→ [[filename|title · kind]]</code> (outgoing) and <code>← [[filename|title · kind]]</code> (incoming). The wikilink <strong>target is the filename</strong> (Obsidian resolves it natively — no frontmatter aliases needed); the <strong>display shows the target engram's title plus the kind</strong>, so the relationship is readable without navigation. <code>contradicts</code> edges are pinned to the top of the derived section. The authoritative source remains <code>synapses/*.yaml</code>; the derived section is a denormalized view that can always be rebuilt from yaml. <strong>Graph looks wrong?</strong> Run <code>engram_doctor</code> — it checks every engram's derived section against the authoritative source and regenerates any drift (idempotent; a clean repo reports zero fixes).",
 
+  // ===== Skill memory (viewer.help.skill.*) =====
+  "viewer.help.skillTitle": "Skill memory (procedural memory)",
+  "viewer.help.skillIntro":
+    "<strong>Skill memory</strong> is Co-Engram's <strong>procedural memory</strong> system — corresponding to 'knowing-how' in human memory, complementing engram's 'knowing-what' (declarative memory). Its scientific roots come from the <strong>ACT-R cognitive architecture</strong>, using a <strong>utility-retention-Options triplet</strong> to capture skill acquisition and usage.",
+  "viewer.help.skill.conceptEngramVsSkill":
+    "<strong>engram vs skill</strong>: engrams record static knowledge (facts, patterns, procedures); skills record callable dynamic capabilities (parameterized templates, inference chains). engrams are nouns; skills are verbs — when an agent needs to execute an action sequence, it calls <code>skill_invoke</code> with parameters; the skill returns execution results.",
+  "viewer.help.skill.lifecycle":
+    "<strong>Lifecycle</strong>: <code>detection (proposal) → accept (persist) → invoke (use) → decay → forgotten</code>. <code>detection</code>: scan <code>SKILL.md</code> directories and generate candidate proposals. <code>accept</code>: create Skill entity with acquisitionStage=draft, retentionStage=active. <code>invoke</code>: record usage count, update utility via <strong>Rescorla-Wagner rule</strong> (up on success, down on failure). <code>decay</code>: light maintenance cycles recalculate retention; persistently low utility drops retention from active to aging/stale. <code>forgotten</code>: long-unused or extremely low utility skills auto-forget.",
+  "viewer.help.skill.acquisition":
+    "<strong>Acquisition depth axis (acquisitionStage)</strong>: <code>draft (raw) → compiled (built) → tuned (refined)</code>. <code>draft</code>: newly accepted proposal, not yet fully validated. <code>compiled</code>: after a threshold of successful calls with stable high utility, enters compilation phase (ACT-R production compilation, from explicit reasoning to internalized pattern). <code>tuned</code>: long-term high-frequency usage with stable performance, manually or auto-optimized to expert level. Stage transitions are manual (or auto in future versions), reflecting the learning curve from 'conscious execution' to 'automatic'.",
+  "viewer.help.skill.utility":
+    "<strong>utility</strong>: 0-1 range, reflecting expected benefit of invoking the skill. Initial value 0.5. Each successful call (returning effective results) increases utility via Rescorla-Wagner; failures decrease it. High-utility skills are prioritized in同类 skill competition. Utility decays over Ebbinghaus curve — unused skills' utility automatically drops.",
+  "viewer.help.skill.retention":
+    "<strong>retention</strong>: reflects memory strength for the skill, 4 levels: <code>active (strong)</code>: recently used frequently, high retention. <code>aging (weakening)</code>: starting to forget but still recallable. <code>stale (weak)</code>: low retention, may need relearning. <code>forgotten (gone)</code>: removed from default skill pool, needs manual reactivation.",
+  "viewer.help.skill.composes":
+    "<strong>composes (skill chaining)</strong>: skills can declare dependencies on other skills, forming <code>Skill Chaining</code>. For example, a 'deploy' skill may compose three sub-skills: 'test', 'build', 'deploy'. Calling the parent skill automatically invokes sub-skills in dependency order, enabling complex task decomposition and reuse. Compose relationships are declared via the <code>composes</code> field.",
+  "viewer.help.skill.sidecar":
+    "<strong>sidecar storage</strong>: skill usage traces (call history, utility evolution, parameter patterns, etc.) are stored in <code><skill-dir>/.co-engram/imprint.json</code>, separate from <code>SKILL.md</code>. imprint.json is auto-maintained by the system; users should not edit manually — it preserves the full time series for utility calculation and retention decay. <code>SKILL.md</code> only holds the skill definition (inputs/outputs/parameters/examples), maintained by users. This separation decouples skill content from usage history, avoiding Git merge conflicts from imprint data.",
+  "viewer.help.skill.d11":
+    "<strong>D11 distribution rule</strong>: when a skill from team-memory repo is distributed to a host working directory, if the host already has a skill with the same name, the <strong>local skill takes priority</strong> and is not overwritten. The principle is 'local-first' — the working directory's skill is the version currently in use by the user; even if remote has updates, local edits are preserved. To sync remote changes, users must manually merge or explicitly accept the remote version. This prevents accidental overwrites of locally tuned skills and protects user personalization.",
+
   // ===== Graph panel (viewer.graph.*) =====
   "viewer.graph.renderFailed": "Render failed: ${err}",
   "viewer.graph.visLoadFailed": "vis-network failed to load",
@@ -2169,4 +2202,29 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Stale: halfLife×2 < ageDays ≤ halfLife×4; long unreinforced, candidate for forgetting.",
   "tip.freshness.forgotten":
     "Forgotten: ageDays > halfLife×4; removed from default recall pool (file retained, recoverable via Git).",
+  "viewer.skill.loading": "Loading skills",
+  "viewer.skill.loadFailed": "Load failed: {{err}}",
+  "skills.searchPlaceholder": "Search skill ID or source path",
+  "skills.filter.acquisitionStage": "Acquisition Stage",
+  "skills.filter.retentionStage": "Retention Stage",
+  "skills.filter.allStages": "All Stages",
+  "skills.filter.allRetentionStages": "All Retention Stages",
+  "skills.filter.sort": "Sort",
+  "skills.filter.sortNewest": "Newest Created",
+  "skills.filter.sortOldest": "Oldest Created",
+  "skills.filter.sortUtility": "Utility",
+  "skills.filter.sortInvocations": "Invocations",
+  "skills.empty": "No skills found",
+  "skills.pager.prev": "Previous",
+  "skills.pager.next": "Next",
+  "skills.pager.pageInfo": "Page {{current}} / {{total}} ({{itemTotal}} total)",
+  "skills.pager.loadingHint": "Loading in background",
+  "skills.utility": "Utility",
+  "skills.successCount.tip": "Success count",
+  "skills.failureCount.tip": "Failure count",
+  "skills.invocationCount.tip": "Invocation count",
+  "skills.initiationSet": "Trigger conditions",
+  "skills.termination": "Termination conditions",
+  "skills.sourcePath": "Source path",
+  "skills.composes.tip": "Number of composed sub-skills",
 };

@@ -884,6 +884,317 @@ window.CO_ENGRAM_ENGRAMS = {
 };
 
 // ============================================================
+// Skills（D10 对称 engrams tab）
+// ============================================================
+CO_ENGRAM.on('skills', async function() {
+  const root = document.getElementById('skills-content');
+  if (!root) return;
+  if (CO_ENGRAM._skillsLoaded) return;
+  CO_ENGRAM._skillsLoaded = true;
+  await CO_ENGRAM_SKILLS.render(root);
+});
+
+window.CO_ENGRAM_SKILLS = {
+  async render(root) {
+    root.innerHTML = '<div class="loading">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.skill.loading')) + '</div>';
+
+    // 初始化 paginator(参照 engrams tab 结构)
+    if (!CO_ENGRAM._skillsPager) {
+      CO_ENGRAM._skillsPager = CO_ENGRAM.createPaginator({
+        endpoint: '/api/skills',
+        pageSize: 100,
+      });
+      CO_ENGRAM._skillsViewStart = 0;
+    }
+
+    try { await CO_ENGRAM._skillsPager.load(); }
+    catch (e) { root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.skill.loadFailed', { err: e.message })) + '</div>'; return; }
+
+    const all = CO_ENGRAM._skillsPager.getItems();
+    CO_ENGRAM._skillsCache = all;
+    CO_ENGRAM._skillsTotal = CO_ENGRAM._skillsPager.getTotal();
+
+    // 后台渐进加载剩余批次
+    if (CO_ENGRAM._skillsPager.hasMore()) {
+      this._loadRemainingInBackground();
+    }
+
+    const T = CO_ENGRAM_T;
+    const acquisitionStageKeys = ['draft', 'compiled', 'tuned'];
+    const acquisitionStageOptions = acquisitionStageKeys.map(k => '<option value="' + k + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', k)) + '</option>').join('');
+
+    const retentionStageKeys = ['active', 'aging', 'stale', 'forgotten'];
+    const retentionStageOptions = retentionStageKeys.map(k => '<option value="' + k + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', k)) + '</option>').join('');
+
+    const filterBar = '<div class="filter-bar">'
+      + '<input type="search" placeholder="' + CO_ENGRAM.escapeHtml(T.t('skills.searchPlaceholder')) + '" id="skills-q" oninput="CO_ENGRAM_SKILLS.applyFilter()">'
+      + '<label>' + CO_ENGRAM.escapeHtml(T.t('skills.filter.acquisitionStage')) + ' <select id="skills-acquisition-stage" onchange="CO_ENGRAM_SKILLS.applyFilter()">'
+      + '<option value="">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.allStages')) + '</option>' + acquisitionStageOptions + '</select></label>'
+      + '<label>' + CO_ENGRAM.escapeHtml(T.t('skills.filter.retentionStage')) + ' <select id="skills-retention-stage" onchange="CO_ENGRAM_SKILLS.applyFilter()">'
+      + '<option value="">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.allRetentionStages')) + '</option>' + retentionStageOptions + '</select></label>'
+      + '<label>' + CO_ENGRAM.escapeHtml(T.t('skills.filter.sort')) + ' <select id="skills-sort" onchange="CO_ENGRAM_SKILLS.applyFilter()">'
+      + '<option value="createdAt-desc">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.sortNewest')) + '</option>'
+      + '<option value="createdAt-asc">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.sortOldest')) + '</option>'
+      + '<option value="utility-desc">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.sortUtility')) + '</option>'
+      + '<option value="invocationCount-desc">' + CO_ENGRAM.escapeHtml(T.t('skills.filter.sortInvocations')) + '</option>'
+      + '</select></label>'
+      + '<span class="spacer"></span>'
+      + '<span class="chip" id="skills-count">已加载 ' + all.length + ' / 共 ' + CO_ENGRAM._skillsTotal + (CO_ENGRAM._skillsPager && CO_ENGRAM._skillsPager.hasMore() ? ' · ' + CO_ENGRAM.escapeHtml(T.t('skills.pager.loadingHint')) : '') + '</span>'
+      + '</div>'
+      + '<div id="skills-body"></div>';
+
+    root.innerHTML = filterBar;
+    this.applyFilter();
+  },
+
+  applyFilter() {
+    const pager = CO_ENGRAM._skillsPager;
+    const cache = pager ? pager.getItems() : (CO_ENGRAM._skillsCache || []);
+    const qRaw = ((document.getElementById('skills-q') || {}).value || '');
+    const q = qRaw.toLowerCase();
+    const acquisitionStage = (document.getElementById('skills-acquisition-stage') || {}).value || '';
+    const retentionStage = (document.getElementById('skills-retention-stage') || {}).value || '';
+    const sort = ((document.getElementById('skills-sort') || {}).value || 'createdAt-desc').split('-');
+    const [sortKey, sortDir] = sort;
+    const T = CO_ENGRAM_T;
+
+    const filterSig = qRaw + '|' + acquisitionStage + '|' + retentionStage + '|' + sortKey + '-' + sortDir;
+    if (CO_ENGRAM._skillsLastFilterSig !== filterSig) {
+      CO_ENGRAM._skillsLastFilterSig = filterSig;
+      CO_ENGRAM._skillsViewStart = 0;
+    }
+
+    let filtered = cache.filter(s => {
+      if (acquisitionStage && s.acquisitionStage !== acquisitionStage) return false;
+      if (retentionStage && s.retentionStage !== retentionStage) return false;
+      if (q) {
+        const id = (s.skillId || '').toLowerCase();
+        const path = (s.sourcePath || '').toLowerCase();
+        if (!id.includes(q) && !path.includes(q)) return false;
+      }
+      return true;
+    });
+
+    filtered.sort((a, b) => {
+      const av = a[sortKey] || 0;
+      const bv = b[sortKey] || 0;
+      if (typeof av === 'string' && typeof bv === 'string') {
+        return sortDir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+      }
+      return sortDir === 'asc' ? av - bv : bv - av;
+    });
+
+    const body = document.getElementById('skills-body');
+    if (!body) return;
+    const total = pager ? pager.getTotal() : (CO_ENGRAM._skillsTotal ?? cache.length);
+    const hasMore = pager ? pager.hasMore() : false;
+    const isLoading = pager ? pager.isLoading() : false;
+    const countEl = document.getElementById('skills-count');
+    if (countEl) {
+      const hint = (hasMore || isLoading) ? ' · ' + CO_ENGRAM.escapeHtml(T.t('skills.pager.loadingHint')) : '';
+      countEl.textContent = '已加载 ' + cache.length + ' / 共 ' + total + hint;
+    }
+
+    if (!filtered.length) {
+      body.innerHTML = '<div class="empty"><div class="icon">🕳️</div>' + CO_ENGRAM.escapeHtml(T.t('skills.empty')) + '</div>';
+      return;
+    }
+
+    // 卡片视图:客户端虚拟分页(每页 50)
+    const VIEW_SIZE = 50;
+    const maxStart = Math.max(0, filtered.length - VIEW_SIZE);
+    let viewStart = CO_ENGRAM._skillsViewStart || 0;
+    if (viewStart > maxStart) viewStart = maxStart;
+    if (viewStart < 0) viewStart = 0;
+    CO_ENGRAM._skillsViewStart = viewStart;
+    const visible = filtered.slice(viewStart, viewStart + VIEW_SIZE);
+    this._renderCards(visible, body);
+
+    // 翻页控件(参照 engrams tab)
+    const totalPages = Math.max(1, Math.ceil(total / VIEW_SIZE));
+    const currentPage = Math.floor(viewStart / VIEW_SIZE) + 1;
+    const canPrev = viewStart > 0;
+    const filteredHasMoreInView = (viewStart + VIEW_SIZE) < filtered.length;
+    const canNext = filteredHasMoreInView || hasMore;
+    const navRow = document.createElement('div');
+    navRow.className = 'pager-nav';
+    navRow.style.cssText = 'text-align:center;padding:1rem 0;grid-column:1/-1;display:flex;gap:.4rem;justify-content:center;align-items:center;flex-wrap:wrap';
+    const prevDisabled = canPrev ? '' : ' disabled';
+    const nextDisabled = canNext ? '' : ' disabled';
+
+    // 数字页码
+    const pageList = [];
+    if (totalPages <= 9) {
+      for (let i = 1; i <= totalPages; i++) pageList.push(i);
+    } else {
+      pageList.push(1);
+      if (currentPage > 4) pageList.push('ellipsis');
+      const start = Math.max(2, currentPage - 2);
+      const end = Math.min(totalPages - 1, currentPage + 2);
+      for (let i = start; i <= end; i++) pageList.push(i);
+      if (currentPage < totalPages - 3) pageList.push('ellipsis');
+      pageList.push(totalPages);
+    }
+    let pageButtonsHtml = '';
+    for (const p of pageList) {
+      if (p === 'ellipsis') {
+        pageButtonsHtml += '<span class="pager-ellipsis" style="padding:0 .3rem;color:var(--muted,#666)">…</span>';
+      } else if (p === currentPage) {
+        pageButtonsHtml += '<button class="btn pager-current" disabled style="font-weight:700;cursor:default;min-width:2.2rem">' + p + '</button>';
+      } else {
+        pageButtonsHtml += '<button class="btn secondary" onclick="CO_ENGRAM_SKILLS.gotoPage(' + (p - 1) + ')" style="min-width:2.2rem">' + p + '</button>';
+      }
+    }
+
+    navRow.innerHTML =
+      '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_SKILLS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('skills.pager.prev')) + '</button>'
+      + pageButtonsHtml
+      + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_SKILLS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('skills.pager.next')) + '</button>'
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('skills.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>';
+    body.appendChild(navRow);
+  },
+
+  _renderCards(filtered, body) {
+    const T = CO_ENGRAM_T;
+    body.innerHTML = '<div class="grid cols-3">' + filtered.map(s => {
+      // acquisitionStage 徽标颜色映射
+      const stageColors = {
+        draft: '#94a3b8',
+        compiled: '#5eead4',
+        tuned: '#fcd34d'
+      };
+      const stageColor = stageColors[s.acquisitionStage] || '#94a3b8';
+
+      // retentionStage 衰退条颜色映射
+      const retentionColors = {
+        active: '#5eead4',
+        aging: '#fcd34d',
+        stale: '#fb923c',
+        forgotten: '#f87171'
+      };
+      const retentionColor = retentionColors[s.retentionStage] || '#94a3b8';
+
+      // utility 进度条
+      const utilityPercent = Math.round((s.utility || 0) * 100);
+      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:#5eead4"></div></div>';
+
+      // 统计数据
+      const stats = [];
+      if (s.successCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successCount.tip')) + '">✓ ' + s.successCount + '</span>');
+      if (s.failureCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount.tip')) + '">✗ ' + s.failureCount + '</span>');
+      if (s.invocationCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount.tip')) + '">🔄 ' + s.invocationCount + '</span>');
+      if (s.lastUsedAt) stats.push('<span title="' + CO_ENGRAM.escapeHtml(s.lastUsedAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(s.lastUsedAt)) + '</span>');
+
+      // initiationSet / termination 摘要
+      let triggerInfo = '';
+      if (s.initiationSet && s.initiationSet.length) {
+        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + ':</span> ' + CO_ENGRAM.escapeHtml(JSON.stringify(s.initiationSet)) + '</div>';
+      }
+      if (s.termination) {
+        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.termination')) + ':</span> ' + CO_ENGRAM.escapeHtml(JSON.stringify(s.termination)) + '</div>';
+      }
+
+      // composes 计数
+      const composesBadge = s.composes && s.composes.length
+        ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('skills.composes.tip')) + '">🔗 ' + s.composes.length + '</span>'
+        : '';
+
+      // sourcePath 副标题
+      const sourcePathHtml = s.sourcePath
+        ? '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + ':</span> <code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></div>'
+        : '';
+
+      return '<div class="card">'
+        + '<div class="card-title">' + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
+        + sourcePathHtml
+        + '<div>'
+        + '<span class="chip" style="background:' + stageColor + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
+        + '<span class="chip" style="background:' + retentionColor + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
+        + composesBadge
+        + '</div>'
+        + '<div class="card-meta" style="align-items:center;gap:0.5rem">'
+        + '<span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + ':</span> '
+        + utilityBar
+        + '<span>' + utilityPercent + '%</span>'
+        + '</div>'
+        + (stats.length ? '<div class="card-meta">' + stats.join(' · ') + '</div>' : '')
+        + triggerInfo
+        + '</div>';
+    }).join('') + '</div>';
+  },
+
+  // 后台渐进加载剩余批次
+  async _loadRemainingInBackground() {
+    const pager = CO_ENGRAM._skillsPager;
+    if (!pager) return;
+    while (pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) { break; }
+      this._refreshCountChip();
+    }
+    this._refreshCountChip();
+    this.applyFilter();
+  },
+
+  // 刷新 count chip 文案
+  _refreshCountChip() {
+    const pager = CO_ENGRAM._skillsPager;
+    if (!pager) return;
+    const T = CO_ENGRAM_T;
+    const el = document.getElementById('skills-count');
+    if (!el) return;
+    const hint = (pager.hasMore() || pager.isLoading()) ? ' · ' + CO_ENGRAM.escapeHtml(T.t('skills.pager.loadingHint')) : '';
+    el.textContent = '已加载 ' + pager.getItems().length + ' / 共 ' + pager.getTotal() + hint;
+  },
+
+  async prevPage() {
+    const VIEW_SIZE = 50;
+    const pager = CO_ENGRAM._skillsPager;
+    if (!pager) return;
+    const current = CO_ENGRAM._skillsViewStart || 0;
+    if (current <= 0) return;
+    CO_ENGRAM._skillsViewStart = Math.max(0, current - VIEW_SIZE);
+    this.applyFilter();
+    const body = document.getElementById('skills-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  async nextPage() {
+    const VIEW_SIZE = 50;
+    const pager = CO_ENGRAM._skillsPager;
+    if (!pager) return;
+    const current = CO_ENGRAM._skillsViewStart || 0;
+    const loaded = pager.getItems().length;
+    if (current + VIEW_SIZE >= loaded && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) { alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e }))); return; }
+    }
+    CO_ENGRAM._skillsViewStart = current + VIEW_SIZE;
+    this.applyFilter();
+    const body = document.getElementById('skills-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+
+  async gotoPage(zeroBasedPage) {
+    const VIEW_SIZE = 50;
+    const pager = CO_ENGRAM._skillsPager;
+    if (!pager) return;
+    const target = zeroBasedPage * VIEW_SIZE;
+    while (target >= pager.getItems().length && pager.hasMore()) {
+      try { await pager.loadMore(); }
+      catch (e) {
+        alert(CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.common.loadFailed', { err: e.message || e })));
+        return;
+      }
+    }
+    CO_ENGRAM._skillsViewStart = target;
+    this.applyFilter();
+    const body = document.getElementById('skills-body');
+    if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  },
+};
+
+// ============================================================
 // Proposals
 // ============================================================
 CO_ENGRAM.on('proposals', async function() {

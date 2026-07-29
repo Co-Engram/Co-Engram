@@ -68,6 +68,9 @@ import {
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
   type EngramRepository,
+  type Skill,
+  type AcquisitionStage,
+  type RetentionStage,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 import {
@@ -630,6 +633,65 @@ async function routeApi(
       return;
     }
     respondJson(res, 405, { error: `Method not allowed: ${req.method}` });
+    return;
+  }
+
+  // /api/skills
+  //
+  // S6 Task 1: skill 列表与详情端点。
+  // 默认 limit=50, max 200;支持 acquisitionStage/retentionStage 过滤。
+  if (path === "/api/skills" && req.method === "GET") {
+    if (!ctx.skillRepository) {
+      respondJson(res, 200, {
+        items: [],
+        total: 0,
+        enabled: false,
+      });
+      return;
+    }
+    const acquisitionStageFilter = url.searchParams.get("acquisitionStage") as AcquisitionStage | null;
+    const retentionStageFilter = url.searchParams.get("retentionStage") as RetentionStage | null;
+    const limitRaw = url.searchParams.get("limit");
+    const limit =
+      limitRaw && Number.isFinite(Number(limitRaw))
+        ? Math.min(Number(limitRaw), 200)
+        : 50;
+
+    let skills = ctx.skillRepository.listSkills();
+    if (acquisitionStageFilter) {
+      skills = skills.filter((s) => s.acquisitionStage === acquisitionStageFilter);
+    }
+    if (retentionStageFilter) {
+      skills = skills.filter((s) => s.retentionStage === retentionStageFilter);
+    }
+
+    respondJson(res, 200, {
+      items: skills.slice(0, limit),
+      total: skills.length,
+      enabled: true,
+    });
+    return;
+  }
+
+  // /api/skills/:id  (GET) — skill 详情
+  const skillMatch = /^\/api\/skills\/(.+)$/.exec(path);
+  if (skillMatch && req.method === "GET") {
+    const skillId = decodeURIComponent(skillMatch[1]!);
+    if (!ctx.skillRepository) {
+      respondJson(res, 503, {
+        error: "SkillRepository not available",
+        enabled: false,
+      });
+      return;
+    }
+    try {
+      const skill = ctx.skillRepository.readSkill(skillId);
+      respondJson(res, 200, skill);
+    } catch (err) {
+      respondJson(res, 404, {
+        error: `Skill not found: ${skillId}`,
+      });
+    }
     return;
   }
 
@@ -1702,6 +1764,10 @@ interface StatsResponse {
   readonly auditEnabled: boolean;
   readonly effectivenessEnabled: boolean;
   readonly proposalEnabled: boolean;
+  // S6 Task 1: skill 维度
+  readonly totalSkills: number;
+  readonly skillsByAcquisitionStage: Record<AcquisitionStage, number>;
+  readonly skillsByRetentionStage: Record<RetentionStage, number>;
 }
 
 function getStats(ctx: ToolContext): StatsResponse {
@@ -1811,6 +1877,28 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
+  // S6 Task 1: skill 统计
+  let totalSkills = 0;
+  const skillsByAcquisitionStage: Record<AcquisitionStage, number> = {
+    draft: 0,
+    compiled: 0,
+    tuned: 0,
+  };
+  const skillsByRetentionStage: Record<RetentionStage, number> = {
+    active: 0,
+    aging: 0,
+    stale: 0,
+    forgotten: 0,
+  };
+  if (ctx.skillRepository) {
+    const skills = ctx.skillRepository.listSkills();
+    totalSkills = skills.length;
+    for (const skill of skills) {
+      skillsByAcquisitionStage[skill.acquisitionStage]++;
+      skillsByRetentionStage[skill.retentionStage]++;
+    }
+  }
+
   return {
     totalEngrams,
     activeEngrams,
@@ -1824,6 +1912,10 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     auditEnabled: !!ctx.auditLog,
     effectivenessEnabled: !!ctx.effectivenessTracker,
     proposalEnabled: !!ctx.proposalEngine,
+    // S6 Task 1: skill 维度
+    totalSkills,
+    skillsByAcquisitionStage,
+    skillsByRetentionStage,
   };
 }
 
@@ -1912,6 +2004,28 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     .sort((a, b) => b.total - a.total || b.engramCount - a.engramCount)
     .slice(0, 10);
 
+  // S6 Task 1: skill 统计
+  let totalSkills = 0;
+  const skillsByAcquisitionStage: Record<AcquisitionStage, number> = {
+    draft: 0,
+    compiled: 0,
+    tuned: 0,
+  };
+  const skillsByRetentionStage: Record<RetentionStage, number> = {
+    active: 0,
+    aging: 0,
+    stale: 0,
+    forgotten: 0,
+  };
+  if (ctx.skillRepository) {
+    const skills = ctx.skillRepository.listSkills();
+    totalSkills = skills.length;
+    for (const skill of skills) {
+      skillsByAcquisitionStage[skill.acquisitionStage]++;
+      skillsByRetentionStage[skill.retentionStage]++;
+    }
+  }
+
   return {
     totalEngrams: entries.length,
     activeEngrams: byStatus["active"] ?? 0,
@@ -1925,6 +2039,10 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     auditEnabled: !!ctx.auditLog,
     effectivenessEnabled: !!ctx.effectivenessTracker,
     proposalEnabled: !!ctx.proposalEngine,
+    // S6 Task 1: skill 维度
+    totalSkills,
+    skillsByAcquisitionStage,
+    skillsByRetentionStage,
   };
 }
 

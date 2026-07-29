@@ -68,6 +68,13 @@ const AUDIT_ACTIONS = [
   "merge_llm_arbitrated_failed",
   // maintenance
   "maintenance_run",
+  // skill 记忆系统
+  "skill_create",
+  "skill_update",
+  "skill_delete",
+  "skill_invoke",
+  "skill_compose_add",
+  "skill_compose_remove",
 ] as const satisfies readonly AuditAction[];
 
 export const EngramAuditQueryInputSchema = z
