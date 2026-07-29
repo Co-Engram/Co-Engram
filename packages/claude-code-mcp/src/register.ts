@@ -39,10 +39,12 @@ import {
   IndexOrchestrator,
   defaultCachePath,
   type ProcessLock,
+  SkillRepository,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { homedir } from "node:os";
 import { startMaintenanceRuntime } from "./maintenance-runtime.js";
 import {
   filterToolsByProfile,
@@ -156,6 +158,11 @@ const DEFAULT_SERVER_NAME = "co-engram";
 const DEFAULT_SERVER_VERSION = "0.0.0";
 
 /**
+ * Claude Code skills 目录(用于 skill 分发目标)
+ */
+const CLAUDE_SKILLS_DIR = process.env.CO_ENGRAM_CLAUDE_SKILLS_DIR ?? join(homedir(), ".claude", "skills");
+
+/**
  * 创建 MCP Server 并注册所有 Co-Engram 工具
  *
  * P4 新增：
@@ -263,6 +270,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
 
   const signalSink = createDefaultSignalSink(config.dataRoot);
 
+  // S4 Task 2: 创建 SkillRepository(用于 skill_* 工具 + proposal skill hook)
+  const skillRepository = new SkillRepository(config.dataRoot);
+
   // M1: 构造 observability 三件套（按需）
   const auditEnabled = config.auditEnabled !== false; // 默认 true
   const auditLog = auditEnabled ? new AuditLog(config.dataRoot) : undefined;
@@ -287,6 +297,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(config.necessityEvaluator
             ? { necessityEvaluator: config.necessityEvaluator }
             : {}),
+          // S4 Task 2: 注入 skillRepository(供 proposal skill hook 用)
+          skillRepository,
         })
       : undefined;
 
@@ -300,6 +312,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(auditLog ? { auditLog } : {}),
     ...(effectivenessTracker ? { effectivenessTracker } : {}),
     ...(proposalEngine ? { proposalEngine } : {}),
+    // S4 Task 2: 注入 skillRepository(供 skill_* 工具使用)
+    ...(skillRepository ? { skillRepository } : {}),
     ...(config.defaultCreatedBy
       ? { defaultCreatedBy: config.defaultCreatedBy }
       : {}),
@@ -394,6 +408,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(effectivenessTracker ? { effectivenessTracker } : {}),
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
+          // S4 Task 2: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
+          ...(skillRepository ? { skillRepository } : {}),
         },
         config.maintenanceConfig ?? {},
       );
@@ -419,6 +435,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(ctx.llmClient ? { llmClient: ctx.llmClient } : {}),
         }),
       );
+      // S4 Task 2: 注入 skill hook(参照 externalMarkdownHook 模式)
+      ctx.repository.setSkillHook(proposalEngine.createSkillHook());
     }
     ctx.repository.startWatching();
     ctx.repository.addInvalidateListener(() => {

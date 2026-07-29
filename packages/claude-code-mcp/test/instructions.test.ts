@@ -33,9 +33,9 @@ describe("buildServerInstructions", () => {
     const en = buildServerInstructions("en", "full");
     const zh = buildServerInstructions("zh", "full");
     expect(en).toContain("Full profile");
-    expect(en).toContain("30 tools");
+    expect(en).toContain("34 tools"); // S4 Task 2: 更新为 34 个工具(加 skill CRUD 5 个)
     expect(zh).toContain("full profile");
-    expect(zh).toContain("30 个工具");
+    expect(zh).toContain("34 个工具"); // S4 Task 2: 更新为 34 个工具(加 skill CRUD 5 个)
   });
 
   it("两种语言内容不同", () => {

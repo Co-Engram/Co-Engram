@@ -21,6 +21,7 @@ function makeTool(name: string): Tool {
   } as unknown as Tool;
 }
 
+// S4 Task 2: 函数名保持历史兼容，实际返回 full profile 所有工具(32 个)
 function makeAll25Tools(): readonly Tool[] {
   return [...Array.from(PROFILE_TOOL_SETS.full).map(makeTool)];
 }
@@ -34,12 +35,12 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 21 (Task 3.3 加 engram_audit_query;AI-8 加 batch proposal)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(21);
+  it("standard = 26 (Task 3.3 加 engram_audit_query;AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(26);
   });
 
-  it("full = 30 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance,AI-8 加 batch proposal)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(30);
+  it("full = 34 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance,AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(34);
   });
 
   // ============================================================
@@ -98,7 +99,7 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     expect(PROFILE_TOOL_SETS.full.has("skill_invoke")).toBe(false);
   });
 
-  it("standard 不包含管理类工具", () => {
+  it("standard 不包含管理类工具(S4 Task 2: skill CRUD 现属 standard,不再是管理类)", () => {
     const managementTools = [
       "engram_archive",
       "engram_restore",
@@ -106,7 +107,7 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
       "synapse_get",
       "synapse_list",
       "synapse_delete",
-      "skill_get",
+      // S4 Task 2: skill CRUD 移出管理类工具列表，现已属 standard
       "skill_invoke",
       "upgrade_verification",
       "get_evolution_lineage",
@@ -114,6 +115,12 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     for (const t of managementTools) {
       expect(PROFILE_TOOL_SETS.standard.has(t)).toBe(false);
     }
+    // S4 Task 2: 确认 skill CRUD 工具现在属于 standard profile
+    expect(PROFILE_TOOL_SETS.standard.has("skill_get")).toBe(true);
+    expect(PROFILE_TOOL_SETS.standard.has("skill_list")).toBe(true);
+    expect(PROFILE_TOOL_SETS.standard.has("skill_create")).toBe(true);
+    expect(PROFILE_TOOL_SETS.standard.has("skill_update")).toBe(true);
+    expect(PROFILE_TOOL_SETS.standard.has("skill_delete")).toBe(true);
   });
 });
 
@@ -196,7 +203,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(30);
+    expect(filtered.length).toBe(34); // S4 Task 2: 更新为 34 个工具
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -206,10 +213,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 21 个(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal)", () => {
+  it("standard 过滤到 26 个(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(21);
+    expect(filtered.length).toBe(26);
   });
 
   it("minimal 不含 engram_delete", () => {
@@ -224,7 +231,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.find((t) => t.name === "engram_delete")).toBeDefined();
   });
 
-  it("standard 不含管理类工具(archive/restore/forget/...)", () => {
+  it("standard 不含管理类工具(archive/restore/forget/...;S4 Task 2: skill CRUD 现属 standard)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
     const hidden = [
@@ -234,7 +241,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
       "synapse_get",
       "synapse_list",
       "synapse_delete",
-      "skill_get",
+      // S4 Task 2: skill CRUD 已从管理类工具移除，现属 standard
       "skill_invoke",
       "upgrade_verification",
       "get_evolution_lineage",
@@ -242,6 +249,12 @@ describe("filterToolsByProfile / 过滤行为", () => {
     for (const h of hidden) {
       expect(filtered.find((t) => t.name === h)).toBeUndefined();
     }
+    // S4 Task 2: 确认 skill CRUD 工具现在确实出现在 standard 过滤结果中
+    expect(filtered.find((t) => t.name === "skill_get")).toBeDefined();
+    expect(filtered.find((t) => t.name === "skill_list")).toBeDefined();
+    expect(filtered.find((t) => t.name === "skill_create")).toBeDefined();
+    expect(filtered.find((t) => t.name === "skill_update")).toBeDefined();
+    expect(filtered.find((t) => t.name === "skill_delete")).toBeDefined();
   });
 
   it("空工具列表不抛错", () => {

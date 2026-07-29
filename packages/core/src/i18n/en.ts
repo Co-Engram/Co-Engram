@@ -499,6 +499,57 @@ WHEN NOT TO CALL:
 - Without first checking skill_get (you may not have the right skill)
 
 RETURNS: Skill execution result (template-specific). At P0 the output field looks like "[P0 stub] Skill X invoked with args: ...".`,
+  "tool.skill_create.agent": `Create a new skill (procedural memory) with parameters and policy.
+
+WHEN TO CALL:
+- User wants to save a reusable procedure or template
+- After executing a task that should be remembered for future reuse
+- Creating a new prompt template or tool sequence
+
+WHEN NOT TO CALL:
+- For one-time tasks without reuse value (use engram_create for declarative memory)
+- Without clear skillId and policy information
+- When the template is not yet stable
+
+RETURNS: Created skill record with utility=0.5, acquisitionStage=draft, retentionStage=active.`,
+  "tool.skill_list.agent": `List all skills with optional filtering by acquisition/retention stage.
+
+WHEN TO CALL:
+- User asks "what skills are available" / "show me all procedures"
+- Reviewing procedural memory inventory
+- Finding skills by stage (draft/compiled/tuned or active/aging/stale/forgotten)
+
+WHEN NOT TO CALL:
+- To read a specific skill's details (use skill_get)
+- For declarative memory search (use engram_search)
+
+RETURNS: Array of skills with metadata (utility, stages, invocation counts).`,
+  "tool.skill_update.agent": `Update a skill's metadata (initiation set, termination, policy, visibility, or acquisition stage).
+
+WHEN TO CALL:
+- Improving a skill's trigger conditions or termination criteria
+- Changing a skill's visibility (public/team/private)
+- Moving a skill from draft→compiled→tuned (forward only, single step)
+
+WHEN NOT TO CALL:
+- To change skillId (immutable — create new skill instead)
+- Backward transitions (tuned→compiled, compiled→draft are illegal)
+- Without confirming the user wants the modification
+
+RETURNS: Updated skill record with incremented version.`,
+  "tool.skill_delete.agent": `Delete a skill's sidecar imprint (does not touch the SKILL.md file itself).
+
+WHEN TO CALL:
+- User confirms a skill is obsolete or wrong
+- Cleaning up test/temporary skills
+- Removing a skill that should never be invoked again
+
+WHEN NOT TO CALL:
+- To temporarily disable a skill (use skill_update to change visibility)
+- Without confirming deletion (user should approve)
+- When you might want to recover it later (deletion is permanent)
+
+RETURNS: { id, deleted: true }. SKILL.md file unchanged; only sidecar removed.`,
   "tool.memory_search.agent": `Search team memory using natural language. Returns relevant memory snippets with relevance scores.
 
 WHEN TO CALL:
