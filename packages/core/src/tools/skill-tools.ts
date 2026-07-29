@@ -45,7 +45,15 @@ export const skillCreateTool: Tool<SkillCreateToolInput, Skill> = {
       SkillCreateInputSchema,
       input
     );
-    return requireSkillRepo(ctx).createSkill(parsed);
+    const skill = requireSkillRepo(ctx).createSkill(parsed);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_create",
+        metadata: { skillId: skill.skillId, sourcePath: skill.sourcePath },
+      });
+    }
+    return skill;
   },
 };
 
@@ -90,7 +98,20 @@ export const skillUpdateTool: Tool<SkillUpdateToolInput, Skill> = {
       input
     );
     const { id, ...patch } = parsed;
-    return requireSkillRepo(ctx).updateSkill(id, patch);
+    const skill = requireSkillRepo(ctx).updateSkill(id, patch);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_update",
+        metadata: {
+          skillId: id,
+          patch: Object.keys(patch),
+          acquisitionStage: skill.acquisitionStage,
+          retentionStage: skill.retentionStage
+        },
+      });
+    }
+    return skill;
   },
 };
 
@@ -100,7 +121,19 @@ export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: tru
   inputSchema: SkillGetInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<SkillGetToolInput>(SkillGetInputSchema, input);
-    requireSkillRepo(ctx).deleteSkill(parsed.id);
+    const repo = requireSkillRepo(ctx);
+    const existed = repo.exists(parsed.id);
+    repo.deleteSkill(parsed.id);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_delete",
+        metadata: {
+          skillId: parsed.id,
+          existed
+        },
+      });
+    }
     return { id: parsed.id, deleted: true as const };
   },
 };
@@ -119,6 +152,18 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
     const repo = requireSkillRepo(ctx);
     const before = repo.readSkill(parsed.id);
     if (before.retentionStage === "forgotten") {
+      if (ctx.auditLog) {
+        ctx.auditLog.append({
+          actor: "user",
+          action: "skill_invoke",
+          metadata: {
+            skillId: parsed.id,
+            success: false,
+            error: "forgotten",
+            retentionStage: before.retentionStage
+          },
+        });
+      }
       return {
         skillId: parsed.id,
         success: false,
@@ -128,6 +173,20 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
       };
     }
     const after = repo.recordUse(parsed.id, { success: parsed.success, effectiveness: parsed.effectiveness });
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_invoke",
+        metadata: {
+          skillId: parsed.id,
+          success: parsed.success,
+          effectiveness: parsed.effectiveness,
+          utilityBefore: before.utility,
+          utilityAfter: after.utility,
+          retentionStage: after.retentionStage
+        },
+      });
+    }
     return {
       skillId: parsed.id,
       success: parsed.success,
@@ -148,7 +207,18 @@ export const skillComposeAddTool: Tool<SkillComposeAddToolInput, Skill> = {
       SkillComposeAddInputSchema,
       input
     );
-    return requireSkillRepo(ctx).addCompose(parsed.skillId, parsed.targetSkillId);
+    const skill = requireSkillRepo(ctx).addCompose(parsed.skillId, parsed.targetSkillId);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_compose_add",
+        metadata: {
+          skillId: parsed.skillId,
+          targetSkillId: parsed.targetSkillId
+        },
+      });
+    }
+    return skill;
   },
 };
 
@@ -162,7 +232,18 @@ export const skillComposeRemoveTool: Tool<SkillComposeAddToolInput, Skill> = {
       SkillComposeAddInputSchema,
       input
     );
-    return requireSkillRepo(ctx).removeCompose(parsed.skillId, parsed.targetSkillId);
+    const skill = requireSkillRepo(ctx).removeCompose(parsed.skillId, parsed.targetSkillId);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_compose_remove",
+        metadata: {
+          skillId: parsed.skillId,
+          targetSkillId: parsed.targetSkillId
+        },
+      });
+    }
+    return skill;
   },
 };
 

@@ -328,6 +328,29 @@ engram_sync({ message?: string, dryRun?: boolean, pull?: boolean, push?: boolean
 
 这正是多机协作无缝的原因:每台主机启动即 pull、退出即 push,结构化 merge driver 负责解决它们之间的冲突。纯本地仓库(未配置 remote)静默跳过 pull/push 阶段。
 
+### Skill 记忆:程序性「怎么做」记忆
+
+除了陈述性知识(「什么是真的」),Co-Engram 还能捕获 **程序性记忆** —— 团队反复使用的工作流、检查清单和操作能力。
+
+Skill 系统的科学根基来自认知科学:
+
+- **ACT-R utility**(Rescorla-Wagner 强化学习):成功使用增强 Skill,失败削弱
+- **Oblivion retention**(遗忘曲线):基于时间的衰减 —— 未使用的 skill 逐渐变为 `stale` → `forgotten`
+- **Options 框架**(结构):initiation set + policy + termination —— 显式触发条件、可插拔执行策略
+
+**与 engram 的核心差异:**
+
+| 维度 | Engram(陈述性) | Skill(程序性) |
+|------|---------------|-------------|
+| 内容 | 「什么是真的」(事实、决策) | 「怎么做」(工作流、能力) |
+| 遗忘机制 | Freshness 生命周期 + failedUses | Oblivion retention 遗忘曲线 |
+| 存储 | 单文件 Markdown | sidecar `imprint.json`(SKILL.md 本体不动) |
+| 组合方式 | Synapse graph(12 种边类型) | composes 关系(skill chaining) |
+
+**完整生命周期**:自动检测任意 `SKILL.md` 目录 → 提案 → 审批 → invoke(记录成功/失败) → 自动 utility 更新 → 周期性 retention 重算 → 可选 skill chaining(通过 `composes` 组合)。
+
+参见 [docs/skill-memory.zh-CN.md](./docs/skill-memory.zh-CN.md) 了解完整参考。
+
 ## 架构
 
 ```mermaid

@@ -80,7 +80,14 @@ export type AuditAction =
   | "merge_llm_arbitrated_escalated"
   | "merge_llm_arbitrated_failed"
   // maintenance 阶段触发(仅 rem/daily 低频 stage 写入;light/deep 太频繁会变噪音)
-  | "maintenance_run";
+  | "maintenance_run"
+  // skill 记忆系统事件(S6 Task 4 起)
+  | "skill_create"
+  | "skill_update"
+  | "skill_delete"
+  | "skill_invoke"
+  | "skill_compose_add"
+  | "skill_compose_remove";
 
 /** 审计行为者 */
 export type AuditActor = "user" | "llm" | "system";

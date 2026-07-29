@@ -328,6 +328,29 @@ Beyond the manual `engram_sync` tool, the Claude Code MCP server runs a sync lif
 
 This is what makes multi-machine usage seamless: every host pulls on launch and pushes on exit, and the structured merge driver resolves conflicts between them. Pure-local repos (no remote configured) silently skip the pull/push phases.
 
+### Skill memory: procedural "how-to" memory
+
+Beyond declarative knowledge ("what is true"), Co-Engram captures **procedural memory** — workflows, checklists, and operational capabilities that teams use repeatedly.
+
+Skills are grounded in cognitive science:
+
+- **ACT-R utility** (Rescorla-Wagner reinforcement learning): Skills strengthen with successful use, weaken with failures
+- **Oblivion retention** (forgetting curve): Time-based decay — unused skills fade to `stale` → `forgotten`
+- **Options framework** (structure): Initiation set + policy + termination — explicit triggers, pluggable execution strategies
+
+**Key differences from engrams:**
+
+| Aspect | Engram (declarative) | Skill (procedural) |
+|--------|---------------------|-------------------|
+| Content | "What is true" (facts, decisions) | "How to do" (workflows, capabilities) |
+| Forgetting | Freshness lifecycle + failedUses | Oblivion retention curve |
+| Storage | Single Markdown file | sidecar `imprint.json` (SKILL.md untouched) |
+| Combination | Synapse graph (12 edge types) | composes relation (skill chaining) |
+
+**Full lifecycle:** Auto-detect any `SKILL.md` → proposal → accept → invoke (record success/failure) → automatic utility updates → periodic retention recomputation → optional skill chaining via `composes`.
+
+See [docs/skill-memory.md](./docs/skill-memory.md) for the complete reference.
+
 ## Architecture
 
 ```mermaid
