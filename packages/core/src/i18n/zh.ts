@@ -814,6 +814,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.slogan": "自进化的团队记忆",
   "viewer.tab.stats": "统计",
   "viewer.tab.engrams": "记忆印迹",
+  "viewer.tab.skills": "技能记忆",
   "viewer.tab.graph": "记忆突触",
   "viewer.tab.proposals": "记忆提案",
   "viewer.tab.audit": "审计",
@@ -829,6 +830,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "记忆库整体统计:印迹/突触数量、kind 与 status 分布、贡献者排名、热门 tag",
   "viewer.tab.engrams.tip":
     "浏览和搜索所有记忆印迹(卡片视图或按 domain/kind 分组的目录视图)",
+  "viewer.tab.skills.tip":
+    "浏览和搜索技能记忆:习得深度、触发条件、统计指标与衰退状态",
   "viewer.tab.graph.tip":
     "记忆突触可视化图谱;按 family(结构/因果/证据/时序/调制)和 kind 着色与过滤",
   "viewer.tab.proposals.tip":
@@ -1045,6 +1048,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "enum.freshness.aging": "渐衰",
   "enum.freshness.stale": "过时",
   "enum.freshness.forgotten": "遗忘",
+
+  "enum.acquisitionStage.draft": "草稿",
+  "enum.acquisitionStage.compiled": "已编译",
+  "enum.acquisitionStage.tuned": "已调优",
+
+  "enum.retentionStage.active": "活跃",
+  "enum.retentionStage.aging": "老化",
+  "enum.retentionStage.stale": "陈旧",
+  "enum.retentionStage.forgotten": "遗忘",
 
   "enum.status.draft": "草稿",
   "enum.status.active": "激活",
@@ -2098,4 +2110,29 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "过时 (stale):halfLife×2 < ageDays ≤ halfLife×4,长期未强化,候选遗忘对象。",
   "tip.freshness.forgotten":
     "遗忘 (forgotten):ageDays > halfLife×4,默认移出召回池(文件保留,Git 可追溯)。",
+  "viewer.skill.loading": "加载技能记忆中",
+  "viewer.skill.loadFailed": "加载失败:{{err}}",
+  "skills.searchPlaceholder": "搜索技能 ID 或源路径",
+  "skills.filter.acquisitionStage": "习得阶段",
+  "skills.filter.retentionStage": "记忆保持",
+  "skills.filter.allStages": "所有阶段",
+  "skills.filter.allRetentionStages": "所有保持状态",
+  "skills.filter.sort": "排序",
+  "skills.filter.sortNewest": "最新创建",
+  "skills.filter.sortOldest": "最旧创建",
+  "skills.filter.sortUtility": "实用性",
+  "skills.filter.sortInvocations": "调用次数",
+  "skills.empty": "暂无技能记忆",
+  "skills.pager.prev": "上一页",
+  "skills.pager.next": "下一页",
+  "skills.pager.pageInfo": "第 {{current}} / {{total}} 页 (共 {{itemTotal}} 条)",
+  "skills.pager.loadingHint": "后台加载中",
+  "skills.utility": "实用性",
+  "skills.successCount.tip": "成功次数",
+  "skills.failureCount.tip": "失败次数",
+  "skills.invocationCount.tip": "调用次数",
+  "skills.initiationSet": "触发条件",
+  "skills.termination": "终止条件",
+  "skills.sourcePath": "源路径",
+  "skills.composes.tip": "组合的子技能数",
 } as const satisfies Readonly<Record<string, string>>;

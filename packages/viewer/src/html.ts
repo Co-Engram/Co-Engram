@@ -93,6 +93,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
       t(language, "viewer.tab.engrams.tip"),
     ],
     [
+      "skills",
+      t(language, "viewer.tab.skills"),
+      t(language, "viewer.tab.skills.tip"),
+    ],
+    [
       "graph",
       t(language, "viewer.tab.graph"),
       t(language, "viewer.tab.graph.tip"),
@@ -219,6 +224,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <!-- Engrams -->
     <section class="tab-panel" data-tab="engrams">
       <div id="engrams-content"></div>
+    </section>
+
+    <!-- Skills (D10 对称 engrams tab) -->
+    <section class="tab-panel" data-tab="skills">
+      <div id="skills-content"></div>
     </section>
 
     <!-- Graph -->
