@@ -30,11 +30,11 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 19 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
- *   自愈/路径树 + engram_synthesize + engram_audit_query
+ * standard: 26 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
+ *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5)
  *
- * full: 28 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
- *   但不含 skill_invoke —— 它是 P0 stub(Task 3.2 移除,等 P1 真正实现再放回)
+ * full: 34 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ *   但不含 skill_invoke —— 它是 S1 stub(S3 真正实现后再放回)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
@@ -81,6 +81,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     // AI-8 batch proposal(让用户一次清空数千 load-test 候选)
     "engram_accept_proposals_by_source",
     "engram_dismiss_proposals_by_filter",
+    // S1 skill CRUD（读 + 管理；invoke 不进任何 profile，S3 再放）
+    "skill_get",
+    "skill_list",
+    "skill_create",
+    "skill_update",
+    "skill_delete",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -100,6 +106,10 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "synapse_list",
     "synapse_delete",
     "skill_get",
+    "skill_list",
+    "skill_create",
+    "skill_update",
+    "skill_delete",
     "close_learning_loop",
     "contradiction_resolve",
     "get_evolution_lineage",

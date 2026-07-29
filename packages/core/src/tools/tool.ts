@@ -79,6 +79,11 @@ export interface ToolContext {
    */
   readonly proposalEngine?: import("../observability/proposal-engine.js").ProposalEngine;
   /**
+   * Skill 仓储（可选，S1 起提供；skill_* 工具用它持久化程序性记忆）。
+   * 宿主在 S4 注入；未注入时 skill_create/list/update 抛 CONFIG 错误。
+   */
+  readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
+  /**
    * 默认作者标识（可选，用于 engram_create 的 createdBy 回退）。
    *
    * 工具调用方未显式传 createdBy 时,工具会用此值;

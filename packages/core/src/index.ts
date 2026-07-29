@@ -39,3 +39,4 @@ export * from "./host/index.js";
 export * from "./bootstrap/index.js";
 export * from "./merge/index.js";
 export * from "./status/index.js";
+export * from "./skill/index.js";
