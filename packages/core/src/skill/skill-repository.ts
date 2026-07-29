@@ -48,6 +48,8 @@ export class SkillRepository {
       createdAt: now,
       updatedAt: now,
       version: 1,
+      composes: [...(input.composes ?? [])],
+      relatedEngrams: [...(input.relatedEngrams ?? [])],
     };
     writeImprint(this.dataRoot, skill);
     return skill;
