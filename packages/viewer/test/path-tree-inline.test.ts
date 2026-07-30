@@ -252,7 +252,6 @@ describe("前端 TABS_RUNTIME 含内联展开实现", () => {
   it("引用新 i18n key(非硬编码 +N here)", () => {
     expect(TABS_RUNTIME).toContain("engrams.tree.directHere");
     expect(TABS_RUNTIME).toContain("engrams.tree.viewAllInCards");
-    expect(TABS_RUNTIME).toContain("engrams.tree.emptyDir");
     expect(TABS_RUNTIME).not.toContain("+ direct + ' here'"); // 旧硬编码已移除
   });
   it("累积计数 tooltip 走 T.t(非 tip() 死文案)", () => {
@@ -326,14 +325,14 @@ describe("前端 _buildEngramsByDir / _fillTreeDirectFiles 真实逻辑", () => 
     expect(byDir.get("")).toHaveLength(1);
   });
 
-  it("渲染直属文件行(含 title),空目录给提示", () => {
+  it("渲染直属文件行(含 title),空目录不显示提示", () => {
     create({ title: "p1", pathHint: "python/py-fundamentals.md" });
     const { EE, CO_ENGRAM } = loadRuntime();
     const html = directFilesHtml(EE, CO_ENGRAM, "python");
     expect((html.match(/class="tree-file"/g) ?? []).length).toBe(1);
     expect(html).toContain("p1");
     const empty = directFilesHtml(EE, CO_ENGRAM, "不存在");
-    expect(empty).toContain("tree-empty");
+    expect(empty).toBe(""); // 空目录占位为空,不再显示「暂无记忆」提示
   });
 
   it(">50 条截断 50 + 溢出按钮", () => {

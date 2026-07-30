@@ -1149,7 +1149,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "engrams.tree.rootDirect": "根目录散落",
   "engrams.tree.directHere": "本目录直属 ${n} 条",
   "engrams.tree.viewAllInCards": "在卡片视图中查看全部 ${n} 条(含子目录)",
-  "engrams.tree.emptyDir": "本目录直属暂无记忆",
   "engrams.pager.prev": "« 上一页",
   "engrams.pager.next": "下一页 »",
   "engrams.pager.pageInfo": "第 ${current} / ${total} 页(共 ${itemTotal} 条)",

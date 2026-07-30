@@ -1928,12 +1928,6 @@ div.vis-tooltip {
   white-space: nowrap;
 }
 .tree-more { margin: 0.25rem 0.5rem; }
-.tree-empty {
-  padding: 0.25rem 0.5rem;
-  font-size: 0.78rem;
-  color: var(--fg-muted);
-  font-style: italic;
-}
 .btn.mini {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;

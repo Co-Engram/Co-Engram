@@ -641,13 +641,13 @@ window.CO_ENGRAM_ENGRAMS = {
       + '</div>';
   },
 
-  // 填充某目录的直属文件占位:>50 截断 + 溢出入口(切卡片视图展开该目录全部后代);空目录给提示。
+  // 填充某目录的直属文件占位:>50 截断 + 溢出入口(切卡片视图展开该目录全部后代)。
+  // 无直属文件(仅子目录 / 空目录)时占位留空,不显示任何提示。
   _fillTreeDirectFiles(ph) {
     const T = CO_ENGRAM_T;
     const dir = ph.getAttribute('data-dir') || '';
     const all = (CO_ENGRAM._engramsByDir && CO_ENGRAM._engramsByDir.get(dir)) || [];
     if (!all.length) {
-      ph.innerHTML = '<div class="tree-empty">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.emptyDir')) + '</div>';
       return;
     }
     const LIMIT = 50;
