@@ -737,6 +737,15 @@ export class EngramRepository {
       } catch {
         // 同上
       }
+      // 新增方向(skill):检测「dataRoot 下含 SKILL.md 的新目录」,通知 host 走 skill 提案审批。
+      // scanForExternalMarkdown 主动排除 skill 目录,故 skill 目录只能由 scanForSkills
+      // 捕获;此处补扫,覆盖 daemon/mcp-server 运行期间新增 skill 目录(用户粘贴 skill)。
+      // 依赖 skillHook:无 hook 时 scanForSkills 内部 noop(首行 if (!this.skillHook) return)。
+      try {
+        this.scanForSkills();
+      } catch {
+        // 扫描失败不阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
+      }
     }, 2000);
   }
 
