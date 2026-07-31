@@ -1768,7 +1768,10 @@ export class ProposalEngine {
       throw notFoundError("Proposal", entityId);
     }
 
-    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    // 永久为默认,符合工具契约「默认永久驳回」与 @param 注释(0 / undefined = 永久)。
+    // 不再读 config.defaultDismissDays —— 它会让 undefined 误落为 N 天、过期后复活,违反契约
+    // (2026-07 修复)。caller 想限时驳回可显式传 dismissDays>0。config.defaultDismissDays 字段保留但废弃。
+    const days = dismissDays ?? 0;
     const dismissedUntil =
       days > 0
         ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
@@ -2031,7 +2034,10 @@ export class ProposalEngine {
   } {
     const limit = Math.min(Math.max(filter.limit ?? 1000, 1), 5000);
     const now = new Date().toISOString();
-    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    // 永久为默认,符合工具契约「默认永久驳回」与 @param 注释(0 / undefined = 永久)。
+    // 不再读 config.defaultDismissDays —— 它会让 undefined 误落为 N 天、过期后复活,违反契约
+    // (2026-07 修复)。caller 想限时驳回可显式传 dismissDays>0。config.defaultDismissDays 字段保留但废弃。
+    const days = dismissDays ?? 0;
     const dismissedUntil =
       days > 0
         ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
