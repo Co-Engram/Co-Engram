@@ -1001,14 +1001,37 @@ export class ProposalEngine {
     //   旧实现 `input.domainTags ?? payload?.domainTags` 在前端传 `domainTags: []` 时
     //   不会回落,导致 accept 抛 400。现用「非空生效,否则回落」语义覆盖所有「空」形态。
     const payload = target.payload;
-    const title = nonEmpty(input.title) ? input.title : payload?.title;
-    const content = nonEmpty(input.content) ? input.content : payload?.content;
+    // conversation 兜底:conversation 来源(payload=undefined)无预填字段,用 proposal
+    // 自身字段(sampleQuotes / centroidExcerpt / suggestedTitle)兜底,让 viewer/MCP
+    // 默认采纳能成功。优先级:caller input > payload(external-markdown/auto-memory 等)
+    // > conversation 兜底。caller 显式传字段仍优先,不破坏自定义路径。
+    const payloadTitle = payload?.title;
+    const payloadContent = payload?.content;
+    const payloadDomainTags = payload?.domainTags;
+    const title = nonEmpty(input.title)
+      ? input.title
+      : nonEmpty(payloadTitle)
+        ? payloadTitle
+        : nonEmpty(target.suggestedTitle)
+          ? target.suggestedTitle
+          : nonEmpty(target.centroidExcerpt)
+            ? target.centroidExcerpt
+            : undefined;
+    const content = nonEmpty(input.content)
+      ? input.content
+      : nonEmpty(payloadContent)
+        ? payloadContent
+        : target.sampleQuotes && target.sampleQuotes.length > 0
+          ? target.sampleQuotes.join("\n\n")
+          : undefined;
     const domainTags =
       input.domainTags && input.domainTags.length > 0
         ? input.domainTags
-        : payload?.domainTags;
+        : payloadDomainTags && payloadDomainTags.length > 0
+          ? payloadDomainTags
+          : ["conversation"];
     const kind = input.kind ?? payload?.kind ?? "fact";
-    if (!title || !content || !domainTags || domainTags.length === 0) {
+    if (!title || !content || domainTags.length === 0) {
       throw validationError(
         `accept requires title/content/domainTags (neither provided nor available in proposal.payload for entityId=${entityId})`,
       );
