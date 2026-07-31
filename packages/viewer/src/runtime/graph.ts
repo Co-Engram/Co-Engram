@@ -52,7 +52,7 @@ async function renderGraphInner(container) {
   // textFilter / pathFilter: 顶栏关键词 + 目录前缀过滤(2026-07 新增)
   const ALL_SYNAPSE_KINDS = ['extends', 'part_of', 'similar_to', 'depends_on', 'causes', 'follows', 'derives_from', 'contradicts', 'exemplifies', 'supersedes', 'consolidates', 'contextualizes'];
   const state = {
-    showKinds: { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true },
+    showKinds: { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true },
     showSynapseKinds: Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true])),
     physicsEnabled: true,
     textFilter: '',
@@ -94,6 +94,8 @@ async function renderGraphInner(container) {
       .map(n => {
         const importance = (n.importance != null ? n.importance : 0.5);
         const size = 10 + importance * 18;
+        const isSkillNode = n.kind === 'skill';
+        const nodeColor = isSkillNode ? '#a78bfa' : CO_ENGRAM.kindColor(n.kind);
         const kindLabel = T.enumLabel('kind', n.kind) || n.kind;
         const kindTip = (CO_ENGRAM.TOOLTIPS && CO_ENGRAM.TOOLTIPS.kind && CO_ENGRAM.TOOLTIPS.kind[n.kind]) || '';
         const tipText = n.title + '\\n[' + kindLabel + ' / ' + n.kind + ']\\n' + T.t('viewer.graph.tagsLabel') + (n.domainTags || []).join(', ') + (kindTip ? '\\n\\n' + kindTip : '');
@@ -103,14 +105,14 @@ async function renderGraphInner(container) {
           title: tipText,
           group: n.kind,
           color: {
-            background: CO_ENGRAM.kindColor(n.kind),
-            border: CO_ENGRAM.kindColor(n.kind),
-            highlight: { background: CO_ENGRAM.kindColor(n.kind), border: '#000' },
-            hover: { background: CO_ENGRAM.kindColor(n.kind), border: '#fff' }
+            background: nodeColor,
+            border: nodeColor,
+            highlight: { background: nodeColor, border: '#000' },
+            hover: { background: nodeColor, border: '#fff' }
           },
           size,
           font: { color: getComputedStyle(document.body).color, size: 11, face: 'sans-serif' },
-          shape: 'dot',
+          shape: isSkillNode ? 'diamond' : 'dot',
           _raw: n
         };
       });
@@ -262,6 +264,12 @@ async function renderGraphInner(container) {
 
   async function showNodeDetail(id) {
     const T = CO_ENGRAM_T;
+    // skill 节点(id 以 "skill:" 前缀)走 /api/skills 而非 /api/engrams
+    if (id.indexOf('skill:') === 0) {
+      const skillId = id.slice(6);
+      CO_ENGRAM_SKILLS.open(skillId);
+      return;
+    }
     let detail;
     try {
       detail = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id));
@@ -354,7 +362,7 @@ async function renderGraphInner(container) {
   };
   CO_ENGRAM._graphState.fit = function() { network.fit({ animation: true }); };
   CO_ENGRAM._graphState.resetView = function() {
-    state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true };
+    state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true };
     state.showSynapseKinds = Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true]));
     state.textFilter = '';
     state.pathFilter = '';

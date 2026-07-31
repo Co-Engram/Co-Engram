@@ -16,6 +16,7 @@ import {
   SkillUpdateInputSchema,
   SkillComposeAddInputSchema,
   SkillComposeListInputSchema,
+  SkillRelatedEngramInputSchema,
   type SkillGetToolInput,
   type SkillInvokeToolInput,
   type SkillCreateToolInput,
@@ -23,6 +24,7 @@ import {
   type SkillUpdateToolInput,
   type SkillComposeAddToolInput,
   type SkillComposeListToolInput,
+  type SkillRelatedEngramToolInput,
 } from "./schemas.js";
 
 function requireSkillRepo(ctx: ToolContext) {
@@ -266,6 +268,69 @@ export const skillComposeListTool: Tool<
   },
 };
 
+// skill_related_engram_add：给 Skill 加 engram 关联（程序性 ↔ 陈述性记忆）
+export const skillRelatedEngramAddTool: Tool<SkillRelatedEngramToolInput, Skill> = {
+  name: "skill_related_engram_add",
+  description: "给 Skill 加一个 engram 关联（程序性 ↔ 陈述性记忆）。去重。",
+  inputSchema: SkillRelatedEngramInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillRelatedEngramToolInput>(
+      SkillRelatedEngramInputSchema,
+      input,
+    );
+    const skill = requireSkillRepo(ctx).addRelatedEngram(parsed.skillId, parsed.engramId);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_related_engram_add",
+        metadata: { skillId: parsed.skillId, engramId: parsed.engramId },
+      });
+    }
+    return skill;
+  },
+};
+
+// skill_related_engram_remove：移除 Skill 的一个 engram 关联
+export const skillRelatedEngramRemoveTool: Tool<SkillRelatedEngramToolInput, Skill> = {
+  name: "skill_related_engram_remove",
+  description: "移除 Skill 的一个 engram 关联。",
+  inputSchema: SkillRelatedEngramInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillRelatedEngramToolInput>(
+      SkillRelatedEngramInputSchema,
+      input,
+    );
+    const skill = requireSkillRepo(ctx).removeRelatedEngram(parsed.skillId, parsed.engramId);
+    if (ctx.auditLog) {
+      ctx.auditLog.append({
+        actor: "user",
+        action: "skill_related_engram_remove",
+        metadata: { skillId: parsed.skillId, engramId: parsed.engramId },
+      });
+    }
+    return skill;
+  },
+};
+
+// skill_related_engram_list：列出 Skill 关联的 engram（relatedEngrams）
+export const skillRelatedEngramListTool: Tool<
+  SkillComposeListToolInput,
+  { relatedEngrams: readonly string[] }
+> = {
+  name: "skill_related_engram_list",
+  description: "列出 Skill 关联的 engram（relatedEngrams）。",
+  inputSchema: SkillComposeListInputSchema,
+  execute(input, ctx) {
+    const parsed = validateInput<SkillComposeListToolInput>(
+      SkillComposeListInputSchema,
+      input,
+    );
+    return {
+      relatedEngrams: requireSkillRepo(ctx).readSkill(parsed.skillId).relatedEngrams,
+    };
+  },
+};
+
 export const ALL_SKILL_TOOLS: readonly Tool[] = [
   skillCreateTool,
   skillGetTool,
@@ -276,4 +341,7 @@ export const ALL_SKILL_TOOLS: readonly Tool[] = [
   skillComposeAddTool,
   skillComposeRemoveTool,
   skillComposeListTool,
+  skillRelatedEngramAddTool,
+  skillRelatedEngramRemoveTool,
+  skillRelatedEngramListTool,
 ];

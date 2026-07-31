@@ -6,7 +6,7 @@
  * trigger 推断为规则版（S2）+ LLM 版（S2.x）。
  * @module @co-engram/core/skill
  */
-import { readdirSync } from "node:fs";
+import { readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "yaml";
 import type { SkillPolicy } from "../types/skill.js";
@@ -61,6 +61,44 @@ export function collectSkillDirs(dataRoot: string): string[] {
   }
   walk(dataRoot, "");
   return out;
+}
+
+/**
+ * 判断文件是否位于 skill 目录下（含 SKILL.md 的目录，或其任意深度的子目录）。
+ *
+ * 为什么 scanForExternalMarkdown 用本函数而非 collectSkillDirs 预扫描：
+ * collectSkillDirs 用 readdirSync walk 列举整个 dataRoot 的目录结构。在 skill 目录
+ * **创建瞬间**（daemon 运行中用户新粘贴 skill 目录），readdirSync 的目录列举（getdents）
+ * 可能与文件可见性有时效差——collectMarkdownFiles 那一刻已能看到新目录下的 SKILL.md，
+ * 但 collectSkillDirs 的 walk 可能还没列举到该新目录（readdir 缓存/竞态），导致
+ * skillRoots 漏判，SKILL.md 被一次性、持久地误判为 external-markdown 提案
+ * （误提案不可撤销，下一轮 scanForSkills 即使发现真实 skill 也撤不回已发的误提案）。
+ * 这在本地 ext3/4 也可复现（非 NFS 特有——thinking-ooda 实测铁证）。
+ *
+ * 本函数以「文件自身的已知路径」为锚点，从所在目录逐级向上 existsSync(ancestor/SKILL.md)
+ * （单文件 stat），正确性不依赖 collectSkillDirs 整体 walk 的一致性，消除上述窗口。
+ * 前置条件：文件已被 collectMarkdownFiles 列出（文件 stat 已可见）→ 其祖先 SKILL.md 的
+ * stat 同样可见，故向上查不会漏。
+ *
+ * @param fileRelPath 文件相对 dataRoot 的路径（正斜杠分隔，如 "共享skills/foo/notes.md"）
+ * @param dataRoot dataRoot 绝对路径
+ * @returns 该文件处于某 skill 目录（含 dataRoot 本身为 skill 的边缘情况）下 → true
+ */
+export function isInSkillId(fileRelPath: string, dataRoot: string): boolean {
+  const parts = fileRelPath.split("/").filter(Boolean);
+  if (parts.length === 0) return false;
+  // i = 祖先目录由 parts 前 i 段构成；从「文件所在目录」(i = parts.length - 1)
+  // 逐级上到 dataRoot 本身 (i = 0)。dataRoot 含 SKILL.md 时所有文件都归 skill。
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const ancestorRel = i === 0 ? "" : parts.slice(0, i).join("/");
+    const skillMdPath = join(dataRoot, ancestorRel, SKILL_MD_FILENAME);
+    try {
+      if (existsSync(skillMdPath)) return true;
+    } catch {
+      // existsSync 异常（权限 / 瞬断）→ 当作该级无 SKILL.md，继续向上查
+    }
+  }
+  return false;
 }
 
 /** 规则版推断 skill 字段（无 LLM） */

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseSkillMd, collectSkillDirs, inferSkillFields, inferSkillFieldsWithLlm, SKILL_MD_FILENAME } from "../src/skill/skill-detector.js";
+import { parseSkillMd, collectSkillDirs, isInSkillId, inferSkillFields, inferSkillFieldsWithLlm, SKILL_MD_FILENAME } from "../src/skill/skill-detector.js";
 import type { LlmClient } from "../src/observability/necessity-evaluator.js";
 
 let root: string;
@@ -156,5 +156,60 @@ describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
 
     const openclawResult = await inferSkillFieldsWithLlm(openclawSkill, mockLlmClient);
     expect(openclawResult.policy.kind).toBe("openclaw-skill");
+  });
+});
+
+describe("isInSkillId", () => {
+  it("文件在 skill 根目录下 → true", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", SKILL_MD_FILENAME), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/notes.md", root)).toBe(true);
+  });
+  it("文件在 skill 深层子目录 → true（向上逐级查祖先命中 SKILL.md）", () => {
+    mkdirSync(join(root, "skills", "x", "scripts", "deep"), { recursive: true });
+    writeFileSync(join(root, "skills", "x", SKILL_MD_FILENAME), "---\nname: x\n---\nb");
+    expect(isInSkillId("skills/x/scripts/run.md", root)).toBe(true);
+    expect(isInSkillId("skills/x/scripts/deep/nested/file.md", root)).toBe(true);
+  });
+  it("SKILL.md 自身 → true（所在目录即 skill 根）", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", SKILL_MD_FILENAME), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/SKILL.md", root)).toBe(true);
+  });
+  it("非 skill 目录文件（无任何祖先 SKILL.md）→ false", () => {
+    mkdirSync(join(root, "docs", "sub"), { recursive: true });
+    expect(isInSkillId("docs/guide.md", root)).toBe(false);
+    expect(isInSkillId("docs/sub/x.md", root)).toBe(false);
+  });
+  it("dataRoot 本身含 SKILL.md → 所有文件归 skill（对齐 collectSkillDirs 的 '.' 语义）", () => {
+    writeFileSync(join(root, SKILL_MD_FILENAME), "---\nname: root\n---\nb");
+    expect(isInSkillId("loose.md", root)).toBe(true);
+    expect(isInSkillId("a/b/c.md", root)).toBe(true);
+  });
+  it("空相对路径 → false（防御）", () => {
+    expect(isInSkillId("", root)).toBe(false);
+  });
+  it("嵌套 skill（parent 与 child 都有 SKILL.md）：child 下文件向上命中最近祖先 → true", () => {
+    mkdirSync(join(root, "parent"), { recursive: true });
+    writeFileSync(join(root, "parent", SKILL_MD_FILENAME), "---\nname: p\n---\nb");
+    mkdirSync(join(root, "parent", "child"), { recursive: true });
+    writeFileSync(join(root, "parent", "child", SKILL_MD_FILENAME), "---\nname: c\n---\nb");
+    expect(isInSkillId("parent/child/notes.md", root)).toBe(true);
+    expect(isInSkillId("parent/child/SKILL.md", root)).toBe(true);
+    expect(collectSkillDirs(root)).toEqual(["parent"]); // 最浅层只收 parent
+  });
+  it("大小写敏感：小写 skill.md 不被识别 → false（与 collectSkillDirs 一致）", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", "skill.md"), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/notes.md", root)).toBe(false);
+    expect(collectSkillDirs(root)).toEqual([]);
+  });
+  it("关键：以文件已知路径为锚 existsSync，不依赖 collectSkillDirs 预扫描（创建瞬间 readdirSync 竞态时仍正确）", () => {
+    mkdirSync(join(root, "shared", "new-skill"), { recursive: true });
+    writeFileSync(join(root, "shared", "new-skill", SKILL_MD_FILENAME), "---\nname: new\n---\nb");
+    writeFileSync(join(root, "shared", "new-skill", "notes.md"), "附属笔记");
+    expect(isInSkillId("shared/new-skill/notes.md", root)).toBe(true);
+    expect(isInSkillId("shared/new-skill/SKILL.md", root)).toBe(true);
+    expect(collectSkillDirs(root)).toContain("shared/new-skill");
   });
 });

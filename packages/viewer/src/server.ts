@@ -643,7 +643,7 @@ async function routeApi(
   if (path === "/api/skills" && req.method === "GET") {
     if (!ctx.skillRepository) {
       respondJson(res, 200, {
-        items: [],
+        results: [],
         total: 0,
         enabled: false,
       });
@@ -666,7 +666,7 @@ async function routeApi(
     }
 
     respondJson(res, 200, {
-      items: skills.slice(0, limit),
+      results: skills.slice(0, limit),
       total: skills.length,
       enabled: true,
     });
@@ -2098,15 +2098,17 @@ function buildGraph(ctx: ToolContext): GraphResponse {
       const graphBuilder = new GraphBuilder(ctx.repository, cachePath);
       const cached = graphBuilder.read();
       if (cached) {
+        const _skill = buildSkillGraph(ctx);
         return {
-          nodes: cached.nodes.map((n) => ({
+          nodes: [...cached.nodes.map((n) => ({
             id: n.id,
             title: n.title,
             ...(n.slug ? { slug: n.slug } : {}),
             kind: n.kind,
             domainTags: n.domainTags ?? [],
           })),
-          edges: cached.edges.map((e) => ({
+          ..._skill.nodes],
+          edges: [...cached.edges.map((e) => ({
             id: e.id,
             from: e.from,
             to: e.to,
@@ -2118,6 +2120,7 @@ function buildGraph(ctx: ToolContext): GraphResponse {
               ? { resolutionStatus: e.resolutionStatus }
               : {}),
           })),
+          ..._skill.edges],
         };
       }
     } catch {
@@ -2167,7 +2170,37 @@ function buildGraph(ctx: ToolContext): GraphResponse {
     // synapse 目录不可用就降级为无边图
   }
 
-  return { nodes, edges };
+  const _skill = buildSkillGraph(ctx);
+  return { nodes: [...nodes, ..._skill.nodes], edges: [...edges, ..._skill.edges] };
+}
+
+/** S6 B6:构建 skill 节点 + composes/relatedEngrams 边(叠加到 graph,与 engram/synapse 并存) */
+function buildSkillGraph(ctx: ToolContext): { nodes: GraphResponse["nodes"][number][]; edges: GraphResponse["edges"][number][] } {
+  const skillRepo = (ctx as { skillRepository?: { listSkills(): ReadonlyArray<{ skillId: string; composes?: readonly string[]; relatedEngrams?: readonly string[] }> } }).skillRepository;
+  if (!skillRepo) return { nodes: [], edges: [] };
+  try {
+    const skills = skillRepo.listSkills();
+    const nid = (skillId: string) => "skill:" + skillId;
+    const nodes = skills.map((s) => ({
+      id: nid(s.skillId),
+      title: s.skillId,
+      kind: "skill",
+      domainTags: ["skill"],
+    }));
+    const edges: GraphResponse["edges"][number][] = [];
+    for (const s of skills) {
+      const sid = nid(s.skillId);
+      for (const target of s.composes ?? []) {
+        edges.push({ id: `compose:${s.skillId}:${target}`, from: sid, to: nid(target), kind: "composes", weight: 0.5, evidenceCount: 0, direction: "directional" });
+      }
+      for (const eid of s.relatedEngrams ?? []) {
+        edges.push({ id: `related:${s.skillId}:${eid}`, from: sid, to: eid, kind: "related", weight: 0.5, evidenceCount: 0, direction: "bidirectional" });
+      }
+    }
+    return { nodes, edges };
+  } catch {
+    return { nodes: [], edges: [] };
+  }
 }
 
 interface TrashListItem {
