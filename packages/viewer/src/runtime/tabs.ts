@@ -1143,6 +1143,8 @@ window.CO_ENGRAM_SKILLS = {
 
   _renderCards(filtered, body) {
     const T = CO_ENGRAM_T;
+    // 执行载体图标(Options π_ω):扫描视图只快速识别形态,文字标签移到 drawer
+    const policyIcons = { 'claude-skill':'🧩', 'openclaw-skill':'🦾', 'prompt':'📝', 'code':'💻', 'workflow':'🔧' };
     body.innerHTML = '<div class="grid cols-3">' + filtered.map(s => {
       // acquisitionStage 徽标颜色映射
       const stageColors = {
@@ -1161,14 +1163,25 @@ window.CO_ENGRAM_SKILLS = {
       };
       const retentionColor = retentionColors[s.retentionStage] || '#94a3b8';
 
-      // utility 进度条
+      // utility 进度条 + 可信度(N<3 时 utility 不可靠 → 灰色 + 样本不足标记)
       const utilityPercent = Math.round((s.utility || 0) * 100);
-      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:#5eead4"></div></div>';
+      const _succ = s.successCount || 0, _fail = s.failureCount || 0;
+      const _N = _succ + _fail;
+      const _lowConf = _N < 3;
+      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:' + (_lowConf ? '#94a3b8' : '#5eead4') + '"></div></div>';
+      const lowConfBadge = _lowConf ? ' <span style="font-size:0.75rem;color:var(--muted,#666)"' + CO_ENGRAM.tip('skills.lowConfidence.tip') + '>' + CO_ENGRAM.escapeHtml(T.t('skills.lowConfidence')) + '</span>' : '';
+      // 成功率(替代 raw success/failure 计数:用户真正关心"靠谱吗")
+      const _rate = _N > 0 ? Math.round(_succ / _N * 100) : null;
+      // 执行载体图标(Options π_ω):扫描视图快速识别形态,文字标签移到 drawer
+      const _pk = s.policy && s.policy.kind;
+      const policyIcon = (_pk && policyIcons[_pk]) ? '<span style="margin-right:0.3rem" title="' + CO_ENGRAM.escapeHtml(T.enumLabel('policyKind', _pk)) + '">' + policyIcons[_pk] + '</span>' : '';
+      // 衰退风险(技能虽耐遗忘,半衰期~11 月,但久不用仍衰退 —— 可视化是差异化卖点)
+      const _dr = CO_ENGRAM_SKILLS._decayRisk(s.retentionStage, s.lastUsedAt);
+      const decayRow = _dr ? '<div class="card-meta" style="color:' + _dr.color + '">⏳ ' + CO_ENGRAM.escapeHtml(_dr.text) + '</div>' : '';
 
-      // 统计数据
+      // 统计数据:成功率 + 调用次数 + 最近使用(raw failureCount 融入成功率,不再单独显示)
       const stats = [];
-      if (s.successCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successCount.tip')) + '">✓ ' + s.successCount + '</span>');
-      if (s.failureCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount.tip')) + '">✗ ' + s.failureCount + '</span>');
+      if (_rate != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successRate.tip')) + '">✓ ' + _rate + '%</span>');
       if (s.invocationCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount.tip')) + '">🔄 ' + s.invocationCount + '</span>');
       if (s.lastUsedAt) stats.push('<span title="' + CO_ENGRAM.escapeHtml(s.lastUsedAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(s.lastUsedAt)) + '</span>');
 
@@ -1188,8 +1201,8 @@ window.CO_ENGRAM_SKILLS = {
         ? '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + ':</span> <code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></div>'
         : '';
 
-      return '<div class="card" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\')">'
-        + '<div class="card-title">' + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
+      return '<div class="card" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\\')">'
+        + '<div class="card-title">' + policyIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
         + sourcePathHtml
         + '<div>'
         + '<span class="chip" style="background:' + stageColor + '"' + CO_ENGRAM.tip('acquisitionStage.' + s.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
@@ -1200,11 +1213,34 @@ window.CO_ENGRAM_SKILLS = {
         + '<span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + ':</span> '
         + utilityBar
         + '<span>' + utilityPercent + '%</span>'
+        + lowConfBadge
         + '</div>'
         + (stats.length ? '<div class="card-meta">' + stats.join(' · ') + '</div>' : '')
         + triggerInfo
+        + decayRow
         + '</div>';
     }).join('') + '</div>';
+  },
+
+  // 衰退风险文案:retentionStage 为主,active 时按 lastUsedAt 算天数预警
+  // 认知科学:程序性记忆半衰期~11 月(Tatel 2025),远耐于事实记忆,但仍衰退 —— 可视化是 co-engram 差异化卖点
+  _decayRisk(retentionStage, lastUsedAt) {
+    const T = CO_ENGRAM_T;
+    if (retentionStage === 'forgotten') return { color: '#f87171', text: T.t('skills.decayRisk.forgotten') };
+    if (retentionStage === 'stale') return { color: '#fb923c', text: T.t('skills.decayRisk.stale') };
+    if (retentionStage === 'aging') return { color: '#fcd34d', text: T.t('skills.decayRisk.aging') };
+    if (retentionStage === 'active' && lastUsedAt) {
+      const days = CO_ENGRAM_SKILLS._daysSince(lastUsedAt);
+      if (days > 180) return { color: '#fcd34d', text: T.t('skills.decayRisk.soonAging', { days: days }) };
+    }
+    return null;
+  },
+
+  _daysSince(iso) {
+    if (!iso) return 0;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return 0;
+    return Math.floor((Date.now() - t) / 86400000);
   },
 
   // 打开 skill 详情 drawer（点击卡片触发）
@@ -1223,6 +1259,8 @@ window.CO_ENGRAM_SKILLS = {
     const rc = retentionColors[skill.retentionStage] || '#94a3b8';
     const up = Math.round((skill.utility || 0) * 100);
     const ub = '<div class="bar-track" style="width:120px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + up + '%;background:#5eead4"></div></div>';
+    const _sc = skill.successCount || 0, _fc = skill.failureCount || 0;
+    const _rateStr = (_sc + _fc) > 0 ? Math.round(_sc / (_sc + _fc) * 100) + '%' : '—';
     const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code></div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(skill.skillId) + '</h2>'
       + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span></div>'
@@ -1230,7 +1268,7 @@ window.CO_ENGRAM_SKILLS = {
       + (skill.initiationSet ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.initiationSet) + '</div></div>' : '')
       + (skill.termination ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.termination')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.termination) + '</div></div>' : '')
       + (skill.sourcePath ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + '</span><code>' + CO_ENGRAM.escapeHtml(skill.sourcePath) + '</code></div>' : '')
-      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successCount')) + '</span> ' + (skill.successCount || 0) + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount')) + '</span> ' + (skill.failureCount || 0) + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount')) + '</span> ' + (skill.invocationCount || 0) + '</div>'
+      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successRate')) + '</span> ' + _rateStr + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successCount')) + '</span> ' + _sc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount')) + '</span> ' + _fc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount')) + '</span> ' + (skill.invocationCount || 0) + '</div>'
       + (skill.policy ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.policyKindLabel')) + '</span> ⚙ ' + CO_ENGRAM.escapeHtml(T.enumLabel('policyKind', skill.policy.kind) || skill.policy.kind) + '</div>' : '');
     CO_ENGRAM.openDrawer(body);
   },
