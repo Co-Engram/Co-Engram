@@ -95,6 +95,9 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_compose_add",
     "skill_compose_remove",
     "skill_compose_list",
+    "skill_related_engram_add",
+    "skill_related_engram_remove",
+    "skill_related_engram_list",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -124,6 +127,9 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_compose_add",
     "skill_compose_remove",
     "skill_compose_list",
+    "skill_related_engram_add",
+    "skill_related_engram_remove",
+    "skill_related_engram_list",
     "close_learning_loop",
     "contradiction_resolve",
     "get_evolution_lineage",

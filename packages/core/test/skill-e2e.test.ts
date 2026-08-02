@@ -15,8 +15,7 @@ describe("skill memory S1 e2e", () => {
     // 1. 创建（模拟 S2 accept 后调 skill_create）
     const s = repo.createSkill({
       skillId: "icenter-contacts", sourcePath: "tools/icenter-contacts",
-      initiationSet: "查询通讯录", termination: "拿到工号",
-      policy: { kind: "claude-skill", ref: "SKILL.md" }, createdBy: "tester",
+      initiationSet: "查询通讯录", createdBy: "tester",
     });
     expect(s.acquisitionStage).toBe("draft");
     // 2. sidecar 落盘在 sourcePath/.co-engram/imprint.json，SKILL.md 不被碰
@@ -45,8 +44,7 @@ describe("skill memory S1 e2e", () => {
     const repo = new SkillRepository(root);
     const s = repo.createSkill({
       skillId: "ro", sourcePath: "../escape/ro",
-      initiationSet: "x", termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" }, createdBy: "t",
+      initiationSet: "x", createdBy: "t",
     });
     expect(s.skillId).toBe("ro");
     // readSkill 经 fallback 读回
@@ -62,9 +60,9 @@ describe("skill memory S1 e2e", () => {
   it("混合 sidecar + fallback：scanAllImprints 合并去重", () => {
     const repo = new SkillRepository(root);
     // 正常 skill（sidecar）
-    repo.createSkill({ skillId: "a", sourcePath: "tools/a", initiationSet: "x", termination: "y", policy: { kind: "prompt", ref: "SKILL.md" }, createdBy: "t" });
+    repo.createSkill({ skillId: "a", sourcePath: "tools/a", initiationSet: "x", createdBy: "t" });
     // 非法 sourcePath skill（fallback）
-    repo.createSkill({ skillId: "b", sourcePath: "../escape/b", initiationSet: "x", termination: "y", policy: { kind: "prompt", ref: "SKILL.md" }, createdBy: "t" });
+    repo.createSkill({ skillId: "b", sourcePath: "../escape/b", initiationSet: "x", createdBy: "t" });
     const ids = scanAllImprints(root).map((i) => i.skillId).sort();
     expect(ids).toEqual(["a", "b"]); // sidecar + fallback 都被扫到
   });

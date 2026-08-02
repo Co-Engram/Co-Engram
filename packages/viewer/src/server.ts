@@ -16,6 +16,7 @@
  *   GET    /api/engrams/:id     详情
  *   PATCH  /api/engrams/:id     更新(标题/importance/visibility 等)
  *   DELETE /api/engrams/:id     删除
+ *   POST   /api/engrams/:id/reveal  在系统文件管理器打开该 engram 所在目录
  *   GET    /api/search?q=       搜索
  *   GET    /api/graph           图视图(节点 + 边)
  *   GET    /api/proposals       候选提案
@@ -35,6 +36,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -205,6 +207,59 @@ function safeReadEngram(
     return e ? { status: e.status } : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * 在系统文件管理器打开指定目录(viewer server 端 spawn)。
+ *
+ * 浏览器无法直接唤起 OS 文件管理器(沙箱限制),由 server 代为 spawn 平台命令:
+ *   Linux=xdg-open / macOS=open / Windows=explorer
+ *
+ * 降级:Linux 无 $DISPLAY 且无 $WAYLAND_DISPLAY(SSH 转发 / 容器 / headless)→
+ * 不 spawn(xdg-open 会挂住或刷错),返回 opened=false + reason:no-desktop。
+ * spawn 同步抛错(命令不在 PATH / 权限)→ opened=false + reason:spawn-failed。
+ *
+ * 安全:命令白名单固定(不接受外部输入);absoluteDir 由调用方(repository.
+ * resolveDirectory)保证已过 path-traversal 校验。spawn 用数组参数不经 shell;
+ * detached + unref 让 viewer 不阻塞、不等待文件管理器退出。
+ */
+function revealDirectory(absoluteDir: string): {
+  opened: boolean;
+  reason?: string;
+} {
+  const platform = process.platform;
+  // Linux 桌面检测:无 DISPLAY 且无 WAYLAND_DISPLAY → headless,降级不 spawn
+  if (
+    platform === "linux" &&
+    !process.env.DISPLAY &&
+    !process.env.WAYLAND_DISPLAY
+  ) {
+    return { opened: false, reason: "no-desktop" };
+  }
+  const cmd =
+    platform === "darwin"
+      ? "open"
+      : platform === "win32"
+        ? "explorer"
+        : "xdg-open";
+  try {
+    const child = spawn(cmd, [absoluteDir], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    // ENOENT(命令缺失)等异步错误:handler 已返回,只能记录日志便于排查。
+    // 文件管理器是 best-effort 功能;极端情况用户可凭返回的 dir 路径手动定位。
+    child.on("error", (err) => {
+      console.error(
+        `[viewer] reveal spawn failed (cmd=${cmd}, dir=${absoluteDir}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+    return { opened: true };
+  } catch {
+    return { opened: false, reason: "spawn-failed" };
   }
 }
 
@@ -535,6 +590,40 @@ async function routeApi(
     return;
   }
 
+  // /api/engrams/:id/reveal — 在系统文件管理器打开该 engram 所在目录
+  //
+  // 浏览器无法直接唤起 OS 文件管理器(沙箱限制),必须由 server 端 spawn 系统命令。
+  // 路径解析走 repository.resolveDirectory(复用 resolvePath + safeJoinWithinRoot 全套
+  // path-traversal 防御)。降级(无桌面 / 命令缺失 / 目录不存在)时返回目录绝对路径,
+  // 前端展示路径 + 复制按钮,保证远程 / 容器场景也有价值。
+  const engramRevealMatch = /^\/api\/engrams\/(.+)\/reveal$/.exec(path);
+  if (engramRevealMatch && req.method === "POST") {
+    const id = decodeURIComponent(engramRevealMatch[1]!);
+    const dirInfo = ctx.repository.resolveDirectory(id);
+    if (!dirInfo) {
+      respondJson(res, 404, { error: `Not found: ${id}` });
+      return;
+    }
+    // 目录不存在(index stale / 文件被外部删除)→ 不 spawn,降级返回路径
+    if (!existsSync(dirInfo.absoluteDir)) {
+      respondJson(res, 200, {
+        opened: false,
+        reason: "dir-not-found",
+        relativePath: dirInfo.relativePath,
+        dir: dirInfo.absoluteDir,
+      });
+      return;
+    }
+    const result = revealDirectory(dirInfo.absoluteDir);
+    respondJson(res, 200, {
+      opened: result.opened,
+      ...(result.reason ? { reason: result.reason } : {}),
+      relativePath: dirInfo.relativePath,
+      dir: dirInfo.absoluteDir,
+    });
+    return;
+  }
+
   // /api/engrams/:id  (GET | PATCH | DELETE)
   const engramMatch = /^\/api\/engrams\/(.+)$/.exec(path);
   if (engramMatch) {
@@ -643,7 +732,7 @@ async function routeApi(
   if (path === "/api/skills" && req.method === "GET") {
     if (!ctx.skillRepository) {
       respondJson(res, 200, {
-        items: [],
+        results: [],
         total: 0,
         enabled: false,
       });
@@ -666,9 +755,52 @@ async function routeApi(
     }
 
     respondJson(res, 200, {
-      items: skills.slice(0, limit),
+      results: skills.slice(0, limit),
       total: skills.length,
       enabled: true,
+    });
+    return;
+  }
+
+  // /api/skills/:id/reveal — 在系统文件管理器打开该 skill 所在目录
+  //
+  // skill 目录 = dataRoot + skill.sourcePath(sourcePath 相对 dataRoot,由 skill-detector
+  // collectSkillDirs 生成)。复用 engram 的 revealDirectory + 同响应结构(opened/reason/
+  // relativePath/dir),前端复用 engram 的降级 banner 文案模式。token 校验依赖上层
+  // handleRequest(与 engram reveal 路由一致,路由内不重复)。
+  const skillRevealMatch = /^\/api\/skills\/(.+)\/reveal$/.exec(path);
+  if (skillRevealMatch && req.method === "POST") {
+    const skillId = decodeURIComponent(skillRevealMatch[1]!);
+    if (!ctx.skillRepository) {
+      respondJson(res, 503, {
+        error: "SkillRepository not available",
+        enabled: false,
+      });
+      return;
+    }
+    let skill: { readonly sourcePath: string } | undefined;
+    try {
+      skill = ctx.skillRepository.readSkill(skillId);
+    } catch {
+      respondJson(res, 404, { error: `Skill not found: ${skillId}` });
+      return;
+    }
+    const absDir = join(ctx.repository.rootPath, skill.sourcePath);
+    if (!existsSync(absDir)) {
+      respondJson(res, 200, {
+        opened: false,
+        reason: "dir-not-found",
+        relativePath: skill.sourcePath,
+        dir: absDir,
+      });
+      return;
+    }
+    const result = revealDirectory(absDir);
+    respondJson(res, 200, {
+      opened: result.opened,
+      ...(result.reason ? { reason: result.reason } : {}),
+      relativePath: skill.sourcePath,
+      dir: absDir,
     });
     return;
   }
@@ -2098,15 +2230,17 @@ function buildGraph(ctx: ToolContext): GraphResponse {
       const graphBuilder = new GraphBuilder(ctx.repository, cachePath);
       const cached = graphBuilder.read();
       if (cached) {
+        const _skill = buildSkillGraph(ctx);
         return {
-          nodes: cached.nodes.map((n) => ({
+          nodes: [...cached.nodes.map((n) => ({
             id: n.id,
             title: n.title,
             ...(n.slug ? { slug: n.slug } : {}),
             kind: n.kind,
             domainTags: n.domainTags ?? [],
           })),
-          edges: cached.edges.map((e) => ({
+          ..._skill.nodes],
+          edges: [...cached.edges.map((e) => ({
             id: e.id,
             from: e.from,
             to: e.to,
@@ -2118,6 +2252,7 @@ function buildGraph(ctx: ToolContext): GraphResponse {
               ? { resolutionStatus: e.resolutionStatus }
               : {}),
           })),
+          ..._skill.edges],
         };
       }
     } catch {
@@ -2167,7 +2302,37 @@ function buildGraph(ctx: ToolContext): GraphResponse {
     // synapse 目录不可用就降级为无边图
   }
 
-  return { nodes, edges };
+  const _skill = buildSkillGraph(ctx);
+  return { nodes: [...nodes, ..._skill.nodes], edges: [...edges, ..._skill.edges] };
+}
+
+/** S6 B6:构建 skill 节点 + composes/relatedEngrams 边(叠加到 graph,与 engram/synapse 并存) */
+function buildSkillGraph(ctx: ToolContext): { nodes: GraphResponse["nodes"][number][]; edges: GraphResponse["edges"][number][] } {
+  const skillRepo = (ctx as { skillRepository?: { listSkills(): ReadonlyArray<{ skillId: string; composes?: readonly string[]; relatedEngrams?: readonly string[] }> } }).skillRepository;
+  if (!skillRepo) return { nodes: [], edges: [] };
+  try {
+    const skills = skillRepo.listSkills();
+    const nid = (skillId: string) => "skill:" + skillId;
+    const nodes = skills.map((s) => ({
+      id: nid(s.skillId),
+      title: s.skillId,
+      kind: "skill",
+      domainTags: ["skill"],
+    }));
+    const edges: GraphResponse["edges"][number][] = [];
+    for (const s of skills) {
+      const sid = nid(s.skillId);
+      for (const target of s.composes ?? []) {
+        edges.push({ id: `compose:${s.skillId}:${target}`, from: sid, to: nid(target), kind: "composes", weight: 0.5, evidenceCount: 0, direction: "directional" });
+      }
+      for (const eid of s.relatedEngrams ?? []) {
+        edges.push({ id: `related:${s.skillId}:${eid}`, from: sid, to: eid, kind: "related", weight: 0.5, evidenceCount: 0, direction: "bidirectional" });
+      }
+    }
+    return { nodes, edges };
+  } catch {
+    return { nodes: [], edges: [] };
+  }
 }
 
 interface TrashListItem {

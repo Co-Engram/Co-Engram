@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { parseSkillMd, collectSkillDirs, inferSkillFields, inferSkillFieldsWithLlm, SKILL_MD_FILENAME } from "../src/skill/skill-detector.js";
+import { parseSkillMd, collectSkillDirs, isInSkillId, inferSkillFields, inferSkillFieldsWithLlm, SKILL_MD_FILENAME } from "../src/skill/skill-detector.js";
 import type { LlmClient } from "../src/observability/necessity-evaluator.js";
 
 let root: string;
@@ -27,6 +27,45 @@ describe("parseSkillMd", () => {
   });
   it("YAML 损坏 → null", () => {
     expect(parseSkillMd("---\n: invalid yaml\n: : :\n---\nbody", "tools/x")).toBeNull();
+  });
+  it("parseSkillMd 提取 SKILL.md 原生字段(allowed-tools/license/version/metadata/compatibility)", () => {
+    const raw = `---
+name: test-skill
+description: "test"
+allowed-tools: Read Write Bash
+license: MIT
+version: "1.2.0"
+metadata:
+  author: alice
+  category: dev
+compatibility: "Claude Code >= 1.0"
+---
+body`;
+    const parsed = parseSkillMd(raw, "dir/test-skill");
+    expect(parsed?.allowedTools).toEqual(["Read", "Write", "Bash"]);
+    expect(parsed?.license).toBe("MIT");
+    expect(parsed?.skillVersion).toBe("1.2.0");
+    expect(parsed?.metadata).toEqual({ author: "alice", category: "dev" });
+    expect(parsed?.compatibility).toBe("Claude Code >= 1.0");
+  });
+
+  it("allowed-tools 支持数组形式", () => {
+    const raw = `---
+name: t
+description: x
+allowed-tools:
+  - Read
+  - Write
+---
+b`;
+    const parsed = parseSkillMd(raw, "t");
+    expect(parsed?.allowedTools).toEqual(["Read", "Write"]);
+  });
+
+  it("无原生字段时 allowedTools 等为 undefined", () => {
+    const parsed = parseSkillMd("---\nname: t\ndescription: x\n---\nb", "t");
+    expect(parsed?.allowedTools).toBeUndefined();
+    expect(parsed?.license).toBeUndefined();
   });
 });
 
@@ -71,35 +110,16 @@ describe("inferSkillFields", () => {
     const p = { skillId: "s", description: "", body: "", sourcePath: "tools/s" };
     expect(inferSkillFields(p).initiationSet).toContain("s");
   });
-  it("body/description 含完成关键词 → termination 匹配", () => {
-    const p = { skillId: "s", description: "", body: "拿到工号后结束", sourcePath: "tools/s" };
-    expect(inferSkillFields(p).termination).toContain("拿到");
-  });
-  it("无关键词 → 默认 termination", () => {
-    const p = { skillId: "s", description: "", body: "无关键词", sourcePath: "tools/s" };
-    expect(inferSkillFields(p).termination).toContain("完成");
-  });
-  it("policy kind 按 sourcePath 启发（claude/openclaw/prompt）", () => {
-    expect(inferSkillFields({ skillId:"a", description:"", body:"", sourcePath:"x/claude/a" }).policy.kind).toBe("claude-skill");
-    expect(inferSkillFields({ skillId:"b", description:"", body:"", sourcePath:"x/openclaw/b" }).policy.kind).toBe("openclaw-skill");
-    expect(inferSkillFields({ skillId:"c", description:"", body:"", sourcePath:"x/c" }).policy.kind).toBe("prompt");
-  });
-  it("policy.ref = SKILL.md", () => {
-    expect(inferSkillFields({ skillId:"s", description:"", body:"", sourcePath:"tools/s" }).policy.ref).toBe(SKILL_MD_FILENAME);
-  });
 });
 
 describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
-  it("LLM 返回有效 JSON → 解析 initiationSet/termination", async () => {
+  it("LLM 返回有效 JSON → 解析 initiationSet", async () => {
     const p = { skillId: "test-skill", description: "测试技能", body: "这是测试内容", sourcePath: "tools/test-skill" };
     const mockLlmClient: LlmClient = {
       complete: async () => '{"initiationSet": "需要测试时", "termination": "测试完成后"}',
     };
     const result = await inferSkillFieldsWithLlm(p, mockLlmClient);
     expect(result.initiationSet).toBe("需要测试时");
-    expect(result.termination).toBe("测试完成后");
-    expect(result.policy.kind).toBe("prompt");
-    expect(result.policy.ref).toBe(SKILL_MD_FILENAME);
   });
 
   it("LLM 返回带 markdown fence 的 JSON → 正确解析", async () => {
@@ -109,7 +129,6 @@ describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
     };
     const result = await inferSkillFieldsWithLlm(p, mockLlmClient);
     expect(result.initiationSet).toBe("启动测试");
-    expect(result.termination).toBe("测试结束");
   });
 
   it("LLM 返回无效 JSON → 抛错（由调用方降级到规则版）", async () => {
@@ -136,25 +155,59 @@ describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
     await expect(inferSkillFieldsWithLlm(p, mockLlmClient)).rejects.toThrow("LLM response missing valid initiationSet");
   });
 
-  it("LLM 返回 JSON 缺少 termination → 抛错", async () => {
-    const p = { skillId: "test-skill", description: "测试技能", body: "这是测试内容", sourcePath: "tools/test-skill" };
-    const mockLlmClient: LlmClient = {
-      complete: async () => '{"initiationSet": "启动测试"}',
-    };
-    await expect(inferSkillFieldsWithLlm(p, mockLlmClient)).rejects.toThrow("LLM response missing valid termination");
+});
+
+describe("isInSkillId", () => {
+  it("文件在 skill 根目录下 → true", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", SKILL_MD_FILENAME), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/notes.md", root)).toBe(true);
   });
-
-  it("policy kind 按 sourcePath 启发（claude/openclaw）", async () => {
-    const claudeSkill = { skillId: "claude-test", description: "Claude 技能", body: "内容", sourcePath: "tools/claude/claude-test" };
-    const openclawSkill = { skillId: "openclaw-test", description: "OpenClaw 技能", body: "内容", sourcePath: "tools/openclaw/openclaw-test" };
-    const mockLlmClient: LlmClient = {
-      complete: async () => '{"initiationSet": "需要时", "termination": "完成后"}',
-    };
-
-    const claudeResult = await inferSkillFieldsWithLlm(claudeSkill, mockLlmClient);
-    expect(claudeResult.policy.kind).toBe("claude-skill");
-
-    const openclawResult = await inferSkillFieldsWithLlm(openclawSkill, mockLlmClient);
-    expect(openclawResult.policy.kind).toBe("openclaw-skill");
+  it("文件在 skill 深层子目录 → true（向上逐级查祖先命中 SKILL.md）", () => {
+    mkdirSync(join(root, "skills", "x", "scripts", "deep"), { recursive: true });
+    writeFileSync(join(root, "skills", "x", SKILL_MD_FILENAME), "---\nname: x\n---\nb");
+    expect(isInSkillId("skills/x/scripts/run.md", root)).toBe(true);
+    expect(isInSkillId("skills/x/scripts/deep/nested/file.md", root)).toBe(true);
+  });
+  it("SKILL.md 自身 → true（所在目录即 skill 根）", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", SKILL_MD_FILENAME), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/SKILL.md", root)).toBe(true);
+  });
+  it("非 skill 目录文件（无任何祖先 SKILL.md）→ false", () => {
+    mkdirSync(join(root, "docs", "sub"), { recursive: true });
+    expect(isInSkillId("docs/guide.md", root)).toBe(false);
+    expect(isInSkillId("docs/sub/x.md", root)).toBe(false);
+  });
+  it("dataRoot 本身含 SKILL.md → 所有文件归 skill（对齐 collectSkillDirs 的 '.' 语义）", () => {
+    writeFileSync(join(root, SKILL_MD_FILENAME), "---\nname: root\n---\nb");
+    expect(isInSkillId("loose.md", root)).toBe(true);
+    expect(isInSkillId("a/b/c.md", root)).toBe(true);
+  });
+  it("空相对路径 → false（防御）", () => {
+    expect(isInSkillId("", root)).toBe(false);
+  });
+  it("嵌套 skill（parent 与 child 都有 SKILL.md）：child 下文件向上命中最近祖先 → true", () => {
+    mkdirSync(join(root, "parent"), { recursive: true });
+    writeFileSync(join(root, "parent", SKILL_MD_FILENAME), "---\nname: p\n---\nb");
+    mkdirSync(join(root, "parent", "child"), { recursive: true });
+    writeFileSync(join(root, "parent", "child", SKILL_MD_FILENAME), "---\nname: c\n---\nb");
+    expect(isInSkillId("parent/child/notes.md", root)).toBe(true);
+    expect(isInSkillId("parent/child/SKILL.md", root)).toBe(true);
+    expect(collectSkillDirs(root)).toEqual(["parent"]); // 最浅层只收 parent
+  });
+  it("大小写敏感：小写 skill.md 不被识别 → false（与 collectSkillDirs 一致）", () => {
+    mkdirSync(join(root, "tools", "a"), { recursive: true });
+    writeFileSync(join(root, "tools", "a", "skill.md"), "---\nname: a\n---\nb");
+    expect(isInSkillId("tools/a/notes.md", root)).toBe(false);
+    expect(collectSkillDirs(root)).toEqual([]);
+  });
+  it("关键：以文件已知路径为锚 existsSync，不依赖 collectSkillDirs 预扫描（创建瞬间 readdirSync 竞态时仍正确）", () => {
+    mkdirSync(join(root, "shared", "new-skill"), { recursive: true });
+    writeFileSync(join(root, "shared", "new-skill", SKILL_MD_FILENAME), "---\nname: new\n---\nb");
+    writeFileSync(join(root, "shared", "new-skill", "notes.md"), "附属笔记");
+    expect(isInSkillId("shared/new-skill/notes.md", root)).toBe(true);
+    expect(isInSkillId("shared/new-skill/SKILL.md", root)).toBe(true);
+    expect(collectSkillDirs(root)).toContain("shared/new-skill");
   });
 });

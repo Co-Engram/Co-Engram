@@ -65,6 +65,15 @@ CO_ENGRAM.on('stats', async function() {
   const tagMax = tagArr.length ? Math.max(1, ...tagArr.map(t => t.count || 0)) : 1;
   const contribArr = data.topContributors || [];
   const contribMax = contribArr.length ? Math.max(1, ...contribArr.map(c => c.total || 0)) : 1;
+  // skill 维度(S6):习得深度/保留阶段分布,颜色与 skills tab 卡片一致
+  const acqMap = data.skillsByAcquisitionStage || {};
+  const acqKeys = ['draft', 'compiled', 'tuned'].filter(k => acqMap[k]);
+  const acqMax = Math.max(1, ...acqKeys.map(k => acqMap[k] || 0));
+  const retMap = data.skillsByRetentionStage || {};
+  const retKeys = ['active', 'aging', 'stale', 'forgotten'].filter(k => retMap[k]);
+  const retMax = Math.max(1, ...retKeys.map(k => retMap[k] || 0));
+  const skillAcqColors = { draft: '#94a3b8', compiled: '#5eead4', tuned: '#fcd34d' };
+  const skillRetColors = { active: '#5eead4', aging: '#fcd34d', stale: '#fb923c', forgotten: '#f87171' };
 
   // 记忆印迹总数:KPI 值只显总数(标签写的就是"总数",出现 769/914 双数字让用户
   // 误以为格式坏了——2026-07 用户反馈)。活跃/归档拆解放到 sub,信息不丢但视觉干净。
@@ -81,6 +90,7 @@ CO_ENGRAM.on('stats', async function() {
     + kpiClickable(T.t('viewer.stats.totalEngrams'), engramsKpiValue, engramsKpiSub, 'engrams', T.t('viewer.stats.totalEngramsTip'))
     + kpiClickable(T.t('viewer.stats.totalSynapses'), data.totalSynapses || 0, T.t('viewer.stats.clickToViewGraph'), 'graph')
     + kpiClickable(T.t('viewer.stats.pendingProposals'), data.pendingProposals || 0, T.t('viewer.stats.clickToHandle'), 'proposals')
+    + kpiClickable(T.t('viewer.stats.totalSkills'), data.totalSkills || 0, T.t('viewer.stats.clickToViewSkills'), 'skills', T.t('viewer.stats.totalSkillsTip'))
     + '</div>';
 
   // 记忆印迹区(独立一块)
@@ -99,6 +109,19 @@ CO_ENGRAM.on('stats', async function() {
   if (!synKindKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.synapsesEmpty')) + '</div>';
   else synKindKeys.forEach(k => html += barRow(T.enumLabel('synapseKind', k), synKindMap[k], synKindMax, CO_ENGRAM.edgeColor(k), 'CO_ENGRAM.showTab(\\'graph\\')', CO_ENGRAM.tip('synapse.' + k)));
   html += '</div>';
+
+  // 技能记忆区(S6):习得深度 + 保留阶段分布,点击跳 skills tab
+  if (data.totalSkills) {
+    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.skillAcquisitionDistribution')) + '</h3>';
+    if (!acqKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
+    else acqKeys.forEach(k => html += barRow(T.enumLabel('acquisitionStage', k), acqMap[k], acqMax, skillAcqColors[k], 'CO_ENGRAM.showTab(\\'skills\\')'));
+    html += '</div>';
+
+    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.skillRetentionDistribution')) + '</h3>';
+    if (!retKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
+    else retKeys.forEach(k => html += barRow(T.enumLabel('retentionStage', k), retMap[k], retMax, skillRetColors[k], 'CO_ENGRAM.showTab(\\'skills\\')'));
+    html += '</div>';
+  }
 
   // 贡献者排名
   if (contribArr.length) {
@@ -740,6 +763,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
     var body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
       + '<strong style="margin-right:auto">' + T.actionLabel('detailView') + '</strong>'
+      + '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.openDir()">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.openDir')) + '</button>'
       + '<button class="btn" onclick="CO_ENGRAM_ENGRAMS.edit()">' + T.actionLabel('edit') + '</button>'
       + '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.confirmDelete()">' + T.actionLabel('delete') + '</button>'
       + '</div>'
@@ -944,6 +968,76 @@ window.CO_ENGRAM_ENGRAMS = {
         await CO_ENGRAM_ENGRAMS.render(root);
       }
     } catch (e) { alert(T.t('viewer.common.deleteFailed', { err: (e.message || e) })); }
+  },
+
+  // 「打开目录」:POST /api/engrams/:id/reveal,server 端 spawn 系统文件管理器。
+  // 成功(opened=true)→ drawer 顶部短暂成功提示;降级(无桌面 / 命令缺失 / 目录不存在)
+  // → 展示目录绝对路径 + 复制按钮,保证远程 / 容器场景也能拿到路径手动定位。
+  async openDir() {
+    const T = CO_ENGRAM_T;
+    const d = CO_ENGRAM._currentEngram;
+    if (!d) return;
+    var res;
+    try {
+      res = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(d.id) + '/reveal', 'POST', null);
+    } catch (e) {
+      // err 走 innerHTML 渲染,先 escape 防注入(_showDirBanner 的 message 当 trusted HTML,不二次 escape)
+      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirFailed', { err: CO_ENGRAM.escapeHtml(String(e.message || e)) }), null);
+      return;
+    }
+    if (res && res.opened) {
+      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirOpened'), null, true);
+    } else {
+      // 降级:按 reason 选文案,展示路径 + 复制按钮
+      var reasonKey = (res && res.reason) ? ('viewer.engram.openDirReason.' + res.reason) : 'viewer.engram.openDirReason.fallback';
+      var reasonText = T.t(reasonKey);
+      CO_ENGRAM_ENGRAMS._showDirBanner(reasonText, res && res.dir ? res.dir : null);
+    }
+  },
+
+  // 在 drawer 顶部插一条目录操作反馈 banner。
+  // dirPath 提供时附带「复制路径」按钮;isSuccess=true 时 2.5s 后自动消失(不打扰),
+  // 降级提示保留(用户要复制路径)。重复点击先清旧 banner,避免堆叠。
+  _showDirBanner(message, dirPath, isSuccess) {
+    var drawer = document.getElementById('detail-drawer');
+    if (!drawer) return;
+    var body = drawer.querySelector('.drawer-body');
+    if (!body) return;
+    var existing = body.querySelector('.dir-banner');
+    if (existing) existing.remove();
+    var copyBtn = dirPath
+      ? ' <button class="btn mini secondary" onclick="CO_ENGRAM_ENGRAMS._copyDirPath(this)" data-dir="' + CO_ENGRAM.escapeHtml(dirPath) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.engram.openDirCopy')) + '</button>'
+      : '';
+    var banner = document.createElement('div');
+    banner.className = isSuccess ? 'dir-banner dir-banner-success' : 'dir-banner';
+    // message 是 i18n 文案(trusted HTML,含 <strong>/<code> 格式标签,与 _renderView 一致不 escape);
+    // dirPath 是动态数据(目录绝对路径),必须 escape 防 XSS。
+    banner.innerHTML = '<span>' + message + '</span>'
+      + (dirPath ? '<code style="display:block;margin-top:.3rem;font-size:.8em;word-break:break-all">' + CO_ENGRAM.escapeHtml(dirPath) + '</code>' : '')
+      + copyBtn
+      + '<button class="dir-banner-close" onclick="this.parentElement.remove()" aria-label="close">×</button>';
+    body.insertBefore(banner, body.firstChild);
+    if (isSuccess) {
+      setTimeout(function() { if (banner.parentNode) banner.remove(); }, 2500);
+    }
+  },
+
+  // 复制目录路径到剪贴板(navigator.clipboard 优先,降级 execCommand)
+  _copyDirPath(btn) {
+    var path = btn.getAttribute('data-dir') || '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(path);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = path; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopied');
+      setTimeout(function() { btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopy'); }, 1500);
+    } catch (e) {
+      btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopyFailed');
+    }
   }
 };
 
@@ -1138,24 +1232,29 @@ window.CO_ENGRAM_SKILLS = {
       };
       const retentionColor = retentionColors[s.retentionStage] || '#94a3b8';
 
-      // utility 进度条
+      // utility 进度条 + 可信度(N<3 时 utility 不可靠 → 灰色 + 样本不足标记)
       const utilityPercent = Math.round((s.utility || 0) * 100);
-      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:#5eead4"></div></div>';
+      const _succ = s.successCount || 0, _fail = s.failureCount || 0;
+      const _N = _succ + _fail;
+      const _lowConf = _N < 3;
+      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:' + (_lowConf ? '#94a3b8' : '#5eead4') + '"></div></div>';
+      const lowConfBadge = _lowConf ? ' <span style="font-size:0.75rem;color:var(--muted,#666)"' + CO_ENGRAM.tip('skills.lowConfidence.tip') + '>' + CO_ENGRAM.escapeHtml(T.t('skills.lowConfidence')) + '</span>' : '';
+      // 成功率(替代 raw success/failure 计数:用户真正关心"靠谱吗")
+      const _rate = _N > 0 ? Math.round(_succ / _N * 100) : null;
+      // 衰退风险(技能虽耐遗忘,半衰期~11 月,但久不用仍衰退 —— 可视化是差异化卖点)
+      const _dr = CO_ENGRAM_SKILLS._decayRisk(s.retentionStage, s.lastUsedAt);
+      const decayRow = _dr ? '<div class="card-meta" style="color:' + _dr.color + '">⏳ ' + CO_ENGRAM.escapeHtml(_dr.text) + '</div>' : '';
 
-      // 统计数据
+      // 统计数据:成功率 + 调用次数 + 最近使用(raw failureCount 融入成功率,不再单独显示)
       const stats = [];
-      if (s.successCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successCount.tip')) + '">✓ ' + s.successCount + '</span>');
-      if (s.failureCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount.tip')) + '">✗ ' + s.failureCount + '</span>');
+      if (_rate != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successRate.tip')) + '">✓ ' + _rate + '%</span>');
       if (s.invocationCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount.tip')) + '">🔄 ' + s.invocationCount + '</span>');
       if (s.lastUsedAt) stats.push('<span title="' + CO_ENGRAM.escapeHtml(s.lastUsedAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(s.lastUsedAt)) + '</span>');
 
-      // initiationSet / termination 摘要
+      // initiationSet 摘要(显示为「描述」:规则版内容即 SKILL.md description)
       let triggerInfo = '';
       if (s.initiationSet && s.initiationSet.length) {
-        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + ':</span> ' + CO_ENGRAM.escapeHtml(JSON.stringify(s.initiationSet)) + '</div>';
-      }
-      if (s.termination) {
-        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.termination')) + ':</span> ' + CO_ENGRAM.escapeHtml(JSON.stringify(s.termination)) + '</div>';
+        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + ':</span> ' + CO_ENGRAM.escapeHtml(s.initiationSet) + '</div>';
       }
 
       // composes 计数
@@ -1163,28 +1262,97 @@ window.CO_ENGRAM_SKILLS = {
         ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('skills.composes.tip')) + '">🔗 ' + s.composes.length + '</span>'
         : '';
 
+      // SKILL.md 原生 version chip(A+1:内部字段 skillVersion,SKILL.md frontmatter version 经 parseSkillMd 映射)
+      const versionChip = s.skillVersion
+        ? '<span class="chip" style="border-left:3px solid var(--muted,#666)" title="' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '">v' + CO_ENGRAM.escapeHtml(s.skillVersion) + '</span> '
+        : '';
+
+      // 来源标识(展示层从 compatibility 推断,不存 sourceType 字段;YAGNI)
+      const _compat = (s.compatibility || '').toLowerCase();
+      const _srcTip = _compat.includes('openclaw') ? T.t('skills.sourceIcon.openclaw')
+        : _compat.includes('claude') ? T.t('skills.sourceIcon.claude')
+        : T.t('skills.sourceIcon.generic');
+      const sourceIcon = '<span title="' + CO_ENGRAM.escapeHtml(_srcTip) + '">'
+        + (_compat.includes('openclaw') ? '🦾' : _compat.includes('claude') ? '🧩' : '🌐') + '</span> ';
+
       // sourcePath 副标题
       const sourcePathHtml = s.sourcePath
         ? '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + ':</span> <code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></div>'
         : '';
 
-      return '<div class="card">'
-        + '<div class="card-title">' + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
+      return '<div class="card" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\\')">'
+        + '<div class="card-title">' + sourceIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
         + sourcePathHtml
         + '<div>'
-        + '<span class="chip" style="background:' + stageColor + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
-        + '<span class="chip" style="background:' + retentionColor + '">' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
+        + '<span class="chip" style="background:' + stageColor + '"' + CO_ENGRAM.tip('acquisitionStage.' + s.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
+        + '<span class="chip" style="background:' + retentionColor + '"' + CO_ENGRAM.tip('retentionStage.' + s.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
         + composesBadge
+        + versionChip
         + '</div>'
         + '<div class="card-meta" style="align-items:center;gap:0.5rem">'
         + '<span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + ':</span> '
         + utilityBar
         + '<span>' + utilityPercent + '%</span>'
+        + lowConfBadge
         + '</div>'
         + (stats.length ? '<div class="card-meta">' + stats.join(' · ') + '</div>' : '')
         + triggerInfo
+        + decayRow
         + '</div>';
     }).join('') + '</div>';
+  },
+
+  // 衰退风险文案:retentionStage 为主,active 时按 lastUsedAt 算天数预警
+  // 认知科学:程序性记忆半衰期~11 月(Tatel 2025),远耐于事实记忆,但仍衰退 —— 可视化是 co-engram 差异化卖点
+  _decayRisk(retentionStage, lastUsedAt) {
+    const T = CO_ENGRAM_T;
+    if (retentionStage === 'forgotten') return { color: '#f87171', text: T.t('skills.decayRisk.forgotten') };
+    if (retentionStage === 'stale') return { color: '#fb923c', text: T.t('skills.decayRisk.stale') };
+    if (retentionStage === 'aging') return { color: '#fcd34d', text: T.t('skills.decayRisk.aging') };
+    if (retentionStage === 'active' && lastUsedAt) {
+      const days = CO_ENGRAM_SKILLS._daysSince(lastUsedAt);
+      if (days > 180) return { color: '#fcd34d', text: T.t('skills.decayRisk.soonAging', { days: days }) };
+    }
+    return null;
+  },
+
+  _daysSince(iso) {
+    if (!iso) return 0;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return 0;
+    return Math.floor((Date.now() - t) / 86400000);
+  },
+
+  // 打开 skill 详情 drawer（点击卡片触发）
+  async open(skillId) {
+    const T = CO_ENGRAM_T;
+    let skill;
+    try {
+      skill = await CO_ENGRAM.apiGet('/api/skills/' + encodeURIComponent(skillId));
+    } catch (e) {
+      CO_ENGRAM.openDrawer('<h2>' + CO_ENGRAM.escapeHtml(skillId) + '</h2><div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>');
+      return;
+    }
+    const stageColors = { draft: '#94a3b8', compiled: '#5eead4', tuned: '#fcd34d' };
+    const retentionColors = { active: '#5eead4', aging: '#fcd34d', stale: '#fb923c', forgotten: '#f87171' };
+    const sc = stageColors[skill.acquisitionStage] || '#94a3b8';
+    const rc = retentionColors[skill.retentionStage] || '#94a3b8';
+    const up = Math.round((skill.utility || 0) * 100);
+    const ub = '<div class="bar-track" style="width:120px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + up + '%;background:#5eead4"></div></div>';
+    const _sc = skill.successCount || 0, _fc = skill.failureCount || 0;
+    const _rateStr = (_sc + _fc) > 0 ? Math.round(_sc / (_sc + _fc) * 100) + '%' : '—';
+    const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code><button class="btn secondary" onclick="CO_ENGRAM_SKILLS.openDir(\\\'' + CO_ENGRAM.escapeHtml(skill.skillId) + '\\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.openDir')) + '</button></div>'
+      + '<h2>' + CO_ENGRAM.escapeHtml(skill.skillId) + '</h2>'
+      + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span></div>'
+      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + '</span> ' + ub + ' <span>' + up + '%</span></div>'
+      + (skill.initiationSet ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.initiationSet) + '</div></div>' : '')
+      + (skill.sourcePath ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + '</span><code>' + CO_ENGRAM.escapeHtml(skill.sourcePath) + '</code></div>' : '')
+      + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successRate')) + '</span> ' + _rateStr + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successCount')) + '</span> ' + _sc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount')) + '</span> ' + _fc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount')) + '</span> ' + (skill.invocationCount || 0) + '</div>'
+      + (skill.allowedTools && skill.allowedTools.length ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.allowedTools')) + '</span> ' + skill.allowedTools.map((t) => '<code>' + CO_ENGRAM.escapeHtml(t) + '</code>').join(' ') + '</div>' : '')
+      + (skill.license ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.license')) + '</span> ' + CO_ENGRAM.escapeHtml(skill.license) + '</div>' : '')
+      + (skill.skillVersion ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '</span> v' + CO_ENGRAM.escapeHtml(skill.skillVersion) + '</div>' : '')
+      + (skill.compatibility ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.compatibility')) + '</span> ' + CO_ENGRAM.escapeHtml(skill.compatibility) + '</div>' : '');
+    CO_ENGRAM.openDrawer(body);
   },
 
   // 后台渐进加载剩余批次
@@ -1256,6 +1424,68 @@ window.CO_ENGRAM_SKILLS = {
     const body = document.getElementById('skills-body');
     if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
+
+  // 「打开目录」:POST /api/skills/:id/reveal,server 端 spawn 系统文件管理器。
+  // 对称 CO_ENGRAM_ENGRAMS.openDir;成功 → drawer 顶部成功 banner;降级 → 展示路径 + 复制按钮。
+  async openDir(skillId) {
+    const T = CO_ENGRAM_T;
+    var res;
+    try {
+      res = await CO_ENGRAM.apiJson('/api/skills/' + encodeURIComponent(skillId) + '/reveal', 'POST', null);
+    } catch (e) {
+      CO_ENGRAM_SKILLS._showDirBanner(T.t('viewer.skill.openDirFailed', { err: CO_ENGRAM.escapeHtml(String(e.message || e)) }), null);
+      return;
+    }
+    if (res && res.opened) {
+      CO_ENGRAM_SKILLS._showDirBanner(T.t('viewer.skill.openDirOpened'), null, true);
+    } else {
+      var reasonKey = (res && res.reason) ? ('viewer.skill.openDirReason.' + res.reason) : 'viewer.skill.openDirReason.fallback';
+      var reasonText = T.t(reasonKey);
+      CO_ENGRAM_SKILLS._showDirBanner(reasonText, res && res.dir ? res.dir : null);
+    }
+  },
+
+  // 在 drawer 顶部插目录操作反馈 banner(对称 CO_ENGRAM_ENGRAMS._showDirBanner)。
+  // dirPath 提供时附带「复制路径」按钮;isSuccess=true 时 2.5s 后自动消失。
+  _showDirBanner(message, dirPath, isSuccess) {
+    var drawer = document.getElementById('detail-drawer');
+    if (!drawer) return;
+    var body = drawer.querySelector('.drawer-body');
+    if (!body) return;
+    var existing = body.querySelector('.dir-banner');
+    if (existing) existing.remove();
+    var copyBtn = dirPath
+      ? ' <button class="btn mini secondary" onclick="CO_ENGRAM_SKILLS._copyDirPath(this)" data-dir="' + CO_ENGRAM.escapeHtml(dirPath) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.skill.openDirCopy')) + '</button>'
+      : '';
+    var banner = document.createElement('div');
+    banner.className = isSuccess ? 'dir-banner dir-banner-success' : 'dir-banner';
+    banner.innerHTML = '<span>' + message + '</span>'
+      + (dirPath ? '<code style="display:block;margin-top:.3rem;font-size:.8em;word-break:break-all">' + CO_ENGRAM.escapeHtml(dirPath) + '</code>' : '')
+      + copyBtn
+      + '<button class="dir-banner-close" onclick="this.parentElement.remove()" aria-label="close">×</button>';
+    body.insertBefore(banner, body.firstChild);
+    if (isSuccess) {
+      setTimeout(function() { if (banner.parentNode) banner.remove(); }, 2500);
+    }
+  },
+
+  // 复制目录路径到剪贴板(对称 CO_ENGRAM_ENGRAMS._copyDirPath)。
+  _copyDirPath(btn) {
+    var path = btn.getAttribute('data-dir') || '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(path);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = path; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopied');
+      setTimeout(function() { btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopy'); }, 1500);
+    } catch (e) {
+      btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopyFailed');
+    }
+  }
 };
 
 // ============================================================
@@ -1453,6 +1683,12 @@ window.CO_ENGRAM_PROPOSALS = {
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.autoMemory'))
         + (p.slug ? ' · ' + CO_ENGRAM.escapeHtml(p.slug) : '') + '</div>';
     }
+    if (src === 'skill') {
+      const pl = p.payload || {};
+      const sp = p.sourcePath || pl.skillSourcePath || '';
+      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">📁 '
+        + (sp ? '<code>' + CO_ENGRAM.escapeHtml(sp) + '</code>' : CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.skill'))) + '</div>';
+    }
     // conversation(含 undefined 向前兼容)
     const range = this.formatWindow(p.firstSeenAt, p.lastSeenAt, occ, { compact: true });
     const parts = ['💬 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.conversation'))];
@@ -1478,6 +1714,8 @@ window.CO_ENGRAM_PROPOSALS = {
       + (p.slug ? '(' + p.slug + ')' : '');
     else if (src === 'rem-pattern') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remPattern');
     else if (src === 'rem-verification') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remVerification');
+    else if (src === 'skill') sourceLabel = T.t('viewer.proposals.why.sourceLabel.skill')
+      + (p.sourcePath ? '(' + p.sourcePath + ')' : '');
     else sourceLabel = T.t('viewer.proposals.why.sourceLabel.conversation');
 
     // ⏱ 时间
@@ -1489,6 +1727,7 @@ window.CO_ENGRAM_PROPOSALS = {
     else if (src === 'auto-memory') why = T.t('viewer.proposals.why.necessity.autoMemory');
     else if (src === 'rem-pattern') why = T.t('viewer.proposals.why.necessity.remPattern');
     else if (src === 'rem-verification') why = T.t('viewer.proposals.why.necessity.remVerification');
+    else if (src === 'skill') why = T.t('viewer.proposals.why.necessity.skill');
     else why = sampleN
       ? T.t('viewer.proposals.why.necessity.conversation', { n: sampleN })
       : T.t('viewer.proposals.why.necessity.fallback');
@@ -1811,6 +2050,11 @@ window.CO_ENGRAM_PROPOSALS = {
             + '<span class="chip" style="color:' + rpConfColor + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.bandTip', { score: rpConf.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.band.' + rpBandKey)) + '</span>'
             + (rpSrcN ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceTip')) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceCount', { n: rpSrcN })) + '</span>' : '')
           : '';
+        // skill 专属标识(程序性记忆提案,区别于 engram/ext-md/REM):🛠️ 醒目 chip
+        var isSkill = p.source === 'skill';
+        var skillChip = isSkill
+          ? '<span class="chip" style="border-color:var(--kind-procedure,#fb923c);color:var(--kind-procedure,#fb923c)">🛠️ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillBadge')) + '</span>'
+          : '';
         // payload.domainTags(若有)+ occurrences/sample chip
         const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
         const moreTags = (p.payload && Array.isArray(p.payload.domainTags) && p.payload.domainTags.length > 4) ? (p.payload.domainTags.length - 4) : 0;
@@ -1821,6 +2065,7 @@ window.CO_ENGRAM_PROPOSALS = {
           + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
           + remPatternChips
+          + skillChip
           + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
           + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
@@ -1830,7 +2075,12 @@ window.CO_ENGRAM_PROPOSALS = {
           + '</div>';
         html += this._sourceLine(p);
         if (previewClip) {
-          html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+          if (isSkill) {
+            // skill 的 previewClip = description(用途)——审批核心,突出显示(非通用灰色预览)
+            html += '<div style="font-size:0.9rem;margin:.15rem 0 .4rem;line-height:1.55"><span style="color:var(--kind-procedure,#fb923c);font-weight:600">📌 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.usage')) + '</span> ' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+          } else {
+            html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+          }
         } else {
           html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;font-style:italic">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.noPreview')) + '</div>';
         }
@@ -1930,6 +2180,27 @@ window.CO_ENGRAM_PROPOSALS = {
         + '</div>';
     }
 
+    // skill 提案:专属表单(skillId + 描述 只读 + visibility),
+    // 隐藏 engram 的 kind/content/domainTags(skill accept 后端用 payload,这些字段无意义)
+    if ((p.source || 'conversation') === 'skill') {
+      const _pl = p.payload || {};
+      const _skillBody = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
+        + '<strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.detailTitle')) + '</strong>'
+        + '<code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(p.entityId) + '</code></div>'
+        + '<div class="field"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillIdLabel')) + '</label>'
+        + '<input id="pf-title" type="text" value="' + CO_ENGRAM.escapeHtml(this._drawerTitle(p)) + '" readonly></div>'
+        + '<div class="field" style="opacity:0.9"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</label>'
+        + '<div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(_pl.initiationSet || '') + '</div></div>'
+        + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
+        + '<label class="field-label" for="pf-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.label')) + '</label>'
+        + '<select id="pf-visibility" name="visibility"' + (editable ? '' : ' disabled') + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select>'
+        + '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.hint')) + '</div></div>'
+        + this._whyBlock(p)
+        + actionBtns;
+      CO_ENGRAM.openDrawer(_skillBody);
+      return;
+    }
+
     const body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
       + '<strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.detailTitle')) + '</strong>'
       + '<code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(p.entityId) + '</code>'
@@ -1961,6 +2232,22 @@ window.CO_ENGRAM_PROPOSALS = {
     const T = CO_ENGRAM_T;
     const p = CO_ENGRAM._currentProposal;
     if (!p) return;
+    // skill 提案:后端 accept 用 payload(skillId/initiationSet),
+    // 表单只透传 visibility(engram 的 kind/content/domainTags 对 skill 无意义,不传)
+    if ((p.source || 'conversation') === 'skill') {
+      const _vis = (document.getElementById('pf-visibility') || {}).value || 'public';
+      try {
+        const _payload = (_vis && _vis !== 'public') ? { visibility: _vis } : {};
+        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', _payload);
+        CO_ENGRAM.closeDrawer();
+        CO_ENGRAM._proposalsLoaded = false;
+        await this.render(document.getElementById('proposals-content'));
+        if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+      } catch (e) {
+        alert(T.t('viewer.common.loadFailed', { err: (e && e.message) || String(e) }));
+      }
+      return;
+    }
     const title = (document.getElementById('pf-title').value || '').trim();
     const content = (document.getElementById('pf-content').value || '').trim();
     const kind = document.getElementById('pf-kind').value;
@@ -3916,6 +4203,7 @@ window.CO_ENGRAM_HELP = {
       + '<ul style="padding-left:1.2rem">'
       + '<li>' + T.t('viewer.help.tabStats') + '</li>'
       + '<li>' + T.t('viewer.help.tabEngrams') + '</li>'
+      + '<li>' + T.t('viewer.help.tabSkills') + '</li>'
       + '<li>' + T.t('viewer.help.tabGraph') + '</li>'
       + '<li>' + T.t('viewer.help.tabProposals') + '</li>'
       + '<li>' + T.t('viewer.help.tabAudit') + '</li>'
@@ -3941,6 +4229,7 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tip4') + '</li>'
       + '<li>' + T.t('viewer.help.tip5') + '</li>'
       + '<li>' + T.t('viewer.help.tip6') + '</li>'
+      + '<li>' + T.t('viewer.help.tip7') + '</li>'
       + '</ul>'
 
       + '<h3>' + T.t('viewer.help.visibilityTitle') + '</h3>'
@@ -4089,6 +4378,7 @@ window.CO_ENGRAM_MAINTENANCE = {
         signalsProcessed: '处理信号', rpeUpdates: 'RPE 更新', windowsClosed: '关闭窗口',
         promptSignalsUpdated: '提示信号已更新', clustersScanned: '聚类扫描',
         decayed: '衰减', archived: '归档', forgotten: '遗忘', merged: '合并',
+        skillsScanned: '技能扫描', skillsDecayed: '技能衰退',
       };
       function fmtStageField(k, v) {
         if (k === 'stage' || k === 'at') return null; // 跳过技术字段(用户看不懂)
@@ -4099,7 +4389,8 @@ window.CO_ENGRAM_MAINTENANCE = {
       // Light 特判:计数全 0 时给友好说明(本周期无新信号),而不是一串看不懂的 0
       var _ds = lastResult && lastResult.downstreamSummary;
       var lightAllZero = stage === 'light' && _ds
-        && !(_ds.signalsProcessed > 0) && !(_ds.rpeUpdates > 0) && !(_ds.windowsClosed > 0);
+        && !(_ds.signalsProcessed > 0) && !(_ds.rpeUpdates > 0) && !(_ds.windowsClosed > 0)
+        && !(_ds.skillsDecayed > 0) && !(_ds.skillsScanned > 0);
 
       const parts = [];
       if (lightAllZero) {

@@ -176,3 +176,64 @@ describe("边界情况", () => {
     expect(extMdCalls.length).toBe(0);
   });
 });
+
+// === scheduleDataScan 增量场景（修复创建瞬间漏判 bug 的回归覆盖）===
+// 直接调 private scanFor* 方法，精确模拟 scheduleDataScan 回调里同步执行的四步扫描，
+// 不依赖 fs.watch 跨平台事件触发 + 2s debounce，确定且快速。
+interface ScanInternals {
+  scanForDeletedEngrams: () => void;
+  scanForModifiedEngrams: () => void;
+  scanForExternalMarkdown: () => void;
+  scanForSkills: () => void;
+}
+/** 等同 scheduleDataScan 回调里同步执行的四步扫描 */
+function runScheduleDataScan(): void {
+  const r = repo as unknown as ScanInternals;
+  r.scanForDeletedEngrams();
+  r.scanForModifiedEngrams();
+  r.scanForExternalMarkdown();
+  r.scanForSkills();
+}
+
+describe("scheduleDataScan 增量：daemon 运行中新粘贴 skill", () => {
+  it("启动扫描过后新增 skill → 下一次 scheduleDataScan 扫到并触发 skillHook", () => {
+    runScheduleDataScan(); // 启动扫描：空仓库
+    expect(skillCalls.length).toBe(0);
+    expect(extMdCalls.length).toBe(0);
+
+    makeSkill("shared/new-skill", "new-skill", "新技能"); // daemon 运行中新增
+    runScheduleDataScan(); // 增量扫描
+
+    expect(skillCalls.length).toBe(1);
+    expect(skillCalls[0].relPath).toBe("shared/new-skill");
+  });
+
+  it("增量 skill 的附属 .md（含深层）不进 ext-md —— 解冲突在增量扫描中同样生效", () => {
+    runScheduleDataScan();
+    makeSkill("shared/new-skill", "new-skill");
+    writeFileSync(join(root, "shared/new-skill", "notes.md"), "附属笔记");
+    mkdirSync(join(root, "shared/new-skill", "scripts"), { recursive: true });
+    writeFileSync(join(root, "shared/new-skill", "scripts", "run.md"), "脚本说明");
+    runScheduleDataScan();
+
+    expect(skillCalls.length).toBe(1);
+    expect(skillCalls[0].relPath).toBe("shared/new-skill");
+    expect(extMdCalls.length).toBe(0);
+    expect(extMdCalls.map((c) => c.relPath)).not.toContain("shared/new-skill/notes.md");
+    expect(extMdCalls.map((c) => c.relPath)).not.toContain("shared/new-skill/SKILL.md");
+  });
+
+  it("增量混放：skill 走 skillHook、裸 md 走 ext-md，互不干扰", () => {
+    runScheduleDataScan();
+    makeSkill("shared/new-skill", "new-skill");
+    writeFileSync(join(root, "shared/new-skill", "notes.md"), "附属");
+    mkdirSync(join(root, "docs"), { recursive: true });
+    writeFileSync(join(root, "docs", "guide.md"), "# 指南");
+    runScheduleDataScan();
+
+    expect(skillCalls.length).toBe(1);
+    expect(skillCalls[0].relPath).toBe("shared/new-skill");
+    expect(extMdCalls.length).toBe(1);
+    expect(extMdCalls[0].relPath).toBe("docs/guide.md");
+  });
+});

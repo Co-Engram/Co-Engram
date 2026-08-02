@@ -62,7 +62,6 @@ describe("skill memory S2 e2e", () => {
     expect(skillProposal!.entityId.startsWith(SKILL_PROPOSAL_PREFIX)).toBe(true);
     expect(skillProposal!.payload?.skillId).toBe("a");
     expect(skillProposal!.payload?.initiationSet).toContain("查询通讯录");
-    expect(skillProposal!.payload?.policy?.kind).toBe("prompt"); // sourcePath "tools/a" 不含 claude/openclaw → prompt
   });
 
   it("解冲突：skill 目录下的 SKILL.md + 附属 .md 不进 external-markdown", () => {
@@ -160,22 +159,6 @@ describe("skill memory S2 e2e", () => {
     // 验证 proposals 状态已更新
     const after = engine.listAll().filter((p) => p.source === "skill");
     expect(after.every((p) => p.status === "accepted")).toBe(true);
-  });
-
-  it("skill payload 推断：tools/ → prompt，tools/claude/ → claude-skill，tools/openclaw/ → openclaw-skill", () => {
-    makeSkill("tools/generic", "generic", "通用技能");
-    makeSkill("tools/claude/builtin", "claude-skill", "Claude 技能");
-    makeSkill("tools/openclaw/plugin", "openclaw-skill", "OpenClaw 技能");
-    repo.startWatching();
-
-    const all = engine.listAll();
-    const genericProp = all.find((p) => p.payload?.skillId === "generic");
-    const claudeProp = all.find((p) => p.payload?.skillId === "claude-skill");
-    const openclawProp = all.find((p) => p.payload?.skillId === "openclaw-skill");
-
-    expect(genericProp?.payload?.policy?.kind).toBe("prompt"); // tools/generic 不含 claude/openclaw → prompt
-    expect(claudeProp?.payload?.policy?.kind).toBe("claude-skill"); // tools/claude/ → claude-skill
-    expect(openclawProp?.payload?.policy?.kind).toBe("openclaw-skill"); // tools/openclaw/ → openclaw-skill
   });
 
   it("完整流程：放 skill → 检测 → 提案 → accept → 记录使用 → utility 更新", () => {

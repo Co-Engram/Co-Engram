@@ -87,7 +87,9 @@ export type AuditAction =
   | "skill_delete"
   | "skill_invoke"
   | "skill_compose_add"
-  | "skill_compose_remove";
+  | "skill_compose_remove"
+  | "skill_related_engram_add"
+  | "skill_related_engram_remove";
 
 /** 审计行为者 */
 export type AuditActor = "user" | "llm" | "system";

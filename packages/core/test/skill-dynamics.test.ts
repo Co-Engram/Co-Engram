@@ -8,8 +8,6 @@ describe("Skill types", () => {
       sourcePath: "tools/icenter-contacts",
       contentHash: "sha256:abc",
       initiationSet: "查询 iCenter 通讯录时",
-      termination: "拿到工号或群 ID 后",
-      policy: { kind: "claude-skill", ref: "SKILL.md" },
       utility: 0.5,
       sampleSize: 0,
       invocationCount: 0, successCount: 0, failureCount: 0,

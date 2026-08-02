@@ -27,8 +27,6 @@ const create = (id = "s1") =>
     skillId: id,
     sourcePath: `tools/${id}`,
     initiationSet: "x",
-    termination: "y",
-    policy: { kind: "prompt" as const, ref: "SKILL.md" },
     createdBy: "t",
   });
 

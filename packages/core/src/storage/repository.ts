@@ -106,7 +106,8 @@ import {
   regenerateObsidianLinks,
   checkObsidianView,
 } from "./obsidian-links.js";
-import { collectSkillDirs, SKILL_MD_FILENAME } from "../skill/skill-detector.js";
+import { collectSkillDirs, isInSkillId, SKILL_MD_FILENAME } from "../skill/skill-detector.js";
+import { scanAllImprints } from "../skill/imprint.js";
 import { assertVisibilityTransitionAllowed } from "./visibility-gate.js";
 import {
   IndexDb,
@@ -231,19 +232,6 @@ function maxVisibility(
   b: EngramVisibility,
 ): EngramVisibility {
   return VIS_STRICTNESS[a] >= VIS_STRICTNESS[b] ? a : b;
-}
-
-/**
- * 判断给定的相对路径是否在 skill 目录下。
- *
- * 用于解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）。
- */
-function isUnderSkillRoot(relPath: string, skillRoots: readonly string[]): boolean {
-  for (const r of skillRoots) {
-    if (r === ".") return true; // dataRoot 本身是 skill 目录 → 所有文件都归 skill
-    if (relPath === r || relPath.startsWith(r + "/")) return true;
-  }
-  return false;
 }
 
 /**
@@ -674,28 +662,31 @@ export class EngramRepository {
         this.config.rootPath,
         { recursive: true, persistent: false },
         (_eventType, filename) => {
-          // 关心 .md(engram)与 .yaml(synapse)变化。.json / .co-engram/
-          // 内部状态由 index.json watcher 或 persistIndex 路径覆盖。
-          // filename 跨平台可能为 null,不可靠时宁可多触发一次扫描也不要漏事件。
+          // 关心 .md(engram)与 .yaml(synapse)变化。filename 跨平台可能为 null。
           if (typeof filename === "string") {
             if (filename.endsWith(".yaml") || filename.endsWith(".yml")) {
               // synapse 文件变化 → 失效 synapseCache + debounce 通知 host
               // adapter 重建 graph.json / SQLite synapse 表(派生层与真理层对齐)。
-              // 历史盲区:原版只清 cache,graph.json 长期陈旧 → viewer 贡献者排名错。
               this.invalidateSynapseCache();
               this.scheduleSynapseRebuild();
               return;
             }
-            if (!filename.endsWith(".md")) return;
+            // 不再严格过滤非 .md:mkdir 新 skill 目录(filename="skill-x",不含 .md)
+            // 会被旧的 !endsWith(.md) 过滤掉,导致运行中新增 skill 目录不触发扫描。
+            // 放宽:除 .yaml/.yml 外都触发 scheduleDataScan(debounce 2s 合并,
+            // scanForExternalMarkdown/scanForSkills 内部自己判断 .md/skill 目录)。
           }
           this.scheduleDataScan();
         },
       );
-      this.dataWatcher.on("error", () => {
+      this.dataWatcher.on("error", (e) => {
+        const _wmsg = e instanceof Error ? e.message : String(e);
+        process.stderr.write(`[co-engram] dataWatcher error (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`);
         this.dataWatcher = undefined;
       });
-    } catch {
-      // 平台不支持 recursive fs.watch → 降级,功能不阻塞
+    } catch (e) {
+      const _wmsg = e instanceof Error ? e.message : String(e);
+      process.stderr.write(`[co-engram] startDataRootWatcher 失败 (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`);
       this.dataWatcher = undefined;
     }
   }
@@ -736,6 +727,15 @@ export class EngramRepository {
         this.scanForExternalMarkdown();
       } catch {
         // 同上
+      }
+      // 新增方向(skill):检测「dataRoot 下含 SKILL.md 的新目录」,通知 host 走 skill 提案审批。
+      // scanForExternalMarkdown 主动排除 skill 目录(isInSkillId),故 skill 目录只能由
+      // scanForSkills 捕获;此处补扫,覆盖 daemon/mcp-server 运行期间新增 skill 目录(用户粘贴 skill)。
+      // 依赖 skillHook:无 hook 时 scanForSkills 内部 noop(首行 if (!this.skillHook) return)。
+      try {
+        this.scanForSkills();
+      } catch {
+        // 扫描失败不阻塞 watcher 后续触发,静默吞掉(下次事件再次尝试)
       }
     }, 2000);
   }
@@ -795,11 +795,14 @@ export class EngramRepository {
     }
     const root = this.config.rootPath;
     const mdFiles = collectMarkdownFiles(root);
-    const skillRoots = collectSkillDirs(root); // 解冲突：收集 skill 目录，用于排除
     for (const absPath of mdFiles) {
       const relPath = relative(root, absPath).split(sep).join("/");
-      // 解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）
-      if (isUnderSkillRoot(relPath, skillRoots)) continue;
+      // 解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）。
+      // 不用 collectSkillDirs 预扫描——其 readdirSync walk 在 skill 目录创建瞬间可能与
+      // collectMarkdownFiles 的文件可见性有时效差（getdents 竞态），漏判新 skill 目录导致
+      // skill 下 .md 被持久误提案；改用 isInSkillId 以文件已知路径为锚点向上 existsSync 查
+      // 祖先 SKILL.md（stat 与文件可见性同步），正确性独立于 collectSkillDirs walk。
+      if (isInSkillId(relPath, root)) continue;
       if (knownPaths.has(relPath)) continue;
       let raw: string;
       try {
@@ -1139,6 +1142,32 @@ export class EngramRepository {
       return undefined;
     }
     return entry?.path;
+  }
+
+  /**
+   * 解析 engram 所在目录的相对路径与绝对路径(public 版)。
+   *
+   * 供 viewer「打开目录」等外部消费者使用:从 engramId 反查物理目录,
+   * 内部复用 resolvePath 的全套安全校验(isStableEngramId + isPathWithinRoot)
+   * + safeJoinWithinRoot 兜底,确保返回的目录绝对路径仍在 root 内。
+   *
+   * @returns undefined 表示 engramId 无法解析(非法 id / 路径越界);
+   *          注意 stableId 走 index 查询,不校验文件实时存在(调用方按需 existsSync)。
+   */
+  resolveDirectory(stableId: string): {
+    readonly relativePath: string;
+    readonly relativeDir: string;
+    readonly absoluteDir: string;
+  } | undefined {
+    const relativePath = this.resolvePath(stableId);
+    if (!relativePath) return undefined;
+    // 目录 = relativePath 去掉最后一段文件名(POSIX '/' 分隔,与 idFromRelativePath 一致)。
+    // 根目录直属文件(relativePath 无 '/')的目录为 '' → absoluteDir 即 rootPath 本身。
+    const slashIdx = relativePath.lastIndexOf("/");
+    const relativeDir = slashIdx < 0 ? "" : relativePath.slice(0, slashIdx);
+    // safeJoinWithinRoot:再防御一次 path traversal,并把相对目录转成绝对路径。
+    const absoluteDir = safeJoinWithinRoot(this.config.rootPath, relativeDir);
+    return { relativePath, relativeDir, absoluteDir };
   }
 
   /** 检查相对路径是否存在 engram 文件 */
@@ -3654,6 +3683,26 @@ export class EngramRepository {
           autoFixed: true,
         });
       }
+    }
+
+    // 7. skill-imprints 健康(S6 B7):检查 skill imprint 的 sourcePath 是否仍有 SKILL.md。
+    //    accept skill 时创建 imprint(sidecar/dataRoot 兜底),若后续 skill 目录被删/移,
+    //    imprint 会悬空 → 此处检测,报 pendingManualReview(不自动删,由用户决定)。
+    try {
+      const _skillImprints = scanAllImprints(this.config.rootPath);
+      for (const _imp of _skillImprints) {
+        const _skillMdAbs = join(this.config.rootPath, _imp.sourcePath, SKILL_MD_FILENAME);
+        if (!existsSync(_skillMdAbs)) {
+          pendingManualReview.push({
+            kind: "skill_imprint_dangling",
+            path: _imp.sourcePath,
+            message: `Skill imprint "${_imp.skillId}" references sourcePath "${_imp.sourcePath}" but its SKILL.md no longer exists — restore the skill directory or delete the imprint`,
+            autoFixed: false,
+          });
+        }
+      }
+    } catch {
+      // skill-imprints 扫描失败不阻塞 doctor
     }
 
     // Task 3.4 Phase B:doctor 完成后 emit(doctor 可能 sweep/forget,engram 集合变化)

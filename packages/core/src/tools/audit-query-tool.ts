@@ -75,6 +75,8 @@ const AUDIT_ACTIONS = [
   "skill_invoke",
   "skill_compose_add",
   "skill_compose_remove",
+  "skill_related_engram_add",
+  "skill_related_engram_remove",
 ] as const satisfies readonly AuditAction[];
 
 export const EngramAuditQueryInputSchema = z

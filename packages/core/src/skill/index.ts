@@ -11,7 +11,6 @@
 export type {
   Skill,
   SkillImprint,
-  SkillPolicy,
   AcquisitionStage,
   RetentionStage,
   SkillCreateInput,

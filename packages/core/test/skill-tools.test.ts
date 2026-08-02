@@ -25,8 +25,6 @@ const createInput = {
   skillId: "s1",
   sourcePath: "tools/s1",
   initiationSet: "when X",
-  termination: "until Y",
-  policy: { kind: "prompt" as const, ref: "SKILL.md" },
   createdBy: "tester",
 };
 

@@ -385,20 +385,33 @@ describe("ProposalEngine.accept", () => {
     expect(engram.domainTags).toContain("auto-memory-fallback");
   });
 
-  it("conversation proposal(payload 缺失)+ 空字段 → 仍然抛错(无兜底)", async () => {
+  // 2026-07 conversation 兜底(commit 2d050c5):conversation 来源 payload=undefined,
+  // 但 accept 会用 proposal 自身的 suggestedTitle / centroidExcerpt / sampleQuotes 兜底,
+  // 让 viewer/MCP 默认采纳能成功。本用例验证:即使调用方传空字段,conversation 兜底
+  // 也能让 accept 成功(不再抛 "requires title/content/domainTags")。
+  it("conversation proposal(payload 缺失)+ 空字段 → conversation 兜底成功", async () => {
     for (const s of TS_CI_SAMPLES) {
       await engine.observe({ role: "user", content: s });
     }
     const [proposal] = engine.listPending();
     expect(proposal).toBeTruthy();
-    // conversation 来源 payload 为 undefined,空字段无回落 → 必须抛错
-    expect(() => {
-      engine.accept(proposal!.entityId, {
-        title: "",
-        content: "",
-        domainTags: [],
-      });
-    }).toThrow(/accept requires title\/content\/domainTags/);
+    // centroidExcerpt / sampleQuotes 都非空 → 兜底生效,accept 成功
+    expect(proposal!.centroidExcerpt.length).toBeGreaterThan(0);
+    expect(proposal!.sampleQuotes.length).toBeGreaterThan(0);
+
+    const engramId = engine.accept(proposal!.entityId, {
+      title: "",
+      content: "",
+      domainTags: [],
+    });
+    expect(engramId).toBeTruthy();
+    const engram = repo.readEngram(engramId);
+    // title 走 centroidExcerpt 兜底(无 suggestedTitle 时)
+    expect(engram.title).toBe(proposal!.centroidExcerpt);
+    // content 走 sampleQuotes join 兜底
+    expect(engram.content).toBe(proposal!.sampleQuotes.join("\n\n"));
+    // domainTags 走 ["conversation"] 默认兜底
+    expect(engram.domainTags).toEqual(["conversation"]);
   });
 });
 
@@ -1575,7 +1588,10 @@ describe("ProposalEngine.accept with payload fallback", () => {
     expect(engram.kind).toBe("observation"); // 走 payload
   });
 
-  it("conversation proposal(payload=undefined)+ 调用方未传 title → 抛错", async () => {
+  // 2026-07 conversation 兜底(commit 2d050c5):conversation proposal 无 payload,
+  // accept 用 proposal 自身的 suggestedTitle / centroidExcerpt / sampleQuotes 兜底,
+  // 调用方不传 title 也能成功(测试新兜底语义,原"抛错"预期已失效)。
+  it("conversation proposal(payload=undefined)+ 调用方未传 title → 兜底成功", async () => {
     // 用 observe 制造一个 conversation proposal
     for (const s of TS_CI_SAMPLES) {
       await engine.observe({ role: "user", content: s });
@@ -1585,9 +1601,13 @@ describe("ProposalEngine.accept with payload fallback", () => {
     const convEntityId = proposals[0]!.entityId;
     expect(isAutoMemoryProposal(convEntityId)).toBe(false);
 
-    expect(() => engine.accept(convEntityId, { createdBy: "u" })).toThrow(
-      /accept requires title\/content\/domainTags/,
-    );
+    const engramId = engine.accept(convEntityId, { createdBy: "u" });
+    expect(engramId).toBeTruthy();
+    const engram = repo.readEngram(engramId);
+    // title 走 centroidExcerpt / sampleQuotes 兜底(非空)
+    expect(engram.title.length).toBeGreaterThan(0);
+    expect(engram.content.length).toBeGreaterThan(0);
+    expect(engram.domainTags).toEqual(["conversation"]);
   });
 
   it("conversation proposal + 调用方完整传 title/content/domainTags → 正常 accept", async () => {

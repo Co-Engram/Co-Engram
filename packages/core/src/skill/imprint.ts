@@ -78,8 +78,10 @@ function parseImprint(raw: string): SkillImprint | null {
   try {
     const obj = JSON.parse(raw);
     if (obj && typeof obj === "object" && obj.schemaVersion === 1) {
+      // S6.x: 旧 imprint 含已移除的 termination/policy 字段；destructure 剥离避免回写污染新数据
       // 向后兼容：旧 imprint（无 composes/relatedEngrams 字段）读取时默认 []
-      const typed = obj as SkillImprint & { composes?: unknown; relatedEngrams?: unknown };
+      const { termination: _termination, policy: _policy, ...rest } = obj;
+      const typed = rest as SkillImprint & { composes?: unknown; relatedEngrams?: unknown };
       return {
         ...typed,
         composes: Array.isArray(typed.composes) ? typed.composes : [],

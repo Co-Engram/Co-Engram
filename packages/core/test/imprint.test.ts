@@ -12,7 +12,7 @@ afterEach(() => { rmSync(root, { recursive: true, force: true }); });
 function sample(over: Partial<SkillImprint> = {}): SkillImprint {
   return {
     schemaVersion: 1, skillId: "s1", sourcePath: "tools/s1", contentHash: "sha256:x",
-    initiationSet: "when X", termination: "until Y", policy: { kind: "prompt", ref: "SKILL.md" },
+    initiationSet: "when X",
     utility: 0.5, sampleSize: 0, invocationCount: 0, successCount: 0, failureCount: 0,
     lastUsedAt: null, acquisitionStage: "draft", retentionStage: "active",
     visibility: "team", createdBy: "t", createdAt: "2026-07-28T00:00:00.000Z",

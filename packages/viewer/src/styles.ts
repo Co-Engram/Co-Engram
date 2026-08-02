@@ -1680,6 +1680,48 @@ footer.app-footer {
   color: var(--accent-warm);
   margin-bottom: 1rem;
 }
+
+/* === Directory reveal banner(详情页「打开目录」操作反馈)=== */
+/* 成功态(opened)用绿色、2.5s 自动消失;降级态(无桌面/命令缺失/目录不存在)
+   用蓝色信息色并保留,内含目录绝对路径 + 复制按钮。 */
+.dir-banner {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.06), rgba(94, 234, 212, 0.04));
+  border-left: 3px solid rgba(56, 189, 248, 0.45);
+  border-radius: 0 6px 6px 0;
+  padding: 0.55rem 2rem 0.55rem 0.85rem;
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  margin-bottom: 1rem;
+  line-height: 1.5;
+  position: relative;
+}
+.dir-banner-success {
+  background: linear-gradient(135deg, rgba(94, 234, 212, 0.08), rgba(34, 197, 94, 0.05));
+  border-left-color: rgba(34, 197, 94, 0.5);
+}
+.dir-banner code {
+  background: rgba(94, 234, 212, 0.12);
+  color: var(--accent);
+  padding: 0.05rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.85em;
+  font-family: var(--font-mono, monospace);
+}
+.dir-banner-close {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  opacity: 0.55;
+}
+.dir-banner-close:hover {
+  opacity: 1;
+}
 .pending-banner {
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(139, 92, 246, 0.04));
   border-left: 3px solid rgba(99, 102, 241, 0.45);

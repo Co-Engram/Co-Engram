@@ -445,11 +445,11 @@ export const SkillCreateInputSchema = z.object({
   skillId: z.string().min(1),
   sourcePath: z.string().min(1),
   initiationSet: z.string().min(1),
-  termination: z.string().min(1),
-  policy: z.object({
-    kind: z.enum(["claude-skill", "openclaw-skill", "prompt", "code", "workflow"]),
-    ref: z.string().min(1),
-  }),
+  allowedTools: z.array(z.string()).optional(),
+  license: z.string().optional(),
+  skillVersion: z.string().optional(),
+  metadata: z.record(z.unknown()).optional(),
+  compatibility: z.string().optional(),
   visibility: z.enum(["public", "team", "private"]).optional(),
   createdBy: z.string().min(1),
 }).strict();
@@ -462,11 +462,6 @@ export const SkillListInputSchema = z.object({
 export const SkillUpdateInputSchema = z.object({
   id: z.string().min(1),
   initiationSet: z.string().optional(),
-  termination: z.string().optional(),
-  policy: z.object({
-    kind: z.enum(["claude-skill", "openclaw-skill", "prompt", "code", "workflow"]),
-    ref: z.string().min(1),
-  }).optional(),
   visibility: z.enum(["public", "team", "private"]).optional(),
   acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
 }).strict();
@@ -494,6 +489,17 @@ export const SkillComposeListInputSchema = z
 
 export type SkillComposeAddToolInput = z.infer<typeof SkillComposeAddInputSchema>;
 export type SkillComposeListToolInput = z.infer<typeof SkillComposeListInputSchema>;
+
+// skill_related_engram（skill ↔ engram 关联：程序性 ↔ 陈述性）
+export const SkillRelatedEngramInputSchema = z
+  .object({
+    skillId: z.string().min(1),
+    engramId: z.string().min(1),
+  })
+  .strict();
+export type SkillRelatedEngramToolInput = z.infer<
+  typeof SkillRelatedEngramInputSchema
+>;
 
 // ============================================================
 // engram_list_proposals / engram_accept_proposal / engram_dismiss_proposal

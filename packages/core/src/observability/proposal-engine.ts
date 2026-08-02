@@ -146,10 +146,16 @@ export interface ProposalPayload {
   readonly skillSourcePath?: string;
   /** skill 专用:Options I_ω 适用情境（规则版推断） */
   readonly initiationSet?: string;
-  /** skill 专用:Options β_ω 边界/退出条件（规则版推断） */
-  readonly termination?: string;
-  /** skill 专用:Options π_ω 执行载体 */
-  readonly policy?: import("../types/skill.js").SkillPolicy;
+  /** skill 专用:SKILL.md 原生 allowed-tools(规范化为 string[]) */
+  readonly allowedTools?: readonly string[];
+  /** skill 专用:SKILL.md 原生 license */
+  readonly license?: string;
+  /** skill 专用:SKILL.md 原生 version(语义版本,映射到内部 skillVersion 字段) */
+  readonly skillVersion?: string;
+  /** skill 专用:SKILL.md 原生 metadata(任意键值对) */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** skill 专用:SKILL.md 原生 compatibility(兼容性描述) */
+  readonly compatibility?: string;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -965,9 +971,7 @@ export class ProposalEngine {
         !p ||
         !nonEmpty(p.skillId) ||
         !nonEmpty(p.skillSourcePath) ||
-        !nonEmpty(p.initiationSet) ||
-        !nonEmpty(p.termination) ||
-        !p.policy
+        !nonEmpty(p.initiationSet)
       ) {
         throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
       }
@@ -978,10 +982,13 @@ export class ProposalEngine {
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
-        termination: p.termination!, // nonEmpty 已确保非空
-        policy: p.policy,
         createdBy: input.createdBy ?? "skill-proposal-accept",
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+        ...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
+        ...(p.license ? { license: p.license } : {}),
+        ...(p.skillVersion ? { skillVersion: p.skillVersion } : {}),
+        ...(p.metadata ? { metadata: p.metadata } : {}),
+        ...(p.compatibility ? { compatibility: p.compatibility } : {}),
       });
       const updatedSkill = proposals.map((pp) =>
         pp.entityId === entityId ? { ...pp, status: "accepted" as const, acceptedEngramId: skill.skillId } : pp,
@@ -1001,14 +1008,37 @@ export class ProposalEngine {
     //   旧实现 `input.domainTags ?? payload?.domainTags` 在前端传 `domainTags: []` 时
     //   不会回落,导致 accept 抛 400。现用「非空生效,否则回落」语义覆盖所有「空」形态。
     const payload = target.payload;
-    const title = nonEmpty(input.title) ? input.title : payload?.title;
-    const content = nonEmpty(input.content) ? input.content : payload?.content;
+    // conversation 兜底:conversation 来源(payload=undefined)无预填字段,用 proposal
+    // 自身字段(sampleQuotes / centroidExcerpt / suggestedTitle)兜底,让 viewer/MCP
+    // 默认采纳能成功。优先级:caller input > payload(external-markdown/auto-memory 等)
+    // > conversation 兜底。caller 显式传字段仍优先,不破坏自定义路径。
+    const payloadTitle = payload?.title;
+    const payloadContent = payload?.content;
+    const payloadDomainTags = payload?.domainTags;
+    const title = nonEmpty(input.title)
+      ? input.title
+      : nonEmpty(payloadTitle)
+        ? payloadTitle
+        : nonEmpty(target.suggestedTitle)
+          ? target.suggestedTitle
+          : nonEmpty(target.centroidExcerpt)
+            ? target.centroidExcerpt
+            : undefined;
+    const content = nonEmpty(input.content)
+      ? input.content
+      : nonEmpty(payloadContent)
+        ? payloadContent
+        : target.sampleQuotes && target.sampleQuotes.length > 0
+          ? target.sampleQuotes.join("\n\n")
+          : undefined;
     const domainTags =
       input.domainTags && input.domainTags.length > 0
         ? input.domainTags
-        : payload?.domainTags;
+        : payloadDomainTags && payloadDomainTags.length > 0
+          ? payloadDomainTags
+          : ["conversation"];
     const kind = input.kind ?? payload?.kind ?? "fact";
-    if (!title || !content || !domainTags || domainTags.length === 0) {
+    if (!title || !content || domainTags.length === 0) {
       throw validationError(
         `accept requires title/content/domainTags (neither provided nor available in proposal.payload for entityId=${entityId})`,
       );
@@ -1524,11 +1554,14 @@ export class ProposalEngine {
     readonly sourcePath: string;
     readonly skillId: string;
     readonly initiationSet: string;
-    readonly termination: string;
-    readonly policy: import("../types/skill.js").SkillPolicy;
     readonly createdBy?: string;
     readonly visibility?: EngramVisibility;
     readonly at?: string;
+    readonly allowedTools?: readonly string[];
+    readonly license?: string;
+    readonly skillVersion?: string;
+    readonly metadata?: Readonly<Record<string, unknown>>;
+    readonly compatibility?: string;
   }): "proposed" | "updated" | "no-change" {
     const entityId = skillEntityId(input.sourcePath);
     const now = input.at ?? new Date().toISOString();
@@ -1543,8 +1576,11 @@ export class ProposalEngine {
       skillId: input.skillId,
       skillSourcePath: input.sourcePath,
       initiationSet: input.initiationSet,
-      termination: input.termination,
-      policy: input.policy,
+      ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+      ...(input.license ? { license: input.license } : {}),
+      ...(input.skillVersion ? { skillVersion: input.skillVersion } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.compatibility ? { compatibility: input.compatibility } : {}),
     };
 
     // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
@@ -1622,7 +1658,7 @@ export class ProposalEngine {
    * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
    *
    * 两 tier 模式（S2.x）：
-   *   1. 有 llmClient → LLM 推断 initiationSet/termination（精准）
+   *   1. 有 llmClient → LLM 推断 initiationSet（精准）
    *   2. llmClient 未提供 或 LLM 抛错 → 规则版（description → initiationSet）
    */
   createSkillHook(options?: {
@@ -1658,8 +1694,11 @@ export class ProposalEngine {
               sourcePath: relPath,
               skillId: parsed.skillId,
               initiationSet: fields.initiationSet,
-              termination: fields.termination,
-              policy: fields.policy,
+              allowedTools: parsed.allowedTools,
+              license: parsed.license,
+              skillVersion: parsed.skillVersion,
+              metadata: parsed.metadata,
+              compatibility: parsed.compatibility,
             });
           })
           .catch((err) => {
@@ -1669,8 +1708,11 @@ export class ProposalEngine {
               sourcePath: relPath,
               skillId: parsed.skillId,
               initiationSet: fallbackFields.initiationSet,
-              termination: fallbackFields.termination,
-              policy: fallbackFields.policy,
+              allowedTools: parsed.allowedTools,
+              license: parsed.license,
+              skillVersion: parsed.skillVersion,
+              metadata: parsed.metadata,
+              compatibility: parsed.compatibility,
             });
             options.onLlmError?.(err, relPath);
           });
@@ -1683,8 +1725,11 @@ export class ProposalEngine {
         sourcePath: relPath,
         skillId: parsed.skillId,
         initiationSet: fields.initiationSet,
-        termination: fields.termination,
-        policy: fields.policy,
+        allowedTools: parsed.allowedTools,
+        license: parsed.license,
+        skillVersion: parsed.skillVersion,
+        metadata: parsed.metadata,
+        compatibility: parsed.compatibility,
       });
     };
   }
@@ -1745,7 +1790,10 @@ export class ProposalEngine {
       throw notFoundError("Proposal", entityId);
     }
 
-    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    // 永久为默认,符合工具契约「默认永久驳回」与 @param 注释(0 / undefined = 永久)。
+    // 不再读 config.defaultDismissDays —— 它会让 undefined 误落为 N 天、过期后复活,违反契约
+    // (2026-07 修复)。caller 想限时驳回可显式传 dismissDays>0。config.defaultDismissDays 字段保留但废弃。
+    const days = dismissDays ?? 0;
     const dismissedUntil =
       days > 0
         ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
@@ -1848,15 +1896,19 @@ export class ProposalEngine {
             continue;
           }
           const p2 = p.payload;
-          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet || !p2.termination || !p2.policy) {
+          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet) {
             failures.push({ entityId: p.entityId, reason: "skill payload missing fields" });
             continue;
           }
           const sk = this.skillRepository.createSkill({
             skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
-            termination: p2.termination, policy: p2.policy,
             createdBy: input.createdBy ?? "skill-batch-accept",
             ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+            ...(p2.allowedTools ? { allowedTools: p2.allowedTools } : {}),
+            ...(p2.license ? { license: p2.license } : {}),
+            ...(p2.skillVersion ? { skillVersion: p2.skillVersion } : {}),
+            ...(p2.metadata ? { metadata: p2.metadata } : {}),
+            ...(p2.compatibility ? { compatibility: p2.compatibility } : {}),
           });
           acceptedIds.push(p.entityId);
           engramIds.push(sk.skillId);
@@ -2008,7 +2060,10 @@ export class ProposalEngine {
   } {
     const limit = Math.min(Math.max(filter.limit ?? 1000, 1), 5000);
     const now = new Date().toISOString();
-    const days = dismissDays ?? this.config.defaultDismissDays ?? 0;
+    // 永久为默认,符合工具契约「默认永久驳回」与 @param 注释(0 / undefined = 永久)。
+    // 不再读 config.defaultDismissDays —— 它会让 undefined 误落为 N 天、过期后复活,违反契约
+    // (2026-07 修复)。caller 想限时驳回可显式传 dismissDays>0。config.defaultDismissDays 字段保留但废弃。
+    const days = dismissDays ?? 0;
     const dismissedUntil =
       days > 0
         ? new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString()
