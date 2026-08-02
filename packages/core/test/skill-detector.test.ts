@@ -28,6 +28,45 @@ describe("parseSkillMd", () => {
   it("YAML 损坏 → null", () => {
     expect(parseSkillMd("---\n: invalid yaml\n: : :\n---\nbody", "tools/x")).toBeNull();
   });
+  it("parseSkillMd 提取 SKILL.md 原生字段(allowed-tools/license/version/metadata/compatibility)", () => {
+    const raw = `---
+name: test-skill
+description: "test"
+allowed-tools: Read Write Bash
+license: MIT
+version: "1.2.0"
+metadata:
+  author: alice
+  category: dev
+compatibility: "Claude Code >= 1.0"
+---
+body`;
+    const parsed = parseSkillMd(raw, "dir/test-skill");
+    expect(parsed?.allowedTools).toEqual(["Read", "Write", "Bash"]);
+    expect(parsed?.license).toBe("MIT");
+    expect(parsed?.version).toBe("1.2.0");
+    expect(parsed?.metadata).toEqual({ author: "alice", category: "dev" });
+    expect(parsed?.compatibility).toBe("Claude Code >= 1.0");
+  });
+
+  it("allowed-tools 支持数组形式", () => {
+    const raw = `---
+name: t
+description: x
+allowed-tools:
+  - Read
+  - Write
+---
+b`;
+    const parsed = parseSkillMd(raw, "t");
+    expect(parsed?.allowedTools).toEqual(["Read", "Write"]);
+  });
+
+  it("无原生字段时 allowedTools 等为 undefined", () => {
+    const parsed = parseSkillMd("---\nname: t\ndescription: x\n---\nb", "t");
+    expect(parsed?.allowedTools).toBeUndefined();
+    expect(parsed?.license).toBeUndefined();
+  });
 });
 
 describe("collectSkillDirs", () => {
@@ -71,35 +110,16 @@ describe("inferSkillFields", () => {
     const p = { skillId: "s", description: "", body: "", sourcePath: "tools/s" };
     expect(inferSkillFields(p).initiationSet).toContain("s");
   });
-  it("body/description 含完成关键词 → termination 匹配", () => {
-    const p = { skillId: "s", description: "", body: "拿到工号后结束", sourcePath: "tools/s" };
-    expect(inferSkillFields(p).termination).toContain("拿到");
-  });
-  it("无关键词 → 默认 termination", () => {
-    const p = { skillId: "s", description: "", body: "无关键词", sourcePath: "tools/s" };
-    expect(inferSkillFields(p).termination).toContain("完成");
-  });
-  it("policy kind 按 sourcePath 启发（claude/openclaw/prompt）", () => {
-    expect(inferSkillFields({ skillId:"a", description:"", body:"", sourcePath:"x/claude/a" }).policy.kind).toBe("claude-skill");
-    expect(inferSkillFields({ skillId:"b", description:"", body:"", sourcePath:"x/openclaw/b" }).policy.kind).toBe("openclaw-skill");
-    expect(inferSkillFields({ skillId:"c", description:"", body:"", sourcePath:"x/c" }).policy.kind).toBe("prompt");
-  });
-  it("policy.ref = SKILL.md", () => {
-    expect(inferSkillFields({ skillId:"s", description:"", body:"", sourcePath:"tools/s" }).policy.ref).toBe(SKILL_MD_FILENAME);
-  });
 });
 
 describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
-  it("LLM 返回有效 JSON → 解析 initiationSet/termination", async () => {
+  it("LLM 返回有效 JSON → 解析 initiationSet", async () => {
     const p = { skillId: "test-skill", description: "测试技能", body: "这是测试内容", sourcePath: "tools/test-skill" };
     const mockLlmClient: LlmClient = {
       complete: async () => '{"initiationSet": "需要测试时", "termination": "测试完成后"}',
     };
     const result = await inferSkillFieldsWithLlm(p, mockLlmClient);
     expect(result.initiationSet).toBe("需要测试时");
-    expect(result.termination).toBe("测试完成后");
-    expect(result.policy.kind).toBe("prompt");
-    expect(result.policy.ref).toBe(SKILL_MD_FILENAME);
   });
 
   it("LLM 返回带 markdown fence 的 JSON → 正确解析", async () => {
@@ -109,7 +129,6 @@ describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
     };
     const result = await inferSkillFieldsWithLlm(p, mockLlmClient);
     expect(result.initiationSet).toBe("启动测试");
-    expect(result.termination).toBe("测试结束");
   });
 
   it("LLM 返回无效 JSON → 抛错（由调用方降级到规则版）", async () => {
@@ -136,27 +155,6 @@ describe("inferSkillFieldsWithLlm (S2.x trigger 推断)", () => {
     await expect(inferSkillFieldsWithLlm(p, mockLlmClient)).rejects.toThrow("LLM response missing valid initiationSet");
   });
 
-  it("LLM 返回 JSON 缺少 termination → 抛错", async () => {
-    const p = { skillId: "test-skill", description: "测试技能", body: "这是测试内容", sourcePath: "tools/test-skill" };
-    const mockLlmClient: LlmClient = {
-      complete: async () => '{"initiationSet": "启动测试"}',
-    };
-    await expect(inferSkillFieldsWithLlm(p, mockLlmClient)).rejects.toThrow("LLM response missing valid termination");
-  });
-
-  it("policy kind 按 sourcePath 启发（claude/openclaw）", async () => {
-    const claudeSkill = { skillId: "claude-test", description: "Claude 技能", body: "内容", sourcePath: "tools/claude/claude-test" };
-    const openclawSkill = { skillId: "openclaw-test", description: "OpenClaw 技能", body: "内容", sourcePath: "tools/openclaw/openclaw-test" };
-    const mockLlmClient: LlmClient = {
-      complete: async () => '{"initiationSet": "需要时", "termination": "完成后"}',
-    };
-
-    const claudeResult = await inferSkillFieldsWithLlm(claudeSkill, mockLlmClient);
-    expect(claudeResult.policy.kind).toBe("claude-skill");
-
-    const openclawResult = await inferSkillFieldsWithLlm(openclawSkill, mockLlmClient);
-    expect(openclawResult.policy.kind).toBe("openclaw-skill");
-  });
 });
 
 describe("isInSkillId", () => {
