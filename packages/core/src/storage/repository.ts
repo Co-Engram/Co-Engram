@@ -107,7 +107,6 @@ import {
   checkObsidianView,
 } from "./obsidian-links.js";
 import { collectSkillDirs, isInSkillId, SKILL_MD_FILENAME } from "../skill/skill-detector.js";
-import { scanAllImprints } from "../skill/imprint.js";
 import { assertVisibilityTransitionAllowed } from "./visibility-gate.js";
 import {
   IndexDb,
@@ -3685,25 +3684,11 @@ export class EngramRepository {
       }
     }
 
-    // 7. skill-imprints 健康(S6 B7):检查 skill imprint 的 sourcePath 是否仍有 SKILL.md。
-    //    accept skill 时创建 imprint(sidecar/dataRoot 兜底),若后续 skill 目录被删/移,
-    //    imprint 会悬空 → 此处检测,报 pendingManualReview(不自动删,由用户决定)。
-    try {
-      const _skillImprints = scanAllImprints(this.config.rootPath);
-      for (const _imp of _skillImprints) {
-        const _skillMdAbs = join(this.config.rootPath, _imp.sourcePath, SKILL_MD_FILENAME);
-        if (!existsSync(_skillMdAbs)) {
-          pendingManualReview.push({
-            kind: "skill_imprint_dangling",
-            path: _imp.sourcePath,
-            message: `Skill imprint "${_imp.skillId}" references sourcePath "${_imp.sourcePath}" but its SKILL.md no longer exists — restore the skill directory or delete the imprint`,
-            autoFixed: false,
-          });
-        }
-      }
-    } catch {
-      // skill-imprints 扫描失败不阻塞 doctor
-    }
+    // 7. skill 健康检查已迁出至 skill-doctor.ts 的 runSkillDoctor(postflight 阶段),
+    //    由 engram_doctor 工具在 runDoctor 之后调用(对称 runInfraDoctor / cleanupDanglingIndexReferences)。
+    //    迁出原因:skill 是独立子系统(自有 sidecar/fallback 存储),健康逻辑归 skill/ 模块,
+    //    避免膨胀 EngramRepository;且 runSkillDoctor 需要本函数产出的 engram 真相(canonicalIds)
+    //    校验 skill.relatedEngrams,放在 postflight 才拿得到。
 
     // Task 3.4 Phase B:doctor 完成后 emit(doctor 可能 sweep/forget,engram 集合变化)
     safeEmit({ type: "doctor_completed", at: new Date().toISOString() });

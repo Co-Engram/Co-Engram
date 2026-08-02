@@ -320,19 +320,17 @@ WHEN NOT TO CALL:
 RETURNS: patternEngramId + synapseIds (one derives_from per source) + draft. dryRun=true returns the draft only.`,
   "tool.engram_doctor.agent": `Run a self-healing scan over the memory repo and report findings.
 
-Auto-fixes: moved files (index re-points), renamed titles (re-slug + rename), stale index entries (cleared). Reports for manual review: dangling synapse references and orphan markdown.
+Auto-fixes: moved files (index re-points), renamed titles (re-slug), stale index entries, skill composes/relatedEngrams, skill utility/stats, skill contentHash. Reports for review: dangling synapses, orphan markdown, skill orphan/mismatch/duplicate/field issues — each with a nextAction.
 
 WHEN TO CALL:
-- User says "my memory looks wrong" or "search misses entries I expected"
-- User manually edited/renamed files under the data root
-- After a Git merge that touched the data repo
+- "memory looks wrong" or search misses entries
+- User edited/renamed data-root files
+- After a Git merge on the repo
 - Periodic health check (once per session)
 
-WHEN NOT TO CALL:
-- No observed inconsistency
-- User wants a specific engram (use engram_get)
+WHEN NOT TO CALL: no inconsistency; for a specific engram use engram_get.
 
-RETURNS: started/finished timestamps, total counts, autoFixesApplied, pendingManualReview, and the full issues array (kind + path + message + autoFixed).`,
+RETURNS: timestamps, counts, autoFixesApplied, pendingManualReview, issues[] (kind/path/message/autoFixed).`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
@@ -734,8 +732,8 @@ dryRun=true: returns draft only, no writes.
 Error conditions: llmClient missing throws with setup guidance; ids after dedup < 2 throws; any source missing throws (lists missing ids, no partial execution); LLM returns non-string throws; JSON parse failure throws (no engram created, avoids garbage); LLM call error propagates.
 Invariants: derives_from direction is always pattern → source; synapse weight fixed at 0.8; ids auto-deduped.`,
   "tool.engram_doctor.technical": `Self-healing scan. Input: { incremental?: boolean }
-Auto-fixes: file moves (index re-points), title renames (re-slug + rename), stale index entries (cleared).
-Reports (manual review): dangling synapse references, orphan markdown files.
+Auto-fixes: file moves (index re-points), title renames (re-slug + rename), stale index entries (cleared), skill composes/relatedEngrams dangling (removed), skill utility/stats out-of-range (clamped/reconciled), skill contentHash stale (recomputed).
+Reports (manual review): dangling synapse references, orphan markdown, skill issues (orphan SKILL.md, dangling imprint, skillId mismatch, duplicate skillId, invalid enum/date, corrupt imprint.json) — each with nextAction (skill_create/update/delete).
 Side effects: may rewrite .meta.json / .synapses.json / index files; appends audit log entry.
 Returns: { startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }.
 Incremental=true: only scan files changed since last mtime pass.`,

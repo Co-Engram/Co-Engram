@@ -129,7 +129,15 @@ export interface DoctorIssue {
     | "dangling_synapse_cleaned" // synapse 的 from/to 引用不存在的 engram,doctor 自动删除
     | "sqlite_ghost" // SQLite engrams 表有 entry 但 markdown 源文件不存在,doctor 自动级联清理
     | "sqlite_resynced" // SQLite engrams 表字段与 frontmatter 真相不一致,doctor 全量重投对齐(index-no-truth 修复)
-    | "skill_imprint_dangling"; // skill imprint 的 sourcePath 下 SKILL.md 不存在(skill 目录被删/移),doctor 报告待人工处理
+    | "skill_imprint_dangling" // skill imprint 的 sourcePath 下 SKILL.md 不存在(skill 目录被删/移),doctor 报告待人工处理
+    // ── skill 健康检查(skill-doctor.ts,对称 engram doctor 范式;2026-08 全面适配)──
+    | "skill_orphan_skillmd" // SKILL.md 合法但无对应 imprint(手放目录未注册 / imprint 被删),报人工
+    | "skill_id_mismatch" // imprint.skillId 与 SKILL.md frontmatter.name 不一致(用户改了 name),报人工
+    | "skill_compose_dangling" // skill.composes 引用的 skillId 不存在(被删),doctor 自动移除引用
+    | "skill_related_engram_dangling" // skill.relatedEngrams 引用的 engramId 不在 index(被删),doctor 自动移除引用
+    | "skill_duplicate_id" // 多个 imprint(sidecar+fallback 或两 sidecar)共一 skillId,报人工
+    | "skill_invalid_field_value" // imprint.json 字段级问题(utility 越界 / stats 不自洽 / 枚举非法 / 日期格式错 / schemaVersion≠1);数值类自动修,语义类报人工
+    | "skill_contenthash_stale"; // imprint.contentHash 与当前指纹不符(直编 imprint 改了 initiationSet),doctor 自动重算
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;

@@ -216,7 +216,10 @@ export class SkillRepository {
 /**
  * S6.x: contentHash 算法 —— 原 computePolicyHash(policy) 随 policy 字段一并移除。
  * 现追踪 skill 的剩余"内容"字段（skillId|sourcePath|initiationSet），无执行语义,仅作身份指纹。
+ *
+ * skill-doctor 复用此函数检测 contentHash stale(直编 imprint 改 initiationSet 后指纹不符),
+ * 保证"写入算法"与"校验算法"同源,避免双实现 drift。
  */
-function computeSkillContentHash(skillId: string, sourcePath: string, initiationSet: string): string {
+export function computeSkillContentHash(skillId: string, sourcePath: string, initiationSet: string): string {
   return computeContentHash(`${skillId}|${sourcePath}|${initiationSet}`);
 }

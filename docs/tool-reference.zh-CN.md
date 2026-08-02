@@ -449,7 +449,7 @@ filter 走**严格匹配**(Zod `.strict()`):未知 key 直接拒绝,不再静默
 
 ### `engram_doctor`
 
-对 data root 运行自愈扫描并报告问题。自动修复:文件移动(更新索引)、标题变更(重新 slug 化并重命名)、文件缺失(清理索引条目)、SQLite ghost(条目对应的 markdown 已不存在)、悬挂 synapse(端点 engram 已不存在时自动删除)以及陈旧的 `archived` frontmatter(自动迁移为 `frozen`)。文件扫描前还会先跑 infra-doctor 预检,重建缺失的派生索引 / 自动配置 merge driver。需要人工处理的:重复 id、相似 engram、孤立 Markdown、frontmatter 错误。
+对 data root 运行自愈扫描并报告问题。自动修复:文件移动(更新索引)、标题变更(重新 slug 化并重命名)、文件缺失(清理索引条目)、SQLite ghost(条目对应的 markdown 已不存在)、悬挂 synapse(端点 engram 已不存在时自动删除)以及陈旧的 `archived` frontmatter(自动迁移为 `frozen`)。文件扫描前还会先跑 infra-doctor 预检,重建缺失的派生索引 / 自动配置 merge driver。需要人工处理的:重复 id、相似 engram、孤立 Markdown、frontmatter 错误。同时扫描 **skill 子系统**(程序性记忆):无 imprint 的孤儿 SKILL.md、SKILL.md 已删的悬空 imprint、skillId 与 SKILL.md name 不一致、悬空的 composes / relatedEngrams(对照 engram 真相自动移除)、sidecar+fallback 共用 skillId、imprint 字段校验(utility 越界自动 clamp、success/failure/invocation stats 不自洽自动修、枚举非法 / 日期格式错报人工)、contentHash 陈旧(自动重算)、imprint.json 损坏 —— 每条 skill issue 带 nextAction 提示(skill_create / skill_update / skill_delete)。
 
 **可选:** `incremental: boolean`(默认 `false` —— 全量扫描)
 

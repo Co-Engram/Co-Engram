@@ -313,19 +313,17 @@ export const zh = {
 返回:patternEngramId + synapseIds(每源一条 derives_from)+ draft(含 title/content/summary/confidence/reason)。dryRun=true 时不创建,只返回 draft。`,
   "tool.engram_doctor.agent": `对记忆仓库做一次自愈扫描。
 
-自动修复:文件移动(索引重新指向)、标题重命名(重新生成 slug + 重命名)、过期索引项(清除)。仅报告:dangling synapse 引用、孤儿 markdown。
+自动修复:文件移动(索引重新指向)、标题重命名(re-slug)、过期索引项、skill composes/relatedEngrams、skill utility/stats、skill contentHash。仅报告:dangling synapse 引用、孤儿 markdown、skill 孤儿/不匹配/重复/字段问题 —— 每条带 nextAction。
 
 何时调用:
-- 用户说"记忆看起来不对"或"搜索找不到该有的条目"
-- 用户手动编辑/重命名了数据目录下的文件
-- 触及数据仓库的 Git 合并之后
+- "记忆看起来不对"或搜索找不到条目
+- 用户编辑/重命名了数据目录文件
+- 触及数据仓库的 Git 合并后
 - 定期健康检查(每次会话一次)
 
-何时不调用:
-- 没观察到不一致
-- 用户想看具体某条 engram(用 engram_get)
+何时不调用:无不一致;看具体 engram 用 engram_get。
 
-返回:开始/结束时间戳、总计数、自动修复数、待审核数,以及完整 issues 列表。`,
+返回:时间戳、计数、自动修复数、待审核数、issues[](kind/path/message/autoFixed)。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
@@ -727,8 +725,8 @@ dryRun=true:只返回 draft,不写盘。
 错误条件:llmClient 缺失抛错带安装指引;ids 去重后 < 2 抛错;任一源不存在抛错(列出缺失 id,不部分执行);LLM 返回非 string 抛错;JSON 解析失败抛错(不创建 engram,避免垃圾数据);LLM 调用抛错透传。
 不变量:derives_from 方向永远是 pattern → source;synapse weight 固定 0.8;id 自动去重。`,
   "tool.engram_doctor.technical": `自愈扫描。输入:{ incremental?: boolean }
-自动修复:文件移动(索引重新指向)、标题重命名(re-slug + rename)、过期索引项(清除)。
-报告(人工审核):dangling synapse 引用、孤儿 markdown。
+自动修复:文件移动(索引重新指向)、标题重命名(re-slug + rename)、过期索引项(清除)、skill 悬空 composes/relatedEngrams(移除)、skill utility/stats 越界(clamp / 重算)、skill contentHash 陈旧(重算)。
+报告(人工审核):dangling synapse 引用、孤儿 markdown、skill 问题(孤儿 SKILL.md、悬空 imprint、skillId 不匹配、重复 skillId、枚举 / 日期非法、imprint.json 损坏)—— 每条带 nextAction(skill_create / update / delete)。
 副作用:可能重写 .meta.json / .synapses.json / 索引文件;append audit log。
 返回:{ startedAt, finishedAt, total, autoFixed, pendingManualReview, issues: [{ kind, path, message, autoFixed }] }。
 incremental=true:只扫描自上次 mtime pass 以来变化的文件。`,

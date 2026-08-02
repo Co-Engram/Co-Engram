@@ -14,6 +14,7 @@ import { validateInput, configError } from "./tool.js";
 import { runInfraDoctor } from "../storage/infra-doctor.js";
 import { cleanupDanglingIndexReferences } from "../storage/index-cleanup.js";
 import { readEngramIndex } from "../storage/engram-index.js";
+import { runSkillDoctor } from "../skill/skill-doctor.js";
 
 // ============================================================
 // engram_doctor
@@ -55,7 +56,7 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
   {
     name: "engram_doctor",
     description:
-      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated), missing derived indexes (digest.jsonl/graph.json rebuilt), unconfigured merge driver (auto-onboarded), and dangling references in derived indexes (observation-windows/digest/graph entries pointing to deleted engrams — filtered or rebuilt). Also detects and auto-fixes: frontmatter value validation issues (type mismatches, out-of-range numbers, invalid enum values, malformed dates/IDs, missing required fields, stale derived fields like contentHash/contentSize, unknown fields, and YAML syntax errors reported separately from orphan markdown). Auto-fixes only safe-reversible: contentHash/contentSize recomputation, numeric clamping to [0,1], unknown field removal. Reports for manual review: enum violations (with SECURITY highlight for visibility), type-mismatched IDs, missing required fields, malformed dates, YAML syntax errors — each with nextAction hint. Reports for manual review (existing): orphan markdown without frontmatter and dangling synapse references. Each manual-review issue includes a `nextAction` hint (tool + argsHint + explanation) so the caller knows exactly which tool to invoke next. Returns a structured report.",
+      "Run a self-healing scan over the memory repo. Detects and auto-fixes: moved files (index re-pointed), title renames (re-slug + file rename), missing files (index cleared), Obsidian view drift (frontmatter.aliases missing or derived synapses wikilink section out of sync with synapse yaml — both regenerated), missing derived indexes (digest.jsonl/graph.json rebuilt), unconfigured merge driver (auto-onboarded), and dangling references in derived indexes (observation-windows/digest/graph entries pointing to deleted engrams — filtered or rebuilt). Also detects and auto-fixes: frontmatter value validation issues (type mismatches, out-of-range numbers, invalid enum values, malformed dates/IDs, missing required fields, stale derived fields like contentHash/contentSize, unknown fields, and YAML syntax errors reported separately from orphan markdown). Auto-fixes only safe-reversible: contentHash/contentSize recomputation, numeric clamping to [0,1], unknown field removal. Reports for manual review: enum violations (with SECURITY highlight for visibility), type-mismatched IDs, missing required fields, malformed dates, YAML syntax errors — each with nextAction hint. Reports for manual review (existing): orphan markdown without frontmatter and dangling synapse references. Each manual-review issue includes a `nextAction` hint (tool + argsHint + explanation) so the caller knows exactly which tool to invoke next. Also scans the skill subsystem (procedural memory): orphan SKILL.md without imprint, dangling imprint whose SKILL.md was deleted, skillId / SKILL.md name mismatch, dangling composes / relatedEngrams references (auto-removed against engram truth), duplicate skillId across sidecar+fallback, imprint field validation (utility out-of-range clamped, success/failure/invocation stats reconciled, invalid enum/date reported), stale contentHash (recomputed), and corrupt imprint.json. Skill pending issues carry nextAction hints pointing at skill_create / skill_update / skill_delete. Returns a structured report.",
     inputSchema: EngramDoctorInputSchema,
     execute(input, ctx) {
       const parsed = validateInput<EngramDoctorToolInput>(
@@ -89,11 +90,21 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
         canonicalIds,
       });
 
-      // infra fixes 放头部(基础设施层先于文件层),postflight 放尾部
+      // skill 健康自愈(postflight):放在 runDoctor / cleanup 之后,因为校验
+      // skill.relatedEngrams 需要 canonicalIds(engram 真相)作为输入。对称
+      // runInfraDoctor(基础设施层)—— skill 是独立子系统,健康逻辑归 skill/ 模块。
+      const skill = runSkillDoctor({ dataRoot, canonicalEngramIds: canonicalIds });
+
+      // infra fixes 放头部(基础设施层先于文件层),postflight / skill 放尾部
       const combinedFixes = [
         ...infra.fixes,
         ...report.fixes,
         ...post.fixes,
+        ...skill.fixes,
+      ];
+      const combinedPending = [
+        ...report.pendingManualReview,
+        ...skill.pending,
       ];
 
       return {
@@ -102,8 +113,8 @@ export const engramDoctorTool: Tool<EngramDoctorToolInput, EngramDoctorResult> =
         totalEngrams: report.totalEngrams,
         totalSynapses: report.totalSynapses,
         autoFixesApplied: combinedFixes.length,
-        pendingManualReview: report.pendingManualReview.length,
-        issues: [...combinedFixes, ...report.pendingManualReview].map((i) => ({
+        pendingManualReview: combinedPending.length,
+        issues: [...combinedFixes, ...combinedPending].map((i) => ({
           kind: i.kind,
           stableId: i.stableId,
           path: i.path,
