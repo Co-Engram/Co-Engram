@@ -849,6 +849,16 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "使用说明:概念释义、端口与 dataRoot、Claude Code 与 OpenClaw 双宿主说明",
 
   // 记忆可见性徽章 / 过滤 / 提示
+  "viewer.engram.openDir": "打开目录",
+  "viewer.engram.openDirOpened": "已打开该记忆所在的目录",
+  "viewer.engram.openDirFailed": "打开目录失败:{err}",
+  "viewer.engram.openDirCopy": "复制路径",
+  "viewer.engram.openDirCopied": "已复制",
+  "viewer.engram.openDirCopyFailed": "复制失败",
+  "viewer.engram.openDirReason.no-desktop": "当前环境无桌面(SSH / 容器 / headless),无法唤起文件管理器,可复制下面的路径手动定位:",
+  "viewer.engram.openDirReason.spawn-failed": "未找到系统文件管理器命令,可复制下面的路径手动定位:",
+  "viewer.engram.openDirReason.dir-not-found": "该记忆的物理目录已不存在(可能被外部移动),原路径:",
+  "viewer.engram.openDirReason.fallback": "无法打开目录,可复制下面的路径手动定位:",
   "viewer.engram.visibilityBadge.private": "私有",
   "viewer.engram.visibilityBadge.public": "公开",
   "viewer.engram.visibilityBadge.team": "团队",
@@ -1041,11 +1051,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "enum.kind.pattern": "模式",
   "enum.kind.procedure": "流程",
   "enum.kind.hypothesis": "假设",
-  "enum.policyKind.prompt": "提示词（Prompt）",
-  "enum.policyKind.claude-skill": "Claude 技能",
-  "enum.policyKind.openclaw-skill": "OpenClaw 技能",
-  "enum.policyKind.code": "代码",
-  "enum.policyKind.workflow": "工作流",
+  // S6.x: enum.policyKind 已移除(co-engram 不执行 skill,执行载体无区分)
 
   "enum.freshness.fresh": "鲜活",
   "enum.freshness.aging": "渐衰",
@@ -1284,7 +1290,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.skillBadge": "技能",
   "viewer.proposals.skill.usage": "用途",
   "viewer.proposals.skillIdLabel": "技能 ID",
-  "viewer.proposals.skill.policyKindLabel": "执行载体",
   "viewer.proposals.sourceLine.times": "次",
   "viewer.proposals.why.title": "为什么生成",
   "viewer.proposals.why.source": "来源",
@@ -1950,6 +1955,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tip6":
     "提案 tab 的「全部驳回」与「彻底清空」是两层操作:<strong>驳回</strong>把候选标记为 dismissed(软删除,proposals.json 仍保留,审计可追),<strong>清空</strong>从磁盘物理删除所有已驳回候选(不可恢复,审计 log 保留)。状态按钮上的计数「已采纳(N) / 已驳回(N) / 全部(N)」实时反映当前提案库构成。",
 
+  "viewer.help.tip7":
+    "详情页右上角的「打开目录」按钮可在系统文件管理器打开该记忆所在的物理目录,便于用 Obsidian 等工具浏览同目录记忆。<strong>注意</strong>:这是只读浏览入口;若在文件管理器里批量手动编辑 <code>.md</code>,改完请在 agent 中跑 <code>engram_doctor</code> 自愈,避免索引 / FTS 漂移。SSH 转发或容器环境下无法唤起文件管理器,会改为展示目录路径供复制。",
+
   // ===== 记忆可见性 =====
   "viewer.help.visibilityTitle": "记忆可见性与风险识别",
   "viewer.help.visibilityBody":
@@ -2194,9 +2202,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "skills.successCount.tip": "成功次数",
   "skills.failureCount.tip": "失败次数",
   "skills.invocationCount.tip": "调用次数",
-  "skills.initiationSet": "触发条件",
-  "skills.termination": "退出条件",
+  "skills.initiationSet": "描述",
   "skills.sourcePath": "源路径",
+  "skills.allowedTools": "允许工具",
+  "skills.license": "许可证",
+  "skills.version": "版本",
+  "skills.compatibility": "兼容性",
   "skills.composes.tip": "组合的子技能数",
   "skills.successCount": "成功",
   "skills.failureCount": "失败",
