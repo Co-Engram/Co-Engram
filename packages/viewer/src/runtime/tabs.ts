@@ -763,6 +763,7 @@ window.CO_ENGRAM_ENGRAMS = {
 
     var body = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
       + '<strong style="margin-right:auto">' + T.actionLabel('detailView') + '</strong>'
+      + '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.openDir()">' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.openDir')) + '</button>'
       + '<button class="btn" onclick="CO_ENGRAM_ENGRAMS.edit()">' + T.actionLabel('edit') + '</button>'
       + '<button class="btn secondary" onclick="CO_ENGRAM_ENGRAMS.confirmDelete()">' + T.actionLabel('delete') + '</button>'
       + '</div>'
@@ -967,6 +968,73 @@ window.CO_ENGRAM_ENGRAMS = {
         await CO_ENGRAM_ENGRAMS.render(root);
       }
     } catch (e) { alert(T.t('viewer.common.deleteFailed', { err: (e.message || e) })); }
+  },
+
+  // 「打开目录」:POST /api/engrams/:id/reveal,server 端 spawn 系统文件管理器。
+  // 成功(opened=true)→ drawer 顶部短暂成功提示;降级(无桌面 / 命令缺失 / 目录不存在)
+  // → 展示目录绝对路径 + 复制按钮,保证远程 / 容器场景也能拿到路径手动定位。
+  async openDir() {
+    const T = CO_ENGRAM_T;
+    const d = CO_ENGRAM._currentEngram;
+    if (!d) return;
+    var res;
+    try {
+      res = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(d.id) + '/reveal', 'POST', null);
+    } catch (e) {
+      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirFailed', { err: (e.message || e) }), null);
+      return;
+    }
+    if (res && res.opened) {
+      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirOpened'), null, true);
+    } else {
+      // 降级:按 reason 选文案,展示路径 + 复制按钮
+      var reasonKey = (res && res.reason) ? ('viewer.engram.openDirReason.' + res.reason) : 'viewer.engram.openDirReason.fallback';
+      var reasonText = T.t(reasonKey);
+      CO_ENGRAM_ENGRAMS._showDirBanner(reasonText, res && res.dir ? res.dir : null);
+    }
+  },
+
+  // 在 drawer 顶部插一条目录操作反馈 banner。
+  // dirPath 提供时附带「复制路径」按钮;isSuccess=true 时 2.5s 后自动消失(不打扰),
+  // 降级提示保留(用户要复制路径)。重复点击先清旧 banner,避免堆叠。
+  _showDirBanner(message, dirPath, isSuccess) {
+    var drawer = document.getElementById('detail-drawer');
+    if (!drawer) return;
+    var body = drawer.querySelector('.drawer-body');
+    if (!body) return;
+    var existing = body.querySelector('.dir-banner');
+    if (existing) existing.remove();
+    var copyBtn = dirPath
+      ? ' <button class="btn mini secondary" onclick="CO_ENGRAM_ENGRAMS._copyDirPath(this)" data-dir="' + CO_ENGRAM.escapeHtml(dirPath) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.engram.openDirCopy')) + '</button>'
+      : '';
+    var banner = document.createElement('div');
+    banner.className = isSuccess ? 'dir-banner dir-banner-success' : 'dir-banner';
+    banner.innerHTML = '<span>' + CO_ENGRAM.escapeHtml(message) + '</span>'
+      + (dirPath ? '<code style="display:block;margin-top:.3rem;font-size:.8em;word-break:break-all">' + CO_ENGRAM.escapeHtml(dirPath) + '</code>' : '')
+      + copyBtn
+      + '<button class="dir-banner-close" onclick="this.parentElement.remove()" aria-label="close">×</button>';
+    body.insertBefore(banner, body.firstChild);
+    if (isSuccess) {
+      setTimeout(function() { if (banner.parentNode) banner.remove(); }, 2500);
+    }
+  },
+
+  // 复制目录路径到剪贴板(navigator.clipboard 优先,降级 execCommand)
+  _copyDirPath(btn) {
+    var path = btn.getAttribute('data-dir') || '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(path);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = path; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopied');
+      setTimeout(function() { btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopy'); }, 1500);
+    } catch (e) {
+      btn.textContent = CO_ENGRAM_T.t('viewer.engram.openDirCopyFailed');
+    }
   }
 };
 
@@ -1143,8 +1211,6 @@ window.CO_ENGRAM_SKILLS = {
 
   _renderCards(filtered, body) {
     const T = CO_ENGRAM_T;
-    // 执行载体图标(Options π_ω):扫描视图只快速识别形态,文字标签移到 drawer
-    const policyIcons = { 'claude-skill':'🧩', 'openclaw-skill':'🦾', 'prompt':'📝', 'code':'💻', 'workflow':'🔧' };
     body.innerHTML = '<div class="grid cols-3">' + filtered.map(s => {
       // acquisitionStage 徽标颜色映射
       const stageColors = {
@@ -1172,9 +1238,6 @@ window.CO_ENGRAM_SKILLS = {
       const lowConfBadge = _lowConf ? ' <span style="font-size:0.75rem;color:var(--muted,#666)"' + CO_ENGRAM.tip('skills.lowConfidence.tip') + '>' + CO_ENGRAM.escapeHtml(T.t('skills.lowConfidence')) + '</span>' : '';
       // 成功率(替代 raw success/failure 计数:用户真正关心"靠谱吗")
       const _rate = _N > 0 ? Math.round(_succ / _N * 100) : null;
-      // 执行载体图标(Options π_ω):扫描视图快速识别形态,文字标签移到 drawer
-      const _pk = s.policy && s.policy.kind;
-      const policyIcon = (_pk && policyIcons[_pk]) ? '<span style="margin-right:0.3rem" title="' + CO_ENGRAM.escapeHtml(T.enumLabel('policyKind', _pk)) + '">' + policyIcons[_pk] + '</span>' : '';
       // 衰退风险(技能虽耐遗忘,半衰期~11 月,但久不用仍衰退 —— 可视化是差异化卖点)
       const _dr = CO_ENGRAM_SKILLS._decayRisk(s.retentionStage, s.lastUsedAt);
       const decayRow = _dr ? '<div class="card-meta" style="color:' + _dr.color + '">⏳ ' + CO_ENGRAM.escapeHtml(_dr.text) + '</div>' : '';
@@ -1185,7 +1248,7 @@ window.CO_ENGRAM_SKILLS = {
       if (s.invocationCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount.tip')) + '">🔄 ' + s.invocationCount + '</span>');
       if (s.lastUsedAt) stats.push('<span title="' + CO_ENGRAM.escapeHtml(s.lastUsedAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(s.lastUsedAt)) + '</span>');
 
-      // initiationSet 摘要(termination 在扫描视图无意义 —— 多为半截话;仅在详情抽屉显示。2026-07 用户反馈)
+      // initiationSet 摘要(显示为「描述」:规则版内容即 SKILL.md description)
       let triggerInfo = '';
       if (s.initiationSet && s.initiationSet.length) {
         triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + ':</span> ' + CO_ENGRAM.escapeHtml(s.initiationSet) + '</div>';
@@ -1196,18 +1259,28 @@ window.CO_ENGRAM_SKILLS = {
         ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('skills.composes.tip')) + '">🔗 ' + s.composes.length + '</span>'
         : '';
 
+      // SKILL.md 原生 version chip(A+1:内部字段 skillVersion,SKILL.md frontmatter version 经 parseSkillMd 映射)
+      const versionChip = s.skillVersion
+        ? '<span class="chip" style="border-left:3px solid var(--muted,#666)" title="' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '">v' + CO_ENGRAM.escapeHtml(s.skillVersion) + '</span> '
+        : '';
+
+      // 来源标识(展示层从 compatibility 推断,不存 sourceType 字段;YAGNI)
+      const _compat = (s.compatibility || '').toLowerCase();
+      const sourceIcon = _compat.includes('openclaw') ? '🦾 ' : _compat.includes('claude') ? '🧩 ' : '🌐 ';
+
       // sourcePath 副标题
       const sourcePathHtml = s.sourcePath
         ? '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + ':</span> <code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></div>'
         : '';
 
       return '<div class="card" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\\')">'
-        + '<div class="card-title">' + policyIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
+        + '<div class="card-title">' + sourceIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
         + sourcePathHtml
         + '<div>'
         + '<span class="chip" style="background:' + stageColor + '"' + CO_ENGRAM.tip('acquisitionStage.' + s.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
         + '<span class="chip" style="background:' + retentionColor + '"' + CO_ENGRAM.tip('retentionStage.' + s.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
         + composesBadge
+        + versionChip
         + '</div>'
         + '<div class="card-meta" style="align-items:center;gap:0.5rem">'
         + '<span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + ':</span> '
@@ -1266,10 +1339,12 @@ window.CO_ENGRAM_SKILLS = {
       + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span></div>'
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + '</span> ' + ub + ' <span>' + up + '%</span></div>'
       + (skill.initiationSet ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.initiationSet) + '</div></div>' : '')
-      + (skill.termination ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.termination')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.termination) + '</div></div>' : '')
       + (skill.sourcePath ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + '</span><code>' + CO_ENGRAM.escapeHtml(skill.sourcePath) + '</code></div>' : '')
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successRate')) + '</span> ' + _rateStr + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.successCount')) + '</span> ' + _sc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.failureCount')) + '</span> ' + _fc + ' <span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount')) + '</span> ' + (skill.invocationCount || 0) + '</div>'
-      + (skill.policy ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.policyKindLabel')) + '</span> ⚙ ' + CO_ENGRAM.escapeHtml(T.enumLabel('policyKind', skill.policy.kind) || skill.policy.kind) + '</div>' : '');
+      + (skill.allowedTools && skill.allowedTools.length ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.allowedTools')) + '</span> ' + skill.allowedTools.map((t) => '<code>' + CO_ENGRAM.escapeHtml(t) + '</code>').join(' ') + '</div>' : '')
+      + (skill.license ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.license')) + '</span> ' + CO_ENGRAM.escapeHtml(skill.license) + '</div>' : '')
+      + (skill.skillVersion ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '</span> v' + CO_ENGRAM.escapeHtml(skill.skillVersion) + '</div>' : '')
+      + (skill.compatibility ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.compatibility')) + '</span> ' + CO_ENGRAM.escapeHtml(skill.compatibility) + '</div>' : '');
     CO_ENGRAM.openDrawer(body);
   },
 
@@ -1911,15 +1986,6 @@ window.CO_ENGRAM_PROPOSALS = {
         var skillChip = isSkill
           ? '<span class="chip" style="border-color:var(--kind-procedure,#fb923c);color:var(--kind-procedure,#fb923c)">🛠️ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillBadge')) + '</span>'
           : '';
-        // policyKind chip(载体类型,并入 card-meta 与其他 chip 一致;enumLabel 未注册值回落 policyKind 原文)
-        var policyChip = '';
-        if (isSkill) {
-          const plPol = p.payload || {};
-          const policyKind = plPol.policy && plPol.policy.kind;
-          let policyLabel = policyKind ? T.enumLabel('policyKind', policyKind) : '';
-          if (!policyLabel || policyLabel.indexOf('enum.policyKind.') === 0) policyLabel = policyKind || '';
-          if (policyLabel) policyChip = '<span class="chip" style="border-left:3px solid var(--kind-procedure,#fb923c)">⚙ ' + CO_ENGRAM.escapeHtml(policyLabel) + '</span>';
-        }
         // payload.domainTags(若有)+ occurrences/sample chip
         const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
         const moreTags = (p.payload && Array.isArray(p.payload.domainTags) && p.payload.domainTags.length > 4) ? (p.payload.domainTags.length - 4) : 0;
@@ -1931,7 +1997,6 @@ window.CO_ENGRAM_PROPOSALS = {
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
           + remPatternChips
           + skillChip
-          + policyChip
           + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
           + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
@@ -2046,13 +2111,10 @@ window.CO_ENGRAM_PROPOSALS = {
         + '</div>';
     }
 
-    // skill 提案:专属表单(skillId + 触发条件 + 完成时机 + 执行载体 只读 + visibility),
+    // skill 提案:专属表单(skillId + 描述 只读 + visibility),
     // 隐藏 engram 的 kind/content/domainTags(skill accept 后端用 payload,这些字段无意义)
     if ((p.source || 'conversation') === 'skill') {
       const _pl = p.payload || {};
-      const _policyKind = _pl.policy && _pl.policy.kind;
-      let _policyLabel = _policyKind ? T.enumLabel('policyKind', _policyKind) : '';
-      if (!_policyLabel || _policyLabel.indexOf('enum.policyKind.') === 0) _policyLabel = _policyKind || '';
       const _skillBody = '<div class="edit-banner" style="display:flex;gap:0.5rem;align-items:center">'
         + '<strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.detailTitle')) + '</strong>'
         + '<code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(p.entityId) + '</code></div>'
@@ -2060,10 +2122,6 @@ window.CO_ENGRAM_PROPOSALS = {
         + '<input id="pf-title" type="text" value="' + CO_ENGRAM.escapeHtml(this._drawerTitle(p)) + '" readonly></div>'
         + '<div class="field" style="opacity:0.9"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</label>'
         + '<div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(_pl.initiationSet || '') + '</div></div>'
-        + '<div class="field" style="opacity:0.9"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.termination')) + '</label>'
-        + '<div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(_pl.termination || '') + '</div></div>'
-        + '<div class="field" style="opacity:0.9"><label class="field-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.policyKindLabel')) + '</label>'
-        + '<div style="font-size:0.9rem">⚙ ' + CO_ENGRAM.escapeHtml(_policyLabel) + '</div></div>'
         + '<div class="field"' + (editable ? '' : ' style="opacity:0.6"') + '>'
         + '<label class="field-label" for="pf-visibility"' + CO_ENGRAM.tip('visibility.public') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.visibility.label')) + '</label>'
         + '<select id="pf-visibility" name="visibility"' + (editable ? '' : ' disabled') + CO_ENGRAM.tip('visibility.public') + '>' + visOptions + '</select>'
@@ -2105,7 +2163,7 @@ window.CO_ENGRAM_PROPOSALS = {
     const T = CO_ENGRAM_T;
     const p = CO_ENGRAM._currentProposal;
     if (!p) return;
-    // skill 提案:后端 accept 用 payload(skillId/initiationSet/termination/policy),
+    // skill 提案:后端 accept 用 payload(skillId/initiationSet),
     // 表单只透传 visibility(engram 的 kind/content/domainTags 对 skill 无意义,不传)
     if ((p.source || 'conversation') === 'skill') {
       const _vis = (document.getElementById('pf-visibility') || {}).value || 'public';
@@ -4102,6 +4160,7 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tip4') + '</li>'
       + '<li>' + T.t('viewer.help.tip5') + '</li>'
       + '<li>' + T.t('viewer.help.tip6') + '</li>'
+      + '<li>' + T.t('viewer.help.tip7') + '</li>'
       + '</ul>'
 
       + '<h3>' + T.t('viewer.help.visibilityTitle') + '</h3>'
