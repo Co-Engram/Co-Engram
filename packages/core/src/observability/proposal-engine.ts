@@ -330,6 +330,19 @@ export class ProposalEngine {
   private readonly necessityEvaluator: NecessityEvaluator;
   private readonly skillRepository?: SkillRepository;
   /**
+   * 默认创建者(host adapter 注入的 git author:user.name > user.email)。
+   *
+   * accept 内部 createdBy 兜底链:
+   *   input.createdBy(工具层传的 ctx.defaultCreatedBy) > this.defaultCreatedBy
+   *   (host 注入) > "unknown"。
+   *
+   * 设计理由:createdBy 是「人类责任归属」字段,core 不冒充任何机器角色
+   * (历史值 "proposal-engine" / "rem-*-accept" / "skill-proposal-accept" 已清除)。
+   * host adapter 从 git config 解析当前操作者身份注入,使 viewer / MCP / daemon
+   * 审批路径的作者统一为真人,而非机器标签。
+   */
+  private readonly defaultCreatedBy?: string;
+  /**
    * readProposals / readClusters 的 mtime-based cache。
    *
    * 背景(2026-07 性能修复):旧实现每次 listPending / listAll / 调用方读
@@ -381,6 +394,8 @@ export class ProposalEngine {
      */
     readonly necessityEvaluator?: NecessityEvaluator;
     readonly skillRepository?: SkillRepository;
+    /** 默认创建者(host 注入 git author),详见 this.defaultCreatedBy 注释 */
+    readonly defaultCreatedBy?: string;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -401,6 +416,7 @@ export class ProposalEngine {
     this.necessityEvaluator =
       deps.necessityEvaluator ?? new RuleBasedNecessityEvaluator();
     this.skillRepository = deps.skillRepository;
+    this.defaultCreatedBy = deps.defaultCreatedBy;
   }
 
   /**
@@ -780,7 +796,7 @@ export class ProposalEngine {
         const evidence = {
           description:
             `REM 审批通过（用户 accept）: ${target.sampleQuotes?.[0] ?? ""} ${target.sampleQuotes?.[1] ?? ""}`.trim(),
-          verifiedBy: input.createdBy ?? "rem-proposal-accept",
+          verifiedBy: input.createdBy ?? this.defaultCreatedBy ?? "unknown",
           confidence: 0.8,
         };
         // 用 upgradeVerification/refuteEngram 替代手动调用:
@@ -827,7 +843,7 @@ export class ProposalEngine {
           `rem-synapse proposal missing payload (entityId=${entityId})`,
         );
       }
-      const createdBy = input.createdBy ?? "rem-synapse-accept";
+      const createdBy = input.createdBy ?? this.defaultCreatedBy ?? "unknown";
       if (p.synapseOp === "add") {
         const ts = new Date().toISOString();
         const synapse: Synapse = {
@@ -907,7 +923,7 @@ export class ProposalEngine {
           `rem-pattern proposal missing payload (entityId=${entityId})`,
         );
       }
-      const createdBy = input.createdBy ?? "rem-pattern-accept";
+      const createdBy = input.createdBy ?? this.defaultCreatedBy ?? "unknown";
       // path conflict 兜底(同通用分支):若已有同 title 的 pattern engram,
       // createEngram 抛 "Engram already exists at <path>",此时 adopt 现有的而非失败。
       let patternEngram: { id: string; createdAt: string };
@@ -982,7 +998,7 @@ export class ProposalEngine {
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
-        createdBy: input.createdBy ?? "skill-proposal-accept",
+        createdBy: input.createdBy ?? this.defaultCreatedBy ?? "unknown",
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
         ...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
         ...(p.license ? { license: p.license } : {}),
@@ -1056,7 +1072,7 @@ export class ProposalEngine {
       createdBy:
         target.source === "external-markdown" && payload?.createdBy
           ? payload.createdBy
-          : (input.createdBy ?? "proposal-engine"),
+          : (input.createdBy ?? this.defaultCreatedBy ?? "unknown"),
       ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
       ...(payload?.contextTags !== undefined
         ? { contextTags: payload.contextTags }
@@ -1937,7 +1953,7 @@ export class ProposalEngine {
           createdBy:
             p.source === "external-markdown" && payload?.createdBy
               ? payload.createdBy
-              : (input.createdBy ?? "proposal-engine"),
+              : (input.createdBy ?? this.defaultCreatedBy ?? "unknown"),
           ...(payload?.summary !== undefined
             ? { summary: payload.summary }
             : {}),

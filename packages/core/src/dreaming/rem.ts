@@ -336,7 +336,7 @@ export async function runRemDreaming(
     options.abstractionProvider ?? new LocalHeuristicPatternAbstraction();
   const minClusterSize = options.minClusterSize ?? 3;
   const autoAdoptionThreshold = options.autoAdoptionThreshold ?? 0.85;
-  const createdBy = options.createdBy ?? "dreaming-rem";
+  const createdBy = options.createdBy ?? "unknown";
   const dryRun = options.dryRun ?? false;
 
   const clusters = clusterSimilarEngrams(repo, options.clustering ?? {});

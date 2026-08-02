@@ -372,7 +372,7 @@ async function main(): Promise<void> {
       if (projectsRoot && ctx.proposalEngine) {
         const engine = new AutoMemorySyncEngine({
           proposalEngine: ctx.proposalEngine,
-          defaultCreatedBy: defaultCreatedBy ?? "claude-code-auto-memory",
+          defaultCreatedBy: defaultCreatedBy ?? "unknown",
           log: (msg) => process.stderr.write(`${msg}\n`),
         });
         const watcher = new AutoMemoryWatcher({

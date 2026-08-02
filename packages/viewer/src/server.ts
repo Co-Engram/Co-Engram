@@ -1025,7 +1025,14 @@ async function routeApi(
           ...(body?.title ? { title: body.title } : {}),
           ...(body?.content ? { content: body.content } : {}),
           ...(body?.domainTags ? { domainTags: body.domainTags } : {}),
-          ...(body?.createdBy ? { createdBy: body.createdBy } : {}),
+          // 作者优先用 host 注入的 git author(ctx.defaultCreatedBy = 本机 git 身份),
+          // 前端 body.createdBy 作 fallback。修复:旧版仅在前端传值时才带 createdBy,
+          // 网页审批不传 → 触发 core 兜底成机器标签 "proposal-engine"。
+          ...(ctx.defaultCreatedBy
+            ? { createdBy: ctx.defaultCreatedBy }
+            : body?.createdBy
+              ? { createdBy: body.createdBy }
+              : {}),
           ...(body?.kind
             ? {
                 kind: body.kind as

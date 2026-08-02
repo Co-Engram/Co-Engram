@@ -209,6 +209,11 @@ export function createCoEngramContext(
           ...(necessityEvaluator ? { necessityEvaluator } : {}),
           // S4 Task 3: 注入 skillRepository(供 proposal skill hook 用)
           skillRepository,
+          // 默认创建者(host 解析的 git author:detectGitAuthor > config),
+          // accept 兜底用它而非机器标签
+          ...(fullConfig.defaultCreatedBy
+            ? { defaultCreatedBy: fullConfig.defaultCreatedBy }
+            : {}),
         })
       : undefined;
 

@@ -299,6 +299,10 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
             : {}),
           // S4 Task 2: 注入 skillRepository(供 proposal skill hook 用)
           skillRepository,
+          // 默认创建者(host 解析的 git author),accept 兜底用它而非机器标签
+          ...(config.defaultCreatedBy
+            ? { defaultCreatedBy: config.defaultCreatedBy }
+            : {}),
         })
       : undefined;
 
