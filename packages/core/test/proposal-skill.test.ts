@@ -136,13 +136,13 @@ describe("proposeSkill", () => {
   it("proposeSkill 透传 SKILL.md 原生字段到 payload", () => {
     engine.proposeSkill({
       sourcePath: "skills/t", skillId: "t", initiationSet: "when X",
-      allowedTools: ["Read", "Bash"], license: "MIT", version: "1.0",
+      allowedTools: ["Read", "Bash"], license: "MIT", skillVersion: "1.0",
       metadata: { author: "a" }, compatibility: "Claude Code",
     });
     const p = engine.listPending().find((x) => x.entityId.startsWith("skill:"));
     expect(p?.payload?.allowedTools).toEqual(["Read", "Bash"]);
     expect(p?.payload?.license).toBe("MIT");
-    expect(p?.payload?.version).toBe("1.0");
+    expect(p?.payload?.skillVersion).toBe("1.0");
     expect(p?.payload?.compatibility).toBe("Claude Code");
   });
 });

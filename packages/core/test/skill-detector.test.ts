@@ -44,7 +44,7 @@ body`;
     const parsed = parseSkillMd(raw, "dir/test-skill");
     expect(parsed?.allowedTools).toEqual(["Read", "Write", "Bash"]);
     expect(parsed?.license).toBe("MIT");
-    expect(parsed?.version).toBe("1.2.0");
+    expect(parsed?.skillVersion).toBe("1.2.0");
     expect(parsed?.metadata).toEqual({ author: "alice", category: "dev" });
     expect(parsed?.compatibility).toBe("Claude Code >= 1.0");
   });

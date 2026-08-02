@@ -4,7 +4,7 @@
  */
 import { computeContentHash } from "../storage/hash.js";
 import { validationError, notFoundError } from "../tools/error-schema.js";
-import type { Skill, SkillCreateInput, SkillUpdateInput, SkillPolicy } from "../types/skill.js";
+import type { Skill, SkillCreateInput, SkillUpdateInput } from "../types/skill.js";
 import {
   updateUtility,
   computeRetention,
@@ -31,10 +31,13 @@ export class SkillRepository {
       schemaVersion: 1,
       skillId: input.skillId,
       sourcePath: input.sourcePath,
-      contentHash: computePolicyHash(input.policy),
+      contentHash: computeSkillContentHash(input.skillId, input.sourcePath, input.initiationSet),
       initiationSet: input.initiationSet,
-      termination: input.termination,
-      policy: input.policy,
+      ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+      ...(input.license ? { license: input.license } : {}),
+      ...(input.skillVersion ? { skillVersion: input.skillVersion } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.compatibility ? { compatibility: input.compatibility } : {}),
       utility: 0.5,
       sampleSize: 0,
       invocationCount: 0,
@@ -81,9 +84,13 @@ export class SkillRepository {
     }
     const next: Skill = {
       ...cur,
-      ...(patch.initiationSet !== undefined ? { initiationSet: patch.initiationSet } : {}),
-      ...(patch.termination !== undefined ? { termination: patch.termination } : {}),
-      ...(patch.policy !== undefined ? { policy: patch.policy, contentHash: computePolicyHash(patch.policy) } : {}),
+      // S6.x: contentHash 现追踪 initiationSet（原追踪 policy,policy 已移除）;initiationSet 变更时同步重算
+      ...(patch.initiationSet !== undefined
+        ? {
+            initiationSet: patch.initiationSet,
+            contentHash: computeSkillContentHash(cur.skillId, cur.sourcePath, patch.initiationSet),
+          }
+        : {}),
       ...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
       ...(patch.acquisitionStage !== undefined ? { acquisitionStage: patch.acquisitionStage } : {}),
       updatedAt: new Date().toISOString(),
@@ -206,6 +213,10 @@ export class SkillRepository {
   }
 }
 
-function computePolicyHash(policy: SkillPolicy): string {
-  return computeContentHash(`${policy.kind}|${policy.ref}`);
+/**
+ * S6.x: contentHash 算法 —— 原 computePolicyHash(policy) 随 policy 字段一并移除。
+ * 现追踪 skill 的剩余"内容"字段（skillId|sourcePath|initiationSet），无执行语义,仅作身份指纹。
+ */
+function computeSkillContentHash(skillId: string, sourcePath: string, initiationSet: string): string {
+  return computeContentHash(`${skillId}|${sourcePath}|${initiationSet}`);
 }

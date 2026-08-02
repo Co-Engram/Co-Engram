@@ -21,7 +21,7 @@ export interface ParsedSkillMd {
   readonly sourcePath: string;
   readonly allowedTools?: readonly string[];
   readonly license?: string;
-  readonly version?: string;
+  readonly skillVersion?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
   readonly compatibility?: string;
 }
@@ -64,7 +64,7 @@ export function parseSkillMd(raw: string, sourcePath: string): ParsedSkillMd | n
     sourcePath,
     ...(allowedTools ? { allowedTools } : {}),
     ...(license ? { license } : {}),
-    ...(version ? { version } : {}),
+    ...(version ? { skillVersion: version } : {}),
     ...(metadata ? { metadata } : {}),
     ...(compatibility ? { compatibility } : {}),
   };

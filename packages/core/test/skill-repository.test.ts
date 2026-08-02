@@ -20,8 +20,10 @@ const input = {
   skillId: "icenter-contacts",
   sourcePath: "tools/icenter-contacts",
   initiationSet: "查询通讯录",
-  termination: "拿到工号",
-  policy: { kind: "claude-skill" as const, ref: "SKILL.md" },
+  allowedTools: ["Read", "Bash"],
+  license: "MIT",
+  skillVersion: "1.0",
+  compatibility: "Claude Code",
   createdBy: "tester",
 };
 
@@ -31,6 +33,10 @@ describe("SkillRepository CRUD", () => {
     expect(s.skillId).toBe("icenter-contacts");
     expect(s.acquisitionStage).toBe("draft");
     expect(s.utility).toBe(0.5);
+    expect(s.allowedTools).toEqual(["Read", "Bash"]);
+    expect(s.license).toBe("MIT");
+    expect(s.skillVersion).toBe("1.0");
+    expect(s.compatibility).toBe("Claude Code");
     expect(repo.readSkill("icenter-contacts").skillId).toBe("icenter-contacts");
   });
 

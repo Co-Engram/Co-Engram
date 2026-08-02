@@ -150,8 +150,8 @@ export interface ProposalPayload {
   readonly allowedTools?: readonly string[];
   /** skill 专用:SKILL.md 原生 license */
   readonly license?: string;
-  /** skill 专用:SKILL.md 原生 version */
-  readonly version?: string;
+  /** skill 专用:SKILL.md 原生 version(语义版本,映射到内部 skillVersion 字段) */
+  readonly skillVersion?: string;
   /** skill 专用:SKILL.md 原生 metadata(任意键值对) */
   readonly metadata?: Readonly<Record<string, unknown>>;
   /** skill 专用:SKILL.md 原生 compatibility(兼容性描述) */
@@ -984,6 +984,11 @@ export class ProposalEngine {
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
         createdBy: input.createdBy ?? "skill-proposal-accept",
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+        ...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
+        ...(p.license ? { license: p.license } : {}),
+        ...(p.skillVersion ? { skillVersion: p.skillVersion } : {}),
+        ...(p.metadata ? { metadata: p.metadata } : {}),
+        ...(p.compatibility ? { compatibility: p.compatibility } : {}),
       });
       const updatedSkill = proposals.map((pp) =>
         pp.entityId === entityId ? { ...pp, status: "accepted" as const, acceptedEngramId: skill.skillId } : pp,
@@ -1554,7 +1559,7 @@ export class ProposalEngine {
     readonly at?: string;
     readonly allowedTools?: readonly string[];
     readonly license?: string;
-    readonly version?: string;
+    readonly skillVersion?: string;
     readonly metadata?: Readonly<Record<string, unknown>>;
     readonly compatibility?: string;
   }): "proposed" | "updated" | "no-change" {
@@ -1573,7 +1578,7 @@ export class ProposalEngine {
       initiationSet: input.initiationSet,
       ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
       ...(input.license ? { license: input.license } : {}),
-      ...(input.version ? { version: input.version } : {}),
+      ...(input.skillVersion ? { skillVersion: input.skillVersion } : {}),
       ...(input.metadata ? { metadata: input.metadata } : {}),
       ...(input.compatibility ? { compatibility: input.compatibility } : {}),
     };
@@ -1691,7 +1696,7 @@ export class ProposalEngine {
               initiationSet: fields.initiationSet,
               allowedTools: parsed.allowedTools,
               license: parsed.license,
-              version: parsed.version,
+              skillVersion: parsed.skillVersion,
               metadata: parsed.metadata,
               compatibility: parsed.compatibility,
             });
@@ -1705,7 +1710,7 @@ export class ProposalEngine {
               initiationSet: fallbackFields.initiationSet,
               allowedTools: parsed.allowedTools,
               license: parsed.license,
-              version: parsed.version,
+              skillVersion: parsed.skillVersion,
               metadata: parsed.metadata,
               compatibility: parsed.compatibility,
             });
@@ -1722,7 +1727,7 @@ export class ProposalEngine {
         initiationSet: fields.initiationSet,
         allowedTools: parsed.allowedTools,
         license: parsed.license,
-        version: parsed.version,
+        skillVersion: parsed.skillVersion,
         metadata: parsed.metadata,
         compatibility: parsed.compatibility,
       });
@@ -1899,6 +1904,11 @@ export class ProposalEngine {
             skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
             createdBy: input.createdBy ?? "skill-batch-accept",
             ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+            ...(p2.allowedTools ? { allowedTools: p2.allowedTools } : {}),
+            ...(p2.license ? { license: p2.license } : {}),
+            ...(p2.skillVersion ? { skillVersion: p2.skillVersion } : {}),
+            ...(p2.metadata ? { metadata: p2.metadata } : {}),
+            ...(p2.compatibility ? { compatibility: p2.compatibility } : {}),
           });
           acceptedIds.push(p.entityId);
           engramIds.push(sk.skillId);
