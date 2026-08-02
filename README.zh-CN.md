@@ -287,7 +287,7 @@ wikilink 的 **target 是文件名**(去 `.md`),Obsidian 直接解析,**不依�
 
 用 [Obsidian](https://obsidian.md/) 打开团队记忆目录("Open vault → ~/AIOS/team-memory/team-memory/" 或 dataRoot 指向的路径),**Graph View** 就能渲染完整的记忆网络——反向链接、文件 shift-click 跳转、全局结构一目了然。YAML 权威源仍在 `synapses/*.yaml`;派生段每次 synapse 写入时重建,手动改了它也不要紧,下次写入会覆盖回来。
 
-**自愈:** `engram_doctor` 会逐条比对派生段与权威 synapse yaml(比如你手改了 wikilink、写入被中断、文件被重命名),发现漂移就重建。幂等——干净仓库跑一次报 0 修复。Obsidian 图谱看起来不对、或大批量导入 / Git 合并之后跑一次即可。
+**自愈:** `engram_doctor` 会逐条比对派生段与权威 synapse yaml(比如你手改了 wikilink、写入被中断、文件被重命名),发现漂移就重建;它也扫描 skill 子系统(孤儿 SKILL.md、悬空 imprint/composes、字段校验)。幂等——干净仓库跑一次报 0 修复。Obsidian 图谱看起来不对、或大批量导入 / Git 合并之后跑一次即可。
 
 **已知 tradeoff:** Obsidian 的边是无向无差别的——12 种 synapse kind 在 graph 上会折叠成一种线。kind 信息保留在 wikilink 显示文本(`[[...|某标题 · extends]]`)里。要按 kind 过滤,用网页内的 **Graph** 标签。
 
@@ -596,8 +596,8 @@ Co-Engram 暴露 **26 个原生工具**,按五个关注点分组;此外 `@co-eng
 **Synapses**(4 个)— engram 之间的有类型连接
 `synapse_create` · `synapse_get` · `synapse_list` · `synapse_delete`
 
-**Skills**(2 个)— 程序性记忆
-`skill_get` · `skill_invoke`
+**Skills**(12 个)— 程序性记忆(CRUD + invoke + skill 编排 + skill↔engram 关联)
+`skill_get` · `skill_list` · `skill_create` · `skill_update` · `skill_delete` · `skill_invoke` · `skill_compose_add` · `skill_compose_remove` · `skill_compose_list` · `skill_related_engram_add` · `skill_related_engram_remove` · `skill_related_engram_list`
 
 **学习回路**(4 个)— 验证、矛盾、进化
 `close_learning_loop` · `contradiction_resolve` · `upgrade_verification` · `get_evolution_lineage`
@@ -748,7 +748,7 @@ LLM 遇到可复用的洞察时会调用 `engram_create`。当 `dedupe: true`(�
 
 ### 6. Doctor:自愈扫描
 
-`engram_doctor` 审计数据仓库,自动修复能安全修复的,把剩余的列为待人工审查。在外部编辑后(比如手解 Git 冲突)或定期跑一次。
+`engram_doctor` 审计数据仓库,自动修复能安全修复的,把剩余的列为待人工审查。它覆盖 **engram 文件**(移动/重命名/缺失、悬空 synapse、SQLite 漂移、Obsidian 视图)与 **skill 子系统**(孤儿 SKILL.md、悬空 imprint、skillId 不匹配、悬空 composes/relatedEngrams、重复 skillId、imprint 字段校验、陈旧 contentHash)。在外部编辑后(比如手解 Git 冲突)或定期跑一次。
 
 ```json
 // 工具输入

@@ -287,7 +287,7 @@ The wikilink **target is the filename** (without `.md`), so Obsidian resolves it
 
 Open the team memory directory in [Obsidian](https://obsidian.md/) (`Open vault → ~/AIOS/team-memory/team-memory/` or wherever your `dataRoot` points) and the **Graph View** renders the full memory network with backlinks, file shift-click navigation, and global structure at a glance. The YAML source of truth stays in `synapses/*.yaml`; the derived section is rebuilt on every synapse write, so manual edits to it are safe to revert.
 
-**Self-healing:** `engram_doctor` checks every engram's derived section against the authoritative synapse yaml (e.g. you hand-edited the wikilinks, a write was interrupted, or a file was renamed) and regenerates the stale view. Idempotent — running it on a clean repo reports zero fixes. Run it whenever the Obsidian graph looks wrong, or after bulk imports / Git merges.
+**Self-healing:** `engram_doctor` checks every engram's derived section against the authoritative synapse yaml (e.g. you hand-edited the wikilinks, a write was interrupted, or a file was renamed) and regenerates the stale view; it also scans the skill subsystem (orphan SKILL.md, dangling imprints/composes, field validation). Idempotent — running it on a clean repo reports zero fixes. Run it whenever the Obsidian graph looks wrong, or after bulk imports / Git merges.
 
 **Tradeoff:** Obsidian edges are undirected and untyped — all 12 synapse kinds collapse to one visual line. Kind info survives in the wikilink display text (`[[...|Some Title · extends]]`). For kind-aware filtering, use the in-app **Graph** tab.
 
@@ -596,8 +596,8 @@ Co-Engram exposes **26 native tools** grouped into five concerns, plus 2 OpenCla
 **Synapses** (4) — typed connections between engrams
 `synapse_create` · `synapse_get` · `synapse_list` · `synapse_delete`
 
-**Skills** (2) — procedural memory
-`skill_get` · `skill_invoke`
+**Skills** (12) — procedural memory (CRUD + invoke + skill chaining + skill↔engram links)
+`skill_get` · `skill_list` · `skill_create` · `skill_update` · `skill_delete` · `skill_invoke` · `skill_compose_add` · `skill_compose_remove` · `skill_compose_list` · `skill_related_engram_add` · `skill_related_engram_remove` · `skill_related_engram_list`
 
 **Learning loop** (4) — verification, contradiction, evolution
 `close_learning_loop` · `contradiction_resolve` · `upgrade_verification` · `get_evolution_lineage`
@@ -748,7 +748,7 @@ After using an engram in a real task, the LLM (or your code) calls `close_learni
 
 ### 6. Doctor: self-healing scan
 
-`engram_doctor` audits the data repo, auto-fixes what it safely can, and lists the rest for manual review. Run it after external edits (e.g. resolving Git conflicts by hand) or just periodically.
+`engram_doctor` audits the data repo, auto-fixes what it safely can, and lists the rest for manual review. It covers both **engram files** (moved/renamed/missing, dangling synapses, SQLite drift, Obsidian view) and the **skill subsystem** (orphan SKILL.md, dangling imprint, skillId mismatch, dangling composes/relatedEngrams, duplicate skillId, imprint field validation, stale contentHash). Run it after external edits (e.g. resolving Git conflicts by hand) or just periodically.
 
 ```json
 // tool input
