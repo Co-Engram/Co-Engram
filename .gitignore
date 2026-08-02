@@ -6,6 +6,8 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+*.tgz
+release/
 
 # Test artifacts
 coverage/
