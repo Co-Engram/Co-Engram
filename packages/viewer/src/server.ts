@@ -762,6 +762,49 @@ async function routeApi(
     return;
   }
 
+  // /api/skills/:id/reveal — 在系统文件管理器打开该 skill 所在目录
+  //
+  // skill 目录 = dataRoot + skill.sourcePath(sourcePath 相对 dataRoot,由 skill-detector
+  // collectSkillDirs 生成)。复用 engram 的 revealDirectory + 同响应结构(opened/reason/
+  // relativePath/dir),前端复用 engram 的降级 banner 文案模式。token 校验依赖上层
+  // handleRequest(与 engram reveal 路由一致,路由内不重复)。
+  const skillRevealMatch = /^\/api\/skills\/(.+)\/reveal$/.exec(path);
+  if (skillRevealMatch && req.method === "POST") {
+    const skillId = decodeURIComponent(skillRevealMatch[1]!);
+    if (!ctx.skillRepository) {
+      respondJson(res, 503, {
+        error: "SkillRepository not available",
+        enabled: false,
+      });
+      return;
+    }
+    let skill: { readonly sourcePath: string } | undefined;
+    try {
+      skill = ctx.skillRepository.readSkill(skillId);
+    } catch {
+      respondJson(res, 404, { error: `Skill not found: ${skillId}` });
+      return;
+    }
+    const absDir = join(ctx.repository.rootPath, skill.sourcePath);
+    if (!existsSync(absDir)) {
+      respondJson(res, 200, {
+        opened: false,
+        reason: "dir-not-found",
+        relativePath: skill.sourcePath,
+        dir: absDir,
+      });
+      return;
+    }
+    const result = revealDirectory(absDir);
+    respondJson(res, 200, {
+      opened: result.opened,
+      ...(result.reason ? { reason: result.reason } : {}),
+      relativePath: skill.sourcePath,
+      dir: absDir,
+    });
+    return;
+  }
+
   // /api/skills/:id  (GET) — skill 详情
   const skillMatch = /^\/api\/skills\/(.+)$/.exec(path);
   if (skillMatch && req.method === "GET") {

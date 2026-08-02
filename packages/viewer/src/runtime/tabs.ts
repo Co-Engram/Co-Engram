@@ -1269,7 +1269,11 @@ window.CO_ENGRAM_SKILLS = {
 
       // 来源标识(展示层从 compatibility 推断,不存 sourceType 字段;YAGNI)
       const _compat = (s.compatibility || '').toLowerCase();
-      const sourceIcon = _compat.includes('openclaw') ? '🦾 ' : _compat.includes('claude') ? '🧩 ' : '🌐 ';
+      const _srcTip = _compat.includes('openclaw') ? T.t('skills.sourceIcon.openclaw')
+        : _compat.includes('claude') ? T.t('skills.sourceIcon.claude')
+        : T.t('skills.sourceIcon.generic');
+      const sourceIcon = '<span title="' + CO_ENGRAM.escapeHtml(_srcTip) + '">'
+        + (_compat.includes('openclaw') ? '🦾' : _compat.includes('claude') ? '🧩' : '🌐') + '</span> ';
 
       // sourcePath 副标题
       const sourcePathHtml = s.sourcePath
@@ -1337,7 +1341,7 @@ window.CO_ENGRAM_SKILLS = {
     const ub = '<div class="bar-track" style="width:120px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + up + '%;background:#5eead4"></div></div>';
     const _sc = skill.successCount || 0, _fc = skill.failureCount || 0;
     const _rateStr = (_sc + _fc) > 0 ? Math.round(_sc / (_sc + _fc) * 100) + '%' : '—';
-    const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code></div>'
+    const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code><button class="btn secondary" onclick="CO_ENGRAM_SKILLS.openDir(\\\'' + CO_ENGRAM.escapeHtml(skill.skillId) + '\\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.openDir')) + '</button></div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(skill.skillId) + '</h2>'
       + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span></div>'
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + '</span> ' + ub + ' <span>' + up + '%</span></div>'
@@ -1420,6 +1424,68 @@ window.CO_ENGRAM_SKILLS = {
     const body = document.getElementById('skills-body');
     if (body && body.scrollIntoView) body.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
+
+  // 「打开目录」:POST /api/skills/:id/reveal,server 端 spawn 系统文件管理器。
+  // 对称 CO_ENGRAM_ENGRAMS.openDir;成功 → drawer 顶部成功 banner;降级 → 展示路径 + 复制按钮。
+  async openDir(skillId) {
+    const T = CO_ENGRAM_T;
+    var res;
+    try {
+      res = await CO_ENGRAM.apiJson('/api/skills/' + encodeURIComponent(skillId) + '/reveal', 'POST', null);
+    } catch (e) {
+      CO_ENGRAM_SKILLS._showDirBanner(T.t('viewer.skill.openDirFailed', { err: CO_ENGRAM.escapeHtml(String(e.message || e)) }), null);
+      return;
+    }
+    if (res && res.opened) {
+      CO_ENGRAM_SKILLS._showDirBanner(T.t('viewer.skill.openDirOpened'), null, true);
+    } else {
+      var reasonKey = (res && res.reason) ? ('viewer.skill.openDirReason.' + res.reason) : 'viewer.skill.openDirReason.fallback';
+      var reasonText = T.t(reasonKey);
+      CO_ENGRAM_SKILLS._showDirBanner(reasonText, res && res.dir ? res.dir : null);
+    }
+  },
+
+  // 在 drawer 顶部插目录操作反馈 banner(对称 CO_ENGRAM_ENGRAMS._showDirBanner)。
+  // dirPath 提供时附带「复制路径」按钮;isSuccess=true 时 2.5s 后自动消失。
+  _showDirBanner(message, dirPath, isSuccess) {
+    var drawer = document.getElementById('detail-drawer');
+    if (!drawer) return;
+    var body = drawer.querySelector('.drawer-body');
+    if (!body) return;
+    var existing = body.querySelector('.dir-banner');
+    if (existing) existing.remove();
+    var copyBtn = dirPath
+      ? ' <button class="btn mini secondary" onclick="CO_ENGRAM_SKILLS._copyDirPath(this)" data-dir="' + CO_ENGRAM.escapeHtml(dirPath) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_T.t('viewer.skill.openDirCopy')) + '</button>'
+      : '';
+    var banner = document.createElement('div');
+    banner.className = isSuccess ? 'dir-banner dir-banner-success' : 'dir-banner';
+    banner.innerHTML = '<span>' + message + '</span>'
+      + (dirPath ? '<code style="display:block;margin-top:.3rem;font-size:.8em;word-break:break-all">' + CO_ENGRAM.escapeHtml(dirPath) + '</code>' : '')
+      + copyBtn
+      + '<button class="dir-banner-close" onclick="this.parentElement.remove()" aria-label="close">×</button>';
+    body.insertBefore(banner, body.firstChild);
+    if (isSuccess) {
+      setTimeout(function() { if (banner.parentNode) banner.remove(); }, 2500);
+    }
+  },
+
+  // 复制目录路径到剪贴板(对称 CO_ENGRAM_ENGRAMS._copyDirPath)。
+  _copyDirPath(btn) {
+    var path = btn.getAttribute('data-dir') || '';
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(path);
+      } else {
+        var ta = document.createElement('textarea');
+        ta.value = path; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+      }
+      btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopied');
+      setTimeout(function() { btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopy'); }, 1500);
+    } catch (e) {
+      btn.textContent = CO_ENGRAM_T.t('viewer.skill.openDirCopyFailed');
+    }
+  }
 };
 
 // ============================================================
