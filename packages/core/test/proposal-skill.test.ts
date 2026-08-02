@@ -16,7 +16,6 @@ import {
   SKILL_PROPOSAL_PREFIX,
 } from "../src/observability/proposal-engine.js";
 import { SkillRepository } from "../src/skill/skill-repository.js";
-import type { SkillPolicy } from "../src/types/skill.js";
 
 let tmpDir: string;
 let repo: EngramRepository;
@@ -58,13 +57,10 @@ describe("skillEntityId", () => {
 });
 
 describe("proposeSkill", () => {
-  const mockPolicy: SkillPolicy = { kind: "prompt", ref: "SKILL.md" };
   const mockInput = {
     sourcePath: "tools/a",
     skillId: "a",
     initiationSet: "用时：",
-    termination: "结束",
-    policy: mockPolicy,
   };
 
   it("首次 → proposed", () => {
@@ -136,6 +132,19 @@ describe("proposeSkill", () => {
     const result = engine.proposeSkill(mockInput);
     expect(result).toBe("no-change");
   });
+
+  it("proposeSkill 透传 SKILL.md 原生字段到 payload", () => {
+    engine.proposeSkill({
+      sourcePath: "skills/t", skillId: "t", initiationSet: "when X",
+      allowedTools: ["Read", "Bash"], license: "MIT", version: "1.0",
+      metadata: { author: "a" }, compatibility: "Claude Code",
+    });
+    const p = engine.listPending().find((x) => x.entityId.startsWith("skill:"));
+    expect(p?.payload?.allowedTools).toEqual(["Read", "Bash"]);
+    expect(p?.payload?.license).toBe("MIT");
+    expect(p?.payload?.version).toBe("1.0");
+    expect(p?.payload?.compatibility).toBe("Claude Code");
+  });
 });
 
 describe("createSkillHook", () => {
@@ -186,13 +195,10 @@ description: 测试技能
 });
 
 describe("accept skill proposal", () => {
-  const mockPolicy: SkillPolicy = { kind: "prompt", ref: "SKILL.md" };
   const mockInput = {
     sourcePath: "tools/a",
     skillId: "a",
     initiationSet: "用时：",
-    termination: "结束",
-    policy: mockPolicy,
   };
 
   it("accept → skillRepository.createSkill + proposal accepted", () => {
@@ -278,23 +284,17 @@ describe("accept skill proposal", () => {
 });
 
 describe("accept_proposals_by_source source=skill", () => {
-  const mockPolicy: SkillPolicy = { kind: "prompt", ref: "SKILL.md" };
-
   it("批量 accept skill 提案", () => {
     // 创建 2 个 skill proposal(pending)
     const mockInput1 = {
       sourcePath: "tools/test1",
       skillId: "test1",
       initiationSet: "测试1：",
-      termination: "结束",
-      policy: mockPolicy,
     };
     const mockInput2 = {
       sourcePath: "tools/test2",
       skillId: "test2",
       initiationSet: "测试2：",
-      termination: "结束",
-      policy: mockPolicy,
     };
 
     engine.proposeSkill(mockInput1);

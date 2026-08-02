@@ -146,10 +146,16 @@ export interface ProposalPayload {
   readonly skillSourcePath?: string;
   /** skill 专用:Options I_ω 适用情境（规则版推断） */
   readonly initiationSet?: string;
-  /** skill 专用:Options β_ω 边界/退出条件（规则版推断） */
-  readonly termination?: string;
-  /** skill 专用:Options π_ω 执行载体 */
-  readonly policy?: import("../types/skill.js").SkillPolicy;
+  /** skill 专用:SKILL.md 原生 allowed-tools(规范化为 string[]) */
+  readonly allowedTools?: readonly string[];
+  /** skill 专用:SKILL.md 原生 license */
+  readonly license?: string;
+  /** skill 专用:SKILL.md 原生 version */
+  readonly version?: string;
+  /** skill 专用:SKILL.md 原生 metadata(任意键值对) */
+  readonly metadata?: Readonly<Record<string, unknown>>;
+  /** skill 专用:SKILL.md 原生 compatibility(兼容性描述) */
+  readonly compatibility?: string;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -965,9 +971,7 @@ export class ProposalEngine {
         !p ||
         !nonEmpty(p.skillId) ||
         !nonEmpty(p.skillSourcePath) ||
-        !nonEmpty(p.initiationSet) ||
-        !nonEmpty(p.termination) ||
-        !p.policy
+        !nonEmpty(p.initiationSet)
       ) {
         throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
       }
@@ -978,8 +982,6 @@ export class ProposalEngine {
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
-        termination: p.termination!, // nonEmpty 已确保非空
-        policy: p.policy,
         createdBy: input.createdBy ?? "skill-proposal-accept",
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
       });
@@ -1547,11 +1549,14 @@ export class ProposalEngine {
     readonly sourcePath: string;
     readonly skillId: string;
     readonly initiationSet: string;
-    readonly termination: string;
-    readonly policy: import("../types/skill.js").SkillPolicy;
     readonly createdBy?: string;
     readonly visibility?: EngramVisibility;
     readonly at?: string;
+    readonly allowedTools?: readonly string[];
+    readonly license?: string;
+    readonly version?: string;
+    readonly metadata?: Readonly<Record<string, unknown>>;
+    readonly compatibility?: string;
   }): "proposed" | "updated" | "no-change" {
     const entityId = skillEntityId(input.sourcePath);
     const now = input.at ?? new Date().toISOString();
@@ -1566,8 +1571,11 @@ export class ProposalEngine {
       skillId: input.skillId,
       skillSourcePath: input.sourcePath,
       initiationSet: input.initiationSet,
-      termination: input.termination,
-      policy: input.policy,
+      ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
+      ...(input.license ? { license: input.license } : {}),
+      ...(input.version ? { version: input.version } : {}),
+      ...(input.metadata ? { metadata: input.metadata } : {}),
+      ...(input.compatibility ? { compatibility: input.compatibility } : {}),
     };
 
     // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
@@ -1645,7 +1653,7 @@ export class ProposalEngine {
    * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
    *
    * 两 tier 模式（S2.x）：
-   *   1. 有 llmClient → LLM 推断 initiationSet/termination（精准）
+   *   1. 有 llmClient → LLM 推断 initiationSet（精准）
    *   2. llmClient 未提供 或 LLM 抛错 → 规则版（description → initiationSet）
    */
   createSkillHook(options?: {
@@ -1681,8 +1689,11 @@ export class ProposalEngine {
               sourcePath: relPath,
               skillId: parsed.skillId,
               initiationSet: fields.initiationSet,
-              termination: fields.termination,
-              policy: fields.policy,
+              allowedTools: parsed.allowedTools,
+              license: parsed.license,
+              version: parsed.version,
+              metadata: parsed.metadata,
+              compatibility: parsed.compatibility,
             });
           })
           .catch((err) => {
@@ -1692,8 +1703,11 @@ export class ProposalEngine {
               sourcePath: relPath,
               skillId: parsed.skillId,
               initiationSet: fallbackFields.initiationSet,
-              termination: fallbackFields.termination,
-              policy: fallbackFields.policy,
+              allowedTools: parsed.allowedTools,
+              license: parsed.license,
+              version: parsed.version,
+              metadata: parsed.metadata,
+              compatibility: parsed.compatibility,
             });
             options.onLlmError?.(err, relPath);
           });
@@ -1706,8 +1720,11 @@ export class ProposalEngine {
         sourcePath: relPath,
         skillId: parsed.skillId,
         initiationSet: fields.initiationSet,
-        termination: fields.termination,
-        policy: fields.policy,
+        allowedTools: parsed.allowedTools,
+        license: parsed.license,
+        version: parsed.version,
+        metadata: parsed.metadata,
+        compatibility: parsed.compatibility,
       });
     };
   }
@@ -1874,13 +1891,12 @@ export class ProposalEngine {
             continue;
           }
           const p2 = p.payload;
-          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet || !p2.termination || !p2.policy) {
+          if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet) {
             failures.push({ entityId: p.entityId, reason: "skill payload missing fields" });
             continue;
           }
           const sk = this.skillRepository.createSkill({
             skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
-            termination: p2.termination, policy: p2.policy,
             createdBy: input.createdBy ?? "skill-batch-accept",
             ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
           });
