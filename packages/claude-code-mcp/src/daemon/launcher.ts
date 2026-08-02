@@ -130,7 +130,9 @@ function spawnDaemon(opts: {
   };
 
   // detached daemon:setsid + unlink from parent
-  const child = spawn(process.execPath, [entry, opts.dataRoot], {
+  // --disable-warning=ExperimentalWarning:抑制 node:sqlite 的 experimental 提示
+  // (co-engram 用 node:sqlite 做 indexDb 派生层;Node 21+ 精确 flag,只抑这一类,不影响其他 warning)
+  const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", entry, opts.dataRoot], {
     env,
     detached: true,
     stdio: "ignore",
