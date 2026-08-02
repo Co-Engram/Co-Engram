@@ -35,12 +35,12 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 26 (Task 3.3 加 engram_audit_query;AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(26);
+  it("standard = 33 (S1 skill CRUD 5 + S3 skill_invoke + S5 skill compose 3 + skill_related_engram 3)", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(33);
   });
 
-  it("full = 34 (Task 3.2 移除 skill_invoke,Task 3.3 加 engram_audit_query,Task 4c 移除 engram_recompute_importance,AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(34);
+  it("full = 41 (含 S5 skill compose 3 + skill_related_engram 3,S3 skill_invoke)", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(41);
   });
 
   // ============================================================
@@ -78,7 +78,7 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     }
   });
 
-  it("full 包含所有 native + 仓库健康工具(含管理类,Task 3.2 后不含 skill_invoke)", () => {
+  it("full 包含所有 native + 仓库健康工具(S3 起 skill_invoke 回归 full,报告使用结果)", () => {
     const managementTools = [
       "engram_archive",
       "engram_restore",
@@ -95,11 +95,11 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
     for (const t of managementTools) {
       expect(PROFILE_TOOL_SETS.full.has(t)).toBe(true);
     }
-    // Task 3.2:skill_invoke 移出 full profile(标 experimental stub)
-    expect(PROFILE_TOOL_SETS.full.has("skill_invoke")).toBe(false);
+    // S3:skill_invoke 回归 full(报告 skill 使用结果,更新印迹)
+    expect(PROFILE_TOOL_SETS.full.has("skill_invoke")).toBe(true);
   });
 
-  it("standard 不包含管理类工具(S4 Task 2: skill CRUD 现属 standard,不再是管理类)", () => {
+  it("standard 不包含管理类工具(skill CRUD + skill_invoke 现属 standard,非管理类)", () => {
     const managementTools = [
       "engram_archive",
       "engram_restore",
@@ -107,20 +107,19 @@ describe("PROFILE_TOOL_SETS / 子集关系", () => {
       "synapse_get",
       "synapse_list",
       "synapse_delete",
-      // S4 Task 2: skill CRUD 移出管理类工具列表，现已属 standard
-      "skill_invoke",
       "upgrade_verification",
       "get_evolution_lineage",
     ];
     for (const t of managementTools) {
       expect(PROFILE_TOOL_SETS.standard.has(t)).toBe(false);
     }
-    // S4 Task 2: 确认 skill CRUD 工具现在属于 standard profile
+    // S4 Task 2 + S3: skill CRUD + skill_invoke 现属 standard profile
     expect(PROFILE_TOOL_SETS.standard.has("skill_get")).toBe(true);
     expect(PROFILE_TOOL_SETS.standard.has("skill_list")).toBe(true);
     expect(PROFILE_TOOL_SETS.standard.has("skill_create")).toBe(true);
     expect(PROFILE_TOOL_SETS.standard.has("skill_update")).toBe(true);
     expect(PROFILE_TOOL_SETS.standard.has("skill_delete")).toBe(true);
+    expect(PROFILE_TOOL_SETS.standard.has("skill_invoke")).toBe(true);
   });
 });
 
@@ -203,7 +202,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(34); // S4 Task 2: 更新为 34 个工具
+    expect(filtered.length).toBe(41); // full profile 不过滤 = PROFILE_TOOL_SETS.full.size
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -213,10 +212,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 26 个(Task 3.3 加 engram_audit_query;AI-8 加 batch proposal;S4 Task 2 加 skill CRUD 5 个工具)", () => {
+  it("standard 过滤到 33 个(S5 含 skill compose 3 + skill_related_engram 3)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(26);
+    expect(filtered.length).toBe(33);
   });
 
   it("minimal 不含 engram_delete", () => {
@@ -241,8 +240,6 @@ describe("filterToolsByProfile / 过滤行为", () => {
       "synapse_get",
       "synapse_list",
       "synapse_delete",
-      // S4 Task 2: skill CRUD 已从管理类工具移除，现属 standard
-      "skill_invoke",
       "upgrade_verification",
       "get_evolution_lineage",
     ];

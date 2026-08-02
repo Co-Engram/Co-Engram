@@ -546,6 +546,36 @@ WHEN NOT TO CALL:
 - When you might want to recover it later (deletion is permanent)
 
 RETURNS: { id, deleted: true }. SKILL.md file unchanged; only sidecar removed.`,
+  "tool.skill_compose_add.agent": `Add a compose link: skill A can be orchestrated into skill B's workflow (skill chaining). Deduplicates.
+
+WHEN TO CALL: User wants one skill to be a step in another skill's larger workflow.
+
+RETURNS: Updated skill record with the new compose target.`,
+  "tool.skill_compose_remove.agent": `Remove a compose link from a skill.
+
+WHEN TO CALL: A skill is no longer part of another skill's workflow, or the link was wrong.
+
+RETURNS: Updated skill record with the target removed.`,
+  "tool.skill_compose_list.agent": `List a skill's compose links (which workflows this skill can be orchestrated into).
+
+WHEN TO CALL: User wants to see which skills this one can be composed into, or before adding/removing a compose link to inspect current state.
+
+RETURNS: { composes: string[] } — the target skillIds this skill chains into.`,
+  "tool.skill_related_engram_add.agent": `Link a skill to an engram (procedural ↔ declarative memory). Deduplicates.
+
+WHEN TO CALL: A skill's rationale is captured in an engram and you want them findable together.
+
+RETURNS: Updated skill record with the new relatedEngram.`,
+  "tool.skill_related_engram_remove.agent": `Remove a skill↔engram link.
+
+WHEN TO CALL: The engram was deleted or the link no longer applies.
+
+RETURNS: Updated skill record with the engram removed.`,
+  "tool.skill_related_engram_list.agent": `List the engrams linked to a skill (procedural ↔ declarative memory cross-links).
+
+WHEN TO CALL: User wants the context/rationale engrams behind a skill, or before adding/removing a link to inspect current related engrams.
+
+RETURNS: { relatedEngrams: string[] } — the linked engram ids.`,
   "tool.memory_search.agent": `Search team memory using natural language. Returns relevant memory snippets with relevance scores.
 
 WHEN TO CALL:

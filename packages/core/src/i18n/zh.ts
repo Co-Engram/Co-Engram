@@ -539,6 +539,36 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 可能想恢复(删除是永久性的)
 
 返回:{ id, deleted: true }。SKILL.md 文件不变;仅删除 sidecar。`,
+  "tool.skill_compose_add.agent": `添加组合关系:skill A 可编排进 skill B 的 workflow(skill chaining)。去重。
+
+何时调用:用户想让一个 skill 作为另一个 skill 更大 workflow 的一步。
+
+返回:更新后的 skill 记录,含新增的 composes 目标。`,
+  "tool.skill_compose_remove.agent": `移除 skill 的一个组合关系。
+
+何时调用:skill 不再是另一个 skill workflow 的一部分,或链接有误。
+
+返回:更新后的 skill 记录,目标已移除。`,
+  "tool.skill_compose_list.agent": `列出 skill 的组合关系(本 skill 可编排进哪些更大 workflow)。
+
+何时调用:用户想看本 skill 可编排进哪些 workflow,或增删组合关系前查看现状。
+
+返回:{ composes: string[] } —— 目标 skillId 列表。`,
+  "tool.skill_related_engram_add.agent": `关联 skill 与 engram(程序性 ↔ 陈述性记忆)。去重。
+
+何时调用:skill 的依据已记录在某 engram,想让两者可一起检索。
+
+返回:更新后的 skill 记录,含新增的 relatedEngrams。`,
+  "tool.skill_related_engram_remove.agent": `移除 skill 与某个 engram 的关联(程序性 ↔ 陈述性解绑)。
+
+何时调用:engram 已被删除,或该关联不再适用,需清理失效链接。
+
+返回:更新后的 skill 记录,该 engram 已从 relatedEngrams 移除。`,
+  "tool.skill_related_engram_list.agent": `列出 skill 关联的 engram(程序性 ↔ 陈述性记忆交叉引用)。
+
+何时调用:用户想看某 skill 背后的上下文/依据 engram,或增删关联前查看现状。
+
+返回:{ relatedEngrams: string[] } —— 关联的 engram id。`,
   "tool.memory_search.agent": `用自然语言搜索团队记忆。返回相关记忆片段及相关性分数。
 
 何时调用:

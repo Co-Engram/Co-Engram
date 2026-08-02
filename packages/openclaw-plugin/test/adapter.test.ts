@@ -121,7 +121,7 @@ describe("adaptTool", () => {
 // ============================================================
 
 describe("adaptAllTools", () => {
-  it("批量适配所有原生工具(registry 当前 34 个,含 skill CRUD 4 个 + skill_invoke stub + engram_audit_query + AI-8 batch proposal)", () => {
+  it("批量适配所有原生工具(registry 当前 41 个,含 skill CRUD 5 + skill_invoke + skill compose 3 + skill_related_engram 3 + engram_audit_query + AI-8 batch proposal)", () => {
     const { tools } = createCoEngramTools({ dataRoot: tmpDir });
     expect(tools.map((t) => t.name).sort()).toEqual([
       "close_learning_loop",
@@ -148,11 +148,17 @@ describe("adaptAllTools", () => {
       "engram_synthesize",
       "engram_update",
       "get_evolution_lineage",
+      "skill_compose_add",
+      "skill_compose_list",
+      "skill_compose_remove",
       "skill_create",
       "skill_delete",
       "skill_get",
       "skill_invoke",
       "skill_list",
+      "skill_related_engram_add",
+      "skill_related_engram_list",
+      "skill_related_engram_remove",
       "skill_update",
       "synapse_create",
       "synapse_delete",
@@ -161,7 +167,7 @@ describe("adaptAllTools", () => {
       "upgrade_verification",
     ]);
     // 数字不硬编码,跟列表长度走 —— 列表本身是 regression guard,防止工具被无意移除。
-    expect(tools.length).toBe(35); // 临时改为 35 调查
+    expect(tools.length).toBe(41); // registry 全部 native 工具(含 S5 skill compose 3 + skill_related_engram 3)
   });
 });
 
