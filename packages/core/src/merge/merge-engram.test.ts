@@ -148,4 +148,57 @@ describe("mergeEngramFile", () => {
       }),
     ).rejects.toThrow(/Invalid engram file/);
   });
+
+  it("clean-merges when content identical even if frontmatter runtime fields diverge", async () => {
+    // 回归保护「正文相同却 escalate」缺陷:同一条记忆被两台机器各自检索,
+    // 正文从未改(contentHash 三方一致),但 frontmatter 运行时元数据
+    // (检索次数 additive / 置信度·验证状态 updatedAt_arbitrated)各自分叉。
+    // 应确定性合并、绝不 escalate。
+    const body = "Same body";
+    const hash = "abc123identical";
+    const base = engramRaw(
+      {
+        contentHash: hash,
+        updatedAt: "2026-06-01T00:00:00Z",
+        retrievalCount: 5,
+        confidence: 0.9,
+        verificationStatus: "unverified",
+      },
+      body,
+    );
+    const ours = engramRaw(
+      {
+        contentHash: hash,
+        updatedAt: "2026-06-01T00:00:00Z",
+        retrievalCount: 7,
+        confidence: 0.95,
+        verificationStatus: "plausible",
+      },
+      body,
+    );
+    const theirs = engramRaw(
+      {
+        contentHash: hash,
+        updatedAt: "2026-06-01T00:00:00Z",
+        retrievalCount: 6,
+        confidence: 0.85,
+        verificationStatus: "unverified",
+      },
+      body,
+    );
+
+    const result = await mergeEngramFile({
+      baseRaw: base,
+      oursRaw: ours,
+      theirsRaw: theirs,
+      relPath: "engrams/AIOS/decision.md",
+    });
+
+    expect(result.escalated).toBe(false);
+    expect(result.mergedContent).not.toContain("<<<<<<<");
+    // retrievalCount 是 additive:7 + 6 - 5 = 8
+    expect(result.mergedContent).toMatch(/retrievalCount:\s*8/);
+    // confidence 是 updatedAt_arbitrated,双方都改 + contentIdentical → 取 ours(0.95)
+    expect(result.mergedContent).toMatch(/confidence:\s*0\.95/);
+  });
 });

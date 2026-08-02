@@ -56,7 +56,9 @@ describe("arbitrateByUpdatedAt", () => {
     ).toBe("escalate");
   });
 
-  it("escalates when neither side changed contentHash (ambiguous)", () => {
+  it("returns ours when content identical even if both sides unchanged (no conflict)", () => {
+    // 正文相同(ours === theirs === base contentHash)= 同一份知识,无知识冲突,
+    // 确定性取 ours。这是「正文相同却 escalate」缺陷的回归保护。
     expect(
       arbitrateByUpdatedAt({
         oursUpdatedAt: "2026-06-25T10:00:00Z",
@@ -65,7 +67,7 @@ describe("arbitrateByUpdatedAt", () => {
         oursContentHash: "abc",
         theirsContentHash: "abc",
       }),
-    ).toBe("escalate");
+    ).toBe("ours");
   });
 
   it("escalates when timestamps equal and no contentHash available", () => {
