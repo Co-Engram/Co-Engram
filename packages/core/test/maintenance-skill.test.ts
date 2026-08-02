@@ -49,11 +49,6 @@ describe("S3 Task 3: MaintenanceEngine.skillRepository 接入", () => {
         skillId: "test-skill",
         sourcePath: "/test/skill.ts",
         initiationSet: "[]",
-        termination: "[]",
-        policy: {
-          kind: "code",
-          ref: "test-skill",
-        },
         createdBy: "tester",
       });
       skillRepo.recordUse(skill.skillId, {
@@ -85,11 +80,6 @@ describe("S3 Task 3: MaintenanceEngine.skillRepository 接入", () => {
         skillId: "test-skill",
         sourcePath: "/test/skill.ts",
         initiationSet: "[]",
-        termination: "[]",
-        policy: {
-          kind: "code",
-          ref: "test-skill",
-        },
         createdBy: "tester",
       });
 
@@ -131,22 +121,12 @@ describe("S3 Task 3: MaintenanceEngine.skillRepository 接入", () => {
         skillId: "skill-1",
         sourcePath: "/test/skill1.ts",
         initiationSet: "[]",
-        termination: "[]",
-        policy: {
-          kind: "code",
-          ref: "skill-1",
-        },
         createdBy: "tester",
       });
       const skill2 = skillRepo.createSkill({
         skillId: "skill-2",
         sourcePath: "/test/skill2.ts",
         initiationSet: "[]",
-        termination: "[]",
-        policy: {
-          kind: "code",
-          ref: "skill-2",
-        },
         createdBy: "tester",
       });
 

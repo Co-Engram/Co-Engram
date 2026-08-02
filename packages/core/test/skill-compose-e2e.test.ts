@@ -8,7 +8,6 @@ import {
   skillComposeRemoveTool,
   skillComposeListTool,
 } from "../src/tools/skill-tools.js";
-import { detectComposeCandidates } from "../src/skill/compose-detector.js";
 import type { ToolContext } from "../src/tools/tool.js";
 
 let root: string;
@@ -32,8 +31,6 @@ describe("skill compose e2e", () => {
       skillId: "a",
       sourcePath: "tools/a",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
     });
 
@@ -47,29 +44,5 @@ describe("skill compose e2e", () => {
     );
     const list2 = await skillComposeListTool.execute({ skillId: "a" }, ctx);
     expect(list2.composes).toEqual([]);
-  });
-
-  it("detectComposeCandidates 对实际 skill 集返回候选", () => {
-    ctx.skillRepository!.createSkill({
-      skillId: "a",
-      sourcePath: "tools/a",
-      initiationSet: "启动",
-      termination: "拿到工号",
-      policy: { kind: "prompt", ref: "SKILL.md" },
-      createdBy: "t",
-    });
-    ctx.skillRepository!.createSkill({
-      skillId: "b",
-      sourcePath: "tools/b",
-      initiationSet: "拿到工号后发消息",
-      termination: "发送完成",
-      policy: { kind: "prompt", ref: "SKILL.md" },
-      createdBy: "t",
-    });
-
-    const cands = detectComposeCandidates(ctx.skillRepository!.listSkills());
-    expect(
-      cands.find((c) => c.from === "a" && c.to === "b")
-    ).toBeDefined();
   });
 });

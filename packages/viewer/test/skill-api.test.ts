@@ -124,8 +124,9 @@ function createMockSkill(overrides: Partial<Skill> = {}): Skill {
     sourcePath: overrides.sourcePath ?? "/test/skill.md",
     contentHash: overrides.contentHash ?? "hash-" + randomUUID(),
     initiationSet: overrides.initiationSet ?? [],
-    termination: overrides.termination ?? [],
-    policy: overrides.policy ?? { kind: "markdown", ref: "/test/skill.md" },
+    // A+ 透传:SKILL.md 原生字段(S6.x:termination/policy 已移除,改为可选的原生字段)
+    ...(overrides.allowedTools ? { allowedTools: overrides.allowedTools } : {}),
+    ...(overrides.skillVersion ? { skillVersion: overrides.skillVersion } : {}),
     utility: overrides.utility ?? 0.5,
     sampleSize: overrides.sampleSize ?? 0,
     invocationCount: overrides.invocationCount ?? 0,
@@ -165,7 +166,7 @@ describe("GET /api/skills", () => {
       const res = await makeRequest(port, "/api/skills");
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
-      expect(data.items).toEqual([]);
+      expect(data.results).toEqual([]);
       expect(data.total).toBe(0);
       expect(data.enabled).toBe(true);
     });
@@ -182,16 +183,12 @@ describe("GET /api/skills", () => {
       skillId: skill1.skillId,
       sourcePath: skill1.sourcePath,
       initiationSet: skill1.initiationSet,
-      termination: skill1.termination,
-      policy: skill1.policy,
       createdBy: skill1.createdBy,
     });
     ctx.skillRepository.createSkill({
       skillId: skill2.skillId,
       sourcePath: skill2.sourcePath,
       initiationSet: skill2.initiationSet,
-      termination: skill2.termination,
-      policy: skill2.policy,
       acquisitionStage: "compiled",
       createdBy: skill2.createdBy,
     });
@@ -199,8 +196,6 @@ describe("GET /api/skills", () => {
       skillId: skill3.skillId,
       sourcePath: skill3.sourcePath,
       initiationSet: skill3.initiationSet,
-      termination: skill3.termination,
-      policy: skill3.policy,
       acquisitionStage: "tuned",
       createdBy: skill3.createdBy,
     });
@@ -209,7 +204,7 @@ describe("GET /api/skills", () => {
       const res = await makeRequest(port, "/api/skills");
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
-      expect(data.items).toHaveLength(3);
+      expect(data.results).toHaveLength(3);
       expect(data.total).toBe(3);
       expect(data.enabled).toBe(true);
     });
@@ -219,12 +214,13 @@ describe("GET /api/skills", () => {
     const ctx = makeCtx(tmpDir);
 
     // 默认情况下，所有 skills 都是 draft 阶段
+    // A+ 透传验证:skill-1 带 allowedTools + skillVersion,确认原生字段穿透 createSkill
     ctx.skillRepository.createSkill({
       skillId: "skill-1",
       sourcePath: "/test/skill-1.md",
       initiationSet: [],
-      termination: [],
-      policy: { kind: "markdown", ref: "/test/skill-1.md" },
+      allowedTools: ["Read", "Edit"],
+      skillVersion: "1.0",
       createdBy: "tester",
     });
 
@@ -232,8 +228,6 @@ describe("GET /api/skills", () => {
       skillId: "skill-2",
       sourcePath: "/test/skill-2.md",
       initiationSet: [],
-      termination: [],
-      policy: { kind: "markdown", ref: "/test/skill-2.md" },
       createdBy: "tester",
     });
 
@@ -242,14 +236,14 @@ describe("GET /api/skills", () => {
       const res = await makeRequest(port, "/api/skills?acquisitionStage=draft");
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
-      expect(data.items).toHaveLength(2);
+      expect(data.results).toHaveLength(2);
       expect(data.total).toBe(2);
 
       // compiled 过滤应该返回空
       const res2 = await makeRequest(port, "/api/skills?acquisitionStage=compiled");
       expect(res2.status).toBe(200);
       const data2 = JSON.parse(res2.body);
-      expect(data2.items).toHaveLength(0);
+      expect(data2.results).toHaveLength(0);
       expect(data2.total).toBe(0);
     });
   });
@@ -262,8 +256,6 @@ describe("GET /api/skills", () => {
       skillId: "skill-active-1",
       sourcePath: "/test/active1.md",
       initiationSet: [],
-      termination: [],
-      policy: { kind: "markdown", ref: "/test/active1.md" },
       createdBy: "tester",
     });
 
@@ -271,8 +263,6 @@ describe("GET /api/skills", () => {
       skillId: "skill-active-2",
       sourcePath: "/test/active2.md",
       initiationSet: [],
-      termination: [],
-      policy: { kind: "markdown", ref: "/test/active2.md" },
       createdBy: "tester",
     });
 
@@ -292,8 +282,6 @@ describe("GET /api/skills", () => {
         skillId: `skill-${i}`,
         sourcePath: `/test/skill-${i}.md`,
         initiationSet: [],
-        termination: [],
-        policy: { kind: "markdown", ref: `/test/skill-${i}.md` },
         createdBy: "tester",
       });
     }
@@ -302,7 +290,7 @@ describe("GET /api/skills", () => {
       const res = await makeRequest(port, "/api/skills?limit=3");
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
-      expect(data.items).toHaveLength(3);
+      expect(data.results).toHaveLength(3);
       expect(data.total).toBe(10);
     });
   });
@@ -320,8 +308,6 @@ describe("GET /api/skills/:id", () => {
       skillId: skill.skillId,
       sourcePath: skill.sourcePath,
       initiationSet: skill.initiationSet,
-      termination: skill.termination,
-      policy: skill.policy,
       createdBy: skill.createdBy,
     });
 
@@ -381,8 +367,6 @@ describe("GET /api/stats with skill 维度", () => {
         skillId: `skill-${i}`,
         sourcePath: `/test/skill-${i}.md`,
         initiationSet: [],
-        termination: [],
-        policy: { kind: "markdown", ref: `/test/skill-${i}.md` },
         createdBy: "tester",
       });
     }

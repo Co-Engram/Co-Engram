@@ -1144,6 +1144,32 @@ export class EngramRepository {
     return entry?.path;
   }
 
+  /**
+   * 解析 engram 所在目录的相对路径与绝对路径(public 版)。
+   *
+   * 供 viewer「打开目录」等外部消费者使用:从 engramId 反查物理目录,
+   * 内部复用 resolvePath 的全套安全校验(isStableEngramId + isPathWithinRoot)
+   * + safeJoinWithinRoot 兜底,确保返回的目录绝对路径仍在 root 内。
+   *
+   * @returns undefined 表示 engramId 无法解析(非法 id / 路径越界);
+   *          注意 stableId 走 index 查询,不校验文件实时存在(调用方按需 existsSync)。
+   */
+  resolveDirectory(stableId: string): {
+    readonly relativePath: string;
+    readonly relativeDir: string;
+    readonly absoluteDir: string;
+  } | undefined {
+    const relativePath = this.resolvePath(stableId);
+    if (!relativePath) return undefined;
+    // 目录 = relativePath 去掉最后一段文件名(POSIX '/' 分隔,与 idFromRelativePath 一致)。
+    // 根目录直属文件(relativePath 无 '/')的目录为 '' → absoluteDir 即 rootPath 本身。
+    const slashIdx = relativePath.lastIndexOf("/");
+    const relativeDir = slashIdx < 0 ? "" : relativePath.slice(0, slashIdx);
+    // safeJoinWithinRoot:再防御一次 path traversal,并把相对目录转成绝对路径。
+    const absoluteDir = safeJoinWithinRoot(this.config.rootPath, relativeDir);
+    return { relativePath, relativeDir, absoluteDir };
+  }
+
   /** 检查相对路径是否存在 engram 文件 */
   private existsAtPath(relativePath: string): boolean {
     if (!isPathWithinRoot(this.config.rootPath, relativePath)) return false;

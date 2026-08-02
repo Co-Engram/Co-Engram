@@ -20,8 +20,6 @@ const create = (id: string) =>
     skillId: id,
     sourcePath: `tools/${id}`,
     initiationSet: "x",
-    termination: "y",
-    policy: { kind: "prompt", ref: "SKILL.md" },
     createdBy: "t",
   });
 
@@ -37,8 +35,6 @@ describe("composes/relatedEngrams", () => {
       skillId: "a",
       sourcePath: "tools/a",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
       composes: ["b", "c"],
     });
@@ -55,8 +51,6 @@ describe("composes/relatedEngrams", () => {
       sourcePath: "tools/legacy",
       contentHash: "sha256:x",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       utility: 0.5,
       sampleSize: 0,
       invocationCount: 0,

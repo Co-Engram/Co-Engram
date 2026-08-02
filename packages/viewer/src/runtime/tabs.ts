@@ -981,7 +981,8 @@ window.CO_ENGRAM_ENGRAMS = {
     try {
       res = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(d.id) + '/reveal', 'POST', null);
     } catch (e) {
-      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirFailed', { err: (e.message || e) }), null);
+      // err 走 innerHTML 渲染,先 escape 防注入(_showDirBanner 的 message 当 trusted HTML,不二次 escape)
+      CO_ENGRAM_ENGRAMS._showDirBanner(T.t('viewer.engram.openDirFailed', { err: CO_ENGRAM.escapeHtml(String(e.message || e)) }), null);
       return;
     }
     if (res && res.opened) {
@@ -1009,7 +1010,9 @@ window.CO_ENGRAM_ENGRAMS = {
       : '';
     var banner = document.createElement('div');
     banner.className = isSuccess ? 'dir-banner dir-banner-success' : 'dir-banner';
-    banner.innerHTML = '<span>' + CO_ENGRAM.escapeHtml(message) + '</span>'
+    // message 是 i18n 文案(trusted HTML,含 <strong>/<code> 格式标签,与 _renderView 一致不 escape);
+    // dirPath 是动态数据(目录绝对路径),必须 escape 防 XSS。
+    banner.innerHTML = '<span>' + message + '</span>'
       + (dirPath ? '<code style="display:block;margin-top:.3rem;font-size:.8em;word-break:break-all">' + CO_ENGRAM.escapeHtml(dirPath) + '</code>' : '')
       + copyBtn
       + '<button class="dir-banner-close" onclick="this.parentElement.remove()" aria-label="close">×</button>';

@@ -20,8 +20,6 @@ describe("recomputeRetentionAll", () => {
       skillId: "fresh",
       sourcePath: "tools/fresh",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
     });
     const r = repo.recomputeRetentionAll(Date.now());
@@ -35,8 +33,6 @@ describe("recomputeRetentionAll", () => {
       skillId: "old",
       sourcePath: "tools/old",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
     });
     // recordUse 一次（设 lastUsedAt=现在）
@@ -54,16 +50,12 @@ describe("recomputeRetentionAll", () => {
       skillId: "fresh",
       sourcePath: "tools/fresh",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
     });
     repo.createSkill({
       skillId: "old",
       sourcePath: "tools/old",
       initiationSet: "x",
-      termination: "y",
-      policy: { kind: "prompt", ref: "SKILL.md" },
       createdBy: "t",
     });
     repo.recordUse("old", { success: true });

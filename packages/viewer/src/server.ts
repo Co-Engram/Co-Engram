@@ -16,6 +16,7 @@
  *   GET    /api/engrams/:id     详情
  *   PATCH  /api/engrams/:id     更新(标题/importance/visibility 等)
  *   DELETE /api/engrams/:id     删除
+ *   POST   /api/engrams/:id/reveal  在系统文件管理器打开该 engram 所在目录
  *   GET    /api/search?q=       搜索
  *   GET    /api/graph           图视图(节点 + 边)
  *   GET    /api/proposals       候选提案
@@ -35,6 +36,7 @@ import {
   type IncomingMessage,
   type ServerResponse,
 } from "node:http";
+import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -205,6 +207,59 @@ function safeReadEngram(
     return e ? { status: e.status } : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * 在系统文件管理器打开指定目录(viewer server 端 spawn)。
+ *
+ * 浏览器无法直接唤起 OS 文件管理器(沙箱限制),由 server 代为 spawn 平台命令:
+ *   Linux=xdg-open / macOS=open / Windows=explorer
+ *
+ * 降级:Linux 无 $DISPLAY 且无 $WAYLAND_DISPLAY(SSH 转发 / 容器 / headless)→
+ * 不 spawn(xdg-open 会挂住或刷错),返回 opened=false + reason:no-desktop。
+ * spawn 同步抛错(命令不在 PATH / 权限)→ opened=false + reason:spawn-failed。
+ *
+ * 安全:命令白名单固定(不接受外部输入);absoluteDir 由调用方(repository.
+ * resolveDirectory)保证已过 path-traversal 校验。spawn 用数组参数不经 shell;
+ * detached + unref 让 viewer 不阻塞、不等待文件管理器退出。
+ */
+function revealDirectory(absoluteDir: string): {
+  opened: boolean;
+  reason?: string;
+} {
+  const platform = process.platform;
+  // Linux 桌面检测:无 DISPLAY 且无 WAYLAND_DISPLAY → headless,降级不 spawn
+  if (
+    platform === "linux" &&
+    !process.env.DISPLAY &&
+    !process.env.WAYLAND_DISPLAY
+  ) {
+    return { opened: false, reason: "no-desktop" };
+  }
+  const cmd =
+    platform === "darwin"
+      ? "open"
+      : platform === "win32"
+        ? "explorer"
+        : "xdg-open";
+  try {
+    const child = spawn(cmd, [absoluteDir], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    // ENOENT(命令缺失)等异步错误:handler 已返回,只能记录日志便于排查。
+    // 文件管理器是 best-effort 功能;极端情况用户可凭返回的 dir 路径手动定位。
+    child.on("error", (err) => {
+      console.error(
+        `[viewer] reveal spawn failed (cmd=${cmd}, dir=${absoluteDir}):`,
+        err instanceof Error ? err.message : String(err),
+      );
+    });
+    return { opened: true };
+  } catch {
+    return { opened: false, reason: "spawn-failed" };
   }
 }
 
@@ -532,6 +587,40 @@ async function routeApi(
     } catch (err) {
       respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
     }
+    return;
+  }
+
+  // /api/engrams/:id/reveal — 在系统文件管理器打开该 engram 所在目录
+  //
+  // 浏览器无法直接唤起 OS 文件管理器(沙箱限制),必须由 server 端 spawn 系统命令。
+  // 路径解析走 repository.resolveDirectory(复用 resolvePath + safeJoinWithinRoot 全套
+  // path-traversal 防御)。降级(无桌面 / 命令缺失 / 目录不存在)时返回目录绝对路径,
+  // 前端展示路径 + 复制按钮,保证远程 / 容器场景也有价值。
+  const engramRevealMatch = /^\/api\/engrams\/(.+)\/reveal$/.exec(path);
+  if (engramRevealMatch && req.method === "POST") {
+    const id = decodeURIComponent(engramRevealMatch[1]!);
+    const dirInfo = ctx.repository.resolveDirectory(id);
+    if (!dirInfo) {
+      respondJson(res, 404, { error: `Not found: ${id}` });
+      return;
+    }
+    // 目录不存在(index stale / 文件被外部删除)→ 不 spawn,降级返回路径
+    if (!existsSync(dirInfo.absoluteDir)) {
+      respondJson(res, 200, {
+        opened: false,
+        reason: "dir-not-found",
+        relativePath: dirInfo.relativePath,
+        dir: dirInfo.absoluteDir,
+      });
+      return;
+    }
+    const result = revealDirectory(dirInfo.absoluteDir);
+    respondJson(res, 200, {
+      opened: result.opened,
+      ...(result.reason ? { reason: result.reason } : {}),
+      relativePath: dirInfo.relativePath,
+      dir: dirInfo.absoluteDir,
+    });
     return;
   }
 

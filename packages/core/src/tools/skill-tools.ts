@@ -92,7 +92,7 @@ export const skillListTool: Tool<SkillListToolInput, { items: Skill[] }> = {
 export const skillUpdateTool: Tool<SkillUpdateToolInput, Skill> = {
   name: "skill_update",
   description:
-    "更新 Skill 的 initiationSet/termination/policy/visibility，或手动迁移习得深度轴（draft→compiled→tuned，单向）。",
+    "更新 Skill 的 initiationSet/visibility，或手动迁移习得深度轴（draft→compiled→tuned，单向）。",
   inputSchema: SkillUpdateInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<SkillUpdateToolInput>(
