@@ -152,7 +152,8 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
       // 不该让 LLM 自填 host 标识(如 "claude-code")。LLM 想表达自动生成情境
       // (如"Claude Code 自动捕获")应走 encodingContext 字段(见 parsed.encodingContext)。
       void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
-      const createdBy = ctx.defaultCreatedBy ?? "unknown";
+      const createdBy =
+        ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown";
       // P0-8 配套:检测 XSS 向量(非阻断),让调用方知道 viewer 会 sanitize
       const warnings = detectUnsafeEngramContent({
         title: parsed.title,

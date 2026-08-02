@@ -281,7 +281,8 @@ export const engramAcceptProposalTool: Tool<
     // LLM 想表达自动生成情境应走 encodingContext(accept 不暴露此字段,
     // 由 proposal.payload.encodingContext 在 proposal-engine.accept 内部继承)。
     void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
-    const createdBy = ctx.defaultCreatedBy ?? "unknown";
+    const createdBy =
+      ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown";
     const engramId = ctx.proposalEngine.accept(parsed.entityId, {
       ...(parsed.title !== undefined ? { title: parsed.title } : {}),
       ...(parsed.content !== undefined ? { content: parsed.content } : {}),
@@ -368,7 +369,8 @@ export const engramAcceptProposalsBySourceTool: Tool<
     // createdBy 完全由系统决定(2026-07 修复):忽略 parsed.createdBy,
     // 走 ctx.defaultCreatedBy(host adapter 从 git config 解析)。
     void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
-    const createdBy = ctx.defaultCreatedBy ?? "unknown";
+    const createdBy =
+      ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown";
     const result = ctx.proposalEngine.acceptBatch(
       {
         source: parsed.source,

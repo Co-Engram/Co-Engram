@@ -93,6 +93,15 @@ export interface ToolContext {
    */
   readonly defaultCreatedBy?: string;
   /**
+   * 动态作者解析器(可选,优先于 defaultCreatedBy 启动快照)。
+   *
+   * host adapter 注入:每次调用读最新 git 身份(user.name > email),让用户改
+   * git config user.name 后**无需重启 MCP** 即在新记忆上生效。工具层兜底链:
+   * ctx.resolveCreatedBy?.() > ctx.defaultCreatedBy > "unknown"。与 defaultCreatedBy
+   * 并存:后者是启动快照(向后兼容),前者动态优先。
+   */
+  readonly resolveCreatedBy?: () => string | undefined;
+  /**
    * LLM 客户端（可选，用于 engram_synthesize 等需要语义综合的工具）。
    *
    * host adapter 注入；claude-code-mcp 走 Anthropic API，

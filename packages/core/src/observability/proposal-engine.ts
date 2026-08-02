@@ -343,6 +343,11 @@ export class ProposalEngine {
    */
   private readonly defaultCreatedBy?: string;
   /**
+   * 动态作者解析器(host 注入):每次调读最新 git 身份(user.name > email),
+   * 优先于 defaultCreatedBy 启动快照。git user.name 改动后无需重启即生效。
+   */
+  private readonly resolveCreatedBy?: () => string | undefined;
+  /**
    * readProposals / readClusters 的 mtime-based cache。
    *
    * 背景(2026-07 性能修复):旧实现每次 listPending / listAll / 调用方读
@@ -396,6 +401,11 @@ export class ProposalEngine {
     readonly skillRepository?: SkillRepository;
     /** 默认创建者(host 注入 git author),详见 this.defaultCreatedBy 注释 */
     readonly defaultCreatedBy?: string;
+    /**
+     * 动态作者解析器(host 注入):每次调读最新 git 身份,优先于 defaultCreatedBy
+     * 启动快照。让 git user.name 改动后无需重启即生效。
+     */
+    readonly resolveCreatedBy?: () => string | undefined;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -417,6 +427,17 @@ export class ProposalEngine {
       deps.necessityEvaluator ?? new RuleBasedNecessityEvaluator();
     this.skillRepository = deps.skillRepository;
     this.defaultCreatedBy = deps.defaultCreatedBy;
+    this.resolveCreatedBy = deps.resolveCreatedBy;
+  }
+
+  /**
+   * createdBy 兜底:动态解析器(host 注入,每次读 git)> 启动快照 > "unknown"。
+   *
+   * 动态优先:让用户改 git config user.name 后无需重启 MCP,新 accept 立即用新值。
+   * accept 内 createdBy / verifiedBy 兜底统一走本方法(input.createdBy 仍优先)。
+   */
+  private resolveCreatedByOrDefault(): string {
+    return this.resolveCreatedBy?.() ?? this.defaultCreatedBy ?? "unknown";
   }
 
   /**
@@ -796,7 +817,7 @@ export class ProposalEngine {
         const evidence = {
           description:
             `REM 审批通过（用户 accept）: ${target.sampleQuotes?.[0] ?? ""} ${target.sampleQuotes?.[1] ?? ""}`.trim(),
-          verifiedBy: input.createdBy ?? this.defaultCreatedBy ?? "unknown",
+          verifiedBy: input.createdBy ?? this.resolveCreatedByOrDefault(),
           confidence: 0.8,
         };
         // 用 upgradeVerification/refuteEngram 替代手动调用:
@@ -843,7 +864,7 @@ export class ProposalEngine {
           `rem-synapse proposal missing payload (entityId=${entityId})`,
         );
       }
-      const createdBy = input.createdBy ?? this.defaultCreatedBy ?? "unknown";
+      const createdBy = input.createdBy ?? this.resolveCreatedByOrDefault();
       if (p.synapseOp === "add") {
         const ts = new Date().toISOString();
         const synapse: Synapse = {
@@ -923,7 +944,7 @@ export class ProposalEngine {
           `rem-pattern proposal missing payload (entityId=${entityId})`,
         );
       }
-      const createdBy = input.createdBy ?? this.defaultCreatedBy ?? "unknown";
+      const createdBy = input.createdBy ?? this.resolveCreatedByOrDefault();
       // path conflict 兜底(同通用分支):若已有同 title 的 pattern engram,
       // createEngram 抛 "Engram already exists at <path>",此时 adopt 现有的而非失败。
       let patternEngram: { id: string; createdAt: string };
@@ -998,7 +1019,7 @@ export class ProposalEngine {
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
-        createdBy: input.createdBy ?? this.defaultCreatedBy ?? "unknown",
+        createdBy: input.createdBy ?? this.resolveCreatedByOrDefault(),
         ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
         ...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
         ...(p.license ? { license: p.license } : {}),
@@ -1072,7 +1093,7 @@ export class ProposalEngine {
       createdBy:
         target.source === "external-markdown" && payload?.createdBy
           ? payload.createdBy
-          : (input.createdBy ?? this.defaultCreatedBy ?? "unknown"),
+          : (input.createdBy ?? this.resolveCreatedByOrDefault()),
       ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
       ...(payload?.contextTags !== undefined
         ? { contextTags: payload.contextTags }
@@ -1953,7 +1974,7 @@ export class ProposalEngine {
           createdBy:
             p.source === "external-markdown" && payload?.createdBy
               ? payload.createdBy
-              : (input.createdBy ?? this.defaultCreatedBy ?? "unknown"),
+              : (input.createdBy ?? this.resolveCreatedByOrDefault()),
           ...(payload?.summary !== undefined
             ? { summary: payload.summary }
             : {}),

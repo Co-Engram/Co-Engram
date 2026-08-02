@@ -45,7 +45,8 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
     );
     // createdBy 完全由系统决定(2026-07 修复,与 engram_create 对齐)
     void parsed.createdBy; // 向后兼容:schema 仍接受此字段,但值不生效
-    const createdBy = ctx.defaultCreatedBy ?? "unknown";
+    const createdBy =
+      ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown";
 
     // 校验端点存在
     if (!ctx.repository.exists(parsed.from)) {

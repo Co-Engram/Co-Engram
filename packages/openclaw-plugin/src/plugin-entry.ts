@@ -214,6 +214,8 @@ export function createCoEngramContext(
           ...(fullConfig.defaultCreatedBy
             ? { defaultCreatedBy: fullConfig.defaultCreatedBy }
             : {}),
+          // 动态解析器:每次读 git,改 user.name 无需重启即生效
+          resolveCreatedBy: () => detectGitAuthor() ?? userSpecifiedCreatedBy,
         })
       : undefined;
 
@@ -232,6 +234,8 @@ export function createCoEngramContext(
     ...(fullConfig.defaultCreatedBy
       ? { defaultCreatedBy: fullConfig.defaultCreatedBy }
       : {}),
+    // 动态解析器:每次读 git,改 user.name 无需重启即生效
+    resolveCreatedBy: () => detectGitAuthor() ?? userSpecifiedCreatedBy,
     ...(llmClient ? { llmClient } : {}),
   };
   return ctx;

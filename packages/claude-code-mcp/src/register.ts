@@ -12,6 +12,7 @@ import {
   AuditLog,
   EffectivenessTracker,
   ProposalEngine,
+  detectGitAuthor,
   DEFAULT_HASHER_EMBEDDER,
   DEFAULT_HASHER_SIMILARITY_THRESHOLD,
   createToolRegistry,
@@ -303,6 +304,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(config.defaultCreatedBy
             ? { defaultCreatedBy: config.defaultCreatedBy }
             : {}),
+          // 动态解析器:每次读 git,改 user.name 无需重启即生效
+          resolveCreatedBy: () => detectGitAuthor() ?? config.defaultCreatedBy,
         })
       : undefined;
 
@@ -321,6 +324,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(config.defaultCreatedBy
       ? { defaultCreatedBy: config.defaultCreatedBy }
       : {}),
+    // 动态解析器:每次读 git,改 user.name 无需重启即生效
+    resolveCreatedBy: () => detectGitAuthor() ?? config.defaultCreatedBy,
     ...(config.llmClient ? { llmClient: config.llmClient } : {}),
   };
 
