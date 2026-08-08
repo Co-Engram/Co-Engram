@@ -36,7 +36,6 @@ function synapseRaw(
     createdBy: "alice",
     createdAt: "2026-01-01T00:00:00Z",
     updatedAt,
-    retrievalWeight: 0.5,
     ...overrides,
   };
   // Synapse files are pure YAML (no frontmatter delimiters).

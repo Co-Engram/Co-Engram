@@ -23,7 +23,12 @@
  * @module @co-engram/openclaw
  */
 
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+} from "node:fs";
 import {
   EngramRepository,
   SearchOrchestrator,
@@ -43,6 +48,7 @@ import {
   pluralSuffix,
   resolveLanguage,
   readTeamMemoryConfig,
+  scoringConfigToWeights,
   readPromptSignals,
   detectGitAuthor,
   collectDigestLines,
@@ -136,6 +142,30 @@ export function createCoEngramContext(
     mkdirSync(fullConfig.dataRoot, { recursive: true });
   }
 
+  // M6:同步读 team-memory config 的 search.scoring(createCoEngramContext 是
+  // sync,不能 await readTeamMemoryConfig;config.json 小文件 readFileSync 可接受)。
+  // 让运维在 team-memory/config.json 调 search.scoring 真正生效。
+  let teamSearch:
+    | {
+        relevance?: number;
+        recency?: number;
+        importance?: number;
+        strength?: number;
+      }
+    | undefined;
+  try {
+    const parsed = JSON.parse(
+      readFileSync(
+        join(fullConfig.dataRoot, ".co-engram", "config.json"),
+        "utf8",
+      ),
+    ) as { search?: typeof teamSearch };
+    teamSearch = parsed.search;
+  } catch {
+    // config.json 不存在或损坏 → 用 DEFAULT_WEIGHTS 兜底(各引擎自带)
+    teamSearch = undefined;
+  }
+
   // Task 2.3:统一通过 bootstrap 装配 repository + searchEngine。
   // 默认走 sqlite 派生索引(WAL + FTS5);CO_ENGRAM_SEARCH_ENGINE=memory 显式 opt-out
   // 回进程内 FTS;sqlite 在当前环境不可用时(Node 版本边界 / 文件系统错误)自动
@@ -144,6 +174,9 @@ export function createCoEngramContext(
     bootstrapRepositoryAndSearch({
       dataRoot: fullConfig.dataRoot,
       ...(fullConfig.language ? { language: fullConfig.language } : {}),
+      ...(teamSearch
+        ? { scoringWeights: scoringConfigToWeights(teamSearch) }
+        : {}),
     });
 
   // AI-2 派生层完整性自检:启动时把"源 markdown vs 派生索引(digest/graph/index)的

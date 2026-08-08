@@ -166,13 +166,13 @@ export interface ReinforcementSectionConfig {
  * (α=0.5, β=0.2, γ=0.2, δ=0.1)。
  */
 export interface ScoringSectionConfig {
-  /** relevance 权重(语义/关键词匹配,默认 0.5) */
+  /** relevance 权重(语义/关键词匹配,默认 0.5 = DEFAULT_WEIGHTS.alpha) */
   readonly relevance?: number;
-  /** recency 权重(艾宾浩斯衰退,默认 0.2) */
+  /** recency 权重(艾宾浩斯衰退,默认 0.15 = DEFAULT_WEIGHTS.beta) */
   readonly recency?: number;
-  /** importance 权重(价值,默认 0.2) */
+  /** importance 权重(价值,默认 0.25 = DEFAULT_WEIGHTS.gamma) */
   readonly importance?: number;
-  /** strength 权重(用户反馈累积 reinforcementScore,默认 0.1) */
+  /** strength 权重(用户反馈累积 reinforcementScore,默认 0.1 = DEFAULT_WEIGHTS.delta) */
   readonly strength?: number;
 }
 

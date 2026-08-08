@@ -65,6 +65,14 @@ export interface SearchFilter {
    * 交集则通过(与 domainTags 同语义)。
    */
   readonly contextTags?: readonly string[];
+  /**
+   * 验证状态过滤(M2 修复:此前 interface / Zod schema / matchesFilter /
+   * applyPostFilter 四方都缺该字段)。语义:engram.verificationStatus ∈
+   * filter.verificationStatus 则通过。缺省(undefined / 空数组)时检索默认
+   * 排除 "refuted"(已证伪记忆不进默认检索);调用方传 ["refuted"] 可显式
+   * 查询已证伪记忆(管理面)。取值见 types/engram.ts VerificationStatus。
+   */
+  readonly verificationStatus?: readonly string[];
 }
 
 /** 检索请求 */

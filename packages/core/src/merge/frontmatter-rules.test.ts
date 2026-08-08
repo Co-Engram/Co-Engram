@@ -19,7 +19,6 @@ describe("classifyField", () => {
     expect(classifyField("effectiveRetrievals")).toBe("additive");
     expect(classifyField("failedUses")).toBe("additive");
     expect(classifyField("reinforcementScore")).toBe("additive");
-    expect(classifyField("evidenceCount")).toBe("additive");
   });
 
   it("classifies max fields", () => {
@@ -56,6 +55,8 @@ describe("classifyField", () => {
     expect(classifyField("outgoingSynapseCount")).toBe("legacy_derived");
     expect(classifyField("incomingSynapseCount")).toBe("legacy_derived");
     expect(classifyField("activeContradictionCount")).toBe("legacy_derived");
+    // L1:evidenceCount 是派生量(assembleEngram 从 derives_from verdict 现算),与 network count 同类
+    expect(classifyField("evidenceCount")).toBe("legacy_derived");
   });
 
   it("classifies unknown fields as updatedAt_arbitrated (safe default)", () => {

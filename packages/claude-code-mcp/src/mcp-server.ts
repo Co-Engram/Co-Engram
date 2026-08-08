@@ -72,6 +72,7 @@ import { resolveProfile, PROFILE_TOOL_COUNTS } from "./tool-profile.js";
 import {
   parseLanguage,
   readTeamMemoryConfig,
+  scoringConfigToWeights,
   resolveLanguage,
   translatePrompt,
   pluralSuffix,
@@ -323,6 +324,9 @@ async function main(): Promise<void> {
     language,
     startMaintenance: maintenanceEnabled,
     maintenanceConfig,
+    // M6:把 config.search.scoring 注入检索引擎(经 scoringConfigToWeights 转
+    // FourFactorWeights),让运维调 search.scoring 真正生效。
+    scoringWeights: scoringConfigToWeights(persistedConfig.search ?? {}),
     auditEnabled,
     auditRotationConfig: persistedConfig.audit?.rotation,
     effectivenessEnabled,

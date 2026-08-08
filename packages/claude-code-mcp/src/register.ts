@@ -94,6 +94,16 @@ export interface CoEngramMcpServerConfig {
   readonly startMaintenance?: boolean;
   /** 维护服务配置（light/deep/rem 间隔、learningRate 等），透传给 MaintenanceEngine */
   readonly maintenanceConfig?: MaintenanceConfig;
+  /**
+   * M6:四因子权重(config.search.scoring 经 scoringConfigToWeights 转换)。
+   * 透传给 bootstrap → createSearchEngine,让运维调 search.scoring 生效。
+   */
+  readonly scoringWeights?: {
+    readonly alpha: number;
+    readonly beta: number;
+    readonly gamma: number;
+    readonly delta: number;
+  };
   /** 是否启用 audit log（默认 true——写入开销极低,保留以备后用） */
   readonly auditEnabled?: boolean;
   /**
@@ -245,6 +255,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     bootstrapRepositoryAndSearch({
       dataRoot: config.dataRoot,
       ...(config.language ? { language: config.language } : {}),
+      ...(config.scoringWeights
+        ? { scoringWeights: config.scoringWeights }
+        : {}),
     });
   // SQLite 模式 build 是 no-op(write-through 已维护);memory 模式 build 真正生效
   rebuildSearchIndex(searchOrchestrator, repository);

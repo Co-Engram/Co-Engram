@@ -210,18 +210,19 @@ export const zh = {
 返回:{ deleted: true } 或未找到错误。
 
 ⚠️ Fail-loud:删除后 post-check;若检测到 race / 不一致,抛"still exists"(跑 engram_doctor 自愈)。`,
-  "tool.close_learning_loop.agent": `确认记忆正确后,关闭验证回路。
+  "tool.close_learning_loop.agent": `使用记忆后,把使用结果反馈给系统,闭合学习回路(强化重要性 / 置信度)。
 
 何时调用:
-- 使用了记忆,验证有效,想标记为已确认
+- 使用了记忆且验证有效,想把"用对了"反馈给系统(提升 importance / confidence)
 - 正向反馈 + 用户确认记忆准确后
-- 完成"取回 → 使用 → 验证 → 确认"循环
+- 完成"取回 → 使用 → 反馈"循环
 
 何时不调用:
 - 还没实际验证(等确认扎实后再调)
 - 记忆最终错了(用 engram_report_failure)
+- 想升级验证状态(unverified → plausible → probable → verified):用 upgrade_verification,本工具不改 verificationStatus
 
-返回:更新后的验证状态 + 闭环元数据。`,
+返回:闭环元数据(importance / importanceDelta / shouldArchive / shouldForget 等)。本工具不改 verificationStatus —— 验证升级请用 upgrade_verification。`,
   "tool.contradiction_resolve.agent": `解决两条记忆之间的矛盾(旧 vs 新)。
 
 何时调用:
@@ -410,7 +411,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 在 close_learning_loop 成功且证据扎实后
 
 何时不调用:
-- 没有证据(先用 close_learning_loop 完成基础确认循环)
+- 没有证据(先用 close_learning_loop 完成基础强化循环,积累有效性信号)
 - 想降级(本工具只升级;refuted 是另一条路径)
 - 不带 force=true 跳级(状态机校验会拒绝)
 
@@ -676,7 +677,7 @@ Spec:§3.9 phase 2 人工介入。`,
 success/partial → LTP(engram_reinforce 路径)+ Hebbian 邻居强化。
 failure → LTD(engram_report_failure 路径)+ 降级阈值检查(低于则 auto-archive)。
 触发 provenance 奖惩回路(如配置)。
-副作用:写 .meta.json(importance + verification status);append audit + effectiveness signal。
+副作用:写 .meta.json(importance + confidence + reinforcementScore);append audit + effectiveness signal。不写 verificationStatus(验证升级走 upgrade_verification)。
 错误条件:未找到抛错;无效 outcome 抛错。`,
   "tool.upgrade_verification.technical": `升级验证状态。输入:{ id, evidenceDescription, verifier, force? }
 状态机:unverified → plausible → probable → verified(不可跳级)。refuted 是独立路径。
@@ -2196,7 +2197,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "tip.lastEffectiveAt":
     "最近一次有效 (lastEffectiveAt):该记忆最后一次被实际采纳/强化成功的时间戳。",
   "tip.evidenceCount":
-    "证据数量 (evidenceCount):支撑该记忆的独立证据条数(突触 + 元数据)。",
+    "证据数 (evidenceCount):通过验证升级(upgrade_verification)累积的裁决证据数。仅统计派生关系(derives_from)中带裁决前缀([plausible/probable/verified/refuted])的证据条目;其他关系类型(extends/exemplifies/causes 等)携带的证据不计入此字段。",
   "tip.encodingContext":
     "记忆产生情境 (encodingContext):记忆创建时的背景描述,用于情境依赖回忆。",
   "tip.perspective":

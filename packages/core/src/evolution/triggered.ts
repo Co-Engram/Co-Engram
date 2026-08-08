@@ -260,7 +260,6 @@ export function onEngramCreated(
           createdBy: "triggered-evolution",
           createdAt: nowIso,
           updatedAt: nowIso,
-          retrievalWeight: cfg.newSynapseWeight,
           visibility: "public",
         });
       }

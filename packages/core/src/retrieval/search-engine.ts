@@ -17,6 +17,7 @@ import type { DigestLine } from "../index/types.js";
 import type { SearchFilter } from "../types/disclosure.js";
 import { SearchOrchestrator, type SimpleSearchResult } from "./orchestrator.js";
 import { SqliteSearchOrchestrator } from "./sqlite-orchestrator.js";
+import { type FourFactorWeights } from "./scoring.js";
 import { configError } from "../tools/error-schema.js";
 
 /** 引擎类型 */
@@ -71,6 +72,13 @@ export class SqliteSearchEngineAdapter implements SearchEngine {
 export function createSearchEngine(opts: {
   readonly type: SearchEngineType;
   readonly indexDb?: IndexDb;
+  /**
+   * M6:四因子权重(config.search.scoring 经 scoringConfigToWeights 转换)。
+   * 注入两引擎:SQLite 经 SqliteSearchOptions.weights,in-memory 经 setWeights。
+   * 缺省时各引擎自用 DEFAULT_WEIGHTS。此前 createSearchEngine 不接受 weights,
+   * 两引擎恒用 DEFAULT_WEIGHTS,运维调 config.search.scoring 无效。
+   */
+  readonly weights?: FourFactorWeights;
 }): SearchEngine {
   if (opts.type === "sqlite") {
     if (!opts.indexDb) {
@@ -79,9 +87,16 @@ export function createSearchEngine(opts: {
         "createSearchEngine: sqlite 模式必须提供 indexDb(已 open)。若要 fallback 到 memory,显式传 type='memory' 或设 CO_ENGRAM_SEARCH_ENGINE=memory。",
       );
     }
-    return new SqliteSearchEngineAdapter(new SqliteSearchOrchestrator({ db: opts.indexDb }));
+    return new SqliteSearchEngineAdapter(
+      new SqliteSearchOrchestrator({
+        db: opts.indexDb,
+        ...(opts.weights ? { weights: opts.weights } : {}),
+      }),
+    );
   }
-  return new SearchOrchestrator();
+  const memory = new SearchOrchestrator();
+  if (opts.weights) memory.setWeights(opts.weights);
+  return memory;
 }
 
 /**

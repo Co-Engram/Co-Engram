@@ -6,7 +6,6 @@
  *   - updatedAt_arbitration: weight/direction/sourceSemantic/targetSemantic
  *   - max_updatedAt        : updatedAt itself
  *   - array_union          : evidence (handled in evidence-union.ts)
- *   - recomputed           : retrievalWeight (system-derived)
  *   - state_machine        : resolutionState (handled in resolution-state.ts)
  *   - passthrough          : unknown fields — keep base if unchanged, else ours
  *
@@ -18,7 +17,6 @@ export type SynapseFieldClass =
   | "updatedAt_arbitration"
   | "max_updatedAt"
   | "array_union"
-  | "recomputed"
   | "state_machine"
   | "passthrough";
 
@@ -44,7 +42,6 @@ export function classifySynapseField(fieldName: string): SynapseFieldClass {
     return "updatedAt_arbitration";
   if (fieldName === "updatedAt") return "max_updatedAt";
   if (fieldName === "evidence") return "array_union";
-  if (fieldName === "retrievalWeight") return "recomputed";
   if (fieldName === "resolutionState") return "state_machine";
   return "passthrough";
 }

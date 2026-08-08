@@ -89,7 +89,6 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
       createdBy,
       createdAt: timestamp,
       updatedAt: timestamp,
-      retrievalWeight: parsed.weight,
       sourceSemantic: parsed.sourceSemantic,
       targetSemantic: parsed.targetSemantic,
       visibility: "public",

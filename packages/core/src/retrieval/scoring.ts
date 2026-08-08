@@ -12,11 +12,16 @@
  *   - strength ∈ [0,1]:clamp01(reinforcementScore)
  *     用户反馈累积(RPE 强化 - LTD 失败);独立于 importance,反映"被实际用得多 + 用得好"
  *
- * 默认权重(spec §3.7):α=0.5, β=0.2, γ=0.2, δ=0.1
+ * 默认权重(见下方 DEFAULT_WEIGHTS 常量):α=0.5, β=0.15, γ=0.25, δ=0.1
  *
  * truthFactor 由 verificationStatus 派生:verified=1.0 / probable=0.7 /
- * plausible=0.5 / unverified=0.3 / refuted=0。refuted 默认不进检索
- * (filter 已排除),此处保留映射确保即使混入也得 0 分。
+ * plausible=0.5 / unverified=0.3 / refuted=0。refuted 记忆默认不进检索
+ * (M2:retrieval/filter.ts matchesFilter 与 sqlite-orchestrator.ts
+ * applyPostFilter 都默认排除 refuted)。truthFactor 在此处仅作用于
+ * effectiveImportance 项的真相约束:refuted 时 effImp = importance·0.3
+ * (0.3 + 0.7·0);relevance / recency / strength 三项不受 truthFactor 影响,
+ * 故 refuted 即使混入检索也不会得 0 分(高相关时 ≈ α+β = 0.65)——这正是
+ * filter 默认排除 refuted 的必要性,不能依赖打分兜底压到 0。
  *
  * 排序稳定性:相同输入产生相同输出(不依赖 Math.random/Date.now)。
  *
@@ -75,6 +80,38 @@ export function validateWeights(w: FourFactorWeights): void {
       throw validationError(`Weight must be in [0,1], got ${v}`);
     }
   }
+}
+
+/**
+ * M6:把 config.search.scoring(ScoringSectionConfig: relevance/recency/importance/strength)
+ * 转成四因子权重(FourFactorWeights: alpha/beta/gamma/delta),并校验和为 1。
+ *
+ * 字段映射:relevance→alpha / recency→beta / importance→gamma / strength→delta
+ * (与 config/defaults.ts DEFAULT_SEARCH_SECTION 的正向映射对偶)。缺省字段用
+ * DEFAULT_WEIGHTS 兜底。供 host adapter 装配时把持久化配置注入检索引擎,
+ * 让运维在 team-memory/config.json 调 search.scoring 真正生效(此前 config
+ * 持久化但 setWeights 0 callers、SQLite 路径只传 {now},两引擎恒用 DEFAULT_WEIGHTS)。
+ *
+ * 用 inline 结构类型而非 import ScoringSectionConfig,避免 retrieval→config
+ * 循环依赖(config/defaults 已 import 本模块的 DEFAULT_WEIGHTS);调用方传
+ * ScoringSectionConfig 结构兼容。
+ */
+export function scoringConfigToWeights(
+  cfg: {
+    readonly relevance?: number;
+    readonly recency?: number;
+    readonly importance?: number;
+    readonly strength?: number;
+  },
+): FourFactorWeights {
+  const weights: FourFactorWeights = {
+    alpha: cfg.relevance ?? DEFAULT_WEIGHTS.alpha,
+    beta: cfg.recency ?? DEFAULT_WEIGHTS.beta,
+    gamma: cfg.importance ?? DEFAULT_WEIGHTS.gamma,
+    delta: cfg.strength ?? DEFAULT_WEIGHTS.delta,
+  };
+  validateWeights(weights);
+  return weights;
 }
 
 /**

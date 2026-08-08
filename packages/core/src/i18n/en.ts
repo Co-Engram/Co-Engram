@@ -214,18 +214,19 @@ WHEN NOT TO CALL:
 RETURNS: { deleted: true } or error.
 
 ⚠️ Fail-loud: post-checks deletion; throws "still exists" on cross-process race / inconsistency (run engram_doctor).`,
-  "tool.close_learning_loop.agent": `Close the verification loop on a memory after confirming its correctness.
+  "tool.close_learning_loop.agent": `Feed a memory's usage outcome back to close the learning loop (reinforces importance/confidence).
 
 WHEN TO CALL:
-- You used a memory, verified it works, and want to mark it as confirmed
-- After positive feedback + user confirmation that the memory is accurate
-- Completing the "retrieve → use → verify → confirm" cycle
+- You used a memory, verified it works, want to signal it was useful (raises importance/confidence)
+- After positive feedback confirming the memory is accurate
+- Completing the "retrieve → use → feedback" cycle
 
 WHEN NOT TO CALL:
-- You haven't actually verified yet (wait until confirmation is solid)
-- The memory turned out wrong (use engram_report_failure)
+- Not verified yet (wait until confirmation is solid)
+- Memory turned out wrong (use engram_report_failure)
+- Upgrading verification status (unverified→plausible→probable→verified): use upgrade_verification; this tool does NOT change verificationStatus
 
-RETURNS: Updated verification status + closed loop metadata.`,
+RETURNS: closed-loop metadata (importance, importanceDelta, shouldArchive, shouldForget). Does NOT write verificationStatus — use upgrade_verification for upgrades.`,
   "tool.contradiction_resolve.agent": `Resolve a contradiction between two memories (old vs new).
 
 WHEN TO CALL:
@@ -417,7 +418,7 @@ WHEN TO CALL:
 - Following a successful close_learning_loop with strong evidence
 
 WHEN NOT TO CALL:
-- Without evidence (use close_learning_loop for the basic confirmation cycle first)
+- Without evidence (use close_learning_loop for the basic reinforcement cycle first, to accumulate effectiveness signal)
 - To downgrade (this tool only upgrades; refuted is a separate path)
 - Skipping levels without force=true (state machine validation will reject)
 
@@ -683,7 +684,7 @@ Spec ref: §3.9 phase 2 human intervention.`,
 success/partial → LTP (engram_reinforce path) + Hebbian neighbor boost.
 failure → LTD (engram_report_failure path) + demotion threshold check (auto-archive if below).
 Triggers provenance reward/punishment circuit if configured.
-Side effects: writes .meta.json (importance + verification status); appends audit + effectiveness signal.
+Side effects: writes .meta.json (importance + confidence + reinforcementScore); appends audit + effectiveness signal. Does NOT write verificationStatus (use upgrade_verification for status upgrades).
 Error conditions: not found throws; invalid outcome throws.`,
   "tool.upgrade_verification.technical": `Upgrade verification status. Input: { id, evidenceDescription, verifier, force? }
 State machine: unverified → plausible → probable → verified (no skipping). refuted is separate path.
@@ -2266,7 +2267,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "tip.lastEffectiveAt":
     "Last effective at: timestamp of the most recent successful adoption/reinforcement.",
   "tip.evidenceCount":
-    "Evidence count: number of independent evidence entries (synapses + metadata) supporting this memory.",
+    "Evidence count: verdict evidence accumulated via verification upgrades (upgrade_verification). Only counts [plausible/probable/verified/refuted]-prefixed entries on derives_from synapses; evidence carried by other synapse kinds (extends/exemplifies/causes etc.) is not included.",
   "tip.encodingContext":
     "Encoding context: background description when the memory was created; used for context-dependent recall.",
   "tip.perspective":

@@ -137,7 +137,8 @@ export interface DoctorIssue {
     | "skill_related_engram_dangling" // skill.relatedEngrams 引用的 engramId 不在 index(被删),doctor 自动移除引用
     | "skill_duplicate_id" // 多个 imprint(sidecar+fallback 或两 sidecar)共一 skillId,报人工
     | "skill_invalid_field_value" // imprint.json 字段级问题(utility 越界 / stats 不自洽 / 枚举非法 / 日期格式错 / schemaVersion≠1);数值类自动修,语义类报人工
-    | "skill_contenthash_stale"; // imprint.contentHash 与当前指纹不符(直编 imprint 改了 initiationSet),doctor 自动重算
+    | "skill_contenthash_stale" // imprint.contentHash 与当前指纹不符(直编 imprint 改了 initiationSet),doctor 自动重算
+    | "dead_field_removed"; // L1:frontmatter 死字段(如 evidenceCount,派生量从不 increment)被 doctor 自动移除
   readonly stableId?: StableEngramId;
   readonly path?: string;
   readonly message: string;

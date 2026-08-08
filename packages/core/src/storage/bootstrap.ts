@@ -27,6 +27,7 @@ import {
   type SearchEngineType,
 } from "../retrieval/search-engine.js";
 import { computeContentSize } from "./hash.js";
+import { type FourFactorWeights } from "../retrieval/scoring.js";
 import { readEngramFile, type EngramFile } from "./engram-store.js";
 import { EngramRepository } from "./repository.js";
 import { IndexDb, type EngramIndexEntry } from "./index-db.js";
@@ -35,6 +36,12 @@ import { computeFreshness } from "../lifecycle/freshness.js";
 export interface BootstrapOptions {
   readonly dataRoot: string;
   readonly language?: Language;
+  /**
+   * M6:四因子权重(host adapter 从 config.search.scoring 经 scoringConfigToWeights
+   * 转换后传入)。注入检索引擎,让运维在 team-memory/config.json 调 search.scoring
+   * 真正生效。缺省各引擎自用 DEFAULT_WEIGHTS。
+   */
+  readonly scoringWeights?: FourFactorWeights;
   /** 注入 env(测试用);默认 process.env */
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -116,7 +123,11 @@ export function bootstrapRepositoryAndSearch(
         indexedCount = entries.length;
       }
 
-      const searchEngine = createSearchEngine({ type: "sqlite", indexDb });
+      const searchEngine = createSearchEngine({
+        type: "sqlite",
+        indexDb,
+        ...(opts.scoringWeights ? { weights: opts.scoringWeights } : {}),
+      });
 
       const elapsedMs = Date.now() - startedAt;
       // eslint-disable-next-line no-console
@@ -141,7 +152,10 @@ export function bootstrapRepositoryAndSearch(
     rootPath: opts.dataRoot,
     ...(opts.language ? { language: opts.language } : {}),
   });
-  const searchEngine = createSearchEngine({ type: "memory" });
+  const searchEngine = createSearchEngine({
+    type: "memory",
+    ...(opts.scoringWeights ? { weights: opts.scoringWeights } : {}),
+  });
 
   if (wantedEngine === "memory") {
     // eslint-disable-next-line no-console

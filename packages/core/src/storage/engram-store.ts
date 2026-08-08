@@ -229,7 +229,6 @@ const NUMERIC_FIELDS = new Set([
   "confidence",
   "lastRetrievalScore",
   "reinforcementScore",
-  "evidenceCount",
   "retrievalCount",
   "effectiveRetrievals",
   "failedUses",

@@ -17,7 +17,11 @@ import type { SearchFilter } from "../types/disclosure.js";
 // 复用 in-memory orchestrator 的 SimpleSearchResult,保证两个引擎互换时
 // 上层工具调用方零代码改动。
 import type { SimpleSearchResult } from "./orchestrator.js";
-import { computeFourFactorScore } from "./scoring.js";
+import {
+  computeFourFactorScore,
+  DEFAULT_WEIGHTS,
+  type FourFactorWeights,
+} from "./scoring.js";
 
 /** SqliteSearchOrchestrator 构造参数 */
 export interface SqliteSearchOptions {
@@ -26,6 +30,12 @@ export interface SqliteSearchOptions {
    * 时钟注入(测试用);当前实现未依赖时间,但保留接口便于后续三因子融合。
    */
   readonly nowFn?: () => Date;
+  /**
+   * M6:四因子权重(来自 config.search.scoring,经 scoringConfigToWeights 转换)。
+   * 缺省 DEFAULT_WEIGHTS。此前 SQLite 路径 computeFourFactorScore 只传 {now},
+   * 恒用 DEFAULT_WEIGHTS,运维在 config 调 search.scoring 无效。
+   */
+  readonly weights?: FourFactorWeights;
 }
 
 /** search() 调用选项 */
@@ -48,6 +58,17 @@ export interface SearchResponse {
 const LIKE_FALLBACK_MIN_CHARS = 3;
 
 /**
+ * H1:检索默认 status 过滤门(与 in-memory retrieval/filter.ts matchesFilter 对齐)。
+ *
+ * 默认排除 frozen / forgotten —— 前者「不参与检索」、后者「移出索引」
+ * (types/engram.ts EngramStatus 契约)。此前 SQLite 路径的 SQL 与
+ * applyPostFilter 都无 status 谓词,导致 frozen/forgotten 照常泄漏进
+ * engram_search 结果(实测确认)。调用方可经 filter.status 显式覆盖
+ * (如 ["frozen"] 列出冻结记忆)。
+ */
+const DEFAULT_SEARCH_STATUS: readonly string[] = ["active", "draft"];
+
+/**
  * SQLite FTS5 召回编排器。
  *
  * 与 in-memory SearchOrchestrator 接口兼容(same query → SimpleSearchResult[]),
@@ -56,10 +77,12 @@ const LIKE_FALLBACK_MIN_CHARS = 3;
 export class SqliteSearchOrchestrator {
   private readonly db: IndexDb;
   private readonly nowFn: () => Date;
+  private readonly weights: FourFactorWeights;
 
   constructor(opts: SqliteSearchOptions) {
     this.db = opts.db;
     this.nowFn = opts.nowFn ?? (() => new Date());
+    this.weights = opts.weights ?? DEFAULT_WEIGHTS;
   }
 
   search(query: string, opts: SearchQueryOptions = {}): SearchResponse {
@@ -67,20 +90,28 @@ export class SqliteSearchOrchestrator {
     const q = query.trim();
     if (!q) return { results: [], nextCursor: null };
 
+    // H1:status 过滤门下沉到 SQL 谓词(召回阶段即排除 frozen/forgotten),
+    // 不让它们占用 recallLimit 配额。默认与 in-memory 引擎对齐为
+    // ["active","draft"];调用方显式传 filter.status 时按显式值过滤。
+    const statusFilter =
+      opts.filter?.status && opts.filter.status.length > 0
+        ? opts.filter.status
+        : DEFAULT_SEARCH_STATUS;
+
     // T7:召回池放大到 limit*3(对齐 in-memory searchFts(limit*3)),给四因子
     // 重排留空间 —— 让"文本匹配弱但 importance 高 / verified"的记忆有机会
     // 进前 limit,而非被 bm25 前 limit 直接截断丢弃。
     const recallLimit = Math.min(limit * 3, 500);
     const useLike = q.length < LIKE_FALLBACK_MIN_CHARS;
     let rows = useLike
-      ? this.searchByLike(q, recallLimit)
-      : this.searchByFts(q, recallLimit);
+      ? this.searchByLike(q, recallLimit, statusFilter)
+      : this.searchByFts(q, recallLimit, statusFilter);
 
     // FTS5 trigram tokenizer 对短 token / 中英混合 query 可能 0 召回
     // (例:"co-engram loop 模式" — trigram tokenizer 切出跨空格 trigram,
     // 文档里没有这个连续序列)。fallback 到 LIKE:四个文本维度模糊匹配。
     if (!useLike && rows.length === 0) {
-      rows = this.searchByLike(q, recallLimit);
+      rows = this.searchByLike(q, recallLimit, statusFilter);
     }
 
     const filtered = this.applyPostFilter(rows, opts.filter);
@@ -112,7 +143,7 @@ export class SqliteSearchOrchestrator {
             verificationStatus: r.verificationStatus,
             reinforcementScore: r.reinforcementScore,
           },
-          { now },
+          { now, weights: this.weights },
         );
         return { r, score };
       })
@@ -143,9 +174,13 @@ export class SqliteSearchOrchestrator {
   private searchByFts(
     q: string,
     limit: number,
+    statusFilter: readonly string[],
   ): RawSearchRow[] {
     const ftsQuery = this.buildFtsQuery(q);
     if (!ftsQuery) return [];
+    // H1:AND e.status IN (...) 召回阶段排除 frozen/forgotten。statusFilter
+    // 来自 search() 入口归一化(非空),动态构造 placeholder 防注入。
+    const statusPlaceholders = statusFilter.map(() => "?").join(",");
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
@@ -156,11 +191,11 @@ export class SqliteSearchOrchestrator {
         bm25(engram_fts) AS fts_score
       FROM engram_fts
       JOIN engrams e ON e.id = engram_fts.id
-      WHERE engram_fts MATCH ?
+      WHERE engram_fts MATCH ? AND e.status IN (${statusPlaceholders})
       ORDER BY fts_score ASC
       LIMIT ?
     `);
-    const rows = stmt.all(ftsQuery, limit) as unknown as Array<SqliteFtsRow>;
+    const rows = stmt.all(ftsQuery, ...statusFilter, limit) as unknown as Array<SqliteFtsRow>;
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
@@ -186,7 +221,13 @@ export class SqliteSearchOrchestrator {
    *
    * 排序:importance + updatedAt DESC(无相关度信号,用静态质量分代替)。
    */
-  private searchByLike(q: string, limit: number): RawSearchRow[] {
+  private searchByLike(
+    q: string,
+    limit: number,
+    statusFilter: readonly string[],
+  ): RawSearchRow[] {
+    // H1:OR 文本条件用括号包住,再 AND e.status IN (...) 排除 frozen/forgotten。
+    const statusPlaceholders = statusFilter.map(() => "?").join(",");
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
@@ -196,18 +237,19 @@ export class SqliteSearchOrchestrator {
         e.verification_status AS verification_status
       FROM engrams e
       JOIN engram_fts f ON f.id = e.id
-      WHERE e.title LIKE ? ESCAPE '\\'
+      WHERE (e.title LIKE ? ESCAPE '\\'
          OR f.summary LIKE ? ESCAPE '\\'
          OR f.content_tokens LIKE ? ESCAPE '\\'
          OR EXISTS (
            SELECT 1 FROM engram_domains d
            WHERE d.engram_id = e.id AND d.domain LIKE ? ESCAPE '\\'
-         )
+         ))
+         AND e.status IN (${statusPlaceholders})
       ORDER BY e.importance DESC, e.updated_at DESC
       LIMIT ?
     `);
     const pattern = `%${escapeLike(q)}%`;
-    const rows = stmt.all(pattern, pattern, pattern, pattern, limit) as unknown as Array<SqliteLikeRow>;
+    const rows = stmt.all(pattern, pattern, pattern, pattern, ...statusFilter, limit) as unknown as Array<SqliteLikeRow>;
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
@@ -249,14 +291,28 @@ export class SqliteSearchOrchestrator {
   /**
    * 后置过滤(SQL 端已做 limit,这里做 filter 收紧)。
    *
-   * 当前实现只处理 domainTags;其余 SearchFilter 字段(kinds / status /
-   * freshness / contextTags / 时间窗 / minImportance)留待 Phase 3 在 SQL
-   * 端实现以避免 N+1 拉取。
+   * status / verificationStatus 是「检索默认门」—— 即使 filter 为 undefined
+   * 也要应用(status 已在 SQL 谓词下沉,verificationStatus 在此处的默认排除
+   * 提到 `if (!filter) return rows` 早返之前)。其余字段(kinds / freshness /
+   * contextTags / 时间窗 / minImportance)仅在 filter 存在时生效。
    */
   private applyPostFilter(
     rows: RawSearchRow[],
     filter: SearchFilter | undefined,
   ): RawSearchRow[] {
+    // M2:verificationStatus 默认排除 refuted(已证伪记忆不进默认检索,与
+    // in-memory retrieval/filter.ts matchesFilter 对齐)。RawSearchRow 的
+    // verificationStatus 已由 SQL SELECT 带回(engrams.verification_status)。
+    // null 视为 unverified,不被默认排除;显式传 filter.verificationStatus 时
+    // 按包含语义过滤(便于管理面查询 refuted)。
+    if (filter?.verificationStatus && filter.verificationStatus.length > 0) {
+      const want = new Set(filter.verificationStatus);
+      rows = rows.filter(
+        (r) => r.verificationStatus != null && want.has(r.verificationStatus),
+      );
+    } else {
+      rows = rows.filter((r) => r.verificationStatus !== "refuted");
+    }
     if (!filter) return rows;
     if (filter.domainTags && filter.domainTags.length > 0) {
       const want = new Set(filter.domainTags);

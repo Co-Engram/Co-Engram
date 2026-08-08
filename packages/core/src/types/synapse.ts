@@ -72,9 +72,6 @@ export interface Synapse {
   readonly createdAt: string;
   readonly updatedAt: string;
 
-  /** 检索权重（系统计算，用于检索时排序） */
-  readonly retrievalWeight: number;
-
   /** 语义标签（source/target 的语义快照） */
   readonly sourceSemantic?: string;
   readonly targetSemantic?: string;

@@ -95,7 +95,7 @@ function buildEn(profile: ToolProfile): string {
   }[profile];
 
   const learningLoop = hasTool(profile, "close_learning_loop")
-    ? "After using a memory and confirming it works, call `close_learning_loop` to mark it verified. If a memory led to a wrong answer, call `engram_report_failure`."
+    ? "After using a memory and confirming it works, call `close_learning_loop` to reinforce it (raises importance/confidence). To formally verify a memory (upgrade its verificationStatus), use `upgrade_verification`. If a memory led to a wrong answer, call `engram_report_failure`."
     : "If a memory led to a wrong answer, call `engram_report_failure` to downgrade it. (Loop-closing tools are not exposed in minimal profile — the maintenance engine tracks effectiveness in the background.)";
 
   return `# Co-Engram Team Memory
@@ -144,7 +144,7 @@ function buildZh(profile: ToolProfile): string {
   }[profile];
 
   const learningLoop = hasTool(profile, "close_learning_loop")
-    ? "使用记忆并验证有效后,调用 `close_learning_loop` 标记为已确认。若记忆导致错误答案,调用 `engram_report_failure`。"
+    ? "使用记忆并验证有效后,调用 `close_learning_loop` 强化它(提升 importance / confidence)。要正式验证记忆(升级 verificationStatus),用 `upgrade_verification`。若记忆导致错误答案,调用 `engram_report_failure`。"
     : "若记忆导致错误答案,调用 `engram_report_failure` 降低其权重。(minimal profile 下不暴露闭环工具,有效性由维护引擎在后台自动追踪。)";
 
   return `# Co-Engram 团队记忆

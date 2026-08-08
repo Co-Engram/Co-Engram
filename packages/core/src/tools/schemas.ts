@@ -243,6 +243,9 @@ export const SearchFilterSchema = z
     // P0-3 修复:此前 contextTags 字段在 SearchFilter interface / Zod schema /
     // matchesFilter 三方都缺失,用户传入被 Zod 默认 strip 静默吞掉
     contextTags: z.array(z.string()).optional(),
+    // M2 修复:verificationStatus 同样此前三方缺失 + applyPostFilter,且检索
+    // 默认应排除 refuted。开放该字段让管理面能显式查询已证伪记忆。
+    verificationStatus: z.array(z.string()).optional(),
   })
   // P0-3 修复:.strict() 拒绝 unknown keys(此前默认 strip 让所有 filter 字段错写
   // 都被静默吞,导致调试困难)。同 Tier 0 在 engram_search / engram_list /

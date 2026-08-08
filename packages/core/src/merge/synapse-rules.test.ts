@@ -23,7 +23,6 @@ describe("classifySynapseField (spec §6.1)", () => {
     ["targetSemantic", "updatedAt_arbitration"],
     ["updatedAt", "max_updatedAt"],
     ["evidence", "array_union"],
-    ["retrievalWeight", "recomputed"],
     ["resolutionState", "state_machine"],
     ["unknownField", "passthrough"],
   ];

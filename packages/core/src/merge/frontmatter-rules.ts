@@ -21,7 +21,6 @@ const ADDITIVE_FIELDS = new Set([
   "effectiveRetrievals",
   "failedUses",
   "reinforcementScore",
-  "evidenceCount",
 ]);
 const MAX_FIELDS = new Set([
   "updatedAt",
@@ -34,6 +33,10 @@ const LEGACY_DERIVED_FIELDS = new Set([
   "outgoingSynapseCount",
   "incomingSynapseCount",
   "activeContradictionCount",
+  // L1:evidenceCount 是派生量(assembleEngram 从 derives_from verdict 证据数
+  // 现算),不该 frontmatter 持有。从 ADDITIVE 移至此 → 合并时 legacy_derived
+  // 跳过,不传播/不写入合并结果,与 outgoingSynapseCount 等派生量一致。
+  "evidenceCount",
 ]);
 
 export function classifyField(fieldName: string): FieldClass {

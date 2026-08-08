@@ -158,7 +158,7 @@ export class SearchOrchestrator {
   }
 
   /**
-   * 配置四因子权重(默认 α=0.5, β=0.2, γ=0.2, δ=0.1)
+   * 配置四因子权重(默认 α=0.5, β=0.15, γ=0.25, δ=0.1,见 scoring.DEFAULT_WEIGHTS)
    *
    * 会校验和为 1。
    */
@@ -213,7 +213,11 @@ export class SearchOrchestrator {
     for (const hit of hits) {
       const line = this.ftsIndex.docs.get(hit.docId);
       if (!line) continue;
-      if (!applyFilter([line], filter).includes(line)) continue;
+      // H1+M2:filter undefined 时走默认检索门(排除 frozen/forgotten/refuted),
+      // 与 SQLite 引擎 effectiveStatus + applyPostFilter 默认行为对齐;此前
+      // matchesFilter 首行 `if (!filter) return true` 让 undefined filter 放行
+      // 全部记忆(含 frozen/forgotten/refuted),与 SQLite 默认行为分裂。
+      if (!applyFilter([line], filter ?? {}).includes(line)) continue;
       const relevance = maxFts > 0 ? hit.score / maxFts : 0;
       const rawScore = computeFourFactorScore(relevance, line, {
         now,

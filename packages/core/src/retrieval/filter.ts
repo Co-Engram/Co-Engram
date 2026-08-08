@@ -52,6 +52,18 @@ export function matchesFilter(
     return false;
   }
 
+  // M2:verificationStatus 默认排除 refuted(已证伪记忆不进默认检索,与 SQLite
+  // applyPostFilter 对齐)。line.verificationStatus 为 null 时视为 unverified。
+  // 调用方显式传 verificationStatus 时按包含语义过滤(便于查询 refuted)。
+  const vStatus = line.verificationStatus ?? "unverified";
+  if (filter.verificationStatus && filter.verificationStatus.length > 0) {
+    if (!filter.verificationStatus.includes(vStatus)) {
+      return false;
+    }
+  } else if (vStatus === "refuted") {
+    return false;
+  }
+
   if (filter.freshness && filter.freshness.length > 0) {
     if (!filter.freshness.includes(line.freshness)) {
       return false;

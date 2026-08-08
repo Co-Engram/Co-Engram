@@ -104,8 +104,6 @@ export function parseSynapseFile(raw: string): SynapseFile {
     createdBy: s.createdBy ?? "",
     createdAt: s.createdAt ?? "",
     updatedAt: s.updatedAt ?? "",
-    retrievalWeight:
-      typeof s.retrievalWeight === "number" ? s.retrievalWeight : 0.5,
     sourceSemantic: s.sourceSemantic,
     targetSemantic: s.targetSemantic,
     resolutionState: s.resolutionState,
@@ -226,7 +224,6 @@ export function upsertSynapse(
     createdBy: existing?.createdBy ?? params.createdBy,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
-    retrievalWeight: existing?.retrievalWeight ?? 0.5,
     sourceSemantic: params.sourceSemantic ?? existing?.sourceSemantic,
     targetSemantic: params.targetSemantic ?? existing?.targetSemantic,
     resolutionState: params.resolutionState ?? existing?.resolutionState,

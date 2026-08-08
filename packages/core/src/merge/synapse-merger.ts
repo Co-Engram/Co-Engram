@@ -65,6 +65,10 @@ export function mergeSynapseFile(params: {
 
   const escalatedFields: string[] = [];
   let arbitratedWinner: "ours" | "theirs" | null = null;
+  // M4(spec §6.3 规则 5):contradicts 合并产生 override 时,败方 rationale 需
+  // 包成 evidence 追加到 winner。evidence 字段由 array_union case 合并,
+  // 全字段遍历顺序不定,故在此只收集、在 reconstruct 前统一追加。
+  let loserRationaleEv: SynapseEvidence | null = null;
 
   // Mutable copy
   const merged: Record<string, unknown> = {};
@@ -153,19 +157,18 @@ export function mergeSynapseFile(params: {
           theirs: theirsV as Synapse["resolutionState"],
         });
         if (r.merged) merged[key] = r.merged;
-        if (
-          r.strategy === "tie-keep-ours" ||
-          r.strategy === "higher-phase" ||
-          r.strategy === "higher-priority-status"
-        ) {
-          // Surfaced for downstream evidence append (loser rationale)
+        // M4(spec §6.3 规则 5):override 策略(higher-phase /
+        // higher-priority-status / tie-keep-ours)下败方 rationale 包成
+        // evidence,留待 reconstruct 前追加到 winner。此前这里是空 if 体,
+        // loserRationale 被计算后直接丢弃,违反 spec 可审计性要求。
+        if (r.loserRationale) {
+          const lr = r.loserRationale;
+          loserRationaleEv = {
+            description: `[merge] overridden resolution ${lr.fromStatus}/phase${lr.fromPhase}: ${lr.rationale}`,
+            addedAt: mergeSynapseMaxUpdatedAt(ours.updatedAt, theirs.updatedAt),
+            addedBy: "merge-driver",
+          };
         }
-        break;
-      }
-
-      case "recomputed": {
-        // retrievalWeight is recomputed downstream; keep base value as placeholder.
-        merged[key] = baseV ?? oursV;
         break;
       }
 
@@ -187,6 +190,20 @@ export function mergeSynapseFile(params: {
       strategy: `synapse escalated: ${escalatedFields.join(", ")}`,
       arbitratedWinner: null,
     };
+  }
+
+  // M4(spec §6.3 规则 5):把败方 rationale evidence 追加到合并结果的 evidence
+  // 数组。复用 mergeEvidence 的去重逻辑(description::addedBy 为 key),保证
+  // 重复合并幂等 —— 同一 rationale 不会被追加两次。
+  if (loserRationaleEv) {
+    const baseEvidence = Array.isArray(merged.evidence)
+      ? (merged.evidence as SynapseEvidence[])
+      : [];
+    merged.evidence = mergeEvidence({
+      base: baseEvidence,
+      ours: [loserRationaleEv],
+      theirs: [],
+    });
   }
 
   // Reconstruct Synapse from merged record.
@@ -332,10 +349,6 @@ function reconstructSynapse(record: Record<string, unknown>): Synapse {
     createdBy: (record.createdBy as string) ?? "",
     createdAt: (record.createdAt as string) ?? "",
     updatedAt: (record.updatedAt as string) ?? "",
-    retrievalWeight:
-      typeof record.retrievalWeight === "number"
-        ? (record.retrievalWeight as number)
-        : 0.5,
     sourceSemantic: record.sourceSemantic as string | undefined,
     targetSemantic: record.targetSemantic as string | undefined,
     resolutionState: record.resolutionState as Synapse["resolutionState"],
