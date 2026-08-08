@@ -281,9 +281,7 @@ export function startViewerServer(
 ): Promise<ViewerRuntime> {
   const hostType = config.hostType ?? detectHostType();
   const envPortRaw = process.env.CO_ENGRAM_VIEWER_PORT;
-  const envPort = envPortRaw
-    ? Number.parseInt(envPortRaw, 10)
-    : undefined;
+  const envPort = envPortRaw ? Number.parseInt(envPortRaw, 10) : undefined;
   const envPortValid =
     typeof envPort === "number" &&
     Number.isFinite(envPort) &&
@@ -299,9 +297,8 @@ export function startViewerServer(
         `Use env CO_ENGRAM_VIEWER_PORT instead. This time falling back to port ${config.port}.`,
     );
   }
-  const startPort = (envPortValid ? envPort : undefined) ??
-    config.port ??
-    DEFAULT_PORT;
+  const startPort =
+    (envPortValid ? envPort : undefined) ?? config.port ?? DEFAULT_PORT;
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const token = config.token;
   const language = config.language ?? DEFAULT_LANGUAGE;
@@ -490,7 +487,13 @@ async function routeApi(
         dataRoot: "",
         dataRootExists: false,
         isEngramWarehouse: false,
-        stats: { total: 0, byKind: {}, byStatus: {}, archived: 0, forgotten: 0 },
+        stats: {
+          total: 0,
+          byKind: {},
+          byStatus: {},
+          archived: 0,
+          forgotten: 0,
+        },
         indexes: {
           engramIndex: { exists: false },
           digestJsonl: { exists: false },
@@ -504,9 +507,13 @@ async function routeApi(
       });
       return;
     }
-    respondJson(res, 200, computeStatus(dataRoot, {
-      ...(ctx.repository?.indexDb ? { indexDb: ctx.repository.indexDb } : {}),
-    }));
+    respondJson(
+      res,
+      200,
+      computeStatus(dataRoot, {
+        ...(ctx.repository?.indexDb ? { indexDb: ctx.repository.indexDb } : {}),
+      }),
+    );
     return;
   }
 
@@ -585,7 +592,9 @@ async function routeApi(
       const synapses = ctx.repository.readSynapses(id);
       respondJson(res, 200, synapses);
     } catch (err) {
-      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      respondJson(res, 500, {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
     return;
   }
@@ -738,8 +747,12 @@ async function routeApi(
       });
       return;
     }
-    const acquisitionStageFilter = url.searchParams.get("acquisitionStage") as AcquisitionStage | null;
-    const retentionStageFilter = url.searchParams.get("retentionStage") as RetentionStage | null;
+    const acquisitionStageFilter = url.searchParams.get(
+      "acquisitionStage",
+    ) as AcquisitionStage | null;
+    const retentionStageFilter = url.searchParams.get(
+      "retentionStage",
+    ) as RetentionStage | null;
     const limitRaw = url.searchParams.get("limit");
     const limit =
       limitRaw && Number.isFinite(Number(limitRaw))
@@ -748,7 +761,9 @@ async function routeApi(
 
     let skills = ctx.skillRepository.listSkills();
     if (acquisitionStageFilter) {
-      skills = skills.filter((s) => s.acquisitionStage === acquisitionStageFilter);
+      skills = skills.filter(
+        (s) => s.acquisitionStage === acquisitionStageFilter,
+      );
     }
     if (retentionStageFilter) {
       skills = skills.filter((s) => s.retentionStage === retentionStageFilter);
@@ -909,10 +924,7 @@ async function routeApi(
   // 清空所有 status=dismissed 的 proposal,释放 .co-engram/proposals.jsonl 空间。
   // 用户场景:dismissed 列表累积到几百条后,人工逐条审查已无意义,直接清空更高效。
   // 返回被清空的 entityId 列表(审计 + UI 反馈用)。
-  if (
-    path === "/api/proposals/purge-dismissed" &&
-    req.method === "POST"
-  ) {
+  if (path === "/api/proposals/purge-dismissed" && req.method === "POST") {
     if (!ctx.proposalEngine) {
       respondJson(res, 503, {
         error: "Proposal engine not enabled",
@@ -950,10 +962,7 @@ async function routeApi(
   // 清空所有 status=accepted 的 proposal,释放 .co-engram/proposals.jsonl 空间。
   // 用户场景:accepted 列表累积过多,清空"采纳记录"但保留已创建的 engram。
   // 返回被清空的 entityId 列表(审计 + UI 反馈用)。
-  if (
-    path === "/api/proposals/purge-accepted" &&
-    req.method === "POST"
-  ) {
+  if (path === "/api/proposals/purge-accepted" && req.method === "POST") {
     if (!ctx.proposalEngine) {
       respondJson(res, 503, {
         error: "Proposal engine not enabled",
@@ -1019,7 +1028,12 @@ async function routeApi(
           readonly content?: string;
           readonly domainTags?: readonly string[];
           readonly createdBy?: string;
-          readonly kind?: "fact" | "observation" | "pattern" | "procedure" | "hypothesis";
+          readonly kind?:
+            | "fact"
+            | "observation"
+            | "pattern"
+            | "procedure"
+            | "hypothesis";
           readonly visibility?: "public" | "team" | "private" | "restricted";
         } = {
           ...(body?.title ? { title: body.title } : {}),
@@ -1029,7 +1043,9 @@ async function routeApi(
           // fallback 启动快照(ctx.defaultCreatedBy),再前端 body.createdBy。
           ...(() => {
             const author =
-              ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? body?.createdBy;
+              ctx.resolveCreatedBy?.() ??
+              ctx.defaultCreatedBy ??
+              body?.createdBy;
             return author ? { createdBy: author } : {};
           })(),
           ...(body?.kind
@@ -1312,9 +1328,9 @@ async function routeApi(
         ? ["forgotten"]
         : partition === "frozen" || partition === "archived"
           ? ["frozen", "archived"]
-          : (!partition || /^\d{4}-\d{2}$/.test(partition)
-              ? ["forgotten", "frozen", "archived"]
-              : []);
+          : !partition || /^\d{4}-\d{2}$/.test(partition)
+            ? ["forgotten", "frozen", "archived"]
+            : [];
     if (softStatuses.length > 0) {
       let softRows: { id: string }[] = [];
       if (ctx.repository.indexDb) {
@@ -1328,7 +1344,9 @@ async function routeApi(
           try {
             const full = ctx.repository.readEngram(entry.id);
             if (
-              softStatuses.includes(full.status as "forgotten" | "frozen" | "archived")
+              softStatuses.includes(
+                full.status as "forgotten" | "frozen" | "archived",
+              )
             ) {
               softRows.push({ id: entry.id });
             }
@@ -1699,7 +1717,11 @@ async function routeApi(
         );
         if (existsSync(drPath)) {
           const cached = JSON.parse(readFileSync(drPath, "utf8"));
-          respondJson(res, 200, { enabled: true, report: cached, cached: true });
+          respondJson(res, 200, {
+            enabled: true,
+            report: cached,
+            cached: true,
+          });
           return;
         }
       } catch {
@@ -1927,6 +1949,14 @@ interface StatsResponse {
 }
 
 function getStats(ctx: ToolContext): StatsResponse {
+  // 按需同步派生层:补救 fs.watch(inotify)对编辑器原子写漏事件,导致 engram .md
+  // 外部编辑未同步到 SQLite(无 indexDb 时 rescanModifiedEngrams 内部 noop;有则仅
+  // stat 成本,mtime 未变的条目跳过)。让「改文件 → 网页内容更新」不依赖 fs.watch 实时性。
+  try {
+    ctx.repository.rescanModifiedEngrams();
+  } catch {
+    // 同步失败不阻塞 stats 读取,下次 fs.watch 事件 / 启动扫描会重试
+  }
   // 优先 SQLite fast path:1000+ engram 规模下,< 100ms
   // 老路径走 listEngrams + N+1 readEngram,1026 ghost 让 /api/stats 卡 47s(2026-07 修复)
   if (ctx.repository.indexDb) {
@@ -1987,25 +2017,29 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
   }
 
   // 3. topTags(SQLite ORDER BY count DESC LIMIT 10)
-  const tagRows = db.prepare(
-    `SELECT domain, count(*) AS n
+  const tagRows = db
+    .prepare(
+      `SELECT domain, count(*) AS n
      FROM engram_domains
      GROUP BY domain
      ORDER BY n DESC, domain ASC
      LIMIT 10`,
-  ).all() as { domain: string; n: number }[];
+    )
+    .all() as { domain: string; n: number }[];
   const topTags = tagRows.map((r) => ({ tag: r.domain, count: r.n }));
 
   // 4. topContributors:engram 作者走 SQLite GROUP BY(毫秒级);
   //    synapse 作者走 graph.json edges 的 createdBy 字段(GraphBuilder 2026-07 加)。
   //    修复 Bug 3(2026-07):之前 synapseCount 写死 0,「印迹+突触合计」标题误导用户。
   //    旧 graph.json 缺 createdBy 字段时,该 synapse 不计入(下次 graph rebuild 后补齐)。
-  const engramContributorRows = db.prepare(
-    `SELECT created_by AS actor, count(*) AS n
+  const engramContributorRows = db
+    .prepare(
+      `SELECT created_by AS actor, count(*) AS n
      FROM engrams
      WHERE created_by != ''
      GROUP BY created_by`,
-  ).all() as { actor: string; n: number }[];
+    )
+    .all() as { actor: string; n: number }[];
 
   const contributorMap = new Map<string, { engram: number; synapse: number }>();
   for (const r of engramContributorRows) {
@@ -2209,6 +2243,12 @@ interface GraphResponse {
     readonly slug?: string;
     readonly kind: string;
     readonly domainTags: readonly string[];
+    /**
+     * engram 节点的重要性 [0,1],前端 graph.ts 据此算节点 size
+     * (size = 10 + importance * 18)。L4 修复:cache/rebuild 路径从 GraphNode
+     * 下发;skill 节点与最终兜底路径不持有,前端兜底 0.5。
+     */
+    readonly importance?: number;
   }>;
   readonly edges: ReadonlyArray<{
     readonly id: string;
@@ -2234,31 +2274,44 @@ function buildGraph(ctx: ToolContext): GraphResponse {
     try {
       const cachePath = defaultCachePath(ctx.repository.rootPath);
       const graphBuilder = new GraphBuilder(ctx.repository, cachePath);
-      const cached = graphBuilder.read();
+      let cached = graphBuilder.read();
+      if (!cached) {
+        // L4:graph.json 缺失 → 重建。rebuild 生成含 importance 的 GraphNode,
+        // 与 cache 路径走同一映射(下发 importance 给前端算节点 size);同时
+        // 写出 graph.json 让后续请求走 cache。降级到 listEngrams 的兜底路径
+        // 不下发 importance(前端兜底 0.5),仅 rebuild 也失败时才走它。
+        graphBuilder.rebuild();
+        cached = graphBuilder.read();
+      }
       if (cached) {
         const _skill = buildSkillGraph(ctx);
         return {
-          nodes: [...cached.nodes.map((n) => ({
-            id: n.id,
-            title: n.title,
-            ...(n.slug ? { slug: n.slug } : {}),
-            kind: n.kind,
-            domainTags: n.domainTags ?? [],
-          })),
-          ..._skill.nodes],
-          edges: [...cached.edges.map((e) => ({
-            id: e.id,
-            from: e.from,
-            to: e.to,
-            kind: e.kind,
-            weight: e.weight,
-            evidenceCount: e.evidenceCount ?? 0,
-            direction: e.direction,
-            ...(e.resolutionStatus
-              ? { resolutionStatus: e.resolutionStatus }
-              : {}),
-          })),
-          ..._skill.edges],
+          nodes: [
+            ...cached.nodes.map((n) => ({
+              id: n.id,
+              title: n.title,
+              importance: n.importance,
+              ...(n.slug ? { slug: n.slug } : {}),
+              kind: n.kind,
+              domainTags: n.domainTags ?? [],
+            })),
+            ..._skill.nodes,
+          ],
+          edges: [
+            ...cached.edges.map((e) => ({
+              id: e.id,
+              from: e.from,
+              to: e.to,
+              kind: e.kind,
+              weight: e.weight,
+              evidenceCount: e.evidenceCount ?? 0,
+              direction: e.direction,
+              ...(e.resolutionStatus
+                ? { resolutionStatus: e.resolutionStatus }
+                : {}),
+            })),
+            ..._skill.edges,
+          ],
         };
       }
     } catch {
@@ -2309,12 +2362,28 @@ function buildGraph(ctx: ToolContext): GraphResponse {
   }
 
   const _skill = buildSkillGraph(ctx);
-  return { nodes: [...nodes, ..._skill.nodes], edges: [...edges, ..._skill.edges] };
+  return {
+    nodes: [...nodes, ..._skill.nodes],
+    edges: [...edges, ..._skill.edges],
+  };
 }
 
 /** S6 B6:构建 skill 节点 + composes/relatedEngrams 边(叠加到 graph,与 engram/synapse 并存) */
-function buildSkillGraph(ctx: ToolContext): { nodes: GraphResponse["nodes"][number][]; edges: GraphResponse["edges"][number][] } {
-  const skillRepo = (ctx as { skillRepository?: { listSkills(): ReadonlyArray<{ skillId: string; composes?: readonly string[]; relatedEngrams?: readonly string[] }> } }).skillRepository;
+function buildSkillGraph(ctx: ToolContext): {
+  nodes: GraphResponse["nodes"][number][];
+  edges: GraphResponse["edges"][number][];
+} {
+  const skillRepo = (
+    ctx as {
+      skillRepository?: {
+        listSkills(): ReadonlyArray<{
+          skillId: string;
+          composes?: readonly string[];
+          relatedEngrams?: readonly string[];
+        }>;
+      };
+    }
+  ).skillRepository;
   if (!skillRepo) return { nodes: [], edges: [] };
   try {
     const skills = skillRepo.listSkills();
@@ -2329,10 +2398,26 @@ function buildSkillGraph(ctx: ToolContext): { nodes: GraphResponse["nodes"][numb
     for (const s of skills) {
       const sid = nid(s.skillId);
       for (const target of s.composes ?? []) {
-        edges.push({ id: `compose:${s.skillId}:${target}`, from: sid, to: nid(target), kind: "composes", weight: 0.5, evidenceCount: 0, direction: "directional" });
+        edges.push({
+          id: `compose:${s.skillId}:${target}`,
+          from: sid,
+          to: nid(target),
+          kind: "composes",
+          weight: 0.5,
+          evidenceCount: 0,
+          direction: "directional",
+        });
       }
       for (const eid of s.relatedEngrams ?? []) {
-        edges.push({ id: `related:${s.skillId}:${eid}`, from: sid, to: eid, kind: "related", weight: 0.5, evidenceCount: 0, direction: "bidirectional" });
+        edges.push({
+          id: `related:${s.skillId}:${eid}`,
+          from: sid,
+          to: eid,
+          kind: "related",
+          weight: 0.5,
+          evidenceCount: 0,
+          direction: "bidirectional",
+        });
       }
     }
     return { nodes, edges };
@@ -2390,12 +2475,14 @@ function listTrashedSimple(ctx: ToolContext): TrashListItem[] {
   const seen = new Set(out.map((o) => o.id));
   if (ctx.repository.indexDb) {
     try {
-      const rows = ctx.repository.indexDb.prepare(
-        `SELECT id, title, kind, updated_at, status
+      const rows = ctx.repository.indexDb
+        .prepare(
+          `SELECT id, title, kind, updated_at, status
          FROM engrams
          WHERE status IN ('forgotten', 'archived')
          ORDER BY updated_at DESC`,
-      ).all() as {
+        )
+        .all() as {
         id: string;
         title: string;
         kind: string;

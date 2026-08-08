@@ -49,13 +49,60 @@ interface LlmExtractedMetadata {
 }
 
 /**
+ * 剥离 markdown 中的 fenced code block(``` 或 ~~~),返回仅含散文行的文本。
+ *
+ * 用途:标题提取前先剔除代码块,避免把代码块内的 `#` 注释行误当 H1
+ * (典型场景:从 wiki 粘贴的 shell 步骤 `# 1. 切换到源分支` 被当成文档标题)。
+ * CommonMark 围栏识别:行首 ≤3 空格缩进 + ≥3 个 ` 或 ~;关闭围栏需相同字符
+ * 且长度 ≥ 开启长度。缩进 >3 空格的 ``` 属缩进代码块(非 fence),按普通文本保留。
+ *
+ * 仅服务于「找真 H1」的标题提取目标,不影响 content(全文始终用 raw)。
+ */
+function stripFencedCodeBlocks(raw: string): string {
+  const lines = raw.split(/\r?\n/);
+  const out: string[] = [];
+  let fenceChar: "`" | "~" | null = null;
+  let fenceLen = 0;
+  for (const line of lines) {
+    if (fenceChar) {
+      // fence 内:检查本行是否为关闭围栏(相同字符,长度 ≥ 开启长度)
+      const closeMatch = line.match(/^\s{0,3}([`~])\1*/);
+      if (closeMatch && closeMatch[1]![0] === fenceChar) {
+        const len = closeMatch[0].replace(/^\s{0,3}/, "").length;
+        if (len >= fenceLen) {
+          fenceChar = null;
+          fenceLen = 0;
+        }
+      }
+      continue; // fence 内所有行(含关闭行)都剔除
+    }
+    const openMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (openMatch) {
+      fenceChar = openMatch[1]![0] as "`" | "~";
+      fenceLen = openMatch[1]!.length;
+      continue; // 开启行也剔除
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
+/**
  * 规则版:从裸 markdown 提取默认字段(零依赖,降级路径)
  *
- * 策略:
- *   - title:第一行 H1(`# 标题`),否则文件名(去 .md 扩展名)
+ * 标题策略(优先级):
+ *   1. 剥离 fenced code block 后,若**恰好 1 个** H1(`# 标题`)→ 用它;
+ *   2. 否则(0 个 H1,或 >1 个 H1)→ 用文件名(去 .md)。
+ *
+ * 为何「>1 个 H1 → 文件名」:正常文档只有 1 个主题级 H1;出现多个 H1 通常是
+ * 代码块围栏丢失(从 wiki 粘贴)导致 shell 注释 `# 1. xxx` 被误解析为 H1,或
+ * 文档用 H1 切分多 section——两种都说明 H1 不可靠,文件名(用户刻意命名)更
+ * 能代表主题。剥离 code block 处理「有围栏」的伪 H1;多 H1 检测处理「围栏已
+ * 丢失、剥离无效」的伪 H1(靠数量启发式)。两者互补,完整覆盖伪 H1 场景。
+ *
  *   - content:raw 全文(包含 H1,与 engram_create 的 content 语义一致)
  *   - kind:"observation"(单次观察,默认最保守)
- *   - domainTags:["imported"](统一标签,用户审批时可编辑)
+ *   - domainTags:["uncategorized"](待 REM 刷新成真实语义标签)
  *
  * 不抛错:无论 raw 多奇怪都返回合法字段,作为 LLM 失败的兜底。
  */
@@ -64,8 +111,9 @@ export function extractBareMarkdownDefaults(
   raw: string,
 ): ExtractedEngramFields {
   const fileName = basename(sourcePath, ".md");
-  const h1Match = raw.match(/^#\s+(.+)$/m);
-  const title = h1Match?.[1]?.trim() || fileName || "untitled-note";
+  const prose = stripFencedCodeBlocks(raw);
+  const h1s = [...prose.matchAll(/^#\s+(.+)$/gm)].map((m) => m[1]!.trim());
+  const title = h1s.length === 1 ? h1s[0]! : fileName || "untitled-note";
 
   return {
     title: title.slice(0, 200),
@@ -95,9 +143,10 @@ export function extractBareMarkdownDefaults(
 export async function extractEngramFieldsWithLlm(
   raw: string,
   llmClient: LlmClient,
+  fileName?: string,
 ): Promise<ExtractedEngramFields> {
   const truncated = raw.slice(0, LLM_INPUT_CHAR_BUDGET);
-  const prompt = buildExtractionPrompt(truncated);
+  const prompt = buildExtractionPrompt(truncated, fileName);
 
   const response = await llmClient.complete(prompt, {
     maxTokens: LLM_MAX_TOKENS,
@@ -122,7 +171,10 @@ export async function extractEngramFieldsWithLlm(
  * 嵌入 engram_create 的 schema 语义(kind 含义、domainTags 用法),
  * 让 LLM 输出符合 co-engram 数据模型的字段。
  */
-function buildExtractionPrompt(content: string): string {
+function buildExtractionPrompt(content: string, fileName?: string): string {
+  const fileNameNote = fileName
+    ? ` The file name (without \`.md\`) is \`${fileName}\` — it is the strongest signal of the document's topic; prefer it when the body has no single clear top-level heading.`
+    : "";
   return `You are extracting engram metadata from a markdown note that was pasted into a team memory directory.
 
 An engram is a team memory entry with these fields:
@@ -138,6 +190,11 @@ An engram is a team memory entry with these fields:
 
 Read the markdown content and output ONLY a JSON object (no prose, no markdown fences):
 {"title": "...", "kind": "observation|fact|pattern|procedure|hypothesis", "domainTags": ["...", "..."], "summary": "..."}
+
+Rules for the title:
+- Reflect the document's OVERALL topic, not a single step or fragment.
+- Ignore \`#\` lines that are shell/code comments inside fenced code blocks (\`\`\` or ~~~); they are not headings. A document with many \`#\` lines is likely leaked code comments (e.g. pasted shell steps) — do not pick one as the title.
+- If there is no single clear top-level heading, use the file name as the title${fileName ? ` (file name: \`${fileName}\`)` : ""}.${fileNameNote}
 
 Rules for domainTags:
 - They must describe the CONTENT domain / topic (e.g. "testing", "architecture", "adb", "git-workflow"), NEVER the source type.

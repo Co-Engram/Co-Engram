@@ -59,6 +59,7 @@ import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import { computeSynapseId } from "../types/synapse-id.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import { safeJoinWithinRoot, isPathWithinRoot } from "./path.js";
+import { listTrackedMarkdownFiles } from "./git.js";
 
 import { computeContentHash, computeContentSize } from "./hash.js";
 import { DEFAULT_LANGUAGE, type Language } from "../i18n/index.js";
@@ -106,7 +107,11 @@ import {
   regenerateObsidianLinks,
   checkObsidianView,
 } from "./obsidian-links.js";
-import { collectSkillDirs, isInSkillId, SKILL_MD_FILENAME } from "../skill/skill-detector.js";
+import {
+  collectSkillDirs,
+  isInSkillId,
+  SKILL_MD_FILENAME,
+} from "../skill/skill-detector.js";
 import { assertVisibilityTransitionAllowed } from "./visibility-gate.js";
 import {
   IndexDb,
@@ -174,7 +179,11 @@ export type ExternalMarkdownHook = (params: ExternalMarkdownHookParams) => void;
 /**
  * skill 目录检测钩子签名（watcher 发现含 SKILL.md 的目录时回调）。
  */
-export type SkillHook = (params: { readonly absPath: string; readonly relPath: string; readonly raw: string }) => void;
+export type SkillHook = (params: {
+  readonly absPath: string;
+  readonly relPath: string;
+  readonly raw: string;
+}) => void;
 
 const DEFAULT_IMPORTANCE = 0.5;
 const DEFAULT_CONFIDENCE_BY_SOURCE: Record<EngramSourceType, number> = {
@@ -262,9 +271,13 @@ export class EngramRepository {
    * 主要用途:让 host adapter(mcp / plugin)在 .yaml 变化时重建 graph.json +
    * SQLite synapse 表(派生层与真理层重新对齐)。
    *
-   * 设计动机:index-no-truth 架构缺陷修复 —— 原本 .yaml watcher 只清 synapseCache,
-   * 不重建 graph.json / SQLite synapse 表,导致 viewer 贡献者排名(读 graph.json
-   * edges[].createdBy)长期陈旧。
+   * 设计动机:index-no-truth 架构缺陷修复 —— .yaml watcher 清 synapseCache。
+   *
+   * 注(M7 修订):此 listener 目前 0 caller(host adapter 未注册),但 graph.json
+   * 在 synapse 变更后仍会被重建 —— runtime-evidence M7 实测纯 synapse_create
+   * (无 engram 变更)后 graph 边数立即 +1。重建经 dataWatcher / maintenance
+   * fullRebuild 等路径,非此 listener。此 listener 是预留的"派生层重建"hook,
+   * host adapter 可按需注册;原注释"不重建 graph.json → 贡献者排名陈旧"已过时。
    */
   private readonly synapseChangeListeners: Array<() => void> = [];
 
@@ -618,6 +631,16 @@ export class EngramRepository {
     } catch {
       // 启动清孤儿失败不阻塞 watcher,后续 .md 变化仍可被捕获并重试
     }
+    // 启动即同步派生层:覆盖"co-engram 未运行时 engram .md 被外部编辑
+    // (IDE / git pull)→ SQLite 派生层(title / createdBy / importance 等)陈旧"
+    // 的场景。fs.watch(inotify)对编辑器原子写可能漏事件,scheduleDataScan 未必
+    // 触发;此处启动兜底,确保重启后 viewer 立即反映最新 frontmatter。
+    // 无 indexDb 时 scanForModifiedEngrams 内部 noop。
+    try {
+      this.scanForModifiedEngrams();
+    } catch {
+      // 启动同步失败不阻塞 watcher,后续 fs.watch 事件会重试
+    }
   }
 
   /**
@@ -680,12 +703,16 @@ export class EngramRepository {
       );
       this.dataWatcher.on("error", (e) => {
         const _wmsg = e instanceof Error ? e.message : String(e);
-        process.stderr.write(`[co-engram] dataWatcher error (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`);
+        process.stderr.write(
+          `[co-engram] dataWatcher error (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`,
+        );
         this.dataWatcher = undefined;
       });
     } catch (e) {
       const _wmsg = e instanceof Error ? e.message : String(e);
-      process.stderr.write(`[co-engram] startDataRootWatcher 失败 (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`);
+      process.stderr.write(
+        `[co-engram] startDataRootWatcher 失败 (${_wmsg}) — fs.watch 降级,运行中变更检测可能失效\n`,
+      );
       this.dataWatcher = undefined;
     }
   }
@@ -794,6 +821,9 @@ export class EngramRepository {
     }
     const root = this.config.rootPath;
     const mdFiles = collectMarkdownFiles(root);
+    // 合法 engram 且 git tracked 的未索引文件 → 直接纳管(见 loop 内分流),不走 proposal。
+    let trackedMd: Set<string> | undefined; // lazy:首次遇到候选才 spawnSync git ls-files
+    const candidatesToIngest: string[] = [];
     for (const absPath of mdFiles) {
       const relPath = relative(root, absPath).split(sep).join("/");
       // 解冲突：skill 目录下的文件不进 external-markdown 提案（由 scanForSkills 统一处理）。
@@ -833,11 +863,31 @@ export class EngramRepository {
       ) {
         continue;
       }
+      // 合法 engram 且 git tracked(团队仓库已授权内容,典型如 git pull / rsync 带来的)
+      // → 直接原地纳管,不产生 proposal。post-merge hook 未装 / CLI git pull / IDE 同步等
+      // 场景下本地 index 陈旧,这里作 defense-in-depth 兜底,避免已确认记忆被误判为未授权。
+      // 安全判据:git tracked = 经 PR/commit 审查,远强于"有 frontmatter";未被 track 的
+      // 外部文件仍走下方 hook 提案(防投毒防线保留)。trackedMd lazy 初始化,无候选不白白
+      // spawnSync;非 git repo 时 listTrackedMarkdownFiles 返回空 Set → 全部走提案(现状)。
+      if (parsed) {
+        if (trackedMd === undefined) {
+          trackedMd = listTrackedMarkdownFiles(root);
+        }
+        if (trackedMd.has(relPath)) {
+          candidatesToIngest.push(relPath);
+          continue;
+        }
+      }
       try {
         this.externalMarkdownHook({ absPath, relPath, raw, parsed });
       } catch {
         // hook 内部异常不影响其他文件的通知
       }
+    }
+    // 批量纳管 git tracked 的合法 engram(一次 persist + 逐条同步 SQLite/emit + 末尾触发
+    // synapse 重建),避免逐个 ingest 的 N 次全量写 index.json + N 次下游重建雪崩。
+    if (candidatesToIngest.length > 0) {
+      this.ingestExistingEngramFiles(candidatesToIngest);
     }
   }
 
@@ -851,7 +901,10 @@ export class EngramRepository {
     const root = this.config.rootPath;
     const skillDirs = collectSkillDirs(root);
     for (const sourcePath of skillDirs) {
-      const absPath = sourcePath === "." ? join(root, SKILL_MD_FILENAME) : join(root, sourcePath, SKILL_MD_FILENAME);
+      const absPath =
+        sourcePath === "."
+          ? join(root, SKILL_MD_FILENAME)
+          : join(root, sourcePath, SKILL_MD_FILENAME);
       let raw: string;
       try {
         raw = readFileSync(absPath, "utf8");
@@ -1038,14 +1091,30 @@ export class EngramRepository {
       }
       // mtime 没变 → 跳过(false-positive watcher 事件 / ls / cat 等)
       if (stat.mtimeMs === entry.mtime) continue;
-      // mtime 变了 → 重读 frontmatter,触发 SQLite 同步
+      // mtime 变了 → 重读 frontmatter,触发 SQLite 同步 + 回写 index mtime
       try {
         const file = readEngramFile(absPath);
         this.syncEngramToIndex(file.frontmatter, file.content);
+        // 回写 index.json 的 entry.mtime:否则 stat.mtimeMs 永远 ≠ entry.mtime,
+        // 下次扫描重复 readEngramFile + SQLite upsert(浪费)。与 mutateFrontmatter
+        // 的 updateIndexEntry 处理对齐。contentHash 等其他字段未变,沿用原 entry。
+        this.updateIndexEntry({ ...entry, mtime: stat.mtimeMs });
       } catch {
         // 文件损坏(parse 错)留给 doctor 处理,下次扫描重试
       }
     }
+  }
+
+  /**
+   * 按需触发派生层同步(public 入口):扫描所有 engram .md,把外部编辑
+   * (IDE / git pull / cp)导致的 frontmatter 变化同步到 SQLite 派生层。
+   *
+   * 用途:fs.watch(inotify)对编辑器原子写可能漏事件,scheduleDataScan 未必
+   * 触发 scanForModifiedEngrams;viewer 在 /api/stats 等读取入口调用本方法,
+   * 确保「改文件 → 网页内容更新」不依赖 fs.watch 的实时性。无 indexDb 时 noop。
+   */
+  rescanModifiedEngrams(): void {
+    this.scanForModifiedEngrams();
   }
 
   /** 停止 watcher(主要用于测试隔离) */
@@ -1153,11 +1222,13 @@ export class EngramRepository {
    * @returns undefined 表示 engramId 无法解析(非法 id / 路径越界);
    *          注意 stableId 走 index 查询,不校验文件实时存在(调用方按需 existsSync)。
    */
-  resolveDirectory(stableId: string): {
-    readonly relativePath: string;
-    readonly relativeDir: string;
-    readonly absoluteDir: string;
-  } | undefined {
+  resolveDirectory(stableId: string):
+    | {
+        readonly relativePath: string;
+        readonly relativeDir: string;
+        readonly absoluteDir: string;
+      }
+    | undefined {
     const relativePath = this.resolvePath(stableId);
     if (!relativePath) return undefined;
     // 目录 = relativePath 去掉最后一段文件名(POSIX '/' 分隔,与 idFromRelativePath 一致)。
@@ -1281,9 +1352,9 @@ export class EngramRepository {
       updatedAt: ctx.timestamp,
       version: 1,
       importance: input.importance ?? DEFAULT_IMPORTANCE,
-      confidence: input.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE[ctx.sourceType],
+      confidence:
+        input.confidence ?? DEFAULT_CONFIDENCE_BY_SOURCE[ctx.sourceType],
       sourceType: ctx.sourceType,
-      evidenceCount: 0,
       retrievalCount: 0,
       effectiveRetrievals: 0,
       failedUses: 0,
@@ -1764,6 +1835,99 @@ export class EngramRepository {
     this.invalidateTruthPathsCache();
 
     return engram;
+  }
+
+  /**
+   * 批量原地纳管已存在的合法 engram 文件(git pull / rsync 带来的团队已确认内容)。
+   *
+   * 相比逐个调 ingestExistingEngramFile,本方法把 N 次全量写 index.json 合并为 1 次
+   * persistIndex,避免大批量 sync(如一次 pull 100 个 engram)的写盘 + 下游重建雪崩。
+   * SQLite(syncEngramToIndex)与 emit 仍逐条:单行 upsert 便宜;emit 由下游
+   * PromptSignalCache(200ms)与 scheduleSynapseRebuild(2s)debounce 合并,SQLite 模式下
+   * host 的 rebuildSearchIndex 是 no-op,不会雪崩。purgeStaleIndexEntriesForPath 在无
+   * stale(git pull 新文件常态)时不 persist,故 common case 仍只一次写盘。
+   *
+   * 幂等:id 已在 index 的文件跳过(同 ingestExistingEngramFile)。非法路径 / 读失败 /
+   * 文件不存在 → 跳过(计入 skipped,不入库)。候选应已由 scanForExternalMarkdown 判定
+   * 为合法 engram(isEngramFile=true)且 git tracked,本方法信任该前提。
+   *
+   * @returns 纳管统计(成功数 / 跳过数,用于上层日志)
+   */
+  ingestExistingEngramFiles(relativePaths: readonly string[]): {
+    ingested: number;
+    skipped: number;
+  } {
+    if (relativePaths.length === 0) return { ingested: 0, skipped: 0 };
+
+    const index = this.getIndex(); // 一次读(后续 upsert 直接改内存 cache 引用)
+    let ingested = 0;
+    let skipped = 0;
+    let dirty = false; // 是否有新 entry 需 persist
+
+    for (const relativePath of relativePaths) {
+      if (!isPathWithinRoot(this.config.rootPath, relativePath)) {
+        skipped++;
+        continue;
+      }
+      const absolutePath = safeJoinWithinRoot(
+        this.config.rootPath,
+        relativePath,
+      );
+      if (!existsSync(absolutePath)) {
+        skipped++;
+        continue;
+      }
+      let file: EngramFile;
+      try {
+        file = readEngramFile(absolutePath);
+      } catch {
+        skipped++;
+        continue;
+      }
+      const engram = this.assembleEngram(file, relativePath);
+      const id = engram.id;
+      // 幂等:id 已在 index → 跳过(doctor / 别的 accept 可能已处理)
+      if (index.entries.has(id)) {
+        skipped++;
+        continue;
+      }
+      // 自愈:旧 entry 指向同 path 但不同 id(rare)→ 清掉。无 stale 时 noop 不 persist。
+      this.purgeStaleIndexEntriesForPath(relativePath);
+
+      const stat = statSync(absolutePath);
+      const contentHash =
+        file.frontmatter.contentHash ?? computeContentHash(file.content);
+      const entry = buildIndexEntryFromFrontmatter({
+        relativePath,
+        frontmatter: file.frontmatter,
+        mtime: stat.mtimeMs,
+        contentHash,
+      });
+      // 内存 index 即时更新:让同批次后续幂等判定看得到,并避免 persist 漏写。
+      upsertEngramIndexEntry(index, entry);
+      // SQLite write-through(单行 upsert,便宜)
+      this.syncEngramToIndex(file.frontmatter, file.content);
+      // 逐条 emit:语义与单条 ingest/createEngram 一致;下游 debounce 合并,
+      // SQLite 模式 rebuildSearchIndex 为 no-op,不会雪崩。
+      safeEmit({
+        type: "engram_created",
+        engramId: id,
+        at: new Date().toISOString(),
+      });
+      dirty = true;
+      ingested++;
+    }
+
+    // 一次 persist(合并 N 次全量写 index.json)+ 触发 synapse 派生层重建:
+    // 新 ingest 的 engram 可能把原本 dangling 的 synapse(from/to 现已存在)变成有效,
+    // 需让 graph.json + SQLite synapse 表重新拾取。
+    if (dirty) {
+      this.persistIndex(index);
+      this.invalidateTruthPathsCache();
+      this.scheduleSynapseRebuild();
+    }
+
+    return { ingested, skipped };
   }
 
   /**
@@ -2578,6 +2742,14 @@ export class EngramRepository {
       createdBy: input.createdBy,
       sourceSemantic: input.sourceSemantic,
       targetSemantic: input.targetSemantic,
+      // L3(spec §3.9):contradicts synapse 创建时设 resolutionState 初态 pending
+      // (检测到,未裁决)。让状态机 pending → auto_resolved / escalated →
+      // contested → resolved 完整,statsContradictions.pending 不再恒 0(detector
+      // 此前把无 resolutionState 的 contradicts 归 "none",pending 桶不可达)。
+      // 其他 kind 不持有 resolutionState(仅 contradicts 用)。
+      ...(input.kind === "contradicts"
+        ? { resolutionState: { status: "pending" as const, phase: 1 as const } }
+        : {}),
       visibility: inheritedVisibility,
       language: this.language,
     });
@@ -2765,7 +2937,6 @@ export class EngramRepository {
         createdBy: "",
         createdAt: "",
         updatedAt: "",
-        retrievalWeight: r.weight,
         visibility: "public",
       }) as Synapse;
     return {
@@ -3622,6 +3793,72 @@ export class EngramRepository {
       }
     }
 
+    // 4.55 L1:清理 frontmatter 死字段 evidenceCount
+    //
+    // evidenceCount 是派生量(assembleEngram 从 derives_from synapse 的 verdict
+    // 证据数现算),不该 frontmatter 持有。历史 buildEngramFrontmatter 写 0,
+    // assembleEngram 用派生值覆盖 → frontmatter 值永 0(即便已累积多次 verdict),
+    // 误导读 .md / git diff / Obsidian 的人。新版不再写入(L1 已移除),这里
+    // 清理存量,与 outgoingSynapseCount 等派生量一致(派生量读取时算,不存盘)。
+    for (const [id, entry] of freshIndex.entries) {
+      const absPath = join(this.config.rootPath, entry.path);
+      if (!existsSync(absPath)) continue;
+      let parsed: EngramFile | undefined;
+      try {
+        parsed = readEngramFile(absPath);
+      } catch {
+        continue;
+      }
+      if (parsed.frontmatter.evidenceCount !== undefined) {
+        const { evidenceCount: _unusedEvidenceCount, ...restFm } =
+          parsed.frontmatter;
+        void _unusedEvidenceCount;
+        const migrated: EngramFile = {
+          ...parsed,
+          frontmatter: restFm,
+        };
+        try {
+          writeEngramFile(absPath, migrated, this.language);
+          fixes.push({
+            kind: "dead_field_removed",
+            stableId: id as StableEngramId,
+            path: entry.path,
+            message: `Removed dead frontmatter field evidenceCount (derived from derives_from verdict evidence at read time; persisted value was always 0)`,
+            autoFixed: true,
+          });
+        } catch {
+          // 写入失败忽略,下次 doctor 再扫
+        }
+      }
+    }
+
+    // 4.56 M3:清理 synapse yaml 死字段 retrievalWeight
+    //
+    // retrievalWeight 已从 Synapse 类型删除(零消费者:检索用 engram 级四因子,
+    // graph 用 edge.weight,SQLite synapses 表无此列)。存量 synapse yaml 仍含
+    // 该字段行(噪音 + 注释曾撒谎"系统计算、用于检索排序")。重写含该字段的
+    // synapse(writeSynapseFile → serializeSynapseFile 不再写 retrievalWeight),
+    // 让磁盘整洁。parseSynapseFile 已忽略此字段(delocalize 不识别),功能无影响。
+    for (const syn of allSynapses) {
+      const synPath = join(
+        this.config.rootPath,
+        synapseRelativePath(syn.id, syn.kind),
+      );
+      try {
+        const raw = readFileSync(synPath, "utf8");
+        if (/^retrievalWeight:/m.test(raw) || /^检索权重:/m.test(raw)) {
+          writeSynapseFile(synPath, syn, this.language);
+          fixes.push({
+            kind: "dead_field_removed",
+            message: `Removed dead synapse field retrievalWeight in ${synapseRelativePath(syn.id, syn.kind)} (zero consumers; deleted from Synapse type)`,
+            autoFixed: true,
+          });
+        }
+      } catch {
+        // 单条失败不阻塞,下次 doctor 再扫
+      }
+    }
+
     // 5. Obsidian 视图一致性(派生段 wikilinks)
     // 对每条 engram:checkObsidianView 检测派生段与权威源(synapse yaml)不一致,
     // 不一致 → regenerateObsidianLinks 重写派生段(wikilink target=文件名)。
@@ -3743,18 +3980,26 @@ export class EngramRepository {
       return node;
     };
 
-    const SKIP_DIRS = new Set([".git", "node_modules", ".co-engram", "synapses"]);
+    const SKIP_DIRS = new Set([
+      ".git",
+      "node_modules",
+      ".co-engram",
+      "synapses",
+    ]);
     const walkDirs = (absDir: string, relDir: string): void => {
       let entries: import("node:fs").Dirent[];
       try {
-        entries = readdirSync(absDir, { withFileTypes: true }) as import("node:fs").Dirent[];
+        entries = readdirSync(absDir, {
+          withFileTypes: true,
+        }) as import("node:fs").Dirent[];
       } catch {
         return;
       }
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         if (SKIP_DIRS.has(entry.name)) continue;
-        const relPath = relDir.length === 0 ? entry.name : `${relDir}/${entry.name}`;
+        const relPath =
+          relDir.length === 0 ? entry.name : `${relDir}/${entry.name}`;
         ensureNode(relPath);
         walkDirs(join(this.config.rootPath, relPath), relPath);
       }
@@ -3897,7 +4142,6 @@ export class EngramRepository {
       perspective: fm.perspective,
     };
   }
-
 
   /** 把绝对路径转回相对路径(用于 doctor 报告) */
   relativePath(absolutePath: string): string {
@@ -4104,6 +4348,15 @@ function matchesFilterLine(line: DigestLine, filter: SearchFilter): boolean {
       ? filter.status
       : ["active", "draft"];
   if (!statusFilter.includes(line.status)) return false;
+  // M2:verificationStatus 隐式默认 —— 与 retrieval/filter.ts matchesFilter 一致,
+  // 默认排除 refuted(已证伪记忆不进默认 list/search)。显式传 verificationStatus
+  // 时按包含语义过滤(管理面查询 refuted)。
+  const vStatus = line.verificationStatus ?? "unverified";
+  if (filter.verificationStatus && filter.verificationStatus.length > 0) {
+    if (!filter.verificationStatus.includes(vStatus)) return false;
+  } else if (vStatus === "refuted") {
+    return false;
+  }
   if (filter.freshness && filter.freshness.length > 0) {
     if (!filter.freshness.includes(line.freshness)) return false;
   }

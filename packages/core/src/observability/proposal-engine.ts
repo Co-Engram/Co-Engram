@@ -30,7 +30,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { VerificationStatus } from "../types/engram.js";
@@ -52,8 +52,16 @@ import {
   extractEngramFieldsWithLlm,
 } from "./bare-markdown-extractor.js";
 import { normalizeProposalFields } from "./chinese-post-processor.js";
-import { notFoundError, validationError, configError } from "../tools/error-schema.js";
-import { parseSkillMd, inferSkillFields, inferSkillFieldsWithLlm } from "../skill/skill-detector.js";
+import {
+  notFoundError,
+  validationError,
+  configError,
+} from "../tools/error-schema.js";
+import {
+  parseSkillMd,
+  inferSkillFields,
+  inferSkillFieldsWithLlm,
+} from "../skill/skill-detector.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -208,6 +216,10 @@ export interface Proposal {
   readonly slug?: string;
   /** external-markdown 来源时的相对路径(用于 list/audit 展示) */
   readonly sourcePath?: string;
+  /** external-markdown 来源时,上次刷新 proposal 所依据的源文件 mtime(ms)。
+   * listPending/listAll 入口的 refreshStaleFileProposals 据此判断文件是否被外部
+   * 编辑(mtime 变新则同步重提取),实现「改文件 → 提案标题/内容同步最新」。 */
+  readonly sourceMtimeMs?: number;
   /** 预填的 engram 字段(auto-memory / external-markdown 来源专用;conversation 来源恒为 undefined) */
   readonly payload?: ProposalPayload;
 }
@@ -308,6 +320,37 @@ export const DEFAULT_PROPOSAL_CONFIG: Required<ProposalEngineConfig> = {
   defaultDismissDays: 0,
   minMessageLength: 20,
 };
+
+/** 已知机器/系统作者标签(精确匹配)——非真人。accept 保留 external-markdown 的
+ *  payload.createdBy 时必须排除这些值,否则机器标签污染 engram 作者字段并自我传播。 */
+const MACHINE_AUTHOR_LABELS = new Set<string>([
+  "proposal-engine",
+  "claude-code",
+  "claude-code-auto-memory",
+  "dreaming-rem",
+  "unknown",
+  "system",
+]);
+
+/** 机器作者标签前缀(rem-*-accept / skill-proposal-accept / skill-batch-accept)。 */
+const MACHINE_AUTHOR_PREFIXES = ["rem-", "skill-proposal", "skill-batch"];
+
+/**
+ * 判断 createdBy 是否为「机器/系统标签」而非真人作者。
+ *
+ * accept 的 external-markdown 分支默认保留 payload.createdBy(外部文档原作者,事实信息)。
+ * 但若该值是 host/系统误填的机器标签,保留它违反「作者归属原则」(createdBy 必须是真人
+ * git 身份),且会让机器标签随 .md 被 external-markdown watcher 二次扫描而自我传播。
+ * 命中机器标签(或空/缺省)时,accept 应回退到真人 git author(resolveCreatedByOrDefault)。
+ */
+export function isMachineAuthorLabel(
+  name: string | undefined | null,
+): boolean {
+  if (typeof name !== "string" || name.trim().length === 0) return true;
+  const v = name.trim();
+  if (MACHINE_AUTHOR_LABELS.has(v)) return true;
+  return MACHINE_AUTHOR_PREFIXES.some((prefix) => v.startsWith(prefix));
+}
 
 /**
  * Proposal Engine
@@ -561,10 +604,7 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
-      sampleQuotes: [
-        `score=${truthScore.toFixed(2)}`,
-        reasoning.slice(0, 120),
-      ],
+      sampleQuotes: [`score=${truthScore.toFixed(2)}`, reasoning.slice(0, 120)],
       centroidExcerpt: `${engramTitle.slice(0, 30)}|${before}|${action}|${truthScore.toFixed(2)}`,
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
@@ -612,7 +652,10 @@ export class ProposalEngine {
         : input.op === "delete"
           ? `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}`
           : `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}|${input.kind}`;
-    const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 16);
+    const hash = createHash("sha256")
+      .update(canonical)
+      .digest("hex")
+      .slice(0, 16);
     const entityId = `rem-synapse:${input.op}:${hash}`;
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
@@ -662,7 +705,10 @@ export class ProposalEngine {
       },
     };
 
-    const updated = [proposal, ...proposals.filter((p) => p.entityId !== entityId)];
+    const updated = [
+      proposal,
+      ...proposals.filter((p) => p.entityId !== entityId),
+    ];
     this.writeProposals(updated);
     return true;
   }
@@ -744,6 +790,7 @@ export class ProposalEngine {
   }
 
   listPending(): readonly Proposal[] {
+    this.refreshStaleFileProposals();
     return this.readProposals().filter((p) => {
       if (p.status !== "pending") return false;
       // 检查 dismissedUntil 是否已过期(重新激活)
@@ -756,7 +803,93 @@ export class ProposalEngine {
 
   /** 列出所有提案(包含 accepted/dismissed,调试用) */
   listAll(): readonly Proposal[] {
+    this.refreshStaleFileProposals();
     return this.readProposals();
+  }
+
+  /**
+   * 按需刷新 stale 的 external-markdown pending 提案:源文件被外部编辑
+   * (IDE / git pull / cp)后,fs.watch 在 Linux 上对原子写/进程外修改可能漏
+   * 事件,导致提案标题/内容不同步。本方法在每次 listPending/listAll 入口同步
+   * 检测 pending external-markdown 提案对应文件的 mtime,变新则用规则版
+   * (extractBareMarkdownDefaults,同步快)重提取刷新 title/content,保留旧
+   * domainTags/summary(语义标签刷新交给 fs.watch→scan→LLM 链路)。
+   *
+   * 设计:
+   *   - 仅 external-markdown(auto-memory 的 slug 不映射磁盘路径,无法定位)
+   *   - 仅 pending(accepted 已入库走 engram 同步;dismissed 不复活)
+   *   - sourceMtimeMs 记录上次刷新依据的 mtime,无变化时仅 stat、不读不写
+   *   - 同步执行:list 当次即返回最新 title/content(用户核心诉求)
+   */
+  private refreshStaleFileProposals(): void {
+    const proposals = this.readProposals();
+    const stale: Array<{
+      readonly abs: string;
+      readonly relPath: string;
+      readonly id: string;
+      readonly mtime: number;
+      readonly oldDomainTags?: readonly string[];
+      readonly oldSummary?: string;
+    }> = [];
+    for (const p of proposals) {
+      if (
+        p.status !== "pending" ||
+        p.source !== "external-markdown" ||
+        !p.sourcePath
+      ) {
+        continue;
+      }
+      const abs = join(this.dataRoot, p.sourcePath);
+      let mtime: number;
+      try {
+        mtime = statSync(abs).mtimeMs;
+      } catch {
+        continue; // 文件已删:清理走 scanForDeletedEngrams,此处跳过
+      }
+      if (p.sourceMtimeMs !== undefined && mtime <= p.sourceMtimeMs) {
+        continue; // 未变
+      }
+      stale.push({
+        abs,
+        relPath: p.sourcePath,
+        id: p.entityId,
+        mtime,
+        oldDomainTags: p.payload?.domainTags,
+        oldSummary: p.payload?.summary,
+      });
+    }
+    if (stale.length === 0) return;
+
+    // 同步重提取(规则版),保留旧 domainTags/summary(规则版 domainTags 仅 uncategorized)
+    for (const item of stale) {
+      let raw: string;
+      try {
+        raw = readFileSync(item.abs, "utf8");
+      } catch {
+        continue;
+      }
+      const fields = extractBareMarkdownDefaults(item.relPath, raw);
+      this.proposeExternalMarkdown({
+        sourcePath: item.relPath,
+        title: fields.title,
+        content: fields.content,
+        kind: fields.kind,
+        domainTags: item.oldDomainTags ?? fields.domainTags,
+        ...(item.oldSummary !== undefined ? { summary: item.oldSummary } : {}),
+      });
+    }
+
+    // 记录最新 sourceMtimeMs(即便 payloadEqual 未变也记录,避免下次重复刷新)
+    const latest = this.readProposals();
+    const mtimeById = new Map(stale.map((s) => [s.id, s.mtime]));
+    let dirty = false;
+    const next = latest.map((p) => {
+      const m = mtimeById.get(p.entityId);
+      if (m === undefined || p.sourceMtimeMs === m) return p;
+      dirty = true;
+      return { ...p, sourceMtimeMs: m };
+    });
+    if (dirty) this.writeProposals(next);
   }
 
   /**
@@ -766,9 +899,9 @@ export class ProposalEngine {
    * 或非 external-markdown 来源，走此默认路径：deriveDefaultPath 推导路径创建；
    * 若路径已存在同名 .md，则 adopt 现有文件（orphan 计入 totalEngrams，幂等）。
    */
-  private createEngramWithConflictFallback(
-    input: EngramCreateInput,
-  ): { id: string } {
+  private createEngramWithConflictFallback(input: EngramCreateInput): {
+    id: string;
+  } {
     try {
       return this.repository.createEngram(input);
     } catch (e) {
@@ -826,13 +959,21 @@ export class ProposalEngine {
           refuteEngram(this.repository, engramId, evidence);
         } else {
           // 逐步升级到目标(canTransition 要求相邻级;REM 可能跨级如 unverified→verified)
-          const PATH: readonly VerificationStatus[] = ["plausible", "probable", "verified"];
+          const PATH: readonly VerificationStatus[] = [
+            "plausible",
+            "probable",
+            "verified",
+          ];
           let current = this.repository.readEngram(engramId).verificationStatus;
           const currentIdx = PATH.indexOf(current as VerificationStatus);
           const targetIdx = PATH.indexOf(newStatus);
           for (let i = Math.max(0, currentIdx + 1); i <= targetIdx; i++) {
             const result = upgradeVerification(
-              this.repository, engramId, PATH[i]!, evidence, { force: true },
+              this.repository,
+              engramId,
+              PATH[i]!,
+              evidence,
+              { force: true },
             );
             if (result.applied) {
               current = result.newStatus as VerificationStatus;
@@ -859,7 +1000,13 @@ export class ProposalEngine {
     // REM synapse proposal:accept → 按 op 改突触网络(add/delete/retype),不创建 engram
     if (target.source === "rem-synapse") {
       const p = target.payload;
-      if (!p || !p.synapseOp || !p.synapseFrom || !p.synapseTo || !p.synapseKind) {
+      if (
+        !p ||
+        !p.synapseOp ||
+        !p.synapseFrom ||
+        !p.synapseTo ||
+        !p.synapseKind
+      ) {
         throw validationError(
           `rem-synapse proposal missing payload (entityId=${entityId})`,
         );
@@ -876,7 +1023,8 @@ export class ProposalEngine {
           direction: p.synapseDirection ?? "directional",
           evidence: [
             {
-              description: `REM 突触提议(用户 accept): ${p.remSynapseReason ?? ""}`.trim(),
+              description:
+                `REM 突触提议(用户 accept): ${p.remSynapseReason ?? ""}`.trim(),
               source: "rem-synapse",
               confidence: p.remSynapseConfidence ?? 0.5,
               addedAt: ts,
@@ -886,13 +1034,13 @@ export class ProposalEngine {
           createdBy,
           createdAt: ts,
           updatedAt: ts,
-          retrievalWeight: p.synapseWeight ?? 0.5,
           visibility: "public",
         };
         this.repository.addOutgoingSynapse(p.synapseFrom, synapse);
       } else {
         const sid =
-          p.synapseId ?? this.resolveSynapseId(p.synapseFrom, p.synapseTo, p.synapseOldKind);
+          p.synapseId ??
+          this.resolveSynapseId(p.synapseFrom, p.synapseTo, p.synapseOldKind);
         if (!sid) {
           throw validationError(
             `rem-synapse ${p.synapseOp}:找不到目标突触(from=${p.synapseFrom}, to=${p.synapseTo}, oldKind=${p.synapseOldKind ?? "?"})——可能已被外部删除/修改。proposal 保持 pending,REM 下轮重新提议。`,
@@ -911,7 +1059,12 @@ export class ProposalEngine {
 
       this.auditLog.append({
         actor: "user",
-        action: p.synapseOp === "add" ? "create" : p.synapseOp === "delete" ? "purge" : "update",
+        action:
+          p.synapseOp === "add"
+            ? "create"
+            : p.synapseOp === "delete"
+              ? "purge"
+              : "update",
         engramId: p.synapseFrom,
         metadata: {
           entityId,
@@ -926,12 +1079,20 @@ export class ProposalEngine {
 
       const updated = proposals.map((pp) =>
         pp.entityId === entityId
-          ? { ...pp, status: "accepted" as const, acceptedEngramId: p.synapseFrom }
+          ? {
+              ...pp,
+              status: "accepted" as const,
+              acceptedEngramId: p.synapseFrom,
+            }
           : pp,
       );
       this.writeProposals(updated);
       this.clustersCache = null;
-      safeEmit({ type: "proposal_accepted", engramId: p.synapseFrom, at: new Date().toISOString() });
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: p.synapseFrom,
+        at: new Date().toISOString(),
+      });
       return p.synapseFrom;
     }
 
@@ -982,7 +1143,6 @@ export class ProposalEngine {
           createdBy,
           createdAt: timestamp,
           updatedAt: timestamp,
-          retrievalWeight: 0.8,
           visibility: "public",
         };
         this.repository.addOutgoingSynapse(patternEngram.id, synapse);
@@ -1010,17 +1170,24 @@ export class ProposalEngine {
         !nonEmpty(p.skillSourcePath) ||
         !nonEmpty(p.initiationSet)
       ) {
-        throw validationError(`skill proposal missing payload fields (entityId=${entityId})`);
+        throw validationError(
+          `skill proposal missing payload fields (entityId=${entityId})`,
+        );
       }
       if (!this.skillRepository) {
-        throw configError("skillRepository", "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).");
+        throw configError(
+          "skillRepository",
+          "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).",
+        );
       }
       const skill = this.skillRepository.createSkill({
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
         initiationSet: p.initiationSet!, // nonEmpty 已确保非空
         createdBy: input.createdBy ?? this.resolveCreatedByOrDefault(),
-        ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+        ...(input.visibility !== undefined && input.visibility !== "restricted"
+          ? { visibility: input.visibility }
+          : {}),
         ...(p.allowedTools ? { allowedTools: p.allowedTools } : {}),
         ...(p.license ? { license: p.license } : {}),
         ...(p.skillVersion ? { skillVersion: p.skillVersion } : {}),
@@ -1028,15 +1195,27 @@ export class ProposalEngine {
         ...(p.compatibility ? { compatibility: p.compatibility } : {}),
       });
       const updatedSkill = proposals.map((pp) =>
-        pp.entityId === entityId ? { ...pp, status: "accepted" as const, acceptedEngramId: skill.skillId } : pp,
+        pp.entityId === entityId
+          ? {
+              ...pp,
+              status: "accepted" as const,
+              acceptedEngramId: skill.skillId,
+            }
+          : pp,
       );
       this.writeProposals(updatedSkill);
       this.clustersCache = null;
       this.auditLog.append({
-        actor: "user", action: "accept", engramId: skill.skillId,
+        actor: "user",
+        action: "accept",
+        engramId: skill.skillId,
         metadata: { entityId, source: "skill", skillId: skill.skillId },
       });
-      safeEmit({ type: "proposal_accepted", engramId: skill.skillId, at: new Date().toISOString() });
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: skill.skillId,
+        at: new Date().toISOString(),
+      });
       return skill.skillId;
     }
 
@@ -1090,8 +1269,13 @@ export class ProposalEngine {
       // (从 frontmatter 解析,事实信息),保留;conversation/auto-memory 的
       // payload.createdBy 是 LLM/host 自填(常误填 host 标识如 "claude-code"),
       // 忽略,走 input.createdBy(工具层传的 ctx.defaultCreatedBy,即 host git author)。
+      // 2026-08 加固:即便 external-markdown,payload.createdBy 若是机器标签
+      // (proposal-engine/claude-code/rem-*-accept/skill-*/unknown 等,源自旧版
+      // 硬编码或 host 误填)也必须排除——否则机器标签污染作者字段并自我传播。
       createdBy:
-        target.source === "external-markdown" && payload?.createdBy
+        target.source === "external-markdown" &&
+        payload?.createdBy &&
+        !isMachineAuthorLabel(payload.createdBy)
           ? payload.createdBy
           : (input.createdBy ?? this.resolveCreatedByOrDefault()),
       ...(payload?.summary !== undefined ? { summary: payload.summary } : {}),
@@ -1183,7 +1367,10 @@ export class ProposalEngine {
     const { outgoing, incoming } = this.repository.readSynapses(from);
     const all = [...outgoing, ...incoming];
     const match = all.find(
-      (s) => s.from === from && s.to === to && (oldKind === undefined || s.kind === oldKind),
+      (s) =>
+        s.from === from &&
+        s.to === to &&
+        (oldKind === undefined || s.kind === oldKind),
     );
     return match?.id;
   }
@@ -1395,6 +1582,15 @@ export class ProposalEngine {
       sourcePath: input.sourcePath,
     };
 
+    // 记录源文件 mtime,供 refreshStaleFileProposals 判断文件是否被外部编辑过。
+    // 生成时即写入,避免首次 listPending 误判 stale 而用规则版覆盖 LLM 初始提取结果。
+    let sourceMtimeMs: number | undefined;
+    try {
+      sourceMtimeMs = statSync(join(this.dataRoot, input.sourcePath)).mtimeMs;
+    } catch {
+      sourceMtimeMs = undefined;
+    }
+
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
 
@@ -1430,6 +1626,7 @@ export class ProposalEngine {
         dismissedUntil: undefined,
         dismissReason: undefined,
         payload,
+        ...(sourceMtimeMs !== undefined ? { sourceMtimeMs } : {}),
       };
       this.writeProposals(
         proposals.map((p) => (p.entityId === entityId ? next : p)),
@@ -1449,6 +1646,7 @@ export class ProposalEngine {
       source: "external-markdown",
       sourcePath: input.sourcePath,
       payload,
+      ...(sourceMtimeMs !== undefined ? { sourceMtimeMs } : {}),
     };
     this.writeProposals([...proposals, proposal]);
     this.auditLog.append({
@@ -1608,7 +1806,9 @@ export class ProposalEngine {
       kind: "procedure", // skill 是程序性记忆
       domainTags: ["skill"],
       ...(input.createdBy !== undefined ? { createdBy: input.createdBy } : {}),
-      ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+      ...(input.visibility !== undefined
+        ? { visibility: input.visibility }
+        : {}),
       sourcePath: input.sourcePath,
       skillId: input.skillId,
       skillSourcePath: input.sourcePath,
@@ -1789,7 +1989,11 @@ export class ProposalEngine {
     let fields;
     if (llmClient) {
       try {
-        fields = await extractEngramFieldsWithLlm(raw, llmClient);
+        fields = await extractEngramFieldsWithLlm(
+          raw,
+          llmClient,
+          basename(sourcePath, ".md"),
+        );
       } catch {
         // LLM 失败 → 降级到规则版(不抛错,保证用户能拿到 proposal)
         fields = extractBareMarkdownDefaults(sourcePath, raw);
@@ -1929,18 +2133,29 @@ export class ProposalEngine {
         // skill proposal:acceptBatch → 调 skillRepository.createSkill，不走 createEngram
         if (p.source === "skill") {
           if (!this.skillRepository) {
-            failures.push({ entityId: p.entityId, reason: "skillRepository not injected (S4)" });
+            failures.push({
+              entityId: p.entityId,
+              reason: "skillRepository not injected (S4)",
+            });
             continue;
           }
           const p2 = p.payload;
           if (!p2?.skillId || !p2.skillSourcePath || !p2.initiationSet) {
-            failures.push({ entityId: p.entityId, reason: "skill payload missing fields" });
+            failures.push({
+              entityId: p.entityId,
+              reason: "skill payload missing fields",
+            });
             continue;
           }
           const sk = this.skillRepository.createSkill({
-            skillId: p2.skillId, sourcePath: p2.skillSourcePath, initiationSet: p2.initiationSet,
+            skillId: p2.skillId,
+            sourcePath: p2.skillSourcePath,
+            initiationSet: p2.initiationSet,
             createdBy: input.createdBy ?? "skill-batch-accept",
-            ...(input.visibility !== undefined && input.visibility !== "restricted" ? { visibility: input.visibility } : {}),
+            ...(input.visibility !== undefined &&
+            input.visibility !== "restricted"
+              ? { visibility: input.visibility }
+              : {}),
             ...(p2.allowedTools ? { allowedTools: p2.allowedTools } : {}),
             ...(p2.license ? { license: p2.license } : {}),
             ...(p2.skillVersion ? { skillVersion: p2.skillVersion } : {}),
@@ -1971,8 +2186,11 @@ export class ProposalEngine {
           domainTags,
           // 2026-07 修复(同 accept):external-markdown 保留 payload.createdBy
           // (外部文档原作者),auto-memory 走 input.createdBy(host git author)。
+          // 2026-08 加固:机器标签(payload.createdBy 命中 isMachineAuthorLabel)同样排除。
           createdBy:
-            p.source === "external-markdown" && payload?.createdBy
+            p.source === "external-markdown" &&
+            payload?.createdBy &&
+            !isMachineAuthorLabel(payload.createdBy)
               ? payload.createdBy
               : (input.createdBy ?? this.resolveCreatedByOrDefault()),
           ...(payload?.summary !== undefined
@@ -2005,7 +2223,8 @@ export class ProposalEngine {
             payload.sourcePath,
             createInput,
           );
-          engram = adopted ?? this.createEngramWithConflictFallback(createInput);
+          engram =
+            adopted ?? this.createEngramWithConflictFallback(createInput);
         } else {
           engram = this.createEngramWithConflictFallback(createInput);
         }
