@@ -45,6 +45,9 @@ team-memory/
 # Claude Code session artifacts
 .claude/
 
+# Local agent-manager runtime state (worktrees, run scripts) — not for repo
+.zero/
+
 # Codegraph local index
 .codegraph/
 

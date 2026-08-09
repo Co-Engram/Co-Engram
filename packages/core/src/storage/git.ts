@@ -741,6 +741,37 @@ export function countTrackedCoEngramCache(repoPath: string): number {
 }
 
 /**
+ * 列出 repo 中所有 git-tracked 的 .md 文件(相对 repoPath,正斜杠)。
+ *
+ * 用于 scanForExternalMarkdown 判定"未在 index 的 .md 是否为团队仓库已授权内容":
+ * git tracked = 经过 PR/commit 审查 → 直接纳管,不走 proposal;未被 track = 外部来源
+ * (cp / 投毒)→ 走 proposal 审批。
+ *
+ * 实现注记:用 `git ls-files`(无 pathspec,全列)再 filter `.md`,而非 `git ls-files
+ * '*.md'`——pathspec 的 `*` 不跨 `/`,会漏掉子目录里的 engram(co-engram 记忆多存子目录,
+ * 如 `Agent/co-engram/xxx.md`)。git 输出统一用正斜杠,与 scanForExternalMarkdown 里
+ * normalize 后的 relPath 直接对齐。
+ *
+ * 一次性建内存 Set,loop 内 O(1) 查询(避免逐文件 spawnSync)。
+ *
+ * @returns 非 git repo / 失败 → 空 Set(调用方据此降级为"全部未 track"→ 全走提案,现状)
+ */
+export function listTrackedMarkdownFiles(repoPath: string): Set<string> {
+  if (!isGitRepo(repoPath)) return new Set();
+  try {
+    const raw = spawnSyncOutput(repoPath, ["ls-files"]);
+    return new Set(
+      raw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.endsWith(".md")),
+    );
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * 把 `private/` 目录从 git index 移除(磁盘文件保留)。
  *
  * `private/` 已加入 DEFAULT_CO_ENGRAM_GITIGNORE,新文件自动跳过;

@@ -300,6 +300,8 @@ proposal 本身没有 `kind` 字段。晋升时由审批者(用户或 LLM)显式
 
 除了对话聚类管线(§4.1–4.2),`dataRoot` 下任何裸 `.md` 文件被 watcher 捕获后都会生成一条 pending proposal。提取分两层:有 LLM client 时智能抽取 `title` / `kind` / `domainTags` / `summary`;不可用或失败时降级到规则版(H1 或文件名→`title`,`kind = observation`,`domainTags = ["imported"]`)。因此往 `dataRoot` 丢任何 `.md` 都会在「记忆提案」tab 出现一条 pending proposal,不再被静默忽略。这类提案带 `source: "external-markdown"`,可通过 `engram_accept_proposals_by_source` 批量 accept。
 
+已经是合法 engram 且被团队 git 仓库 track 的文件——例如通过 `engram_sync` 或直接 `git pull` 拉下的——**完全不进入提案队列**,扫描时直接入库索引。post-merge hook 是 index 同步的首选路径,此处作为它未装时的 defense-in-depth 兜底。只有真正未被 track 的文件(裸 markdown、从仓库外部投递的)才生成 proposal,保留防投毒审批闸。
+
 ---
 
 ## 5. 信号、RPE 与维护引擎

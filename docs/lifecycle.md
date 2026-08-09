@@ -303,6 +303,8 @@ Proposals themselves have no `kind`. When promoted, the approver (user or LLM) p
 
 Besides the conversation cluster pipeline (§4.1–4.2), any bare `.md` file written under `dataRoot` is picked up by the watcher and turned into a pending proposal. The extractor runs in two tiers: when an LLM client is available it extracts `title` / `kind` / `domainTags` / `summary` intelligently; otherwise it falls back to a rule-based pass (H1 or filename → `title`, `kind = observation`, `domainTags = ["imported"]`). So dropping any `.md` into `dataRoot` now surfaces a proposal in the Proposals tab instead of being silently ignored. These carry `source: "external-markdown"` and can be accepted in bulk via `engram_accept_proposals_by_source`.
 
+Already-valid engrams that are tracked by the team git repo — e.g. pulled in via `engram_sync` or a plain `git pull` — **skip the proposal queue entirely** and are indexed directly during the scan. The post-merge hook is the primary index-sync path, but this acts as a defense-in-depth fallback when it isn't installed. Only genuinely untracked files (bare markdown, files dropped in from outside the repo) become proposals, preserving the anti-poisoning review gate.
+
 ---
 
 ## 5. Signals, RPE, and the Maintenance Engine
