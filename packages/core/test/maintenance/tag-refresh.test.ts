@@ -100,8 +100,22 @@ describe("refreshDomainTagsOnDrift", () => {
       domainTags: ["uncategorized"],
       createdBy: "test",
     });
-    const llm = llmReturning(["newtopic"]);
-    await refreshDomainTagsOnDrift(repo, undefined, llm); // baseline
+    // 按调用次数返回不同标签:首次(占位符豁免,建 baseline)→ newtopic;
+    // 第二轮(大改后)→ databasetopic。sameAsOld 优化要求漂移后标签确实变化才重提落盘。
+    let callN = 0;
+    const llm: LlmClient = {
+      async complete() {
+        callN += 1;
+        const tags = callN === 1 ? ["newtopic"] : ["databasetopic"];
+        return JSON.stringify({
+          title: "t",
+          kind: "observation",
+          domainTags: tags,
+          summary: "s",
+        });
+      },
+    };
+    await refreshDomainTagsOnDrift(repo, undefined, llm); // baseline(占位符豁免,落盘 newtopic)
     // 大改:完全不同的内容域,token 几乎不交 → drift ≈ 1 ≥ 0.3
     repo.updateEngram(eng.id, {
       content:

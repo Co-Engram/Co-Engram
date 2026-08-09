@@ -90,6 +90,7 @@ export type ProposalSource =
   | "rem-verification"
   | "rem-pattern"
   | "rem-synapse"
+  | "rem-tag-refresh"
   | "skill";
 
 /**
@@ -164,6 +165,16 @@ export interface ProposalPayload {
   readonly metadata?: Readonly<Record<string, unknown>>;
   /** skill 专用:SKILL.md 原生 compatibility(兼容性描述) */
   readonly compatibility?: string;
+  /** rem-tag-refresh 专用:待刷新标签的目标 engram id(accept 时改其 domainTags,不创建 engram) */
+  readonly tagEngramId?: string;
+  /** rem-tag-refresh 专用:刷新前 domainTags 快照(卡片展示 oldTags→newTags diff) */
+  readonly tagOldTags?: readonly string[];
+  /** rem-tag-refresh 专用:LLM 重提的 domainTags(accept 时写入) */
+  readonly tagNewTags?: readonly string[];
+  /** rem-tag-refresh 专用:REM 刷新理由(展示给用户) */
+  readonly tagReason?: string;
+  /** rem-tag-refresh 专用:内容漂移度(展示用) */
+  readonly tagDrift?: number;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -789,6 +800,85 @@ export class ProposalEngine {
     return true;
   }
 
+  /**
+   * REM 标签刷新 proposal(payload 方案:改已有记忆的 domainTags,不创建 engram)。
+   *
+   * tag-refresh 把"笼统占位标签"(imported/uncategorized)或漂移后的旧标签刷新成
+   * 内容语义标签。与 rem-verification/rem-synapse 同属"改字段不建 engram"——accept 时
+   * 才 updateEngram(tagEngramId, { domainTags }),dismiss 则保持原标签。
+   *
+   * 与 rem-pattern(建新 engram)的区别:本 proposal 的 payload 携带 tagEngramId +
+   * tagOldTags + tagNewTags,accept 用 newTags 覆盖目标 engram 的 domainTags。
+   *
+   * dedup:同一目标 engram 视为同一提案——重复刷新覆盖(pending)/冷却(dismissed)/
+   * 跳过(accepted)。entityId = rem-tag-refresh:<engramId>。
+   */
+  proposeTagRefresh(input: {
+    readonly engramId: string;
+    readonly oldTags: readonly string[];
+    readonly newTags: readonly string[];
+    readonly reason: string;
+    readonly drift?: number;
+    readonly engramTitle?: string;
+  }): boolean {
+    const entityId = `rem-tag-refresh:${input.engramId}`;
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") return false;
+    if (
+      existing?.status === "dismissed" &&
+      (existing.dismissedUntil === null || // null = 永久屏蔽
+        (!!existing.dismissedUntil &&
+          existing.dismissedUntil > new Date().toISOString()))
+    )
+      return false;
+    // tombstone 检查:purgeDismissed 清 proposals.jsonl 后,tombstone 仍记录 dismiss → 防复活
+    if (this.isTombstoned(entityId)) return false;
+
+    const now = new Date().toISOString();
+    const proposal: Proposal = {
+      entityId,
+      occurrences: (existing?.occurrences ?? 0) + 1,
+      sampleQuotes: [
+        `${[...input.oldTags].join(",")} → ${[...input.newTags].join(",")}`,
+        input.reason.slice(0, 120),
+      ],
+      centroidExcerpt: (input.engramTitle ?? input.engramId).slice(0, 80),
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      createdAt: existing?.createdAt ?? now,
+      status: "pending",
+      source: "rem-tag-refresh",
+      payload: {
+        title: input.engramTitle ?? input.engramId,
+        content: input.reason,
+        domainTags: [...input.newTags],
+        kind: "pattern",
+        tagEngramId: input.engramId,
+        tagOldTags: [...input.oldTags],
+        tagNewTags: [...input.newTags],
+        tagReason: input.reason,
+        ...(input.drift !== undefined ? { tagDrift: input.drift } : {}),
+      },
+    };
+
+    const updated = [
+      proposal,
+      ...proposals.filter((p) => p.entityId !== entityId),
+    ];
+    this.writeProposals(updated);
+    return true;
+  }
+
+  /**
+   * 按 entityId 查 proposal(任意状态)。供 tag-refresh 判断"已有 pending 则不重复
+   * 提取",避免占位符记忆每轮 REM 白调 LLM。
+   */
+  findProposalByEntityId(entityId: string): Proposal | undefined {
+    return this.readProposals().find((p) => p.entityId === entityId);
+  }
+
   listPending(): readonly Proposal[] {
     this.refreshStaleFileProposals();
     return this.readProposals().filter((p) => {
@@ -1094,6 +1184,56 @@ export class ProposalEngine {
         at: new Date().toISOString(),
       });
       return p.synapseFrom;
+    }
+
+    // REM tag-refresh proposal:accept → 改目标 engram 的 domainTags,不创建 engram
+    if (target.source === "rem-tag-refresh") {
+      const p = target.payload;
+      if (!p || !p.tagEngramId || !p.tagNewTags || p.tagNewTags.length === 0) {
+        throw validationError(
+          `rem-tag-refresh proposal missing payload (entityId=${entityId})`,
+        );
+      }
+      if (!this.repository.exists(p.tagEngramId)) {
+        throw validationError(
+          `rem-tag-refresh:目标 engram 不存在(id=${p.tagEngramId})——可能已被删除。proposal 保持 pending。`,
+          { resourceId: "tagEngramId" },
+        );
+      }
+      const createdBy = input.createdBy ?? this.resolveCreatedByOrDefault();
+      this.repository.updateEngram(p.tagEngramId, {
+        domainTags: [...p.tagNewTags],
+        updatedBy: createdBy,
+      });
+      this.auditLog.append({
+        actor: "user",
+        action: "update",
+        engramId: p.tagEngramId,
+        metadata: {
+          entityId,
+          source: "rem-tag-refresh",
+          oldTags: p.tagOldTags,
+          newTags: p.tagNewTags,
+          reason: p.tagReason,
+        },
+      });
+      const updated = proposals.map((pp) =>
+        pp.entityId === entityId
+          ? {
+              ...pp,
+              status: "accepted" as const,
+              acceptedEngramId: p.tagEngramId,
+            }
+          : pp,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: p.tagEngramId,
+        at: new Date().toISOString(),
+      });
+      return p.tagEngramId;
     }
 
     // REM pattern proposal:accept → 创建**新** pattern engram + 连 derives_from synapse

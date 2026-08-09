@@ -111,6 +111,24 @@ export interface MaintenanceDeps {
       readonly fromTitle?: string;
       readonly toTitle?: string;
     }): boolean;
+    /**
+     * REM 标签刷新提案(tag-refresh 产出)。全审批:用户 accept 才改 domainTags,
+     * dismiss 则保持。结构同 ProposalEngine.proposeTagRefresh。
+     */
+    proposeTagRefresh(input: {
+      readonly engramId: string;
+      readonly oldTags: readonly string[];
+      readonly newTags: readonly string[];
+      readonly reason: string;
+      readonly drift?: number;
+      readonly engramTitle?: string;
+    }): boolean;
+    /**
+     * 按 entityId 查 proposal(任意状态)。tag-refresh 据此判断「已有 pending 则不重复提取」。
+     */
+    findProposalByEntityId(
+      entityId: string,
+    ): { readonly status?: string } | undefined;
   };
   /**
    * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。

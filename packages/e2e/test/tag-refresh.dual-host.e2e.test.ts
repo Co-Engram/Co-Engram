@@ -15,10 +15,11 @@ import {
 /**
  * 端到端验证双宿主(claude-code-mcp + openclaw-plugin)的 REM 标签漂移刷新。
  *
- * 用两宿主各自的 startMaintenanceRuntime 装配 MaintenanceEngine(真实 bootstrap
- * 的 repository/indexDb/signalSink),手动触发 runRem,验证 uncategorized engram
- * 被刷新成 LLM 提取的内容语义标签。两宿主共享 @co-engram/core 的 MaintenanceEngine,
- * 此处验证的是「两宿主各自的装配 + bootstrap 都能跑通同一条 REM 标签刷新链路」。
+ * 验证(2026-08 审批化):两宿主各自的 bootstrap 都把 proposalEngine 注入 maintenance,
+ * runRem 后占位标签(uncategorized)的刷新走 rem-tag-refresh pending proposal(卡片),
+ * 用户 accept 才改 domainTags——而非旧的直接落盘 + 静默卡死。两宿主共享 core
+ * MaintenanceEngine,此处验证「两宿主各自的装配 + proposalEngine 注入 + 同一条
+ * proposal 审批链路都跑通」。
  */
 
 function mockLlmReturning(tags: string[]): {
@@ -47,7 +48,7 @@ const SAMPLE = {
   createdBy: "e2e",
 };
 
-describe("REM tag-refresh — dual-host e2e", () => {
+describe("REM tag-refresh — dual-host e2e(proposal 审批化)", () => {
   let ccDir: string;
   let ocDir: string;
 
@@ -61,18 +62,21 @@ describe("REM tag-refresh — dual-host e2e", () => {
     rmSync(ocDir, { recursive: true, force: true });
   });
 
-  it("claude-code-mcp host: runRem refreshes uncategorized → content-semantic tags", async () => {
+  it("claude-code-mcp host: runRem 把占位标签刷新走 proposal(accept 才落盘)", async () => {
     const { ctx, releaseProcessLock } = createCoEngramMcpServer({
       dataRoot: ccDir,
       autoOnboardMergeDriver: false,
     });
     try {
       const eng = ctx.repository.createEngram(SAMPLE);
+      // bootstrap 默认创建 proposalEngine(真实路径注入 maintenance)
+      expect(ctx.proposalEngine).toBeDefined();
       const { engine, stop } = startCC(
         {
           repository: ctx.repository,
           signalSink: ctx.signalSink!,
           llmClient: mockLlmReturning(["android", "adb"]) as never,
+          ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
         },
         { enabledStages: [] },
       );
@@ -81,7 +85,18 @@ describe("REM tag-refresh — dual-host e2e", () => {
         const tagRefresh = (
           report.downstreamReport as { tagRefresh?: { refreshed: number } }
         )?.tagRefresh;
-        expect(tagRefresh?.refreshed).toBe(1);
+        expect(tagRefresh?.refreshed).toBe(1); // 生成 1 个 proposal
+        // 走 proposal:标签未直接落盘,仍是占位符(旧 bug 会静默落盘 imported + 卡死)
+        expect([
+          ...ctx.repository.readEngram(eng.id).domainTags,
+        ]).toEqual(["uncategorized"]);
+        // 有 pending rem-tag-refresh proposal
+        const proposal = ctx
+          .proposalEngine!.listPending()
+          .find((p) => p.source === "rem-tag-refresh");
+        expect(proposal).toBeDefined();
+        // accept → 标签应用
+        ctx.proposalEngine!.accept(proposal!.entityId, { createdBy: "e2e" });
         expect([
           ...ctx.repository.readEngram(eng.id).domainTags,
         ]).toEqual(["android", "adb"]);
@@ -93,14 +108,16 @@ describe("REM tag-refresh — dual-host e2e", () => {
     }
   });
 
-  it("openclaw-plugin host: runRem refreshes uncategorized → content-semantic tags", async () => {
+  it("openclaw-plugin host: runRem 把占位标签刷新走 proposal(accept 才落盘)", async () => {
     const ctx = createCoEngramContext({ dataRoot: ocDir });
     const eng = ctx.repository.createEngram(SAMPLE);
+    expect(ctx.proposalEngine).toBeDefined();
     const { engine, stop } = startOC(
       {
         repository: ctx.repository,
         signalSink: ctx.signalSink!,
         llmClient: mockLlmReturning(["android", "adb"]) as never,
+        ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
       },
       { enabledStages: [] },
     );
@@ -110,6 +127,14 @@ describe("REM tag-refresh — dual-host e2e", () => {
         report.downstreamReport as { tagRefresh?: { refreshed: number } }
       )?.tagRefresh;
       expect(tagRefresh?.refreshed).toBe(1);
+      expect([...ctx.repository.readEngram(eng.id).domainTags]).toEqual([
+        "uncategorized",
+      ]);
+      const proposal = ctx
+        .proposalEngine!.listPending()
+        .find((p) => p.source === "rem-tag-refresh");
+      expect(proposal).toBeDefined();
+      ctx.proposalEngine!.accept(proposal!.entityId, { createdBy: "e2e" });
       expect([...ctx.repository.readEngram(eng.id).domainTags]).toEqual([
         "android",
         "adb",

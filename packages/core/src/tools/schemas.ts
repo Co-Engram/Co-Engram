@@ -550,6 +550,7 @@ export interface EngramListProposalsToolResult {
       | "rem-verification"
       | "rem-pattern"
       | "rem-synapse"
+      | "rem-tag-refresh"
       | "skill";
     slug?: string;
     proposedTitle?: string;

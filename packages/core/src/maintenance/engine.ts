@@ -357,6 +357,10 @@ export class MaintenanceEngine {
         this.deps.repository,
         this.deps.auditLog,
         this.deps.llmClient,
+        // 注入 proposalEngine:提取出的新标签走 rem-tag-refresh pending proposal
+        // (用户审批卡片 accept 才改 domainTags),与 rem-pattern/synapse/verification 对齐。
+        // 未注入(最小部署)时 refreshDomainTagsOnDrift 内部退化为直接落盘。
+        this.deps.proposalEngine,
       );
 
       // 1.6 突触候选对计算(二期,agent-driven):局部图遍历(活跃 engram + 1-hop 邻居)

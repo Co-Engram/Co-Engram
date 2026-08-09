@@ -199,6 +199,12 @@ export const engramListProposalsTool: Tool<
           synapseReason?: string;
           synapseFromTitle?: string;
           synapseToTitle?: string;
+          // rem-tag-refresh 投影
+          tagEngramId?: string;
+          tagOldTags?: readonly string[];
+          tagNewTags?: readonly string[];
+          tagReason?: string;
+          tagDrift?: number;
         } = {
           entityId: p.entityId,
           occurrences: p.occurrences,
@@ -243,6 +249,12 @@ export const engramListProposalsTool: Tool<
           if (payload.remSynapseReason) base.synapseReason = payload.remSynapseReason;
           if (payload.synapseFromTitle) base.synapseFromTitle = payload.synapseFromTitle;
           if (payload.synapseToTitle) base.synapseToTitle = payload.synapseToTitle;
+          // rem-tag-refresh 投影
+          if (payload.tagEngramId) base.tagEngramId = payload.tagEngramId;
+          if (payload.tagOldTags) base.tagOldTags = payload.tagOldTags;
+          if (payload.tagNewTags) base.tagNewTags = payload.tagNewTags;
+          if (payload.tagReason) base.tagReason = payload.tagReason;
+          if (payload.tagDrift !== undefined) base.tagDrift = payload.tagDrift;
         }
         return base;
       }),

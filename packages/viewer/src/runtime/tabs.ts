@@ -2033,6 +2033,62 @@ window.CO_ENGRAM_PROPOSALS = {
           continue;
         }
 
+        // REM tag-refresh proposal:专属卡片(改已有记忆的 domainTags,不创建 engram)
+        if (p.source === 'rem-tag-refresh') {
+          var tEngId = (p.payload && p.payload.tagEngramId) || '';
+          var tOld = (p.payload && p.payload.tagOldTags) || [];
+          var tNew = (p.payload && p.payload.tagNewTags) || [];
+          var tReason = (p.payload && p.payload.tagReason) || '';
+          var tDrift = parseFloat(p.payload && p.payload.tagDrift) || 0;
+          var tTitle = (p.centroidExcerpt || tEngId).slice(0, 80);
+          var isAccepted = p.status === 'accepted';
+          var isDismissed = p.status === 'dismissed';
+
+          var sceneColor = '#c084fc';
+          var sceneLabel = T.t('viewer.proposals.rem.scene.tagRefresh');
+
+          // oldTags → newTags diff:删除(红,删除线)/ 保留(灰)/ 新增(绿,加粗)
+          var oldSet = {}; (tOld || []).forEach(function (t) { oldSet[t] = true; });
+          var newSet = {}; (tNew || []).forEach(function (t) { newSet[t] = true; });
+          var removedTags = (tOld || []).filter(function (t) { return !newSet[t]; });
+          var addedTags = (tNew || []).filter(function (t) { return !oldSet[t]; });
+          var keptTags = (tOld || []).filter(function (t) { return newSet[t]; });
+
+          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(tEngId) + '\\')">'
+            + CO_ENGRAM.escapeHtml(tTitle || tEngId.slice(-8))
+            + '</div>'
+            + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
+            + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(sceneLabel) + '</span>'
+            + (tDrift ? '<span class="chip" style="color:#fbbf24" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.driftTip', { drift: tDrift.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.drift', { drift: tDrift.toFixed(2) })) + '</span>' : '')
+            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+            + '</div>'
+            + '<div style="font-size:.83rem;color:var(--fg-muted);margin:.3rem 0 .15rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.from')) + '</div>'
+            + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.35rem">'
+            + removedTags.map(function (t) { return '<span class="chip" style="color:#f87171;text-decoration:line-through">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
+            + keptTags.map(function (t) { return '<span class="chip" style="opacity:.55">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
+            + (removedTags.length === 0 && keptTags.length === 0 ? '<span class="chip" style="opacity:.4">∅</span>' : '')
+            + '</div>'
+            + '<div style="font-size:.83rem;color:var(--fg-muted);margin:.3rem 0 .15rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.to')) + '</div>'
+            + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.35rem">'
+            + addedTags.map(function (t) { return '<span class="chip" style="color:#34d399;font-weight:600">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
+            + keptTags.map(function (t) { return '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
+            + '</div>'
+            + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml(tReason) + '</div>';
+          if (isAccepted) {
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
+          } else if (isDismissed) {
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+          } else {
+            html += '<div style="margin-top:.55rem;display:flex;gap:.5rem">'
+              + '<button class="btn mini" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.accept')) + '</button>'
+              + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismissRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.dismiss')) + '</button>'
+              + '</div>';
+          }
+          html += '</div>';
+          continue;
+        }
+
         const meta = this._inferMeta(p);
         const kindLabel = T.enumLabel('kind', meta.kind);
         const kindColor = CO_ENGRAM.kindColor(meta.kind);
