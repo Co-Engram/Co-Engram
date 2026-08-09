@@ -186,6 +186,66 @@ describe("engram_accept_proposal · external-markdown 工具级契约", () => {
     expect(repo.readEngram(result2.engramId).createdBy).toBe("unknown");
   });
 
+  it("payload.createdBy 是机器标签(proposal-engine)→ 排除并回退 ctx.defaultCreatedBy,防自我传播", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "machine-label.md",
+      title: "T",
+      content: "C",
+      domainTags: ["imported"],
+      kind: "observation",
+      createdBy: "proposal-engine",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute(
+      { entityId },
+      buildCtx({ defaultCreatedBy: "杨洋 10192021" }),
+    );
+    const engram = repo.readEngram(result.engramId);
+    expect(engram.createdBy).not.toBe("proposal-engine");
+    expect(engram.createdBy).toBe("杨洋 10192021");
+  });
+
+  it("payload.createdBy 是机器标签前缀(rem-/skill-)→ 同样排除,回退真人", () => {
+    for (const label of [
+      "rem-tag-refresh",
+      "skill-proposal-accept",
+      "skill-batch-accept",
+    ]) {
+      engine.proposeExternalMarkdown({
+        sourcePath: `machine-${label}.md`,
+        title: `T-${label}`,
+        content: "C",
+        domainTags: ["imported"],
+        kind: "observation",
+        createdBy: label,
+      });
+    }
+    const ctx = buildCtx({ defaultCreatedBy: "杨洋 10192021" });
+    for (const p of engine.listAll()) {
+      const r = engramAcceptProposalTool.execute({ entityId: p.entityId }, ctx);
+      expect(repo.readEngram(r.engramId).createdBy).toBe("杨洋 10192021");
+    }
+  });
+
+  it("payload.createdBy 是真人(外部文档原作者)→ 仍保留,机器标签检测不影响真名", () => {
+    engine.proposeExternalMarkdown({
+      sourcePath: "real-author.md",
+      title: "T",
+      content: "C",
+      domainTags: ["imported"],
+      kind: "observation",
+      createdBy: "范雨 10344752",
+    });
+    const entityId = engine.listAll()[0]!.entityId;
+
+    const result = engramAcceptProposalTool.execute(
+      { entityId },
+      buildCtx({ defaultCreatedBy: "杨洋 10192021" }),
+    );
+    expect(repo.readEngram(result.engramId).createdBy).toBe("范雨 10344752");
+  });
+
   it("accept 后 → engram_search 端到端能搜到(body 关键词命中)", () => {
     engine.proposeExternalMarkdown({
       sourcePath: "searchable.md",

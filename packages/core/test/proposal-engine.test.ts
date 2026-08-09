@@ -21,6 +21,7 @@ import {
   isAutoMemoryProposal,
   externalMarkdownEntityId,
   isExternalMarkdownProposal,
+  isMachineAuthorLabel,
   type Embedder,
   type TopicCluster,
 } from "../src/observability/proposal-engine.js";
@@ -67,6 +68,42 @@ afterEach(() => {
 // ============================================================
 // 纯函数
 // ============================================================
+
+describe("isMachineAuthorLabel", () => {
+  it("已知机器标签(精确匹配)→ true", () => {
+    for (const v of [
+      "proposal-engine",
+      "claude-code",
+      "claude-code-auto-memory",
+      "dreaming-rem",
+      "unknown",
+      "system",
+    ]) {
+      expect(isMachineAuthorLabel(v)).toBe(true);
+    }
+  });
+
+  it("机器标签前缀(rem-/skill-proposal/skill-batch)→ true", () => {
+    expect(isMachineAuthorLabel("rem-tag-refresh")).toBe(true);
+    expect(isMachineAuthorLabel("rem-synapse-accept")).toBe(true);
+    expect(isMachineAuthorLabel("skill-proposal-accept")).toBe(true);
+    expect(isMachineAuthorLabel("skill-batch-accept")).toBe(true);
+  });
+
+  it("真人作者 → false(不被误判为机器标签)", () => {
+    expect(isMachineAuthorLabel("杨洋 10192021")).toBe(false);
+    expect(isMachineAuthorLabel("范雨 10344752")).toBe(false);
+    expect(isMachineAuthorLabel("Yang Yang")).toBe(false);
+    expect(isMachineAuthorLabel("external-author")).toBe(false);
+  });
+
+  it("空/缺省 → true(触发 accept 回退到真人 git author)", () => {
+    expect(isMachineAuthorLabel(undefined)).toBe(true);
+    expect(isMachineAuthorLabel("")).toBe(true);
+    expect(isMachineAuthorLabel("   ")).toBe(true);
+    expect(isMachineAuthorLabel(null)).toBe(true);
+  });
+});
 
 describe("cosineSimilarity", () => {
   it("两个相同向量 → 1", () => {
