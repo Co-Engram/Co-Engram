@@ -160,44 +160,71 @@ async function verifyI18n() {
 }
 
 async function cpDistToOpenclaw() {
-  log(`步骤 4/6: cp dist 到 ${OPENCLAW_DEPLOY_ROOT}...`);
-  if (!existsSync(OPENCLAW_DEPLOY_ROOT)) {
+  // OpenClaw gateway 按 project 解析 node_modules:project 级
+  // (~/.openclaw/npm/projects/<project>/node_modules) 优先于父级
+  // (~/.openclaw/npm/node_modules)。旧版仅 cp 到父级,gateway 仍加载 project
+  // 内旧 core,deploy 静默失效(2026-08-09 proposal-engine 复发根因)。
+  // 修复:遍历每个 project 的 @co-engram 目录都 cp;无 project 布局时退回父级。
+  const projectsDir = join(HOME, ".openclaw", "npm", "projects");
+  const roots = [];
+  if (existsSync(projectsDir)) {
+    let entries = [];
+    try {
+      entries = await readdir(projectsDir);
+    } catch {
+      entries = [];
+    }
+    for (const entry of entries) {
+      const projectAt = join(projectsDir, entry, "node_modules", "@co-engram");
+      if (existsSync(projectAt)) roots.push(projectAt);
+    }
+  }
+  if (roots.length === 0 && existsSync(OPENCLAW_DEPLOY_ROOT)) {
+    roots.push(OPENCLAW_DEPLOY_ROOT); // 向后兼容:旧版 OpenClaw 无 project 布局
+  }
+  if (roots.length === 0) {
     if (ALLOW_MISSING) {
-      log(`  ⚠ 跳过 OpenClaw 部署:目录不存在 ${OPENCLAW_DEPLOY_ROOT}(--allow-missing)`);
+      log(`  ⚠ 跳过 OpenClaw 部署:未找到 project 或父级目录(--allow-missing)`);
       return;
     }
     throw new Error(
-      `OpenClaw 部署目录不存在: ${OPENCLAW_DEPLOY_ROOT}\n` +
+      `OpenClaw 部署目录不存在: projects=${projectsDir} / fallback=${OPENCLAW_DEPLOY_ROOT}\n` +
         `请确认已通过 openclaw plugins install co-engram 安装`,
     );
   }
-  for (const pkg of PACKAGES) {
-    if (!pkg.openclawDeploy) continue; // claude-code-mcp 跳过
-    const src = join(ROOT, pkg.src, "dist");
-    // openclaw 包目录名:packages/openclaw-plugin 对应 @co-engram/openclaw,
-    // 其他包名与目录名一致(core→core, viewer→viewer)
-    const pkgDirName = pkg.name.replace("@co-engram/", "");
-    const dstParent = join(OPENCLAW_DEPLOY_ROOT, pkgDirName, "dist");
-    if (!existsSync(join(OPENCLAW_DEPLOY_ROOT, pkgDirName))) {
-      if (ALLOW_MISSING) {
-        log(`  ⚠ 跳过 ${pkg.name}:未在 ${OPENCLAW_DEPLOY_ROOT} 中找到(--allow-missing)`);
-        continue;
+  log(
+    `步骤 4/6: cp dist 到 ${roots.length} 个 OpenClaw project:\n    ` +
+      roots.join("\n    "),
+  );
+  for (const root of roots) {
+    for (const pkg of PACKAGES) {
+      if (!pkg.openclawDeploy) continue; // claude-code-mcp 跳过
+      const src = join(ROOT, pkg.src, "dist");
+      // openclaw 包目录名:packages/openclaw-plugin 对应 @co-engram/openclaw,
+      // 其他包名与目录名一致(core→core, viewer→viewer)
+      const pkgDirName = pkg.name.replace("@co-engram/", "");
+      const dstParent = join(root, pkgDirName, "dist");
+      if (!existsSync(join(root, pkgDirName))) {
+        if (ALLOW_MISSING) {
+          log(`  ⚠ 跳过 ${pkg.name}:未在 ${root} 中找到(--allow-missing)`);
+          continue;
+        }
+        throw new Error(
+          `${pkg.name} 未在 ${root} 中找到,请先 openclaw plugins install`,
+        );
       }
-      throw new Error(
-        `${pkg.name} 未在 ${OPENCLAW_DEPLOY_ROOT} 中找到,请先 openclaw plugins install`,
-      );
-    }
-    if (!existsSync(src)) {
-      if (ALLOW_MISSING) {
-        log(`  ⚠ 跳过 ${pkg.name}:src dist 不存在 ${src}(--allow-missing,可能未 build)`);
-        continue;
+      if (!existsSync(src)) {
+        if (ALLOW_MISSING) {
+          log(`  ⚠ 跳过 ${pkg.name}:src dist 不存在 ${src}(--allow-missing,可能未 build)`);
+          continue;
+        }
+        throw new Error(`${pkg.name}: build 后 ${src} 不存在`);
       }
-      throw new Error(`${pkg.name}: build 后 ${src} 不存在`);
+      // cp -rT: 把 src 的内容直接覆盖到 dstParent(覆盖而非嵌套)
+      await rm(dstParent, { recursive: true, force: true });
+      await cp(src, dstParent, { recursive: true });
+      log(`  ✓ ${pkg.name}: ${src} → ${dstParent}`);
     }
-    // cp -rT: 把 src 的内容直接覆盖到 dstParent(覆盖而非嵌套)
-    await rm(dstParent, { recursive: true, force: true });
-    await cp(src, dstParent, { recursive: true });
-    log(`  ✓ ${pkg.name}: ${src} → ${dstParent}`);
   }
 }
 
