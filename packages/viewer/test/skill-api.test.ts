@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
+import net from "node:net";
 import { randomUUID } from "node:crypto";
 
 import {
@@ -46,11 +47,24 @@ function makeCtx(tmpDir: string) {
   };
 }
 
-/** 分配一个非默认端口(避免和并发测试/真实 viewer 冲突) */
+/** 分配一个非默认端口(避免和并发测试/真实 viewer 冲突)。
+ *  跳过被外部进程(如 VS Code 端口转发)占用的端口,避免 EADDRINUSE 偶发失败。 */
 let portCounter = 52000;
-function nextPort(): number {
-  portCounter += 1;
-  return portCounter;
+function isPortFree(port: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    const probe = net.createServer();
+    probe.once("error", () => resolve(false));
+    probe.once("listening", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1");
+  });
+}
+async function nextPort(): Promise<number> {
+  for (let i = 0; i < 200; i++) {
+    portCounter += 1;
+    if (portCounter > 60000) portCounter = 52001;
+    if (await isPortFree(portCounter)) return portCounter;
+  }
+  throw new Error("No free port in viewer test range (52001-60000)");
 }
 
 function makeRequest(
@@ -93,7 +107,7 @@ async function withViewer<T>(
     | undefined,
   fn: (port: number) => Promise<T>,
 ): Promise<T> {
-  const port = nextPort();
+  const port = await nextPort();
   const savedEnv = process.env.CO_ENGRAM_VIEWER_PORT;
   process.env.CO_ENGRAM_VIEWER_PORT = String(port);
   try {
