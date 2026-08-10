@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { GraphEdge, GraphIndex, GraphNode } from "./types.js";
+import { isSymmetricKind } from "../types/synapse.js";
 
 /**
  * Graph 构建器
@@ -78,7 +79,9 @@ export class GraphBuilder {
         to: synapse.to,
         kind: synapse.kind,
         weight: synapse.weight,
-        direction: synapse.direction,
+        direction: isSymmetricKind(synapse.kind)
+          ? "bidirectional"
+          : "directional",
         evidenceCount: synapse.evidence?.length ?? 0,
         ...(synapse.resolutionState?.status
           ? { resolutionStatus: synapse.resolutionState.status }

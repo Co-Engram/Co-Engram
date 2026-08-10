@@ -775,7 +775,7 @@ describe("GET /api/graph", () => {
       expect(edge.id).toBeTruthy();
       expect(typeof edge.weight).toBe("number");
       expect(typeof edge.evidenceCount).toBe("number");
-      expect(edge.direction).toBe("forward");
+      expect(edge.direction).toBe("directional");
     });
   });
 
@@ -810,8 +810,9 @@ describe("GET /api/graph", () => {
       domainTags: ["t"],
       createdBy: "y",
     });
-    const syn = makeSynapse(a.id, b.id, "derives_from");
-    syn.direction = "bidirectional";
+    // similar_to 是对称 kind:两端 outgoing 都出现同一条边(端点规范化后同 id),
+    // buildGraph 必须按 id 去重,否则 vis-network 报 "item already exists"。
+    const syn = makeSynapse(a.id, b.id, "similar_to");
     ctx.repository.addOutgoingSynapse(a.id, syn);
 
     await withViewer(ctx, undefined, async (port) => {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import { computeSynapseId, isSynapseId } from "../src/types/synapse-id.js";
+import { isSymmetricKind, SYMMETRIC_KINDS } from "../src/types/synapse.js";
 
 describe("computeSynapseId — 确定性", () => {
   it("相同 (from, to, kind) 生成相同 id", () => {
@@ -31,34 +32,44 @@ describe("computeSynapseId — 确定性", () => {
     expect(extends_id).not.toBe(contradicts_id);
   });
 
-  it("directional:from/to 顺序不同 → id 不同", () => {
+  it("有向 kind(extends):from/to 顺序不同 → id 不同(方向承载语义)", () => {
     const ab = computeSynapseId(
       "01KVNJ9RN190DVHBKFB7NHDF9Q",
       "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
       "extends",
-      "directional",
     );
     const ba = computeSynapseId(
       "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
       "01KVNJ9RN190DVHBKFB7NHDF9Q",
       "extends",
-      "directional",
     );
     expect(ab).not.toBe(ba);
   });
 
-  it("bidirectional:from/to 顺序无关(对称边)", () => {
+  it("对称 kind(similar_to):from/to 顺序无关(端点规范化)", () => {
     const ab = computeSynapseId(
       "01KVNJ9RN190DVHBKFB7NHDF9Q",
       "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
       "similar_to",
-      "bidirectional",
     );
     const ba = computeSynapseId(
       "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
       "01KVNJ9RN190DVHBKFB7NHDF9Q",
       "similar_to",
-      "bidirectional",
+    );
+    expect(ab).toBe(ba);
+  });
+
+  it("对称 kind(contradicts):from/to 顺序无关", () => {
+    const ab = computeSynapseId(
+      "01KVNJ9RN190DVHBKFB7NHDF9Q",
+      "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
+      "contradicts",
+    );
+    const ba = computeSynapseId(
+      "01KVNJ9RN3GW1KWXKVJ56RGJ0W",
+      "01KVNJ9RN190DVHBKFB7NHDF9Q",
+      "contradicts",
     );
     expect(ab).toBe(ba);
   });
@@ -108,5 +119,54 @@ describe("isSynapseId", () => {
 
   it("非 hex 字符拒绝", () => {
     expect(isSynapseId("syn-zzzzzzzzzzzzzzzz")).toBe(false);
+  });
+});
+
+describe("isSymmetricKind — 对称性派生自 kind", () => {
+  it("similar_to / contradicts 是对称 kind", () => {
+    expect(isSymmetricKind("similar_to")).toBe(true);
+    expect(isSymmetricKind("contradicts")).toBe(true);
+  });
+
+  it("其余 10 种 kind 是有向(源/靶语义不可交换)", () => {
+    const directionalKinds = [
+      "extends",
+      "part_of",
+      "depends_on",
+      "causes",
+      "follows",
+      "derives_from",
+      "exemplifies",
+      "supersedes",
+      "consolidates",
+      "contextualizes",
+    ] as const;
+    for (const k of directionalKinds) {
+      expect(isSymmetricKind(k)).toBe(false);
+    }
+  });
+
+  it("SYMMETRIC_KINDS 恰好含 similar_to + contradicts", () => {
+    expect(SYMMETRIC_KINDS.size).toBe(2);
+    expect([...SYMMETRIC_KINDS].sort()).toEqual(["contradicts", "similar_to"]);
+  });
+
+  it("对称性 ↔ computeSynapseId 规范化一致(回归不变量,防两套真相源漂移)", () => {
+    const lo = "01KVNJ9RN190DVHBKFB7NHDF9Q";
+    const hi = "01KVNJ9RN3GW1KWXKVJ56RGJ0W";
+    // 对称 kind 必须:端点顺序无关(isSymmetricKind=true ↔ id 规范化)
+    expect(isSymmetricKind("similar_to")).toBe(true);
+    expect(computeSynapseId(lo, hi, "similar_to")).toBe(
+      computeSynapseId(hi, lo, "similar_to"),
+    );
+    expect(isSymmetricKind("contradicts")).toBe(true);
+    expect(computeSynapseId(lo, hi, "contradicts")).toBe(
+      computeSynapseId(hi, lo, "contradicts"),
+    );
+    // 有向 kind 必须:端点顺序敏感(isSymmetricKind=false ↔ id 保留顺序)
+    expect(isSymmetricKind("extends")).toBe(false);
+    expect(computeSynapseId(lo, hi, "extends")).not.toBe(
+      computeSynapseId(hi, lo, "extends"),
+    );
   });
 });

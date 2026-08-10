@@ -120,7 +120,10 @@ describe("Synapse 重塑", () => {
     expect(bSynapses.outgoing).toHaveLength(1);
     expect(bSynapses.outgoing[0]!.to).toBe(a.id);
     expect(bSynapses.outgoing[0]!.kind).toBe("similar_to");
-    expect(bSynapses.outgoing[0]!.direction).toBe("bidirectional");
+    // similar_to 是对称 kind:从 b 视角 outgoing 与 incoming 都含此边
+    // (对称性现由 kind 派生 isSymmetricKind,不再有 direction 字段)
+    expect(bSynapses.incoming).toHaveLength(1);
+    expect(bSynapses.incoming[0]!.kind).toBe("similar_to");
   });
 
   it("contextTags 重叠也触发 similar_to", () => {

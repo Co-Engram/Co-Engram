@@ -84,7 +84,6 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
       to: parsed.to,
       kind: parsed.kind,
       weight: parsed.weight,
-      direction: parsed.direction,
       evidence,
       createdBy,
       createdAt: timestamp,
@@ -109,7 +108,6 @@ export const synapseCreateTool: Tool<SynapseCreateToolInput, { id: string }> = {
         to: parsed.to,
         kind: parsed.kind,
         weight: parsed.weight,
-        direction: parsed.direction,
         createdBy,
       },
     });
@@ -197,7 +195,6 @@ export const synapseDeleteTool: Tool<
         to: before?.to,
         kind: before?.kind,
         weight: before?.weight,
-        direction: before?.direction,
       },
     });
     return { id: parsed.synapseId, deleted: true as const };

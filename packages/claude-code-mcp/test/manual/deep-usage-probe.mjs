@@ -98,7 +98,6 @@ if (syn.results.length > 0) {
         from: synId,
         to: contra.id,
         kind: "contradicts",
-        direction: "bidirectional",
       });
       console.log("contradicts synapse:", JSON.stringify(synCreate));
     }

@@ -66,16 +66,25 @@ export function gatherContradictingViews(
   const views: ContradictingView[] = [];
   const seen = new Set<string>();
 
-  // === outgoing：center 反驳别人 ===
-  const outgoing = repo.readSynapses(engramId).outgoing;
-  for (const syn of outgoing) {
+  // contradicts 是对称 kind(见 isSymmetricKind):readSynapses 会把同一条边放入
+  // center 的 outgoing + incoming。此处合并两端、按 syn.id 去重,并用
+  // syn.from === center 判定方向(from = 主动反驳方 → outgoing;to → incoming)。
+  // 这也消除了旧实现为收集 incoming 而 O(N) 遍历所有 engram 的性能问题。
+  const { outgoing, incoming } = repo.readSynapses(engramId);
+  const handled = new Set<string>();
+  for (const syn of [...outgoing, ...incoming]) {
     if (syn.kind !== "contradicts") continue;
-    if (!repo.exists(syn.to)) continue; // 跳过 dangling
-    // noplus1: 需要 perspective 字段(不在 DigestLine/Content 中),outgoing
-    // synapse 数量通常 ≤ 10(由单 engram 的出边限定),非批量级 N+1。
-    // TODO: 加 perspective 到 DigestLine + SQLite v5 后改用 readDigestBatch。
-    const other = repo.readEngram(syn.to);
-    const key = `out:${syn.to}`;
+    if (handled.has(syn.id)) continue; // 对称边去重
+    handled.add(syn.id);
+
+    const isOutgoing = syn.from === engramId;
+    const otherId = isOutgoing ? syn.to : syn.from;
+    if (otherId === engramId) continue; // 自环防御
+    if (!repo.exists(otherId)) continue; // 跳过 dangling
+    // noplus1: 需要 perspective 字段(不在 DigestLine/Content 中),触及 center 的
+    // contradicts 通常很少,非批量级 N+1。
+    const other = repo.readEngram(otherId);
+    const key = `${isOutgoing ? "out" : "in"}:${otherId}`;
     if (seen.has(key)) continue;
     seen.add(key);
     views.push({
@@ -83,37 +92,10 @@ export function gatherContradictingViews(
       title: other.title,
       kind: other.kind,
       perspective: other.perspective,
-      direction: "outgoing",
+      direction: isOutgoing ? "outgoing" : "incoming",
       resolutionState: syn.resolutionState,
       synapseId: syn.id,
     });
-  }
-
-  // === incoming：别人反驳 center ===
-  for (const entry of repo.listEngrams()) {
-    if (entry.id === engramId) continue;
-    const file = repo.readSynapses(entry.id);
-    for (const syn of file.outgoing) {
-      if (syn.kind !== "contradicts") continue;
-      if (syn.to !== engramId) continue;
-      // noplus1: 需要 perspective 字段(不在 DigestLine/Content 中)。
-      // 实际命中频率低(每个 engram 平均 contradicts 出边很少),
-      // 但最坏情况是 O(N)。修复需把 perspective 加入 DigestLine + SQLite v5。
-      // TODO: perspective 入 schema 后改 readDigestBatch。
-      const other = repo.readEngram(entry.id);
-      const key = `in:${entry.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      views.push({
-        engramId: other.id,
-        title: other.title,
-        kind: other.kind,
-        perspective: other.perspective,
-        direction: "incoming",
-        resolutionState: syn.resolutionState,
-        synapseId: syn.id,
-      });
-    }
   }
 
   // 排序：incoming 优先（外部挑战更值得关注），然后按 engramId 字典序
@@ -260,6 +242,7 @@ export function computeMultiViewStats(repo: EngramRepository): MultiViewStats {
   let active = 0;
   let resolved = 0;
   const perspectives = new Set<string>();
+  const seenEdges = new Set<string>();
 
   for (const entry of repo.listEngrams()) {
     // TODO: perspective 字段不在 DigestLine 中,目前无法走 readDigestBatch。
@@ -271,6 +254,10 @@ export function computeMultiViewStats(repo: EngramRepository): MultiViewStats {
     const file = repo.readSynapses(entry.id);
     for (const syn of file.outgoing) {
       if (syn.kind !== "contradicts") continue;
+      // contradicts 是对称 kind,readSynapses 把同一条边放入两端的 outgoing;
+      // 全库遍历会双计,按 syn.id 去重。
+      if (seenEdges.has(syn.id)) continue;
+      seenEdges.add(syn.id);
       totalEdges += 1;
       const status = syn.resolutionState?.status;
       if (status === "resolved" || status === "auto_resolved") {

@@ -3,7 +3,7 @@
  *
  * Field classes:
  *   - immutable            : id/from/to/kind/createdBy/createdAt — identity
- *   - updatedAt_arbitration: weight/direction/sourceSemantic/targetSemantic
+ *   - updatedAt_arbitration: weight/sourceSemantic/targetSemantic
  *   - max_updatedAt        : updatedAt itself
  *   - array_union          : evidence (handled in evidence-union.ts)
  *   - state_machine        : resolutionState (handled in resolution-state.ts)
@@ -31,7 +31,6 @@ const IMMUTABLE_SYNASPSE_FIELDS = new Set([
 
 const UPDATED_AT_ARBITRATION_FIELDS = new Set([
   "weight",
-  "direction",
   "sourceSemantic",
   "targetSemantic",
 ]);

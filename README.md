@@ -521,20 +521,20 @@ The same content is available in the viewer Help tab under "Memory visibility & 
 
 ## Synapse Schema
 
-Each synapse is one YAML file at `synapses/<kind>/syn-<hash>.yaml`. The hash is `syn-` + first 16 hex chars of `SHA-256("${a}|${b}|${kind}")` where `[a, b]` are the endpoints (sorted for `bidirectional`, order preserved for `directional`). `direction` is **not** part of the hash, so each `(from, to, kind)` triple maps to at most one synapse file.
+Each synapse is one YAML file at `synapses/<kind>/syn-<hash>.yaml`. The hash is `syn-` + first 16 hex chars of `SHA-256("${a}|${b}|${kind}")`, where `[a, b]` are the endpoints. **Symmetry is derived from kind**, not a per-synapse field: `similar_to` / `contradicts` are symmetric → endpoints sorted to `min|max` so `A↔B` and `B↔A` share one file; all other kinds are directional → `from|to` order is preserved. Each `(from, to, kind)` triple maps to at most one synapse file.
 
 ### Synapse kinds (12 across 5 families)
 
-| Family         | Kind             | Semantics                                       | Typical direction |
+| Family         | Kind             | Semantics                                       | Symmetry          |
 | -------------- | ---------------- | ----------------------------------------------- | ----------------- |
 | **structural** | `extends`        | A is a generalization / superset of B           | directional       |
 |                | `part_of`        | A is a component of B                           | directional       |
-|                | `similar_to`     | A and B cover the same topic differently        | bidirectional     |
+|                | `similar_to`     | A and B cover the same topic differently        | symmetric         |
 | **causal**     | `depends_on`     | A requires B                                    | directional       |
 |                | `causes`         | A produces B                                    | directional       |
 |                | `follows`        | A precedes B sequentially                       | directional       |
 | **evidential** | `derives_from`   | A is derived from B (evidence chain)            | directional       |
-|                | `contradicts`    | A and B disagree (triggers metacognition check) | bidirectional     |
+|                | `contradicts`    | A and B disagree (triggers metacognition check) | symmetric         |
 |                | `exemplifies`    | A is a concrete instance of B                   | directional       |
 | **temporal**   | `supersedes`     | A replaces B (newer version)                    | directional       |
 |                | `consolidates`   | A reinforces / merges into B                    | directional       |
@@ -548,7 +548,6 @@ Each synapse is one YAML file at `synapses/<kind>/syn-<hash>.yaml`. The hash is 
 | `from` / `to`                           | ULID                   | Endpoint engram ids.                                                                                 |
 | `kind`                                  | enum                   | One of the 12 kinds above.                                                                           |
 | `weight`                                | number `[0, 1]`        | Edge strength (default `0.5`).                                                                       |
-| `direction`                             | enum                   | `directional` or `bidirectional` (default `directional`).                                            |
 | `evidence`                              | array                  | Supporting evidence: `{ description, source?, confidence?, addedAt, addedBy }`.                      |
 | `sourceSemantic` / `targetSemantic`     | string (optional)      | Semantic role labels on each endpoint; used by retrieval to weight traversals.                       |
 | `resolutionState`                       | object (optional)      | Only on `contradicts` synapses — tracks the pending/auto_resolved/escalated/contested/resolved flow. |
@@ -564,7 +563,6 @@ from: 01J6XQK5P7R2V8Y3M4N6ZH0WQT
 to: 01J7TRY9F8G7H6J5K4L3M2N1O0P
 kind: extends
 weight: 0.8
-direction: directional
 evidence:
   - description: Both cover TS strict-mode patterns
     addedBy: claude-code
@@ -710,7 +708,6 @@ If you call it again with near-identical content:
   "to":   "01J7TRY9F8G7H6J5K4L3M2N1O0P",
   "kind": "extends",
   "weight": 0.8,
-  "direction": "directional",
   "evidence": [
     { "description": "Both cover TS strict-mode patterns", "confidence": 0.9 }
   ]

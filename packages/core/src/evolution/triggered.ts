@@ -249,7 +249,6 @@ export function onEngramCreated(
           to: other.id,
           kind: "similar_to",
           weight: cfg.newSynapseWeight,
-          direction: "bidirectional",
           evidence: [
             {
               description: `triggered evolution: domainOverlap=${domainOverlap}, contextOverlap=${contextOverlap}`,

@@ -37,6 +37,7 @@ import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
 import type { Synapse } from "../types/synapse.js";
+import { isSymmetricKind } from "../types/synapse.js";
 import type { SkillRepository } from "../skill/skill-repository.js";
 import { upgradeVerification, refuteEngram } from "../verification/upgrade.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
@@ -139,8 +140,6 @@ export interface ProposalPayload {
   readonly synapseId?: string;
   /** rem-synapse 专用:add 权重(默认 0.5) */
   readonly synapseWeight?: number;
-  /** rem-synapse 专用:add 方向(默认 directional) */
-  readonly synapseDirection?: import("../types/synapse.js").SynapseDirection;
   /** rem-synapse 专用:REM 提议理由(展示给用户) */
   readonly remSynapseReason?: string;
   /** rem-synapse 专用:REM 置信度(卡片 band 档位) */
@@ -636,7 +635,7 @@ export class ProposalEngine {
    * REM 突触操作提案(add/delete/retype)。
    *
    * entityId 幂等:`rem-synapse:<op>:<sha256(canonical)[:16]>`
-   *  - add:canonical = `op|from|to|kind|direction`
+   *  - add:canonical = `op|from|to|kind`(对称 kind 端点规范化,见 isSymmetricKind)
    *  - delete:canonical = `op|from|to|oldKind`
    *  - retype:canonical = `op|from|to|oldKind|kind`
    *
@@ -650,19 +649,25 @@ export class ProposalEngine {
     readonly oldKind?: import("../types/synapse.js").SynapseKind;
     readonly synapseId?: string;
     readonly weight?: number;
-    readonly direction?: import("../types/synapse.js").SynapseDirection;
     readonly reason: string;
     readonly confidence: number;
     readonly fromTitle?: string;
     readonly toTitle?: string;
   }): boolean {
-    const direction = input.direction ?? "directional";
+    // canonical key:op + 端点 + kind。对称 kind 的 add 端点规范化,
+    // 保证 add(A,B) 与 add(B,A) 视为同一提案(对称关系无方向,源自 isSymmetricKind)。
+    const op = input.op;
+    let cf = input.from;
+    let ct = input.to;
+    if (op === "add" && isSymmetricKind(input.kind) && cf > ct) {
+      [cf, ct] = [ct, cf];
+    }
     const canonical =
-      input.op === "add"
-        ? `${input.op}|${input.from}|${input.to}|${input.kind}|${direction}`
-        : input.op === "delete"
-          ? `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}`
-          : `${input.op}|${input.from}|${input.to}|${input.oldKind ?? ""}|${input.kind}`;
+      op === "add"
+        ? `${op}|${cf}|${ct}|${input.kind}`
+        : op === "delete"
+          ? `${op}|${input.from}|${input.to}|${input.oldKind ?? ""}`
+          : `${op}|${input.from}|${input.to}|${input.oldKind ?? ""}|${input.kind}`;
     const hash = createHash("sha256")
       .update(canonical)
       .digest("hex")
@@ -708,7 +713,6 @@ export class ProposalEngine {
         synapseOldKind: input.oldKind,
         synapseId: input.synapseId,
         synapseWeight: input.weight,
-        synapseDirection: direction,
         remSynapseReason: input.reason,
         remSynapseConfidence: input.confidence,
         synapseFromTitle: input.fromTitle,
@@ -1110,7 +1114,6 @@ export class ProposalEngine {
           to: p.synapseTo,
           kind: p.synapseKind,
           weight: p.synapseWeight ?? 0.5,
-          direction: p.synapseDirection ?? "directional",
           evidence: [
             {
               description:
@@ -1278,7 +1281,6 @@ export class ProposalEngine {
           to: sourceId,
           kind: "derives_from",
           weight: 0.8,
-          direction: "directional",
           evidence: [],
           createdBy,
           createdAt: timestamp,

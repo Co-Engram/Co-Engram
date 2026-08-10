@@ -85,8 +85,6 @@ export const SynapseKindSchema = z.enum([
   "contextualizes",
 ]);
 
-export const SynapseDirectionSchema = z.enum(["directional", "bidirectional"]);
-
 // ============================================================
 // engram_create
 // ============================================================
@@ -389,7 +387,6 @@ export const SynapseCreateInputSchema = z.object({
   to: z.string().min(1),
   kind: SynapseKindSchema,
   weight: z.coerce.number().min(0).max(1).default(0.5),
-  direction: SynapseDirectionSchema.default("directional"),
   evidence: z.array(SynapseEvidenceInputSchema).optional(),
   /**
    * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config 解析,

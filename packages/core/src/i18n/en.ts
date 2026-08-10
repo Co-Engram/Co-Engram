@@ -438,7 +438,7 @@ RETURNS: DAG nodes and edges. Ancestors = sources (observations etc.), descendan
   "tool.synapse_get.agent": `Read a single synapse (connection) between two memories.
 
 WHEN TO CALL:
-- Inspecting a specific connection's metadata (weight, direction, evidence)
+- Inspecting a specific connection's metadata (weight, evidence)
 - Debugging why two memories are linked
 - After synapse_list returned a synapse ID you want details on
 
@@ -446,7 +446,7 @@ WHEN NOT TO CALL:
 - To list all synapses of a memory (use synapse_list)
 - To check if a connection exists (use synapse_list with filters)
 
-RETURNS: Synapse record (id, from, to, kind, weight, direction, evidence, resolutionState).`,
+RETURNS: Synapse record (id, from, to, kind, weight, evidence, resolutionState).`,
   "tool.synapse_delete.agent": `Delete a synapse (connection) between two memories.
 
 WHEN TO CALL:
@@ -471,7 +471,7 @@ WHEN NOT TO CALL:
 - You only need one specific synapse (use synapse_get)
 - You want the full graph view (use the viewer's Graph tab)
 
-RETURNS: List of synapses (outgoing / incoming / both) with kind, weight, direction.`,
+RETURNS: List of synapses (outgoing / incoming / both) with kind, weight.`,
   "tool.skill_get.agent": `Read skill metadata (procedural memory).
 
 WHEN TO CALL:
@@ -699,14 +699,13 @@ Returns: { nodes: Engram[], edges: Synapse[] }.
 Side effects: none (read-only).
 Invariant: ancestors = sources (observation/hypothesis), descendants = evolution results (pattern/procedure).
 Spec ref: §4.6 acceptance, §12.7 scenario 6.`,
-  "tool.synapse_create.technical": `Create synapse. Input: { from, to, kind, weight?, direction?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
+  "tool.synapse_create.technical": `Create synapse. Input: { from, to, kind, weight?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
 kind enum: extends | part_of | similar_to | depends_on | causes | follows | derives_from | contradicts | exemplifies | supersedes | consolidates | contextualizes.
-direction: 'directional' | 'bidirectional' (default directional).
 Side effects: writes .synapses.json on both ends (outgoing + incoming caches); appends audit.
 Error conditions: from/to not found throw; self-loop throws; duplicate throws.
 Invariant: contradicts synapse creates a contradiction entry for resolution tracking.`,
   "tool.synapse_get.technical": `Read single synapse. Input: { from, synapseId }
-Returns: full synapse record (id, from, to, kind, weight, direction, evidence, resolutionState, createdAt).
+Returns: full synapse record (id, from, to, kind, weight, evidence, resolutionState, createdAt).
 Side effects: none.
 Error conditions: not found throws.`,
   "tool.synapse_delete.technical": `Delete synapse. Input: { from, synapseId }
@@ -1796,7 +1795,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.detail.detailViewTitle": "Detail view",
   "viewer.detail.synapseDetailTitle": "Synapse detail",
   "viewer.detail.kindChangeHint":
-    'Note: changing "kind" or "direction" re-computes the synapse ID (ID derives from from+to+kind+direction). The old ID becomes invalid, but all metadata (weight / evidence / creator) migrates to the new ID.',
+    'Note: changing "kind" re-computes the synapse ID (ID derives from from+to+kind). The old ID becomes invalid, but all metadata (weight / evidence / creator) migrates to the new ID.',
   "viewer.detail.titleLabel": "Title",
   "viewer.detail.kindLabel": "Kind",
   "viewer.detail.importanceLabel": "Importance (0-1, drag the slider)",
@@ -1974,7 +1973,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "A structured memory entry with fields like title/content/kind/tags/importance/confidence. 5 kinds: <code>fact</code> <code>observation</code> <code>pattern</code> <code>procedure</code> <code>hypothesis</code>. Hover a field to see its description.",
   "viewer.help.conceptSynapse": "<strong>Synapse</strong>",
   "viewer.help.conceptSynapseDesc":
-    "A directed edge between two engrams, grouped into 5 families: <code>structural</code> (extends/part_of/similar_to), <code>causal</code> (depends_on/causes/follows), <code>evidential</code> (derives_from/contradicts/exemplifies), <code>temporal</code> (supersedes/consolidates), <code>modulatory</code> (contextualizes). <code>contradicts</code> enters the resolution flow.",
+    "An edge between two engrams, grouped into 5 families: <code>structural</code> (extends/part_of/similar_to), <code>causal</code> (depends_on/causes/follows), <code>evidential</code> (derives_from/contradicts/exemplifies), <code>temporal</code> (supersedes/consolidates), <code>modulatory</code> (contextualizes). Most kinds are directional; <code>similar_to</code> / <code>contradicts</code> are symmetric (endpoints have no direction). <code>contradicts</code> enters the resolution flow.",
   "viewer.help.conceptImportance": "<strong>Importance & confidence</strong>",
   "viewer.help.conceptImportanceDesc":
     "Two independent 0-1 numbers. Importance is derived from reinforcement signals + time decay and affects retrieval weight; confidence reflects how trustworthy the memory is (a metacognition score) and is decoupled from importance.",
@@ -2147,7 +2146,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Synapses panel / synapse detail (viewer.synapses.*) =====
   "viewer.synapses.kindChangeHint":
-    "Tip: changing 'kind' or 'direction' re-derives the synapse id (id is computed from from+to+kind+direction); the old id becomes invalid, but all metadata (weight/evidence/creator) migrates to the new id.",
+    "Tip: changing 'kind' re-derives the synapse id (id is computed from from+to+kind); the old id becomes invalid, but all metadata (weight/evidence/creator) migrates to the new id.",
   "viewer.synapses.deleteConfirm":
     "Delete this synapse?\\nThis action cannot be undone.",
   "viewer.synapses.kindField": "Kind:",

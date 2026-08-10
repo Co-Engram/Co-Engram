@@ -232,7 +232,7 @@ export function mergeSynapseFile(params: {
  * Async 版 synapse 合并,在 Layer A escalate 后追加 Layer B(LLM)兜底。
  *
  * 触发条件(spec §5.7):
- *   - updatedAt_arbitration 字段(weight/direction/sourceSemantic/targetSemantic)
+ *   - updatedAt_arbitration 字段(weight/sourceSemantic/targetSemantic)
  *     双方都改 + updatedAt 一致 → LLM 决定
  *
  * 不触发:
@@ -344,7 +344,6 @@ function reconstructSynapse(record: Record<string, unknown>): Synapse {
     to: record.to as Synapse["to"],
     kind: record.kind as Synapse["kind"],
     weight: typeof record.weight === "number" ? (record.weight as number) : 0.5,
-    direction: (record.direction as Synapse["direction"]) ?? "directional",
     evidence: (record.evidence as SynapseEvidence[]) ?? [],
     createdBy: (record.createdBy as string) ?? "",
     createdAt: (record.createdAt as string) ?? "",

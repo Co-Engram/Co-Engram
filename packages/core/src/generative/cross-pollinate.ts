@@ -213,9 +213,14 @@ export function computeDomainProfile(
     consolidates: 0,
     contextualizes: 0,
   };
+  const seenSynapse = new Set<string>();
   for (const e of engrams) {
     const file = repo.readSynapses(e.id);
     for (const syn of file.outgoing) {
+      // 对称 kind(similar_to/contradicts)在两端的 outgoing 都出现,按 syn.id
+      // 去重,避免 synapseDistribution 翻倍。
+      if (seenSynapse.has(syn.id)) continue;
+      seenSynapse.add(syn.id);
       synapseDistribution[syn.kind] += 1;
     }
   }

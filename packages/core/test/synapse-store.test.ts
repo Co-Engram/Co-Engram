@@ -291,9 +291,12 @@ describe("synapse-store — 端点查询", () => {
       now: NOW,
     });
     const { outgoing, incoming } = listSynapsesForEngram(tmpDir, FROM);
-    expect(outgoing.length).toBe(1);
+    // extends 有向:FROM 是 from → 仅 outgoing
+    // similar_to 对称:FROM 是 to → outgoing + incoming 都含(端点无方向)
+    expect(outgoing.length).toBe(2);
     expect(incoming.length).toBe(1);
-    expect(outgoing[0]!.kind).toBe("extends");
+    expect(outgoing.some((s) => s.kind === "extends")).toBe(true);
+    expect(outgoing.some((s) => s.kind === "similar_to")).toBe(true);
     expect(incoming[0]!.kind).toBe("similar_to");
   });
 });
@@ -407,7 +410,7 @@ describe("synapse-store — 中文字段名(zh 模式)", () => {
     expect(raw).toContain("终点:");
     expect(raw).toContain("类型:");
     expect(raw).toContain("权重:");
-    expect(raw).toContain("方向:");
+    // direction 字段已移除(对称性派生自 kind),不再断言「方向:」
     // 不含英文 keys
     expect(raw).not.toMatch(/^id:/m);
     expect(raw).not.toMatch(/^from:/m);
@@ -432,7 +435,6 @@ describe("synapse-store — 中文字段名(zh 模式)", () => {
   it("zh 模式:枚举值保持英文(类型系统约束)", () => {
     const raw = serializeSynapseFile(sampleSyn, "zh");
     expect(raw).toContain("类型: causes");
-    expect(raw).toContain("方向: directional");
   });
 
   it("zh 模式 round-trip:数据无损还原", () => {

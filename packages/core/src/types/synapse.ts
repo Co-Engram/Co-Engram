@@ -45,8 +45,32 @@ export type SynapseFamily =
   | "temporal"
   | "modulatory";
 
-/** Synapse 方向 */
-export type SynapseDirection = "directional" | "bidirectional";
+/**
+ * 对称 synapse kind 集合(「kind → 对称性」单一真相源)。
+ *
+ * 对称关系:A 与 B 的连接语义与方向无关,A↔B 与 B↔A 是同一事实。此类 kind
+ * 的端点在 ID 计算时做 min/max 规范化,保证 (A,B) 与 (B,A) 生成同一 id
+ * (幂等),并在检索层两端都计入 outgoing + incoming。
+ *
+ * 严格按关系语义推导:`similar_to`(相似)、`contradicts`(矛盾)天然对称;
+ * 其余 10 种(extends / part_of / depends_on / causes / follows / derives_from
+ * / exemplifies / supersedes / consolidates / contextualizes)天然有向——
+ * 源/靶语义不可交换。
+ *
+ * 这是「kind → 对称性」的**唯一判断点**:ID 派生、检索分流、UI 呈现全部
+ * 派生自 isSymmetricKind。历史的独立 `direction` 字段已移除,对称性回归
+ * kind 的固有派生属性(此前 direction 与 kind 正交、可乱配,导致对称关系
+ * 被误存为有向、有向关系被误存为双向两类语义错误)。
+ */
+export const SYMMETRIC_KINDS: ReadonlySet<SynapseKind> = new Set([
+  "similar_to",
+  "contradicts",
+]);
+
+/** kind 是否为对称关系(端点无方向语义)。派生自 SYMMETRIC_KINDS。 */
+export function isSymmetricKind(kind: SynapseKind): boolean {
+  return SYMMETRIC_KINDS.has(kind);
+}
 
 /**
  * Synapse 完整对象
@@ -61,9 +85,6 @@ export interface Synapse {
 
   /** 权重 [0.0, 1.0]，默认 0.5 */
   readonly weight: number;
-
-  /** 方向，默认 directional */
-  readonly direction: SynapseDirection;
 
   /** 证据数组（支持此连接的来源） */
   readonly evidence: readonly SynapseEvidence[];
@@ -150,17 +171,15 @@ export interface SynapseCreateInput {
   readonly to: EngramId;
   readonly kind: SynapseKind;
   readonly weight?: number;
-  readonly direction?: SynapseDirection;
   readonly evidence?: readonly Omit<SynapseEvidence, "addedAt">[];
   readonly createdBy: string;
   readonly sourceSemantic?: string;
   readonly targetSemantic?: string;
 }
 
-/** 更新 Synapse 的输入(权重 / 方向 / 类型 / 证据) */
+/** 更新 Synapse 的输入(权重 / 类型 / 证据) */
 export interface SynapseUpdateInput {
   readonly weight?: number;
-  readonly direction?: SynapseDirection;
   /** 变更类型(kind 变化会导致 synapse id 重新计算,内部走删除+重建) */
   readonly kind?: SynapseKind;
   readonly evidence?: readonly Omit<SynapseEvidence, "addedAt">[];

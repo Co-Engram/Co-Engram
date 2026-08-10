@@ -338,7 +338,6 @@ export async function generateHypotheses(
         to: sourceId,
         kind: "derives_from",
         weight: 0.7,
-        direction: "directional",
         evidence: [
           {
             description: `hypothesis generated from ${proposal.sourceIds.length} sources (confidence=${proposal.confidence.toFixed(2)})`,

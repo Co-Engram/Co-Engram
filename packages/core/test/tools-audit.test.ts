@@ -223,7 +223,6 @@ describe("synapse_create audit content", () => {
       to: toId,
       kind: "extends",
       weight: 0.7,
-      direction: "directional",
     });
     // createdBy 由 ctx.defaultCreatedBy 决定(2026-07 完全覆盖修复);
     // 本测试关注 audit 记录的 synapse 结构字段,createdBy 行为
@@ -298,7 +297,6 @@ describe("synapse_delete audit content", () => {
       to: to.id,
       kind: "depends_on",
       weight: 0.6,
-      direction: "directional",
     });
   });
 });

@@ -18,7 +18,6 @@ describe("classifySynapseField (spec §6.1)", () => {
     ["createdBy", "immutable"],
     ["createdAt", "immutable"],
     ["weight", "updatedAt_arbitration"],
-    ["direction", "updatedAt_arbitration"],
     ["sourceSemantic", "updatedAt_arbitration"],
     ["targetSemantic", "updatedAt_arbitration"],
     ["updatedAt", "max_updatedAt"],

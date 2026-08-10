@@ -7,7 +7,6 @@
  */
 
 import type {
-  SynapseDirection,
   SynapseFamily,
   SynapseKind,
 } from "../types/synapse.js";
@@ -19,7 +18,12 @@ export interface SynapseKindMeta {
   readonly family: SynapseFamily;
   readonly label: string;
   readonly description: string;
-  readonly defaultDirection: SynapseDirection;
+  /**
+   * 默认方向(派生于对称性,见 types/synapse.ts 的 isSymmetricKind):
+   * 对称 kind(similar_to/contradicts)= "bidirectional",有向 kind = "directional"。
+   * 此值是 graph/展示层的派生元数据,不再是 per-instance 可覆盖字段。
+   */
+  readonly defaultDirection: "directional" | "bidirectional";
   readonly defaultWeight: number;
 }
 

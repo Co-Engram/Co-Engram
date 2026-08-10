@@ -4128,15 +4128,11 @@ window.CO_ENGRAM_SYNAPSES = {
         '<option value="' + k + '"' + (d.kind === k ? ' selected' : '') + CO_ENGRAM.tip('synapse.' + k) + '>' + (T.enumLabel('synapseKind', k) || k) + ' · ' + k + '</option>'
       ).join('') + '</optgroup>'
     ).join('');
-    const dirKeys = ['directional', 'bidirectional'];
-    const dirOptions = dirKeys.map(k => '<option value="' + k + '"' + (d.direction === k ? ' selected' : '') + CO_ENGRAM.tip('synapseDirection.' + k) + '>' + (T.enumLabel('synapseDirection', k) || k) + '</option>').join('');
-
     const body = '<div class="edit-banner"><strong>' + T.t('viewer.common.editMode') + '</strong> · ' + T.t('viewer.detail.editModeHint') + '</div>'
       + '<h2>' + T.t('viewer.detail.editSynapseTitle') + '</h2>'
       + '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + CO_ENGRAM.escapeHtml(d.id) + '</code></div>'
       + '<div class="warn-banner">' + T.t('viewer.synapses.kindChangeHint') + '</div>'
       + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('synapse.' + d.kind) + '>' + T.t('viewer.detail.kindLabel') + '</label><select id="sf-kind"' + CO_ENGRAM.tip('synapse.' + d.kind) + '>' + kindOptions + '</select></div>'
-      + '<div class="field"><label class="field-label"' + CO_ENGRAM.tip('synapseDirection.' + (d.direction || 'directional')) + '>' + T.t('viewer.detail.directionField').replace(/:$/, '') + '</label><select id="sf-direction"' + CO_ENGRAM.tip('synapseDirection.' + (d.direction || 'directional')) + '>' + dirOptions + '</select></div>'
       + '<div class="field"><label class="field-label">' + T.t('viewer.detail.weightLabel') + '</label><input id="sf-weight-range" type="range" min="0" max="1" step="0.01" value="' + (d.weight || 0) + '" oninput="document.getElementById(\\'sf-weight\\').value=this.value"><input id="sf-weight" type="number" min="0" max="1" step="0.01" value="' + (d.weight || 0) + '" oninput="document.getElementById(\\'sf-weight-range\\').value=this.value" style="width:80px;margin-left:.5rem"></div>'
       + '<div class="field"><label class="field-label">' + T.t('viewer.detail.evidenceDescLabel') + '</label><input id="sf-evidence-desc" type="text" placeholder="' + T.t('viewer.detail.evidenceDescPlaceholder') + '"></div>'
       + '<div class="field"><label class="field-label">' + T.t('viewer.detail.evidenceSourceLabel') + '</label><input id="sf-evidence-source" type="text" placeholder="' + T.t('viewer.detail.evidenceSourcePlaceholder') + '"></div>'
@@ -4157,12 +4153,10 @@ window.CO_ENGRAM_SYNAPSES = {
     const d = CO_ENGRAM._currentSynapse;
     if (!d) return;
     const nextKind = document.getElementById('sf-kind').value;
-    const nextDirection = document.getElementById('sf-direction').value;
     const patch = {
-      weight: Number(document.getElementById('sf-weight').value),
-      direction: nextDirection
+      weight: Number(document.getElementById('sf-weight').value)
     };
-    // 仅当 kind/direction 变化时传 kind(避免无谓的删除+重建)
+    // 仅当 kind 变化时传 kind(避免无谓的删除+重建;direction 已移除,对称性派生自 kind)
     if (nextKind !== d.kind) patch.kind = nextKind;
     const desc = (document.getElementById('sf-evidence-desc').value || '').trim();
     if (desc) {

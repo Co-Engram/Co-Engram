@@ -521,20 +521,20 @@ const merged = Object.assign({}, ...parts)
 
 ## Synapse Schema
 
-每条 synapse 是 `synapses/<kind>/syn-<hash>.yaml` 中的一个 YAML 文件。哈希为 `syn-` + `SHA-256("${a}|${b}|${kind}")` 的前 16 个十六进制字符,其中 `[a, b]` 是两端点的 id(`bidirectional` 排序后哈希,`directional` 保留顺序)。`direction` **不**参与哈希,所以每个 `(from, to, kind)` 三元组最多映射到一个 synapse 文件。
+每条 synapse 是 `synapses/<kind>/syn-<hash>.yaml` 中的一个 YAML 文件。哈希为 `syn-` + `SHA-256("${a}|${b}|${kind}")` 的前 16 个十六进制字符,其中 `[a, b]` 是两端点的 id。**对称性由 kind 派生**(非 per-synapse 字段):`similar_to` / `contradicts` 对称 → 端点排序为 `min|max`,`A↔B` 与 `B↔A` 共用一个文件;其余 kind 有向 → 保留 `from|to` 顺序。每个 `(from, to, kind)` 三元组最多映射到一个 synapse 文件。
 
 ### Synapse 类型(5 族 12 种)
 
-| 族         | 类型             | 语义                         | 典型方向      |
+| 族         | 类型             | 语义                         | 对称性        |
 | ---------- | ---------------- | ---------------------------- | ------------- |
 | **结构族** | `extends`        | A 是 B 的泛化 / 超集         | directional   |
 |            | `part_of`        | A 是 B 的组成部分            | directional   |
-|            | `similar_to`     | A 和 B 覆盖同一主题,视角不同 | bidirectional |
+|            | `similar_to`     | A 和 B 覆盖同一主题,视角不同 | symmetric     |
 | **因果族** | `depends_on`     | A 依赖于 B                   | directional   |
 |            | `causes`         | A 导致 B                     | directional   |
 |            | `follows`        | A 在 B 之前顺序发生          | directional   |
 | **证据族** | `derives_from`   | A 由 B 派生(证据链)          | directional   |
-|            | `contradicts`    | A 与 B 矛盾(触发元认知检查)  | bidirectional |
+|            | `contradicts`    | A 与 B 矛盾(触发元认知检查)  | symmetric     |
 |            | `exemplifies`    | A 是 B 的具体实例            | directional   |
 | **时间族** | `supersedes`     | A 取代 B(更新版本)           | directional   |
 |            | `consolidates`   | A 强化 / 合并入 B            | directional   |
@@ -548,7 +548,6 @@ const merged = Object.assign({}, ...parts)
 | `from` / `to`                           | ULID                | 端点 engram id。                                                                               |
 | `kind`                                  | 枚举                | 上述 12 种之一。                                                                               |
 | `weight`                                | 数值 `[0, 1]`       | 边的强度(默认 `0.5`)。                                                                         |
-| `direction`                             | 枚举                | `directional` 或 `bidirectional`(默认 `directional`)。                                         |
 | `evidence`                              | 数组                | 支持性证据:`{ description, source?, confidence?, addedAt, addedBy }`。                         |
 | `sourceSemantic` / `targetSemantic`     | 字符串(可选)        | 两端点的语义角色标签;检索时用于加权图遍历。                                                    |
 | `resolutionState`                       | 对象(可选)          | 仅 `contradicts` synapse 使用 — 跟踪 pending/auto_resolved/escalated/contested/resolved 流程。 |
@@ -564,7 +563,6 @@ from: 01J6XQK5P7R2V8Y3M4N6ZH0WQT
 to: 01J7TRY9F8G7H6J5K4L3M2N1O0P
 kind: extends
 weight: 0.8
-direction: directional
 evidence:
   - description: Both cover TS strict-mode patterns
     addedBy: claude-code
@@ -710,7 +708,6 @@ LLM 遇到可复用的洞察时会调用 `engram_create`。当 `dedupe: true`(�
   "to":   "01J7TRY9F8G7H6J5K4L3M2N1O0P",
   "kind": "extends",
   "weight": 0.8,
-  "direction": "directional",
   "evidence": [
     { "description": "Both cover TS strict-mode patterns", "confidence": 0.9 }
   ]

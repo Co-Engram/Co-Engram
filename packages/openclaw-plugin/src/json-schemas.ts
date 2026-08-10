@@ -55,7 +55,6 @@ const SYNAPSE_KIND_ENUM = [
   "consolidates",
   "contextualizes",
 ] as const;
-const SYNAPSE_DIRECTION_ENUM = ["directional", "bidirectional"] as const;
 
 const stringField = (
   description: string,
@@ -334,11 +333,6 @@ export const synapseCreateSchema: JsonSchemaObject = {
     to: engramIdField,
     kind: { type: "string", enum: SYNAPSE_KIND_ENUM },
     weight: { type: "number", minimum: 0, maximum: 1, default: 0.5 },
-    direction: {
-      type: "string",
-      enum: SYNAPSE_DIRECTION_ENUM,
-      default: "directional",
-    },
     evidence: {
       type: "array",
       items: {

@@ -443,7 +443,6 @@ export const engramSynthesizeTool: Tool<
         to: source.id,
         kind: "derives_from",
         weight: 0.8,
-        direction: "directional",
         evidence: [
           {
             description: `Pattern synthesized from ${sources.length} sources via engram_synthesize`,

@@ -449,7 +449,6 @@ export async function runRemDreaming(
           to: sourceId,
           kind: "derives_from",
           weight: 0.8,
-          direction: "directional",
           evidence: [],
           createdBy,
           createdAt: timestamp,

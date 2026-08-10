@@ -45,8 +45,8 @@ import {
   type EngramUpdateInput,
   type EngramVisibility,
   type Language,
-  type SynapseDirection,
   type SynapseKind,
+  isSymmetricKind,
   DEFAULT_LANGUAGE,
   listTrashed,
   restoreFromTrash,
@@ -704,7 +704,6 @@ async function routeApi(
     if (req.method === "PATCH") {
       const body = await readJsonBodyAs<{
         readonly weight?: number;
-        readonly direction?: string;
         readonly kind?: string;
         readonly evidence?: readonly {
           readonly description: string;
@@ -715,9 +714,6 @@ async function routeApi(
       }>(req);
       const updated = ctx.repository.updateSynapse(syn.from, syn.id, {
         ...(body?.weight !== undefined ? { weight: body.weight } : {}),
-        ...(body?.direction
-          ? { direction: body.direction as SynapseDirection }
-          : {}),
         ...(body?.kind ? { kind: body.kind as SynapseKind } : {}),
         ...(body?.evidence ? { evidence: body.evidence } : {}),
         updatedBy: "viewer",
@@ -2351,7 +2347,7 @@ function buildGraph(ctx: ToolContext): GraphResponse {
         kind: s.kind,
         weight: s.weight,
         evidenceCount: s.evidence?.length ?? 0,
-        direction: s.direction,
+        direction: isSymmetricKind(s.kind) ? "bidirectional" : "directional",
         ...(s.resolutionState?.status
           ? { resolutionStatus: s.resolutionState.status }
           : {}),

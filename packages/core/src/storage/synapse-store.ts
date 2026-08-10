@@ -4,7 +4,7 @@
  * 设计要点:
  * - 每条 synapse 一个 YAML 文件:`synapses/{kind}/syn-{hash}.yaml`
  * - from/to 引用 stable id(ULID),不是路径
- * - bidirectional 只存一次,解决对称边悖论
+ * - 对称 kind(similar_to/contradicts)端点规范化,只存一次,解决对称边悖论
  * - 同 (from, to, kind) 必同 id(确定性哈希),支持 idempotent create
  * - evidence[] append-only,多人追加天然不冲突
  *
@@ -26,10 +26,10 @@ import type { EngramId, EngramVisibility, SynapseId } from "../types/engram.js";
 import type {
   Synapse,
   SynapseKind,
-  SynapseDirection,
   SynapseEvidence,
   SynapseResolutionState,
 } from "../types/synapse.js";
+import { isSymmetricKind } from "../types/synapse.js";
 import { computeSynapseId, isSynapseId } from "../types/synapse-id.js";
 import type { Language } from "../i18n/types.js";
 import { DEFAULT_LANGUAGE } from "../i18n/index.js";
@@ -97,7 +97,6 @@ export function parseSynapseFile(raw: string): SynapseFile {
     to: s.to,
     kind: s.kind,
     weight: typeof s.weight === "number" ? s.weight : 0.5,
-    direction: s.direction ?? "directional",
     evidence: Array.isArray(s.evidence)
       ? (s.evidence as SynapseEvidence[])
       : [],
@@ -148,12 +147,15 @@ export function deleteSynapseFile(filePath: string): void {
 }
 
 /**
- * 从 (from, to, kind, direction) 计算并落盘一条 synapse。
+ * 从 (from, to, kind) 计算并落盘一条 synapse。
+ *
+ * 对称性派生自 kind(isSymmetricKind):对称 kind 的端点在 id 计算时规范化,
+ * 保证 (A,B) 与 (B,A) 落到同一文件。
  *
  * 幂等性:
- * - 同 (from, to, kind) 必同 id
+ * - 同 (from, to, kind) 必同 id(对称 kind 端点顺序无关)
  * - 文件已存在时合并 evidence(去重),不覆盖
- * - weight/direction 以新值为准(更新 updatedAt)
+ * - weight 以新值为准(更新 updatedAt)
  *
  * @returns 写入后的 synapse 完整对象
  */
@@ -163,7 +165,6 @@ export function upsertSynapse(
     from: EngramId;
     to: EngramId;
     kind: SynapseKind;
-    direction?: SynapseDirection;
     weight?: number;
     evidence?: readonly Omit<SynapseEvidence, "addedAt">[];
     createdBy: string;
@@ -181,9 +182,8 @@ export function upsertSynapse(
   },
 ): Synapse {
   const now = params.now ?? new Date().toISOString();
-  const direction = params.direction ?? "directional";
   const language = params.language ?? DEFAULT_LANGUAGE;
-  const id = computeSynapseId(params.from, params.to, params.kind, direction);
+  const id = computeSynapseId(params.from, params.to, params.kind);
   const relativePath = synapseRelativePath(id, params.kind);
   const absolutePath = join(dataRoot, relativePath);
 
@@ -219,7 +219,6 @@ export function upsertSynapse(
     to: params.to,
     kind: params.kind,
     weight: params.weight ?? existing?.weight ?? 0.5,
-    direction,
     evidence: Array.from(evidenceMap.values()),
     createdBy: existing?.createdBy ?? params.createdBy,
     createdAt: existing?.createdAt ?? now,
@@ -283,9 +282,8 @@ export function readSynapseByEndpoints(
   from: EngramId,
   to: EngramId,
   kind: SynapseKind,
-  direction: SynapseDirection = "directional",
 ): Synapse | undefined {
-  const id = computeSynapseId(from, to, kind, direction);
+  const id = computeSynapseId(from, to, kind);
   const absolutePath = join(dataRoot, synapseRelativePath(id, kind));
   if (!existsSync(absolutePath)) return undefined;
   return readSynapseFile(absolutePath);
@@ -334,7 +332,8 @@ export function deleteSynapsesTouching(
 /**
  * 列出某 engram 的所有相关 edge(出 + 入)。
  *
- * bidirectional synapse 同时计入 outgoing 和 incoming(对称语义)。
+ * 对称 kind(similar_to / contradicts)的 synapse 同时计入 outgoing 和
+ * incoming(端点无方向语义);有向 kind 按 from→to 分流出/入。
  */
 export function listSynapsesForEngram(
   dataRoot: string,
@@ -346,7 +345,7 @@ export function listSynapsesForEngram(
   for (const syn of all) {
     const touchesFrom = syn.from === engramId;
     const touchesTo = syn.to === engramId;
-    if (syn.direction === "bidirectional") {
+    if (isSymmetricKind(syn.kind)) {
       if (touchesFrom || touchesTo) {
         outgoing.push(syn);
         incoming.push(syn);

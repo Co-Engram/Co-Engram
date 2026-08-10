@@ -44,7 +44,6 @@ import type {
   SynapseKind,
   SynapseResolutionState,
   SynapseUpdateInput,
-  SynapseDirection,
 } from "../types/index.js";
 import type {
   StableEngramId,
@@ -57,6 +56,7 @@ import type {
 import { isStableEngramId } from "../types/repository-types.js";
 import { slugify, inferDomainTagsFromPath } from "../types/slugify.js";
 import { computeSynapseId } from "../types/synapse-id.js";
+import { isSymmetricKind } from "../types/synapse.js";
 import { safeEmit } from "../prompt-signals/event-bus.js";
 import { safeJoinWithinRoot, isPathWithinRoot } from "./path.js";
 import { listTrackedMarkdownFiles } from "./git.js";
@@ -2645,7 +2645,7 @@ export class EngramRepository {
    * 剩余 N+1 的漏网点(loadView / contradiction / evolution / generative /
    * lineage / perspectives 等都走 readSynapses)。
    *
-   * bidirectional 语义与 listSynapsesForEngram 一致。
+   * 对称 kind 语义与 listSynapsesForEngram 一致(端点无方向,两端都计入出+入)。
    */
   readSynapses(stableId: string): { outgoing: Synapse[]; incoming: Synapse[] } {
     const all = this.collectAllSynapses();
@@ -2654,7 +2654,7 @@ export class EngramRepository {
     for (const { fromId, synapse } of all) {
       const touchesFrom = fromId === stableId;
       const touchesTo = synapse.to === stableId;
-      if (synapse.direction === "bidirectional") {
+      if (isSymmetricKind(synapse.kind)) {
         if (touchesFrom || touchesTo) {
           outgoing.push(synapse);
           incoming.push(synapse);
@@ -2736,7 +2736,6 @@ export class EngramRepository {
       from: input.from,
       to: input.to,
       kind: input.kind,
-      direction: input.direction ?? "directional",
       weight: input.weight,
       evidence: input.evidence,
       createdBy: input.createdBy,
@@ -2768,7 +2767,7 @@ export class EngramRepository {
    * 更新 synapse(走 upsert,合并 evidence)。
    *
    * 若 input.kind 与原 kind 不同:删除旧文件,以新 kind 重建
-   * (synapse id 由 from+to+kind+direction 派生,kind 变更必导致 id 变更)。
+   * (synapse id 由 from+to+kind 派生,kind 变更必导致 id 变更)。
    */
   updateSynapse(
     fromId: string,
@@ -2784,7 +2783,6 @@ export class EngramRepository {
     }
 
     const nextKind = input.kind ?? target.kind;
-    const nextDirection = input.direction ?? target.direction;
     const nextWeight = input.weight ?? target.weight;
 
     // kind 变化 → id 重算 → 必须先删旧文件再 upsert,否则会留下孤儿
@@ -2800,7 +2798,6 @@ export class EngramRepository {
       from: target.from,
       to: target.to,
       kind: nextKind,
-      direction: nextDirection,
       weight: nextWeight,
       evidence: input.evidence,
       createdBy: target.createdBy,
@@ -2887,8 +2884,12 @@ export class EngramRepository {
    * SQLite fast path:O(log N) 查询触及 engramId 的所有 synapse。
    *
    * 用 `synapses(from_id)` + `synapses(to_id)` 索引替代 collectAllSynapses 扫盘。
-   * 返回的 Synapse 仅填 id/from/to/kind/direction(够 deleteSynapseFile 用);
-   * 其他字段(evidence/weight/...)不在此场景需要,留空避免 SQL 复杂化。
+   * 返回的 Synapse 仅填 id/from/to/kind/weight(够 deleteSynapseFile 用);
+   * 其他字段(evidence/...)不在此场景需要,留空避免 SQL 复杂化。
+   *
+   * 对称 kind 语义与 listSynapsesForEngram 一致:端点无方向,同时计入
+   * outgoing + incoming(此前 SELECT 引用了不存在的 direction 列,fast path
+   * 一直抛错回退扫盘;移除 direction 后 fast path 真正生效)。
    */
   private listSynapsesForEngramFromIndex(engramId: string): {
     outgoing: Synapse[];
@@ -2908,7 +2909,7 @@ export class EngramRepository {
     }[];
     const inRows = db
       .prepare(
-        `SELECT id, from_id, to_id, kind, weight, direction FROM synapses WHERE to_id = ?`,
+        `SELECT id, from_id, to_id, kind, weight FROM synapses WHERE to_id = ?`,
       )
       .all(engramId) as {
       id: string;
@@ -2916,7 +2917,6 @@ export class EngramRepository {
       to_id: string;
       kind: string;
       weight: number;
-      direction?: string;
     }[];
     const mkSynapse = (r: {
       id: string;
@@ -2924,7 +2924,6 @@ export class EngramRepository {
       to_id: string;
       kind: string;
       weight: number;
-      direction?: string;
     }): Synapse =>
       ({
         id: r.id,
@@ -2932,23 +2931,31 @@ export class EngramRepository {
         to: r.to_id,
         kind: r.kind as SynapseKind,
         weight: r.weight,
-        direction: (r.direction ?? "directional") as SynapseDirection,
         evidence: [],
         createdBy: "",
         createdAt: "",
         updatedAt: "",
         visibility: "public",
       }) as Synapse;
-    return {
-      outgoing: outRows.map(mkSynapse),
-      incoming: inRows.map(mkSynapse),
-    };
+    const outgoing: Synapse[] = [];
+    const incoming: Synapse[] = [];
+    for (const r of outRows) {
+      const syn = mkSynapse(r);
+      outgoing.push(syn);
+      if (isSymmetricKind(syn.kind)) incoming.push(syn);
+    }
+    for (const r of inRows) {
+      const syn = mkSynapse(r);
+      incoming.push(syn);
+      if (isSymmetricKind(syn.kind)) outgoing.push(syn);
+    }
+    return { outgoing, incoming };
   }
 
   /**
    * 添加 outgoing synapse。
    *
-   * 内部走 upsertSynapse,synapse.id 由 (from, to, kind, direction) 确定性计算,
+   * 内部走 upsertSynapse,synapse.id 由 (from, to, kind) 确定性计算,
    * 调用方传入的 id 仅用作幂等性提示(实际以计算值为准)。
    *
    * @returns 实际落盘的 synapse(其 id 是计算值)
@@ -2958,7 +2965,6 @@ export class EngramRepository {
       from: fromId,
       to: synapse.to,
       kind: synapse.kind,
-      direction: synapse.direction,
       weight: synapse.weight,
       evidence: synapse.evidence.map((e) => ({
         description: e.description,
@@ -3059,7 +3065,7 @@ export class EngramRepository {
    * 替换整条 synapse(用于触发式进化 weight boost)。
    *
    * 注意:next.id / next.from / next.to / next.kind 若与原有不一致,
-   * 同 (from, to, kind, direction) 确定性 id 会让 evidence/weight 变化落在同一条 edge 上,
+   * 同 (from, to, kind) 确定性 id 会让 evidence/weight 变化落在同一条 edge 上,
    * 调用方需保证 next 的 endpoints/kind 与原有一致(只改 weight / updatedAt 等)。
    */
   replaceSynapse(fromId: string, synapseId: string, next: Synapse): void {
@@ -3859,6 +3865,75 @@ export class EngramRepository {
       }
     }
 
+    // 4.57 清理 synapse yaml 死字段 direction
+    //
+    // direction 已从 Synapse 类型移除——对称性回归 kind 的派生属性(见
+    // types/synapse.ts 的 isSymmetricKind),不再有独立于 kind 的 direction 字段。
+    // 存量 synapse yaml 仍含 `direction:`/`方向:` 行(噪音,且此前导致对称关系
+    // 被有向化存储)。重写含该字段的文件(writeSynapseFile 不再写 direction),
+    // 让磁盘整洁。parseSynapseFile 已忽略此字段,功能无影响。
+    for (const syn of allSynapses) {
+      const synPath = join(
+        this.config.rootPath,
+        synapseRelativePath(syn.id, syn.kind),
+      );
+      try {
+        const raw = readFileSync(synPath, "utf8");
+        if (/^direction:/m.test(raw) || /^方向:/m.test(raw)) {
+          writeSynapseFile(synPath, syn, this.language);
+          fixes.push({
+            kind: "dead_field_removed",
+            message: `Removed dead synapse field direction in ${synapseRelativePath(syn.id, syn.kind)} (symmetry now derived from kind via isSymmetricKind; per-instance direction removed)`,
+            autoFixed: true,
+          });
+        }
+      } catch {
+        // 单条失败不阻塞,下次 doctor 再扫
+      }
+    }
+
+    // 4.58 对称 kind 端点规范化迁移
+    //
+    // direction 移除后,symmetric kind(similar_to/contradicts)的 computeSynapseId
+    // 规范化端点(min/max),保证 (A,B) 与 (B,A) 生成同一 id。存量文件可能
+    // from > to(旧 directional 算法不规范化端点),导致文件 id 与新算法 id 不一致、
+    // 端点顺序非规范化。此步骤:对 symmetric kind 用新算法重算 id,若与文件名
+    // id 不符,交换端点(+语义标签)并改文件名,让磁盘与新规范化规则一致。
+    // 幂等:规范化后再跑 canonicalId === syn.id,直接 continue。
+    for (const syn of allSynapses) {
+      if (!isSymmetricKind(syn.kind)) continue;
+      const canonicalId = computeSynapseId(syn.from, syn.to, syn.kind);
+      if (canonicalId === syn.id) continue; // 已规范化(含新代码创建的)
+      const oldPath = join(
+        this.config.rootPath,
+        synapseRelativePath(syn.id, syn.kind),
+      );
+      const newPath = join(
+        this.config.rootPath,
+        synapseRelativePath(canonicalId, syn.kind),
+      );
+      // from > to:交换端点 + 语义标签,使其与规范化 id 一致
+      const migrated: Synapse = {
+        ...syn,
+        id: canonicalId,
+        from: syn.to,
+        to: syn.from,
+        sourceSemantic: syn.targetSemantic,
+        targetSemantic: syn.sourceSemantic,
+      };
+      try {
+        deleteSynapseFile(oldPath);
+        writeSynapseFile(newPath, migrated, this.language);
+        fixes.push({
+          kind: "dead_field_removed",
+          message: `Symmetric synapse ${syn.kind} endpoints normalized: ${syn.id} → ${canonicalId} (from/to swapped to canonical min/max; symmetry derived from kind)`,
+          autoFixed: true,
+        });
+      } catch {
+        // 单条失败不阻塞,下次 doctor 再扫
+      }
+    }
+
     // 5. Obsidian 视图一致性(派生段 wikilinks)
     // 对每条 engram:checkObsidianView 检测派生段与权威源(synapse yaml)不一致,
     // 不一致 → regenerateObsidianLinks 重写派生段(wikilink target=文件名)。
@@ -4057,7 +4132,7 @@ export class EngramRepository {
       ...synapses.incoming,
     ].filter((s) => {
       if (s.kind !== "contradicts") return false;
-      // bidirectional 会被同时计入 outgoing/incoming,按 id 去重
+      // 对称 kind(similar_to/contradicts)会被同时计入 outgoing/incoming,按 id 去重
       if (seenSynapseIds.has(s.id)) return false;
       seenSynapseIds.add(s.id);
       const status = s.resolutionState?.status;

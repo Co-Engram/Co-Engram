@@ -431,7 +431,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
   "tool.synapse_get.agent": `读取两条记忆之间的单条 synapse(连接)。
 
 何时调用:
-- 检查某个连接的元数据(weight、direction、evidence)
+- 检查某个连接的元数据(weight、evidence)
 - 调试为什么两条记忆被关联
 - 在 synapse_list 返回 synapse ID 后想看详情
 
@@ -439,7 +439,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 列出某记忆的所有 synapse(用 synapse_list)
 - 检查是否存在连接(用 synapse_list + filter)
 
-返回:Synapse 记录(id、from、to、kind、weight、direction、evidence、resolutionState)。`,
+返回:Synapse 记录(id、from、to、kind、weight、evidence、resolutionState)。`,
   "tool.synapse_delete.agent": `删除两条记忆之间的 synapse(连接)。
 
 何时调用:
@@ -464,7 +464,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 只需要某条特定 synapse(用 synapse_get)
 - 想看完整图视图(用 viewer 的 Graph tab)
 
-返回:Synapse 列表(出边/入边/双向),含 kind、weight、direction。`,
+返回:Synapse 列表(出边/入边/双向),含 kind、weight。`,
   "tool.skill_get.agent": `读取 skill 元信息(程序性记忆)。
 
 何时调用:
@@ -692,14 +692,13 @@ Spec:§3.9 phase 1。`,
 副作用:无(只读)。
 不变量:ancestors = 来源(observation/hypothesis),descendants = 演化结果(pattern/procedure)。
 Spec:§4.6 验收,§12.7 场景 6。`,
-  "tool.synapse_create.technical": `创建 synapse。输入:{ from, to, kind, weight?, direction?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
+  "tool.synapse_create.technical": `创建 synapse。输入:{ from, to, kind, weight?, evidence?, createdBy?, sourceSemantic?, targetSemantic? }
 kind 枚举:extends | part_of | similar_to | depends_on | causes | follows | derives_from | contradicts | exemplifies | supersedes | consolidates | contextualizes。
-direction:'directional' | 'bidirectional'(默认 directional)。
 副作用:写两端的 .synapses.json(outgoing + incoming 缓存);append audit。
 错误条件:from/to 未找到抛错;自环抛错;重复抛错。
 不变量:contradicts synapse 创建 contradiction 条目用于跟踪。`,
   "tool.synapse_get.technical": `读取单条 synapse。输入:{ from, synapseId }
-返回:完整 synapse 记录(id、from、to、kind、weight、direction、evidence、resolutionState、createdAt)。
+返回:完整 synapse 记录(id、from、to、kind、weight、evidence、resolutionState、createdAt)。
 副作用:无。
 错误条件:未找到抛错。`,
   "tool.synapse_delete.technical": `删除 synapse。输入:{ from, synapseId }
@@ -1744,7 +1743,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.detail.detailViewTitle": "详情视图",
   "viewer.detail.synapseDetailTitle": "突触详情",
   "viewer.detail.kindChangeHint":
-    "提示:修改「类型」或「方向」会让突触 ID 重新计算(因 ID 派生自 from+to+kind+direction),旧 ID 将失效,但所有元数据(权重/证据/创建者)会迁移到新 ID。",
+    "提示:修改「类型」会让突触 ID 重新计算(因 ID 派生自 from+to+kind),旧 ID 将失效,但所有元数据(权重/证据/创建者)会迁移到新 ID。",
   "viewer.detail.titleLabel": "标题",
   "viewer.detail.kindLabel": "类型",
   "viewer.detail.importanceLabel": "重要性 (0-1,可拖动滑块)",
@@ -1911,7 +1910,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "一条结构化的记忆条目,含标题/内容/类型/标签/重要性/置信度等字段。类型分 5 种:<code>fact(事实)</code> <code>observation(观察)</code> <code>pattern(模式)</code> <code>procedure(流程)</code> <code>hypothesis(假设)</code>。鼠标悬停字段可以看到该字段的解释。",
   "viewer.help.conceptSynapse": "<strong>记忆突触(synapse)</strong>",
   "viewer.help.conceptSynapseDesc":
-    "连接两个 engram 的有向边,分 5 个族:<code>结构族</code>(extends/part_of/similar_to)、<code>因果族</code>(depends_on/causes/follows)、<code>证据族</code>(derives_from/contradicts/exemplifies)、<code>时间族</code>(supersedes/consolidates)、<code>调节族</code>(contextualizes)。<code>contradicts</code> 会进入裁决流程。",
+    "连接两个 engram 的边,分 5 个族:<code>结构族</code>(extends/part_of/similar_to)、<code>因果族</code>(depends_on/causes/follows)、<code>证据族</code>(derives_from/contradicts/exemplifies)、<code>时间族</code>(supersedes/consolidates)、<code>调节族</code>(contextualizes)。多数 kind 有向;<code>similar_to</code> / <code>contradicts</code> 对称(端点无方向)。<code>contradicts</code> 会进入裁决流程。",
   "viewer.help.conceptImportance":
     "<strong>重要性(importance)与置信度(confidence)</strong>",
   "viewer.help.conceptImportanceDesc":
@@ -2085,7 +2084,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Synapses 面板 / 突触详情(viewer.synapses.*) =====
   "viewer.synapses.kindChangeHint":
-    "提示:修改「类型」或「方向」会让突触 ID 重新计算(因 ID 派生自 from+to+kind+direction),旧 ID 将失效,但所有元数据(权重/证据/创建者)会迁移到新 ID。",
+    "提示:修改「类型」会让突触 ID 重新计算(因 ID 派生自 from+to+kind),旧 ID 将失效,但所有元数据(权重/证据/创建者)会迁移到新 ID。",
   "viewer.synapses.deleteConfirm": "确定删除此记忆突触?\\n此操作不可撤销。",
   "viewer.synapses.kindField": "类型:",
   "viewer.synapses.idField": "ID:",
