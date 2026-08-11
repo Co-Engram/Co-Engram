@@ -2621,6 +2621,10 @@ export class ProposalEngine {
     for (const f of [this.clustersFile, this.proposalsFile]) {
       if (existsSync(f)) writeFileSync(f, "", "utf8");
     }
+    // 清内存 cache:writeFileSync 改 mtime 理论上让 readProposals/readClusters
+    // 下次失效重载,但同毫秒写-读时 mtime 精度不足会误命中旧 cache(测试 flaky)。
+    this.proposalsCache = null;
+    this.clustersCache = null;
   }
 
   // ============================================================
