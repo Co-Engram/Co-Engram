@@ -1,6 +1,6 @@
 {
   "name": "@co-engram/claude-code",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Co-Engram adapter for Claude Code (MCP server).",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",

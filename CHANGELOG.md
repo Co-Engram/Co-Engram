@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0] - 2026-08-11
+
+### ⚠ Breaking Changes
+
+- **Synapse `direction` 字段移除(`@co-engram/core`)**: 对称性回归 kind 派生(`isSymmetricKind`),`SynapseDirection` 类型 + `Synapse.direction` / `ProposalPayload.synapseDirection` / `proposeSynapseOp.direction` 全部移除;`add` canonical 不再含 direction,对称 kind 端点规范化(`add(A,B)` ≡ `add(B,A)`)。迁移见 `packages/core/test/synapse-direction-migration.test.ts`。
+
 ### Changed
 
 - **REM 标签刷新审批化(rem-tag-refresh proposal)+ 修占位标签永久卡死 (`@co-engram/core`, `@co-engram/viewer`)**: 两处用户可感知改进。(1) **Fixed 占位标签永久卡死**:`refreshDomainTagsOnDrift`(`tag-refresh.ts`)首次 LLM 偶发返回空数组时,`parseExtractionResponse` 兜底成 `imported` + 写 baseline,后续每轮因 `contentHash` 相等被 L0 短路、LLM 不再被调用——占位标签(`imported`/`uncategorized`)永久刷不掉,与 bare-markdown-extractor「待 REM 刷新」的设计承诺直接矛盾。真实运行复现实证(新增 `packages/core/test/maintenance/tag-refresh-repro.test.ts`):首次空 → 落盘 `['imported']` + baseline,第二轮 LLM 调用数不增、标签停留;对照(LLM 抛异常)因不写 baseline 下轮重试不卡死——两路径不对称坐实 bug。修复:L0/L1 加**占位符豁免**(`oldTags` 全为 `imported`/`uncategorized` 时绕过 contentHash/drift gate 反复重提,直到刷出真实标签);已有 pending `rem-tag-refresh` proposal 则不重复提取(避免占位符每轮白调 LLM);删不可达死代码(`newTags=["uncategorized"]`,上游已保证非空)。(2) **Changed 审批化**:tag-refresh 提取出的新标签不再直接 `updateEngram`(旧注释「标签低风险不走 proposal」反转),改生成 `rem-tag-refresh` pending proposal,与 rem-pattern/synapse/verification 审批化对齐——用户卡片 accept 才改 domainTags,dismiss 则保持。`ProposalSource` 加 `rem-tag-refresh`;`ProposalPayload` 加 `tagEngramId`/`tagOldTags`/`tagNewTags`/`tagReason`/`tagDrift`;`ProposalEngine` 新增 `proposeTagRefresh`(entityId=`rem-tag-refresh:<engramId>`,dedup + tombstone 防复活)+ `findProposalByEntityId`;`accept()` 加 rem-tag-refresh 分支(`updateEngram` 改标签,模板 rem-verification/rem-synapse 的「改字段不建 engram」);`refreshDomainTagsOnDrift` 加 `proposalEngine?` 参数,未注入退化为直接落盘(向后兼容);`runRem` 注入 `this.deps.proposalEngine`。viewer 新增 rem-tag-refresh 卡片(🌙 + oldTags→newTags diff:删除红/新增绿 + accept/dismiss),复用 `acceptRem` 空 body。i18n 中英同步(`viewer.proposals.rem.scene.tagRefresh`/`tagRefresh.*`/`why.sourceLabel.remTagRefresh`/`why.necessity.remTagRefresh`,zh+en)。(3) **双宿主**:改动在 core + viewer(共享 bundle),claude-code-mcp/openclaw 经 `@co-engram/core` 自动生效,无适配层改动;两宿主 bootstrap 已注入 proposalEngine,`tag-refresh.dual-host.e2e.test.ts` 更新为验证真实 proposal 路径(注入 proposalEngine → runRem 生成 pending 卡片 → 标签保持占位符 → accept 落盘)。测试:`tag-refresh-repro.test.ts` 6 场景 + `tag-refresh.test.ts` 6 + e2e dual-host 2 + 全量 core 2632 / claude-code 300 / openclaw 121 / contracts 12 全绿(viewer skill-api 1 失败为 pre-existing 端口 EADDRINUSE,baseline 验证非本次引入)。
