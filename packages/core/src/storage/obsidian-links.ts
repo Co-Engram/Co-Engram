@@ -117,14 +117,20 @@ function resolveTouching(
     readonly outgoing: readonly { readonly kind: SynapseKind; readonly to: string }[];
     readonly incoming: readonly { readonly kind: SynapseKind; readonly from: string }[];
   },
+  centerId: string,
 ): { readonly outgoing: readonly ResolvedEdge[]; readonly incoming: readonly ResolvedEdge[] } {
+  // 对称 kind(similar_to/contradicts)被 listSynapsesForEngram 双计入 outgoing + incoming。
+  // 对称边中 center 是 from 时 syn.from===center(incoming 自指);center 是 to 时 syn.to===center(outgoing 自指)。
+  // 过滤自指,确保每条对称边只在派生段渲染一次(target=另一端),避免 ← [[自己]] 重复。
   const outgoing = touching.outgoing
+    .filter((s) => s.to !== centerId)
     .map((s) => {
       const r = resolveEdge(index, s.to);
       return r ? { kind: s.kind, target: r.target, title: r.title } : null;
     })
     .filter((x): x is ResolvedEdge => x !== null);
   const incoming = touching.incoming
+    .filter((s) => s.from !== centerId)
     .map((s) => {
       const r = resolveEdge(index, s.from);
       return r ? { kind: s.kind, target: r.target, title: r.title } : null;
@@ -151,7 +157,7 @@ export function checkObsidianView(
   },
   index: EngramIndexMap,
 ): { readonly stale: boolean } {
-  const resolved = resolveTouching(index, touching);
+  const resolved = resolveTouching(index, touching, file.frontmatter.id);
   const cleanBody = stripDerivedSection(file.content);
   const expected = buildDerivedSection(resolved.outgoing, resolved.incoming);
   const expectedContent = expected ? `${cleanBody}\n\n${expected}` : cleanBody;
@@ -195,7 +201,7 @@ export function regenerateObsidianLinks(
     const status = checkObsidianView(file, touching, index);
     if (!status.stale) return;
 
-    const resolved = resolveTouching(index, touching);
+    const resolved = resolveTouching(index, touching, stableId);
     const cleanBody = stripDerivedSection(file.content);
     const derived = buildDerivedSection(resolved.outgoing, resolved.incoming);
     const newContent = derived ? `${cleanBody}\n\n${derived}` : cleanBody;
