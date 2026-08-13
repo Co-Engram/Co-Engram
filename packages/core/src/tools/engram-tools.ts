@@ -990,6 +990,9 @@ export const engramRestoreTool: Tool<
     }
 
     ctx.repository.updateLifecycle(parsed.id, "active", undefined);
+    // 清除 forcedFreshness 残留:engram_forget 设的 forgotten 锁定,
+    // updateLifecycle 只设不清,需显式清才能让 freshness 回派生。
+    ctx.repository.clearForcedFreshness(parsed.id);
     const updated = ctx.repository.readEngram(parsed.id);
     ctx.auditLog?.append({
       actor: "user",

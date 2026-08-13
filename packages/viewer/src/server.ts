@@ -633,6 +633,29 @@ async function routeApi(
     return;
   }
 
+  // /api/engrams/:id/restore — 恢复 forgotten engram(清 forcedFreshness + status active)
+  //
+  // 用于 engram_forget 后的恢复:engram_forget 设 forcedFreshness: forgotten 锁定,
+  // 此端点调 updateLifecycle(active) + clearForcedFreshness(清锁定),让 freshness 回派生。
+  const engramRestoreMatch = /^\/api\/engrams\/(.+)\/restore$/.exec(path);
+  if (engramRestoreMatch && req.method === "POST") {
+    const id = decodeURIComponent(engramRestoreMatch[1]!);
+    if (!ctx.repository.exists(id)) {
+      respondJson(res, 404, { error: `Not found: ${id}` });
+      return;
+    }
+    ctx.repository.updateLifecycle(id, "active", undefined);
+    ctx.repository.clearForcedFreshness(id);
+    const updated = ctx.repository.readEngram(id);
+    respondJson(res, 200, {
+      restored: true,
+      id,
+      freshness: updated.freshness,
+      status: updated.status,
+    });
+    return;
+  }
+
   // /api/engrams/:id  (GET | PATCH | DELETE)
   const engramMatch = /^\/api\/engrams\/(.+)$/.exec(path);
   if (engramMatch) {

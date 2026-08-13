@@ -783,6 +783,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + T.formatScoreBand(d.confidence)
       + ' <span class="field-label"' + CO_ENGRAM.tip('status.' + (d.status || 'active')) + '>' + T.fieldLabel('status') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('status', d.status))
       + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness))
+      + (d.freshness === 'forgotten' ? ' <button class="btn mini" onclick="CO_ENGRAM_ENGRAMS.restoreFromForgotten(\\'' + engramId + '\\')">恢复</button>' : '')
       + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span>' + CO_ENGRAM.renderVisibilityBadge(d.visibility)
       + '</div>'
       // Task 4:visibility 快捷切换器(折叠的 <details>,默认收起)
@@ -947,6 +948,24 @@ window.CO_ENGRAM_ENGRAMS = {
         if (CO_ENGRAM._engramsPager) { await CO_ENGRAM._engramsPager.load(); }
         this.applyFilter();
       } catch {}
+    } catch (e) {
+      alert(CO_ENGRAM.escapeHtml(T.t('viewer.common.saveFailed', { err: (e.message || e) })));
+    }
+  },
+
+  /**
+   * 恢复 forgotten engram:清 forcedFreshness 锁定 + status active,让 freshness 回派生。
+   * 用于详情面板 forgotten 状态旁的"恢复"按钮。
+   */
+  async restoreFromForgotten(engramId) {
+    const T = CO_ENGRAM_T;
+    if (!window.confirm('确认恢复此记忆?将清除遗忘锁定,重新进入默认检索。')) return;
+    try {
+      await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId) + '/restore', 'POST', null);
+      var updated = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId), 'GET', null);
+      CO_ENGRAM._currentEngram = updated;
+      this._renderView(updated);
+      try { if (CO_ENGRAM._engramsPager) { await CO_ENGRAM._engramsPager.load(); } this.applyFilter(); } catch {}
     } catch (e) {
       alert(CO_ENGRAM.escapeHtml(T.t('viewer.common.saveFailed', { err: (e.message || e) })));
     }

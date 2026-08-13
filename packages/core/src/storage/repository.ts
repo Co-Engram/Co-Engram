@@ -3150,6 +3150,23 @@ export class EngramRepository {
   }
 
   /**
+   * 清除 forcedFreshness 锁定,让 freshness 回到派生(computeFreshness)。
+   *
+   * 用于 engram_restore:restore 把 status 改回 active 时,若之前被
+   * engram_forget 设过 forcedFreshness: forgotten,该锁定会残留(updateLifecycle
+   * 只设不清),导致 status=active 却 freshness=forgotten 的矛盾态。restore 必须
+   * 显式清此锁定,让派生重新生效。
+   */
+  clearForcedFreshness(id: string): void {
+    this.mutateFrontmatter(id, (fm) => {
+      if (!("forcedFreshness" in fm)) return fm;
+      const { forcedFreshness: _unused, ...rest } = fm;
+      void _unused;
+      return rest;
+    });
+  }
+
+  /**
    * 更新 verificationStatus(不触发 version++)。
    */
   updateVerificationStatus(id: string, status: VerificationStatus): void {
