@@ -4,6 +4,12 @@
     <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="320">
   </picture>
   <h1>Co-Engram：协同自进化的团队记忆</h1>
+  <p>
+    <a href="https://www.npmjs.com/package/@co-engram/claude-code"><img src="https://img.shields.io/npm/v/@co-engram/claude-code?color=cb3837&label=npm" alt="npm 版本"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="许可证：MIT"></a>
+    <a href="https://github.com/Co-Engram/Co-Engram/stargazers"><img src="https://img.shields.io/github/stars/Co-Engram/Co-Engram?style=flat&color=yellow" alt="GitHub stars"></a>
+  </p>
+  <p><b>像大脑一样运作的记忆</b>——随使用增强、出错衰减、自动自我验证。以纯 Markdown 存于 Git，面向 AI agent 与团队。</p>
   <p><a href="./README.md">English</a> | 中文</p>
 </div>
 

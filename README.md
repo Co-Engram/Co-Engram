@@ -4,6 +4,12 @@
     <img src="docs/images/co-engram-logo.svg" alt="Co-Engram" width="320">
   </picture>
   <h1>Co-Engram: Self-evolving Team Memory</h1>
+  <p>
+    <a href="https://www.npmjs.com/package/@co-engram/claude-code"><img src="https://img.shields.io/npm/v/@co-engram/claude-code?color=cb3837&label=npm" alt="npm version"></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
+    <a href="https://github.com/Co-Engram/Co-Engram/stargazers"><img src="https://img.shields.io/github/stars/Co-Engram/Co-Engram?style=flat&color=yellow" alt="GitHub stars"></a>
+  </p>
+  <p><b>Memories that behave like a brain</b> — they strengthen with use, fade when wrong, and verify themselves. Plain Markdown in Git, for AI agents and teams.</p>
   <p>English | <a href="./README.zh-CN.md">中文</a></p>
 </div>
 
