@@ -1940,7 +1940,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.ruleHebbian":
     "<strong>Hebbian 邻居扩散</strong>:强化一条记忆时,直接相连(通过 synapse)的邻居得到 <code>importanceDelta × hebbianRatio</code>(默认 <code>hebbianRatio = 0.5</code>)的增益,contradicts 关系除外。",
   "viewer.help.ruleWeights":
-    "<strong>三因子检索权重</strong>:score = α·relevance + β·recency + γ·importance(默认 α=0.5 / β=0.3 / γ=0.2)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code> 衰退,半衰期从 importance 派生(机制 D)。",
+    "<strong>五因子检索权重</strong>:score = α·relevance + β·recency + γ·importance + δ·strength + ε·hotness(默认 α=0.5 / β=0.15 / γ=0.25 / δ=0.05 / ε=0.05)。recency 按 Ebbinghaus 半衰期 <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code> 衰退,半衰期从 importance 派生(机制 D)。hotness(访问热度)= <code>sigmoid(ln(1+检索次数)) × 0.5^(距上次检索天数/7)</code>,按访问频次与新近度提升排序,无需显式强化;权重可在 config.json <code>search.scoring.hotness</code> 调整(设 0 关闭),半衰期 <code>search.scoring.hotnessHalfLifeDays</code>(默认 7 天)。",
   "viewer.help.ruleWindows":
     "<strong>观察窗口(observation window)</strong>:engram 被检索命中后开启一段观察期;窗口期内回来 reinforce 计为有效(LTP),反馈 failure 计为失败(LTD),过期关闭则本次命中无效。按 kind 默认长度:observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d。多 kind 取最长。",
   "viewer.help.stateMachineTitle": "验证状态机(5 档)",

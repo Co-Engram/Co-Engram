@@ -2002,7 +2002,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.ruleHebbian":
     "<strong>Hebbian neighbor spread</strong>: when a memory is reinforced, direct neighbors (via synapse) gain <code>importanceDelta × hebbianRatio</code> (default <code>hebbianRatio = 0.5</code>); contradicts edges excluded.",
   "viewer.help.ruleWeights":
-    "<strong>Three-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance (defaults α=0.5 / β=0.3 / γ=0.2). recency follows Ebbinghaus half-life <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code>, derived from importance (mechanism D).",
+    "<strong>Five-factor retrieval weights</strong>: score = α·relevance + β·recency + γ·importance + δ·strength + ε·hotness (defaults α=0.5 / β=0.15 / γ=0.25 / δ=0.05 / ε=0.05). recency follows Ebbinghaus half-life <code>0.5^(ageDays / deriveHalfLifeDays(importance))</code>, derived from importance (mechanism D). hotness (access heat) = <code>sigmoid(ln(1+retrievalCount)) × 0.5^(daysSinceLastRetrieval/7)</code> — boosts ranking by access frequency and recency without explicit reinforcement; tune via config.json <code>search.scoring.hotness</code> (set 0 to disable) and <code>search.scoring.hotnessHalfLifeDays</code> (default 7).",
   "viewer.help.ruleWindows":
     "<strong>Observation window</strong>: opened when an engram is retrieved; reinforce within window → effective (LTP); report failure → failed use (LTD); expiry closes the hit as inconclusive. Default length by kind: observation 6h / fact 24h / pattern 48h / procedure 48h / hypothesis 7d. Multi-kind uses max.",
   "viewer.help.stateMachineTitle": "Verification state machine (5 levels)",

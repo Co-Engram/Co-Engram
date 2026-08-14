@@ -847,19 +847,21 @@ Beyond data root, the persisted config at `<dataRoot>/.co-engram/config.json` ac
 | `search`       | `relevance`        | `0.5`   | Weight on query-text relevance (FTS / cosine)                                                                  |
 | `search`       | `recency`          | `0.15`  | Weight on freshness / time-decay                                                                               |
 | `search`       | `importance`       | `0.25`  | Weight on the engram's `importance`                                                                            |
-| `search`       | `strength`         | `0.1`   | Weight on reinforcement / edge strength                                                                        |
+| `search`       | `strength`         | `0.1`   | Weight on reinforcement / edge strength (combined `strength`+`hotness` budget, see below) |
+| `search`       | `hotness`          | —       | Weight on access heat `sigmoid(ln(1+retrievalCount)) · 0.5^(daysSinceLastRetrieval/hotnessHalfLifeDays)`; omit to auto-split the `strength` budget evenly, set `0` to disable |
+| `search`       | `hotnessHalfLifeDays` | `7`  | Half-life (days) of the access-heat decay, measured from `lastRetrievedAt` |                                                                        |
 | `observation`  | `observation`      | `6h`    | Effectiveness window for `kind=observation`                                                                    |
 | `observation`  | `fact`             | `24h`   | Effectiveness window for `kind=fact`                                                                           |
 | `observation`  | `pattern`          | `48h`   | Effectiveness window for `kind=pattern`                                                                        |
 | `observation`  | `procedure`        | `48h`   | Effectiveness window for `kind=procedure`                                                                      |
 | `observation`  | `hypothesis`       | `7d`    | Effectiveness window for `kind=hypothesis`                                                                     |
 
-The four `search` weights **must sum to 1**. `observation` values are durations (milliseconds). Example:
+The five `search` weights **must sum to 1**. `hotness` is intentionally not defaulted in `config.json`: when omitted, the `strength` budget (default `0.1`) is split evenly into `δ=0.05` (explicit reinforcement) and `ε=0.05` (access heat), so legacy four-field configs keep summing to 1 without migration. Set `hotness: 0` to disable access-heat ranking entirely. `observation` values are durations (milliseconds). Example:
 
 ```json
 {
   "reinforcement": { "hebbianRatio": 0.7 },
-  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1 },
+  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1, "hotnessHalfLifeDays": 14 },
   "observation": { "pattern": 172800000 }
 }
 ```

@@ -847,19 +847,21 @@ viewer 自 2026-07 起使用统一默认端口(`18899`),两宿主共用。早先
 | `search`       | `relevance`        | `0.5`   | 查询文本相关性权重(FTS / 余弦)                                                                            |
 | `search`       | `recency`          | `0.15`  | 新鲜度 / 时间衰减权重                                                                                     |
 | `search`       | `importance`       | `0.25`  | engram 自身 `importance` 权重                                                                             |
-| `search`       | `strength`         | `0.1`   | 强化分 / 边强度权重                                                                                       |
+| `search`       | `strength`         | `0.1`   | 强化分 / 边强度权重(`strength`+`hotness` 的合并预算,见下) |
+| `search`       | `hotness`          | —       | 访问热度权重 `sigmoid(ln(1+检索次数)) · 0.5^(距上次检索天数/hotnessHalfLifeDays)`;缺省时从 `strength` 预算对半分,设 `0` 完全关闭 |
+| `search`       | `hotnessHalfLifeDays` | `7`  | 访问热度衰减半衰期(天),从 `lastRetrievedAt` 起算 |                                                                                       |
 | `observation`  | `observation`      | `6h`    | `kind=observation` 的有效使用窗口                                                                          |
 | `observation`  | `fact`             | `24h`   | `kind=fact` 的有效使用窗口                                                                                |
 | `observation`  | `pattern`          | `48h`   | `kind=pattern` 的有效使用窗口                                                                              |
 | `observation`  | `procedure`        | `48h`   | `kind=procedure` 的有效使用窗口                                                                            |
 | `observation`  | `hypothesis`       | `7d`    | `kind=hypothesis` 的有效使用窗口                                                                           |
 
-四个 `search` 权重**必须求和为 1**。`observation` 值为时长(毫秒)。示例:
+五个 `search` 权重**必须求和为 1**。`hotness` 故意不在 `config.json` 里给默认值:缺省时 `strength` 预算(默认 `0.1`)会自动对半拆分为 `δ=0.05`(显式强化)与 `ε=0.05`(访问热度),老的四个字段的配置无需迁移即保持和为 1。设 `hotness: 0` 可完全关闭访问热度参与排序。`observation` 值为时长(毫秒)。示例:
 
 ```json
 {
   "reinforcement": { "hebbianRatio": 0.7 },
-  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1 },
+  "search": { "relevance": 0.6, "recency": 0.1, "importance": 0.2, "strength": 0.1, "hotnessHalfLifeDays": 14 },
   "observation": { "pattern": 172800000 }
 }
 ```

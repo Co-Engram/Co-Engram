@@ -140,7 +140,7 @@ Host tool call → Adapter → Tool.execute(ctx, input)
 Host tool call → Adapter → engram_search
   → FTS query (Intl.Segmenter word-level tokenizer)
   → Graph expansion (follow consolidates/extends edges)
-  → Score by: relevance · recency · importance · reinforcementScore
+  → Score by: relevance · recency · importance · reinforcementScore · access heat (hotness)
   → Bump retrieval stats (effectiveRetrievals, lastRetrievalScore)
   → Return ranked EngramRef[]
 ```

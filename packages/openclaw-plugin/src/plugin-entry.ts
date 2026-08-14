@@ -153,6 +153,8 @@ export function createCoEngramContext(
         recency?: number;
         importance?: number;
         strength?: number;
+        hotness?: number;
+        hotnessHalfLifeDays?: number;
       }
     | undefined;
   try {
@@ -178,6 +180,10 @@ export function createCoEngramContext(
       ...(fullConfig.language ? { language: fullConfig.language } : {}),
       ...(teamSearch
         ? { scoringWeights: scoringConfigToWeights(teamSearch) }
+        : {}),
+      // P0-2:hotness 半衰期从 search.scoring 透传(缺省 7 天,引擎自带默认)
+      ...(teamSearch?.hotnessHalfLifeDays
+        ? { scoringHotnessHalfLifeDays: teamSearch.hotnessHalfLifeDays }
         : {}),
     });
 

@@ -130,12 +130,12 @@ Bands, computed from `ageDays`:
 
 Freshness is never persisted on the engram — it is recomputed whenever `applyDecayBatch` (Deep) or retrieval scoring needs it.
 
-### Search score blends four factors
+### Search score blends five factors
 
-`computeFourFactorScore` (`packages/core/src/retrieval/scoring.ts`):
+`computeFiveFactorScore` (`packages/core/src/retrieval/scoring.ts`):
 
 ```
-score = α · relevance + β · recency + γ · effectiveImportance + δ · strength
+score = α · relevance + β · recency + γ · effectiveImportance + δ · strength + ε · hotness
 ```
 
 | Factor                | Symbol | Weight | Formula                                                                 |
@@ -143,7 +143,10 @@ score = α · relevance + β · recency + γ · effectiveImportance + δ · stre
 | Relevance             | `α`    | `0.50` | BM25 / cosine similarity from the search engine                         |
 | Recency               | `β`    | `0.15` | `0.5 ^ (ageDays / halfLife)` — same `halfLife` as freshness             |
 | Effective importance  | `γ`    | `0.25` | `importance × (0.3 + 0.7 × truthFactor)`                                |
-| Strength              | `δ`    | `0.10` | `clamp01(reinforcementScore)`                                           |
+| Strength              | `δ`    | `0.05` | `clamp01(reinforcementScore)`                                           |
+| Hotness (access heat) | `ε`    | `0.05` | `sigmoid(ln(1 + retrievalCount)) · 0.5 ^ (daysSinceLastRetrieval / 7)`  |
+
+Hotness (added 2026-08, ported from OpenViking's `memory_lifecycle.py`) is a **purely derived signal**: it is computed at scoring time from `retrievalCount` / `lastRetrievedAt` — both already written on every search hit — with no stored field and no background decay job. It rewards frequently *accessed* memories independently of `strength`, which only accumulates through explicit reinforce/failure feedback. Frequency is log-compressed (`count` 10→100 adds < 0.08) to resist flooding; the 7-day half-life is tunable via `search.scoring.hotnessHalfLifeDays`, and the weight via `search.scoring.hotness` (omitted → split evenly out of the `strength` budget; `0` disables).
 
 `truthFactor` maps from `verificationStatus`: `verified = 1.0`, `probable = 0.7`, `plausible = 0.5`, `unverified = 0.3`, `refuted = 0`. High-value but low-truth memories are attenuated — value is upstream of truth, and truth is a constraint on use.
 

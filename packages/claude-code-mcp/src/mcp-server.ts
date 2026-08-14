@@ -325,8 +325,15 @@ async function main(): Promise<void> {
     startMaintenance: maintenanceEnabled,
     maintenanceConfig,
     // M6:把 config.search.scoring 注入检索引擎(经 scoringConfigToWeights 转
-    // FourFactorWeights),让运维调 search.scoring 真正生效。
+    // FiveFactorWeights),让运维调 search.scoring 真正生效。
+    // P0-2:hotness 半衰期同样从 search.scoring 透传(缺省 7 天)。
     scoringWeights: scoringConfigToWeights(persistedConfig.search ?? {}),
+    ...(persistedConfig.search?.hotnessHalfLifeDays
+      ? {
+          scoringHotnessHalfLifeDays:
+            persistedConfig.search.hotnessHalfLifeDays,
+        }
+      : {}),
     auditEnabled,
     auditRotationConfig: persistedConfig.audit?.rotation,
     effectivenessEnabled,

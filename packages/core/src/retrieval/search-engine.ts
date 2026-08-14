@@ -17,7 +17,7 @@ import type { DigestLine } from "../index/types.js";
 import type { SearchFilter } from "../types/disclosure.js";
 import { SearchOrchestrator, type SimpleSearchResult } from "./orchestrator.js";
 import { SqliteSearchOrchestrator } from "./sqlite-orchestrator.js";
-import { type FourFactorWeights } from "./scoring.js";
+import { type FiveFactorWeights } from "./scoring.js";
 import { configError } from "../tools/error-schema.js";
 
 /** 引擎类型 */
@@ -73,12 +73,17 @@ export function createSearchEngine(opts: {
   readonly type: SearchEngineType;
   readonly indexDb?: IndexDb;
   /**
-   * M6:四因子权重(config.search.scoring 经 scoringConfigToWeights 转换)。
+   * M6:五因子权重(config.search.scoring 经 scoringConfigToWeights 转换)。
    * 注入两引擎:SQLite 经 SqliteSearchOptions.weights,in-memory 经 setWeights。
    * 缺省时各引擎自用 DEFAULT_WEIGHTS。此前 createSearchEngine 不接受 weights,
    * 两引擎恒用 DEFAULT_WEIGHTS,运维调 config.search.scoring 无效。
    */
-  readonly weights?: FourFactorWeights;
+  readonly weights?: FiveFactorWeights;
+  /**
+   * P0-2:hotness 半衰期天数(config.search.scoring.hotnessHalfLifeDays,
+   * 默认 7)。注入两引擎;缺省时各引擎自用 DEFAULT_HOTNESS_HALF_LIFE_DAYS。
+   */
+  readonly hotnessHalfLifeDays?: number;
 }): SearchEngine {
   if (opts.type === "sqlite") {
     if (!opts.indexDb) {
@@ -91,11 +96,17 @@ export function createSearchEngine(opts: {
       new SqliteSearchOrchestrator({
         db: opts.indexDb,
         ...(opts.weights ? { weights: opts.weights } : {}),
+        ...(opts.hotnessHalfLifeDays
+          ? { hotnessHalfLifeDays: opts.hotnessHalfLifeDays }
+          : {}),
       }),
     );
   }
   const memory = new SearchOrchestrator();
   if (opts.weights) memory.setWeights(opts.weights);
+  if (opts.hotnessHalfLifeDays) {
+    memory.setHotnessHalfLifeDays(opts.hotnessHalfLifeDays);
+  }
   return memory;
 }
 

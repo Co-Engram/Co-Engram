@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   computeFourFactorScore,
+  computeFiveFactorScore,
+  computeHotness,
   computeFourFactorScores,
   recencyDecay,
   truthFactorFromStatus,
   reciprocalRankFusion,
+  scoringConfigToWeights,
   validateWeights,
+  DEFAULT_HOTNESS_HALF_LIFE_DAYS,
   DEFAULT_WEIGHTS,
   type FourFactorWeights,
 } from "../src/retrieval/scoring.js";
@@ -65,6 +69,188 @@ describe("validateWeights", () => {
     expect(() =>
       validateWeights({ alpha: -0.1, beta: 0.5, gamma: 0.5, delta: 0.1 }),
     ).toThrow(/\[0,1\]/);
+  });
+});
+
+// ============================================================
+// computeHotness(P0-2:OpenViking hotness 移植)
+// ============================================================
+
+describe("computeHotness", () => {
+  const NOW = new Date("2026-08-15T00:00:00Z");
+
+  it("从未被检索(lastRetrievedAt=null)→ 0,不加权", () => {
+    expect(computeHotness(0, null, { now: NOW })).toBe(0);
+    expect(computeHotness(10, undefined, { now: NOW })).toBe(0);
+    expect(computeHotness(0, NOW.toISOString(), { now: NOW })).toBe(0);
+  });
+
+  it("count=1 + 刚访问 → sigmoid(ln2) ≈ 0.667", () => {
+    const h = computeHotness(1, NOW.toISOString(), { now: NOW });
+    expect(h).toBeCloseTo(1 / (1 + Math.exp(-Math.log1p(1))), 5);
+    expect(h).toBeCloseTo(0.667, 2);
+  });
+
+  it("对数压缩防刷:count 10→100 只提升 ~0.07", () => {
+    const h10 = computeHotness(10, NOW.toISOString(), { now: NOW });
+    const h100 = computeHotness(100, NOW.toISOString(), { now: NOW });
+    expect(h10).toBeGreaterThan(0.9);
+    expect(h100 - h10).toBeLessThan(0.08);
+  });
+
+  it("7 天半衰期:age=7d → 频次项减半;age=14d → 四分之一", () => {
+    const iso = (daysAgo: number) =>
+      new Date(NOW.getTime() - daysAgo * DAY).toISOString();
+    const freq = 1 / (1 + Math.exp(-Math.log1p(5)));
+    expect(computeHotness(5, iso(7), { now: NOW })).toBeCloseTo(
+      freq * 0.5,
+      5,
+    );
+    expect(computeHotness(5, iso(14), { now: NOW })).toBeCloseTo(
+      freq * 0.25,
+      5,
+    );
+  });
+
+  it("半衰期可配置:halfLifeDays=1 时 1 天前 → 减半", () => {
+    const iso = new Date(NOW.getTime() - DAY).toISOString();
+    const freq = 1 / (1 + Math.exp(-Math.log1p(5)));
+    expect(computeHotness(5, iso, { now: NOW, halfLifeDays: 1 })).toBeCloseTo(
+      freq * 0.5,
+      5,
+    );
+  });
+
+  it("默认半衰期为 7 天", () => {
+    expect(DEFAULT_HOTNESS_HALF_LIFE_DAYS).toBe(7);
+  });
+
+  it("非法 lastRetrievedAt → 0(NaN 防御)", () => {
+    expect(computeHotness(5, "not-a-date", { now: NOW })).toBe(0);
+  });
+});
+
+// ============================================================
+// computeFiveFactorScore hotness 因子(P0-2)
+// ============================================================
+
+describe("computeFiveFactorScore hotness", () => {
+  const NOW = new Date("2026-08-15T00:00:00Z");
+
+  it("同基础条件下,被频繁访问的记忆分数更高(访问抬升排序)", () => {
+    const base = {
+      importance: 0.5,
+      reinforcementScore: 0,
+      verificationStatus: null,
+      createdAt: NOW.toISOString(),
+      lastEffectiveAt: null,
+    };
+    const never = makeLine({ ...base, id: "never" });
+    const accessed = makeLine({
+      ...base,
+      id: "accessed",
+      retrievalCount: 10,
+      lastRetrievedAt: NOW.toISOString(),
+    });
+    const s1 = computeFiveFactorScore(0.5, never, { now: NOW });
+    const s2 = computeFiveFactorScore(0.5, accessed, { now: NOW });
+    expect(s2).toBeGreaterThan(s1);
+    // hotness 贡献 = ε(0.05) × sigmoid(ln(1+10)) ≈ 0.05 × 0.917 ≈ 0.046
+    expect(s2 - s1).toBeCloseTo(
+      0.05 * (1 / (1 + Math.exp(-Math.log1p(10)))),
+      3,
+    );
+  });
+
+  it("7 天前的访问基本衰减殆尽(14 天 → 频次项 × 0.25)", () => {
+    const base = {
+      importance: 0.5,
+      reinforcementScore: 0,
+      verificationStatus: null,
+      createdAt: NOW.toISOString(),
+      lastEffectiveAt: null,
+      retrievalCount: 10,
+    };
+    const fresh = makeLine({
+      ...base,
+      id: "fresh",
+      lastRetrievedAt: NOW.toISOString(),
+    });
+    const stale = makeLine({
+      ...base,
+      id: "stale",
+      lastRetrievedAt: new Date(NOW.getTime() - 14 * DAY).toISOString(),
+    });
+    const sFresh = computeFiveFactorScore(0.5, fresh, { now: NOW });
+    const sStale = computeFiveFactorScore(0.5, stale, { now: NOW });
+    expect(sFresh - sStale).toBeCloseTo(0.05 * 0.917 * 0.75, 2);
+  });
+
+  it("epsilon=0(显式关闭)→ hotness 不参与排序", () => {
+    const base = {
+      importance: 0.5,
+      reinforcementScore: 0,
+      verificationStatus: null,
+      createdAt: NOW.toISOString(),
+      lastEffectiveAt: null,
+    };
+    const never = makeLine({ ...base, id: "never" });
+    const accessed = makeLine({
+      ...base,
+      id: "accessed",
+      retrievalCount: 10,
+      lastRetrievedAt: NOW.toISOString(),
+    });
+    const w = { alpha: 0.5, beta: 0.15, gamma: 0.25, delta: 0.1, epsilon: 0 };
+    const s1 = computeFiveFactorScore(0.5, never, { now: NOW, weights: w });
+    const s2 = computeFiveFactorScore(0.5, accessed, { now: NOW, weights: w });
+    expect(s1).toBeCloseTo(s2, 10);
+  });
+});
+
+// ============================================================
+// scoringConfigToWeights hotness 兼容规则(P0-2)
+// ============================================================
+
+describe("scoringConfigToWeights hotness", () => {
+  it("空 config → δ=0.05 / ε=0.05(与 DEFAULT_WEIGHTS 一致)", () => {
+    expect(scoringConfigToWeights({})).toEqual(DEFAULT_WEIGHTS);
+  });
+
+  it("老四项配置(strength=0.1,和=1)→ 对半拆分 δ=0.05 / ε=0.05,和仍为 1", () => {
+    const w = scoringConfigToWeights({
+      relevance: 0.5,
+      recency: 0.15,
+      importance: 0.25,
+      strength: 0.1,
+    });
+    expect(w.delta).toBeCloseTo(0.05, 5);
+    expect(w.epsilon).toBeCloseTo(0.05, 5);
+    expect(() => validateWeights(w)).not.toThrow();
+  });
+
+  it("显式配置 hotness → 按显式值,strength 缺省 0.05(其余项需重平衡使和=1)", () => {
+    const w = scoringConfigToWeights({
+      relevance: 0.5,
+      recency: 0.1,
+      importance: 0.25,
+      hotness: 0.1,
+    });
+    expect(w.delta).toBeCloseTo(0.05, 5);
+    expect(w.epsilon).toBeCloseTo(0.1, 5);
+  });
+
+  it("显式配置 hotness=0 → 完全关闭访问热度", () => {
+    const w = scoringConfigToWeights({
+      relevance: 0.5,
+      recency: 0.15,
+      importance: 0.25,
+      strength: 0.1,
+      hotness: 0,
+    });
+    expect(w.epsilon).toBe(0);
+    expect(w.delta).toBeCloseTo(0.1, 5);
+    expect(() => validateWeights(w)).not.toThrow();
   });
 });
 
@@ -141,11 +327,12 @@ describe("truthFactorFromStatus", () => {
 // ============================================================
 
 describe("computeFourFactorScore", () => {
-  it("默认权重 α=0.5 β=0.15 γ=0.25 δ=0.1(importance 唯一排序,freshness 不参与)", () => {
+  it("默认权重 α=0.5 β=0.15 γ=0.25 δ=0.05 ε=0.05(2026-08 P0-2:strength 拆分出 hotness)", () => {
     expect(DEFAULT_WEIGHTS.alpha).toBe(0.5);
     expect(DEFAULT_WEIGHTS.beta).toBe(0.15);
     expect(DEFAULT_WEIGHTS.gamma).toBe(0.25);
-    expect(DEFAULT_WEIGHTS.delta).toBe(0.1);
+    expect(DEFAULT_WEIGHTS.delta).toBe(0.05);
+    expect(DEFAULT_WEIGHTS.epsilon).toBe(0.05);
   });
 
   it("全 0 输入 + 久远 createdAt + refuted → 接近 0", () => {
@@ -173,11 +360,13 @@ describe("computeFourFactorScore", () => {
     // truthFactor=1.0 → effImp = 0.9 × (0.3 + 0.7 × 1.0) = 0.9
     const expectedEffImp = 0.9 * (0.3 + 0.7 * 1.0);
     const expectedStrength = 0;
+    const expectedHotness = 0; // lastRetrievedAt=null → hotness=0
     const expected =
       0.5 * 1 +
       0.15 * expectedRecency +
       0.25 * expectedEffImp +
-      0.1 * expectedStrength;
+      0.05 * expectedStrength +
+      0.05 * expectedHotness;
     expect(computeFourFactorScore(1, line, { now })).toBeCloseTo(expected, 3);
   });
 
@@ -197,8 +386,8 @@ describe("computeFourFactorScore", () => {
     const s1 = computeFourFactorScore(0.5, baseLine, { now });
     const s2 = computeFourFactorScore(0.5, reinforcedLine, { now });
     expect(s2).toBeGreaterThan(s1);
-    // strength 贡献差 = 0.1 × (0.5 - 0) = 0.05
-    expect(s2 - s1).toBeCloseTo(0.05, 3);
+    // strength 贡献差 = 0.05 × (0.5 - 0) = 0.025(P0-2 后 δ 从 0.1 拆为 0.05+0.05)
+    expect(s2 - s1).toBeCloseTo(0.025, 3);
   });
 
   it("verificationStatus 提升时 effImp 增大,分数随之提升(truthFactor 约束)", () => {

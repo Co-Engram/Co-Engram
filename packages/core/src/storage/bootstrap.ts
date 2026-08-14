@@ -27,7 +27,7 @@ import {
   type SearchEngineType,
 } from "../retrieval/search-engine.js";
 import { computeContentSize } from "./hash.js";
-import { type FourFactorWeights } from "../retrieval/scoring.js";
+import { type FiveFactorWeights } from "../retrieval/scoring.js";
 import { readEngramFile, type EngramFile } from "./engram-store.js";
 import { EngramRepository } from "./repository.js";
 import { IndexDb, type EngramIndexEntry } from "./index-db.js";
@@ -37,11 +37,16 @@ export interface BootstrapOptions {
   readonly dataRoot: string;
   readonly language?: Language;
   /**
-   * M6:四因子权重(host adapter 从 config.search.scoring 经 scoringConfigToWeights
+   * M6:五因子权重(host adapter 从 config.search.scoring 经 scoringConfigToWeights
    * 转换后传入)。注入检索引擎,让运维在 team-memory/config.json 调 search.scoring
    * 真正生效。缺省各引擎自用 DEFAULT_WEIGHTS。
    */
-  readonly scoringWeights?: FourFactorWeights;
+  readonly scoringWeights?: FiveFactorWeights;
+  /**
+   * P0-2:hotness 半衰期天数(host adapter 从 config.search.scoring.hotnessHalfLifeDays
+   * 读取,默认 7)。注入检索引擎;缺省各引擎自用 DEFAULT_HOTNESS_HALF_LIFE_DAYS。
+   */
+  readonly scoringHotnessHalfLifeDays?: number;
   /** 注入 env(测试用);默认 process.env */
   readonly env?: NodeJS.ProcessEnv;
 }
@@ -127,6 +132,9 @@ export function bootstrapRepositoryAndSearch(
         type: "sqlite",
         indexDb,
         ...(opts.scoringWeights ? { weights: opts.scoringWeights } : {}),
+        ...(opts.scoringHotnessHalfLifeDays
+          ? { hotnessHalfLifeDays: opts.scoringHotnessHalfLifeDays }
+          : {}),
       });
 
       const elapsedMs = Date.now() - startedAt;
@@ -155,6 +163,9 @@ export function bootstrapRepositoryAndSearch(
   const searchEngine = createSearchEngine({
     type: "memory",
     ...(opts.scoringWeights ? { weights: opts.scoringWeights } : {}),
+    ...(opts.scoringHotnessHalfLifeDays
+      ? { hotnessHalfLifeDays: opts.scoringHotnessHalfLifeDays }
+      : {}),
   });
 
   if (wantedEngine === "memory") {

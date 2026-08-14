@@ -130,12 +130,12 @@ halfLife = BASE_HALFLIFE_DAYS × (importance + 0.1)^1.5 × kindMultiplier
 
 Freshness 永不持久化在 engram 上 —— 只在 `applyDecayBatch`(Deep)或检索打分需要时按需重算。
 
-### 搜索得分融合四因子
+### 搜索得分融合五因子
 
-`computeFourFactorScore`(`packages/core/src/retrieval/scoring.ts`):
+`computeFiveFactorScore`(`packages/core/src/retrieval/scoring.ts`):
 
 ```
-score = α · relevance + β · recency + γ · effectiveImportance + δ · strength
+score = α · relevance + β · recency + γ · effectiveImportance + δ · strength + ε · hotness
 ```
 
 | 因子                  | 符号  | 权重  | 公式                                                                    |
@@ -143,7 +143,10 @@ score = α · relevance + β · recency + γ · effectiveImportance + δ · stre
 | 相关度                | `α`   | `0.50`| 搜索引擎返回的 BM25 / 余弦相似度                                        |
 | 近因                  | `β`   | `0.15`| `0.5 ^ (ageDays / halfLife)` —— 复用 freshness 的 halfLife              |
 | 有效重要性            | `γ`   | `0.25`| `importance × (0.3 + 0.7 × truthFactor)`                                |
-| 强度                  | `δ`   | `0.10`| `clamp01(reinforcementScore)`                                           |
+| 强度                  | `δ`   | `0.05`| `clamp01(reinforcementScore)`                                           |
+| 访问热度              | `ε`   | `0.05`| `sigmoid(ln(1 + retrievalCount)) · 0.5 ^ (距上次检索天数 / 7)`          |
+
+访问热度(2026-08 新增,移植自 OpenViking `memory_lifecycle.py`)是**纯派生信号**:打分时从 `retrievalCount` / `lastRetrievedAt` 现算——两者在每次检索命中后本就异步落盘——不新增存储字段,也没有后台衰减任务。它奖励被频繁**访问**的记忆,与 `strength`(只经显式 reinforce/failure 反馈累积)正交。频次经对数压缩(count 10→100 增量 < 0.08)防刷;7 天半衰期可用 `search.scoring.hotnessHalfLifeDays` 调整,权重用 `search.scoring.hotness`(缺省时从 `strength` 预算对半分;设 `0` 关闭)。
 
 `truthFactor` 由 `verificationStatus` 映射:`verified = 1.0`、`probable = 0.7`、`plausible = 0.5`、`unverified = 0.3`、`refuted = 0`。高价值但低可信的记忆会被减弱 —— 价值是上游,真相是使用时的约束。
 

@@ -18,9 +18,10 @@ import type { SearchFilter } from "../types/disclosure.js";
 // 上层工具调用方零代码改动。
 import type { SimpleSearchResult } from "./orchestrator.js";
 import {
-  computeFourFactorScore,
+  computeFiveFactorScore,
+  DEFAULT_HOTNESS_HALF_LIFE_DAYS,
   DEFAULT_WEIGHTS,
-  type FourFactorWeights,
+  type FiveFactorWeights,
 } from "./scoring.js";
 
 /** SqliteSearchOrchestrator 构造参数 */
@@ -31,11 +32,15 @@ export interface SqliteSearchOptions {
    */
   readonly nowFn?: () => Date;
   /**
-   * M6:四因子权重(来自 config.search.scoring,经 scoringConfigToWeights 转换)。
-   * 缺省 DEFAULT_WEIGHTS。此前 SQLite 路径 computeFourFactorScore 只传 {now},
+   * M6:五因子权重(来自 config.search.scoring,经 scoringConfigToWeights 转换)。
+   * 缺省 DEFAULT_WEIGHTS。此前 SQLite 路径 computeFiveFactorScore 只传 {now},
    * 恒用 DEFAULT_WEIGHTS,运维在 config 调 search.scoring 无效。
    */
-  readonly weights?: FourFactorWeights;
+  readonly weights?: FiveFactorWeights;
+  /**
+   * P0-2:hotness 半衰期天数(默认 7)。访问热度衰减参数,与权重解耦配置。
+   */
+  readonly hotnessHalfLifeDays?: number;
 }
 
 /** search() 调用选项 */
@@ -77,12 +82,15 @@ const DEFAULT_SEARCH_STATUS: readonly string[] = ["active", "draft"];
 export class SqliteSearchOrchestrator {
   private readonly db: IndexDb;
   private readonly nowFn: () => Date;
-  private readonly weights: FourFactorWeights;
+  private readonly weights: FiveFactorWeights;
+  private readonly hotnessHalfLifeDays: number;
 
   constructor(opts: SqliteSearchOptions) {
     this.db = opts.db;
     this.nowFn = opts.nowFn ?? (() => new Date());
     this.weights = opts.weights ?? DEFAULT_WEIGHTS;
+    this.hotnessHalfLifeDays =
+      opts.hotnessHalfLifeDays ?? DEFAULT_HOTNESS_HALF_LIFE_DAYS;
   }
 
   search(query: string, opts: SearchQueryOptions = {}): SearchResponse {
@@ -117,18 +125,18 @@ export class SqliteSearchOrchestrator {
     const filtered = this.applyPostFilter(rows, opts.filter);
     if (filtered.length === 0) return { results: [], nextCursor: null };
 
-    // bm25 raw(正数)归一化到 [0,1] 作四因子 relevance 项。LIKE 路径 score 全 0
-    // → maxRaw=0 → relevance 全 0,四因子退化为 β·recency + γ·effImp + δ·strength
+    // bm25 raw(正数)归一化到 [0,1] 作五因子 relevance 项。LIKE 路径 score 全 0
+    // → maxRaw=0 → relevance 全 0,五因子退化为 β·recency + γ·effImp + δ·strength + ε·hotness
     // (纯增值信号排序,因 LIKE 无文本相关度分)。
     const maxRaw = filtered.reduce((m, r) => (r.score > m ? r.score : m), 0);
     const now = this.nowFn();
 
-    // T7:四因子重排(relevance + recency + effImp + strength),与 in-memory
-    // SearchOrchestrator 同公式同权重,让高价值记忆在宽泛搜索中浮现。
+    // T7:五因子重排(relevance + recency + effImp + strength + hotness),
+    // 与 in-memory SearchOrchestrator 同公式同权重,让高价值记忆在宽泛搜索中浮现。
     const scored = filtered
       .map((r) => {
         const relevance = maxRaw > 0 ? r.score / maxRaw : 0;
-        const score = computeFourFactorScore(
+        const score = computeFiveFactorScore(
           relevance,
           {
             importance: r.importance,
@@ -142,8 +150,18 @@ export class SqliteSearchOrchestrator {
                 : null,
             verificationStatus: r.verificationStatus,
             reinforcementScore: r.reinforcementScore,
+            // P0-2:hotness 输入(访问计数 + 访问新近度),列由 SELECT 带回
+            retrievalCount: r.retrievalCount,
+            lastRetrievedAt:
+              r.lastRetrievedAtMs != null && r.lastRetrievedAtMs > 0
+                ? new Date(r.lastRetrievedAtMs).toISOString()
+                : null,
           },
-          { now, weights: this.weights },
+          {
+            now,
+            weights: this.weights,
+            hotnessHalfLifeDays: this.hotnessHalfLifeDays,
+          },
         );
         return { r, score };
       })
@@ -186,6 +204,8 @@ export class SqliteSearchOrchestrator {
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
         e.created_at AS created_at,
         e.last_effective_at AS last_effective_at,
+        e.last_retrieved_at AS last_retrieved_at,
+        e.retrieval_count AS retrieval_count,
         e.reinforcement_score AS reinforcement_score,
         e.verification_status AS verification_status,
         bm25(engram_fts) AS fts_score
@@ -206,6 +226,8 @@ export class SqliteSearchOrchestrator {
       score: -r.fts_score,
       createdAtMs: r.created_at ?? 0,
       lastEffectiveAtMs: r.last_effective_at ?? null,
+      lastRetrievedAtMs: r.last_retrieved_at ?? null,
+      retrievalCount: r.retrieval_count ?? 0,
       reinforcementScore: r.reinforcement_score ?? 0,
       verificationStatus: r.verification_status ?? null,
     }));
@@ -233,6 +255,8 @@ export class SqliteSearchOrchestrator {
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
         e.created_at AS created_at,
         e.last_effective_at AS last_effective_at,
+        e.last_retrieved_at AS last_retrieved_at,
+        e.retrieval_count AS retrieval_count,
         e.reinforcement_score AS reinforcement_score,
         e.verification_status AS verification_status
       FROM engrams e
@@ -259,6 +283,8 @@ export class SqliteSearchOrchestrator {
       score: 0,
       createdAtMs: r.created_at ?? 0,
       lastEffectiveAtMs: r.last_effective_at ?? null,
+      lastRetrievedAtMs: r.last_retrieved_at ?? null,
+      retrievalCount: r.retrieval_count ?? 0,
       reinforcementScore: r.reinforcement_score ?? 0,
       verificationStatus: r.verification_status ?? null,
     }));
@@ -338,9 +364,12 @@ interface RawSearchRow {
   readonly importance: number;
   readonly domainTags: readonly string[];
   readonly score: number;
-  // T7:四因子重排需要(epoch ms / 原始值,search() 转 ISO 后喂 computeFourFactorScore)
+  // T7:五因子重排需要(epoch ms / 原始值,search() 转 ISO 后喂 computeFiveFactorScore)
   readonly createdAtMs: number;
   readonly lastEffectiveAtMs: number | null;
+  // P0-2:hotness 因子输入(访问计数 + 最后命中时间)
+  readonly lastRetrievedAtMs: number | null;
+  readonly retrievalCount: number;
   readonly reinforcementScore: number;
   readonly verificationStatus: string | null;
 }
@@ -354,6 +383,8 @@ interface SqliteFtsRow {
   readonly domain_tags: string | null;
   readonly created_at: number | null;
   readonly last_effective_at: number | null;
+  readonly last_retrieved_at: number | null;
+  readonly retrieval_count: number | null;
   readonly reinforcement_score: number | null;
   readonly verification_status: string | null;
   readonly fts_score: number;
@@ -368,6 +399,8 @@ interface SqliteLikeRow {
   readonly domain_tags: string | null;
   readonly created_at: number | null;
   readonly last_effective_at: number | null;
+  readonly last_retrieved_at: number | null;
+  readonly retrieval_count: number | null;
   readonly reinforcement_score: number | null;
   readonly verification_status: string | null;
 }

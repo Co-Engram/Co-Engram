@@ -81,7 +81,12 @@ describe("config.json overrides defaults (Task 1.5)", () => {
     };
     const cfg = loadConfig(original);
     expect(cfg.reinforcement).toEqual(original.reinforcement);
-    expect(cfg.search).toEqual(original.search);
+    // P0-2:hotnessHalfLifeDays 无权重和约束,normalize 安全补默认 7;
+    // hotness 权重故意不默认填充(防老四项配置权重和爆炸,见 DEFAULT_SEARCH_SECTION)
+    expect(cfg.search).toEqual({
+      ...original.search,
+      hotnessHalfLifeDays: 7,
+    });
     expect(cfg.observation).toEqual(original.observation);
   });
 });

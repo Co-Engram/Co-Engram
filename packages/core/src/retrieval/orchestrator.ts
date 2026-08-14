@@ -5,8 +5,8 @@
  *
  * 实现:
  *   - FTS 相关度(归一化到 [0,1])
- *   - 四因子打分:α·relevance + β·recency + γ·effectiveImportance + δ·strength
- *   - 权重可通过 setWeights() 配置
+ *   - 五因子打分:α·relevance + β·recency + γ·effectiveImportance + δ·strength + ε·hotness
+ *   - 权重可通过 setWeights() 配置;hotness 半衰期经 setHotnessHalfLifeDays()
  *   - 同输入同输出(prompt cache 友好)
  *
  * P2 阶段会增加:
@@ -22,10 +22,11 @@ import type { DigestLine } from "../index/types.js";
 import { buildFtsIndex, searchFts, tokenize, type FtsIndex } from "./fts.js";
 import { applyFilter } from "./filter.js";
 import {
-  computeFourFactorScore,
+  computeFiveFactorScore,
+  DEFAULT_HOTNESS_HALF_LIFE_DAYS,
   DEFAULT_WEIGHTS,
   validateWeights,
-  type FourFactorWeights,
+  type FiveFactorWeights,
 } from "./scoring.js";
 import {
   compareSortKey,
@@ -146,7 +147,8 @@ export interface SimpleSearchResult {
 export class SearchOrchestrator {
   private ftsIndex: FtsIndex | null = null;
   private lines: readonly DigestLine[] = [];
-  private weights: FourFactorWeights = DEFAULT_WEIGHTS;
+  private weights: FiveFactorWeights = DEFAULT_WEIGHTS;
+  private hotnessHalfLifeDays = DEFAULT_HOTNESS_HALF_LIFE_DAYS;
   private nowFn: () => Date = () => new Date();
 
   /**
@@ -158,18 +160,30 @@ export class SearchOrchestrator {
   }
 
   /**
-   * 配置四因子权重(默认 α=0.5, β=0.15, γ=0.25, δ=0.1,见 scoring.DEFAULT_WEIGHTS)
+   * 配置五因子权重(默认 α=0.5, β=0.15, γ=0.25, δ=0.05, ε=0.05,见 scoring.DEFAULT_WEIGHTS)
    *
    * 会校验和为 1。
    */
-  setWeights(weights: FourFactorWeights): void {
+  setWeights(weights: FiveFactorWeights): void {
     validateWeights(weights);
     this.weights = weights;
   }
 
   /** 读取当前权重 */
-  getWeights(): FourFactorWeights {
+  getWeights(): FiveFactorWeights {
     return this.weights;
+  }
+
+  /**
+   * 配置 hotness 半衰期天数(默认 7,见 scoring.DEFAULT_HOTNESS_HALF_LIFE_DAYS)
+   *
+   * P0-2(OpenViking hotness 移植):访问热度的衰减参数,与权重解耦配置。
+   */
+  setHotnessHalfLifeDays(days: number): void {
+    if (!(days > 0)) {
+      throw internalError(`hotnessHalfLifeDays must be > 0, got ${days}`);
+    }
+    this.hotnessHalfLifeDays = days;
   }
 
   /**
@@ -219,9 +233,10 @@ export class SearchOrchestrator {
       // 全部记忆(含 frozen/forgotten/refuted),与 SQLite 默认行为分裂。
       if (!applyFilter([line], filter ?? {}).includes(line)) continue;
       const relevance = maxFts > 0 ? hit.score / maxFts : 0;
-      const rawScore = computeFourFactorScore(relevance, line, {
+      const rawScore = computeFiveFactorScore(relevance, line, {
         now,
         weights: this.weights,
+        hotnessHalfLifeDays: this.hotnessHalfLifeDays,
       });
       // AI-9: 最终 score 严格 clamp01 兜底,防 reinforcementScore 累积等
       // corner case 让加权和漂移 > 1。理论值 ≤ 1,clamp 是防御性。

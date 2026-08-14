@@ -18,7 +18,10 @@ import type {
 } from "./types.js";
 import type { TrashMaintenanceConfig } from "../maintenance/types.js";
 import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_ENGINE_CONFIG } from "../reinforcement/config.js";
-import { DEFAULT_WEIGHTS } from "../retrieval/scoring.js";
+import {
+  DEFAULT_HOTNESS_HALF_LIFE_DAYS,
+  DEFAULT_WEIGHTS,
+} from "../retrieval/scoring.js";
 import { DEFAULT_EFFECTIVENESS_WINDOWS } from "../observability/effectiveness-tracker.js";
 
 /**
@@ -145,16 +148,30 @@ export const DEFAULT_REINFORCEMENT_SECTION: Readonly<
 };
 
 /**
- * 四因子检索权重默认值(从源码 DEFAULT_WEIGHTS 派生)
+ * 五因子检索权重默认值(与源码 DEFAULT_WEIGHTS 对齐)
  *
  * 字段名映射:relevance ← alpha, recency ← beta, importance ← gamma,
- * strength ← delta。源码改默认值时,config 层自动跟随。
+ * strength ← delta, hotness ← epsilon。
+ *
+ * ⚠️ hotness 权重**故意不在这里给默认值**:fillDefaults 对 search 段做
+ * 逐字段合并,若这里填 hotness=0.05,老的四项配置(和=1)在任何一次
+ * normalize 写回后都会被补上 hotness → 权重和=1.05 → 宿主启动即校验
+ * 失败。未配置 hotness 的语义交给 scoringConfigToWeights 的「strength
+ * 预算对半拆分」规则处理(等价 0.05/0.05)。
+ *
+ * strength 这里是合并预算 0.1(旧四因子时代 δ 默认),拆分后 δ=0.05;
+ * hotnessHalfLifeDays 无权重和约束,安全填充默认 7。
  */
-export const DEFAULT_SEARCH_SECTION: Readonly<Required<ScoringSectionConfig>> = {
+export const DEFAULT_SEARCH_SECTION: Readonly<
+  Required<Omit<ScoringSectionConfig, "hotness">> & {
+    readonly hotness?: number;
+  }
+> = {
   relevance: DEFAULT_WEIGHTS.alpha,
   recency: DEFAULT_WEIGHTS.beta,
   importance: DEFAULT_WEIGHTS.gamma,
-  strength: DEFAULT_WEIGHTS.delta,
+  strength: 0.1,
+  hotnessHalfLifeDays: DEFAULT_HOTNESS_HALF_LIFE_DAYS,
 };
 
 /**

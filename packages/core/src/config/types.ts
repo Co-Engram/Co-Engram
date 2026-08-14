@@ -157,13 +157,15 @@ export interface ReinforcementSectionConfig {
 }
 
 /**
- * 三因子检索权重在 config.json 中的配置
+ * 五因子检索权重在 config.json 中的配置
  *
- * 与 `packages/core/src/retrieval/scoring.ts` 的 `FourFactorWeights` 对齐,
- * 字段名改用语义化命名(relevance/recency/importance/strength)以便用户理解。
+ * 与 `packages/core/src/retrieval/scoring.ts` 的 `FiveFactorWeights` 对齐,
+ * 字段名改用语义化命名(relevance/recency/importance/strength/hotness)
+ * 以便用户理解。
  *
- * 用户在 config.json 中只需写需要调整的字段,其余自动用 spec 3.7 默认值
- * (α=0.5, β=0.2, γ=0.2, δ=0.1)。
+ * 默认值(α=0.5, β=0.15, γ=0.25, δ=0.05, ε=0.05)。未显式配置 hotness 时,
+ * strength 预算(默认 0.1)会由 scoringConfigToWeights 对半拆分给 δ/ε,
+ * 保证老的五项和=1 配置无需迁移即可启动。
  */
 export interface ScoringSectionConfig {
   /** relevance 权重(语义/关键词匹配,默认 0.5 = DEFAULT_WEIGHTS.alpha) */
@@ -172,8 +174,24 @@ export interface ScoringSectionConfig {
   readonly recency?: number;
   /** importance 权重(价值,默认 0.25 = DEFAULT_WEIGHTS.gamma) */
   readonly importance?: number;
-  /** strength 权重(用户反馈累积 reinforcementScore,默认 0.1 = DEFAULT_WEIGHTS.delta) */
+  /**
+   * strength 权重(用户反馈累积 reinforcementScore)。
+   * 这里的默认值 0.1 是「strength + hotness 合并预算」:未显式配置 hotness
+   * 时由 scoringConfigToWeights 对半拆分为 δ=0.05 / ε=0.05;显式配置
+   * hotness 后按显式值,strength 缺省用 0.05。
+   */
   readonly strength?: number;
+  /**
+   * hotness 权重(访问热度,2026-08 P0-2 新增)。
+   * **不设默认填充**(见 DEFAULT_SEARCH_SECTION 注释);不配置时自动从
+   * strength 预算对半分(等价 0.05)。设为 0 可完全关闭访问热度参与排序。
+   */
+  readonly hotness?: number;
+  /**
+   * hotness 半衰期天数(默认 7 = DEFAULT_HOTNESS_HALF_LIFE_DAYS)。
+   * 访问热度按 exp(−ln2·age/半衰期) 衰减,age 基于 lastRetrievedAt。
+   */
+  readonly hotnessHalfLifeDays?: number;
 }
 
 /**

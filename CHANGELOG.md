@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+
+- **检索五因子化——新增 hotness 访问热度因子(P0-2,OpenViking 对标)(`@co-engram/core`)**: 检索打分从四因子 `α·relevance + β·recency + γ·effImp + δ·strength` 升级为五因子 `+ ε·hotness`。hotness = `sigmoid(ln(1+retrievalCount)) · 0.5^(距上次检索天数/7)`(移植自 OpenViking `memory_lifecycle.py`),是**纯派生信号**:输入 `retrievalCount` / `lastRetrievedAt` 在每次检索命中后本就异步落盘(`engram-tools.ts` 的 fire-and-forget 路径),打分时现算,**零新增写路径、零 schema 变更、无后台衰减任务**;存量数据立即受益。与 strength 正交:strength 只经显式 reinforce/failure 累积(「被验证有效」),hotness 反映「被频繁访问」——修掉一个此前被检索 100 次但 agent 从未调 `engram_reinforce` 的记忆,排序地位与零访问完全相同的问题。频次经 log1p 对数压缩防刷(count 10→100 增量 < 0.08);7 天半衰期可经 `search.scoring.hotnessHalfLifeDays` 调整,权重经 `search.scoring.hotness`(设 0 关闭)。默认权重 δ 从 0.1 拆为 δ=0.05 + ε=0.05(分数域仍 ≤1)。**兼容性关键设计**:`hotness` 权重故意不进 `DEFAULT_SEARCH_SECTION`(fillDefaults 逐字段填充会给老的四项和=1 配置补上 hotness → 和=1.05 → 启动即校验爆炸);未显式配置 hotness 时 `scoringConfigToWeights` 把 strength 预算(默认 0.1)对半拆分给 δ/ε,老 config 无需迁移。命名:`FourFactorWeights` → `FiveFactorWeights`、`computeFourFactorScore` → `computeFiveFactorScore`(旧名保留 deprecated alias,零外部 import 断裂);`FiveFactorInput` 新增可选 `retrievalCount` / `lastRetrievedAt`。SQLite 引擎 SELECT 补 `retrieval_count` / `last_retrieved_at` 两列(列早已存在);in-memory 引擎 `DigestLine` 字段本就齐备。宿主改动:claude-code-mcp(`register.ts` opts + `mcp-server.ts` 装配)与 openclaw-plugin(`plugin-entry.ts`)各加 `scoringHotnessHalfLifeDays` 透传,无逻辑改动,两宿主测试全绿。文档:README/README.zh-CN `search.scoring` 表与示例、`docs/maintenance-engine(.zh-CN).md` 五因子公式表、`docs/architecture(.zh-CN).md` 检索路径、viewer 帮助栏 `viewer.help.ruleWeights`(i18n zh+en,顺带修正该文案既有的三因子/旧权重数字漂移)中英同步。测试:core 新增 `computeHotness` 7 场景(边界/压缩/半衰期/NaN 防御)+ 五因子排序 3 场景(访问抬升/衰减/显式关闭)+ config 兼容 4 场景(空/legacy 四项/显式/关闭),全量 core 2672 / claude-code 304 / openclaw 121 全绿;真实路径场景实测 5/5(SQLite 引擎 + `engram_search` 工具:访问 10 次 → score 0.704→0.7498 升至第一;8 天前访问 → hotness 0.917→0.415 排序回落;count 100 vs 10 差 0.033;零访问不加权;legacy 配置不炸)。spec: 对标矩阵 v3 P0「retrieval 只读不强化」改进点(团队记忆 `01KYFJQZSQNZG1CNVWXB0TAQ0Z`)。
 
 ## [0.4.0] - 2026-08-11
 
