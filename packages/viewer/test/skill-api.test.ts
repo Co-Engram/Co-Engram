@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
@@ -342,6 +342,56 @@ describe("GET /api/skills/:id", () => {
       expect(res.status).toBe(404);
       const data = JSON.parse(res.body);
       expect(data.error).toContain("Skill not found");
+    });
+  });
+});
+
+// ============================================================
+// POST /api/skills/:id/reactivate(viewer 恢复按钮)
+// ============================================================
+
+describe("POST /api/skills/:id/reactivate", () => {
+  it("forgotten skill 恢复为 active,不动 utility/统计", async () => {
+    const ctx = makeCtx(tmpDir);
+    const skill = createMockSkill({
+      skillId: "skill-forgotten",
+      sourcePath: "tools/skill-forgotten", // 相对路径 → sidecar 落在 dataRoot 内
+    });
+    const created = ctx.skillRepository.createSkill({
+      skillId: skill.skillId,
+      sourcePath: skill.sourcePath,
+      initiationSet: skill.initiationSet,
+      createdBy: skill.createdBy,
+    });
+    // 直改 imprint 为 forgotten(模拟衰退结果)
+    const sidecar = join(tmpDir, skill.sourcePath, ".co-engram", "imprint.json");
+    writeFileSync(sidecar, JSON.stringify({ ...created, retentionStage: "forgotten" }, null, 2));
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, `/api/skills/${encodeURIComponent(skill.skillId)}/reactivate`, {
+        method: "POST",
+      });
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.reactivated).toBe(true);
+      expect(data.retentionStage).toBe("active");
+
+      // 落库校验:retention active,统计与 utility 未动
+      const after = ctx.skillRepository.readSkill(skill.skillId);
+      expect(after.retentionStage).toBe("active");
+      expect(after.utility).toBe(created.utility);
+      expect(after.invocationCount).toBe(created.invocationCount);
+      expect(after.sampleSize).toBe(created.sampleSize);
+    });
+  });
+
+  it("skill 不存在时返回 404", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/skills/nonexistent/reactivate", {
+        method: "POST",
+      });
+      expect(res.status).toBe(404);
     });
   });
 });

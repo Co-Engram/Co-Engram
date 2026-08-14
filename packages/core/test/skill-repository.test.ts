@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SkillRepository } from "../src/skill/skill-repository.js";
@@ -108,5 +108,29 @@ describe("SkillRepository CRUD", () => {
     expect(after.failureCount).toBe(1);
     expect(after.successCount).toBe(0);
     expect(after.utility).toBeLessThan(0.5); // reward=0 → Rescorla-Wagner 下降
+  });
+
+  it("reactivateSkill:touch lastUsedAt 让 retention 回 active,不动 utility/统计", () => {
+    const created = repo.createSkill(input);
+    // 先制造一个 forgotten 状态(lastUsedAt=null + 从未使用,时间强度投影为 forgotten)
+    expect(created.retentionStage).toBe("active"); // createSkill 默认 active
+    // 直改 imprint 为 forgotten(模拟衰退结果)
+    const impPath = join(root, "tools", "icenter-contacts", ".co-engram", "imprint.json");
+    writeFileSync(impPath, JSON.stringify({ ...created, retentionStage: "forgotten" }, null, 2));
+    const before = repo.readSkill("icenter-contacts");
+    expect(before.retentionStage).toBe("forgotten");
+
+    const after = repo.reactivateSkill("icenter-contacts");
+    expect(after.retentionStage).toBe("active");
+    expect(after.lastUsedAt).not.toBeNull();
+    // 人工恢复不是一次"使用":统计与 utility 全部不动
+    expect(after.utility).toBe(before.utility);
+    expect(after.invocationCount).toBe(before.invocationCount);
+    expect(after.sampleSize).toBe(before.sampleSize);
+    expect(after.version).toBe(before.version + 1);
+  });
+
+  it("reactivateSkill 不存在 skillId 抛 NOT_FOUND", () => {
+    expect(() => repo.reactivateSkill("nope")).toThrow(/not found|NOT_FOUND/);
   });
 });

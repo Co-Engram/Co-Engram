@@ -157,6 +157,26 @@ export class SkillRepository {
   }
 
   /**
+   * 重新激活 forgotten/stale 技能(viewer 恢复按钮)。
+   *
+   * retentionStage 是纯派生投影(无锁字段),恢复语义 = touch lastUsedAt
+   * 让 computeRetention 回满 → retentionStage 回 active。与 recordUse 不同:
+   * 不增 invocationCount / 不动 utility 与成败统计——人工恢复不是一次"使用"。
+   */
+  reactivateSkill(skillId: string, nowMs: number = Date.now()): Skill {
+    const cur = this.readSkill(skillId);
+    const next: Skill = {
+      ...cur,
+      lastUsedAt: new Date(nowMs).toISOString(),
+      retentionStage: projectRetentionStage(computeRetention({ ...cur, lastUsedAt: new Date(nowMs).toISOString() }, nowMs)),
+      updatedAt: new Date(nowMs).toISOString(),
+      version: cur.version + 1,
+    };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /**
    * 加组合关系（去重：已存在不重复加）。返回更新后的 skill。
    */
   addCompose(skillId: string, targetSkillId: string): Skill {

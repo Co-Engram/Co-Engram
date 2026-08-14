@@ -839,6 +839,26 @@ async function routeApi(
     return;
   }
 
+  // /api/skills/:id/reactivate — 重新激活 forgotten/stale 技能(viewer 恢复按钮)
+  //
+  // retentionStage 是纯派生投影(Oblivion 衰减,无锁字段),恢复 = touch lastUsedAt
+  // 让 retention 回满 → active。不增 invocationCount、不动 utility(人工恢复不是使用)。
+  const skillReactivateMatch = /^\/api\/skills\/(.+)\/reactivate$/.exec(path);
+  if (skillReactivateMatch && req.method === "POST") {
+    const skillId = decodeURIComponent(skillReactivateMatch[1]!);
+    if (!ctx.skillRepository) {
+      respondJson(res, 503, { error: "SkillRepository not available", enabled: false });
+      return;
+    }
+    try {
+      const skill = ctx.skillRepository.reactivateSkill(skillId);
+      respondJson(res, 200, { reactivated: true, skillId, retentionStage: skill.retentionStage });
+    } catch (err) {
+      respondJson(res, 404, { error: `Skill not found: ${skillId}` });
+    }
+    return;
+  }
+
   // /api/skills/:id  (GET) — skill 详情
   const skillMatch = /^\/api\/skills\/(.+)$/.exec(path);
   if (skillMatch && req.method === "GET") {

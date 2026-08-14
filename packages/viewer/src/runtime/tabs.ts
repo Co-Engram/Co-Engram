@@ -783,7 +783,7 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<div class="field"><span class="field-label"' + CO_ENGRAM.tip('confidence') + '>' + T.fieldLabel('confidence') + '</span>' + T.formatScoreBand(d.confidence)
       + ' <span class="field-label"' + CO_ENGRAM.tip('status.' + (d.status || 'active')) + '>' + T.fieldLabel('status') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('status', d.status))
       + ' <span class="field-label"' + CO_ENGRAM.tip('freshness.' + (d.freshness || 'fresh')) + '>' + T.fieldLabel('freshness') + '</span>' + CO_ENGRAM.escapeHtml(T.enumLabel('freshness', d.freshness))
-      + (d.freshness === 'forgotten' ? ' <button class="btn mini" onclick="CO_ENGRAM_ENGRAMS.restoreFromForgotten(\\'' + engramId + '\\')">恢复</button>' : '')
+      + (d.freshness === 'forgotten' ? ' <button class="btn mini" onclick="CO_ENGRAM_ENGRAMS.restoreFromForgotten(\\'' + engramId + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.restoreBtn')) + '</button>' : '')
       + ' <span class="field-label"' + CO_ENGRAM.tip('visibility.' + (d.visibility || 'public')) + '>' + T.fieldLabel('visibility') + '</span>' + CO_ENGRAM.renderVisibilityBadge(d.visibility)
       + '</div>'
       // Task 4:visibility 快捷切换器(折叠的 <details>,默认收起)
@@ -959,7 +959,7 @@ window.CO_ENGRAM_ENGRAMS = {
    */
   async restoreFromForgotten(engramId) {
     const T = CO_ENGRAM_T;
-    if (!window.confirm('确认恢复此记忆?将清除遗忘锁定,重新进入默认检索。')) return;
+    if (!window.confirm(T.t('viewer.engram.restoreConfirm'))) return;
     try {
       await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId) + '/restore', 'POST', null);
       var updated = await CO_ENGRAM.apiJson('/api/engrams/' + encodeURIComponent(engramId), 'GET', null);
@@ -1362,7 +1362,9 @@ window.CO_ENGRAM_SKILLS = {
     const _rateStr = (_sc + _fc) > 0 ? Math.round(_sc / (_sc + _fc) * 100) + '%' : '—';
     const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code><button class="btn secondary" onclick="CO_ENGRAM_SKILLS.openDir(\\\'' + CO_ENGRAM.escapeHtml(skill.skillId) + '\\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.openDir')) + '</button></div>'
       + '<h2>' + CO_ENGRAM.escapeHtml(skill.skillId) + '</h2>'
-      + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span></div>'
+      + '<div class="field"><span class="chip" style="background:' + sc + '"' + CO_ENGRAM.tip('acquisitionStage.' + skill.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', skill.acquisitionStage)) + '</span> <span class="chip" style="background:' + rc + '"' + CO_ENGRAM.tip('retentionStage.' + skill.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', skill.retentionStage)) + '</span>'
+      + (skill.retentionStage === 'forgotten' ? ' <button class="btn mini" onclick="CO_ENGRAM_SKILLS.restoreFromForgotten(\\\'' + CO_ENGRAM.escapeHtml(skill.skillId) + '\\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.restoreBtn')) + '</button>' : '')
+      + '</div>'
       + '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + '</span> ' + ub + ' <span>' + up + '%</span></div>'
       + (skill.initiationSet ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + '</span><div style="font-size:0.9rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(skill.initiationSet) + '</div></div>' : '')
       + (skill.sourcePath ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + '</span><code>' + CO_ENGRAM.escapeHtml(skill.sourcePath) + '</code></div>' : '')
@@ -1372,6 +1374,25 @@ window.CO_ENGRAM_SKILLS = {
       + (skill.skillVersion ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '</span> v' + CO_ENGRAM.escapeHtml(skill.skillVersion) + '</div>' : '')
       + (skill.compatibility ? '<div class="field"><span class="field-label">' + CO_ENGRAM.escapeHtml(T.t('skills.compatibility')) + '</span> ' + CO_ENGRAM.escapeHtml(skill.compatibility) + '</div>' : '');
     CO_ENGRAM.openDrawer(body);
+  },
+
+  /**
+   * 恢复 forgotten 技能:touch lastUsedAt 让 retention 回满 → active。
+   * 用于详情 drawer retention 徽章旁的"恢复"按钮(与 engram 的恢复按钮对称)。
+   */
+  async restoreFromForgotten(skillId) {
+    const T = CO_ENGRAM_T;
+    if (!window.confirm(T.t('viewer.skill.restoreConfirm'))) return;
+    try {
+      await CO_ENGRAM.apiJson('/api/skills/' + encodeURIComponent(skillId) + '/reactivate', 'POST', null);
+      CO_ENGRAM_SKILLS.open(skillId);  // 重新拉详情刷新 drawer
+      try {
+        if (CO_ENGRAM._skillsPager) { await CO_ENGRAM._skillsPager.load(); }
+        CO_ENGRAM_SKILLS.applyFilter();
+      } catch {}
+    } catch (e) {
+      alert(CO_ENGRAM.escapeHtml(T.t('viewer.common.saveFailed', { err: (e.message || e) })));
+    }
   },
 
   // 后台渐进加载剩余批次
