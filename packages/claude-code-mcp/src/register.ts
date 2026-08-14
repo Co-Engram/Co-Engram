@@ -41,6 +41,8 @@ import {
   defaultCachePath,
   type ProcessLock,
   SkillRepository,
+  collectSkillCatalog,
+  type SkillCatalogEntry,
 } from "@co-engram/core";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -357,7 +359,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 20)
     .map(([t]) => t);
-  const sessionState = buildInstructionSessionState(topTags);
+  // 团队技能清单(确定性注入):实时读 SKILL.md description,forgotten 已过滤
+  const skills = collectSkillCatalog(skillRepository, config.dataRoot);
+  const sessionState = buildInstructionSessionState(topTags, skills);
   const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 2);
   const instructions = buildServerInstructions(
     language,
@@ -660,6 +664,7 @@ function extractZodShape(tool: Tool): Record<string, any> | undefined {
  */
 export function buildInstructionSessionState(
   topTags: readonly string[],
+  skills?: readonly SkillCatalogEntry[],
 ): InstructionSessionState {
   return {
     totalEngrams: 0,
@@ -667,6 +672,7 @@ export function buildInstructionSessionState(
     topTags,
     lowConfidenceTopics: [],
     missedTopics: [],
+    ...(skills && skills.length > 0 ? { skills } : {}),
   };
 }
 

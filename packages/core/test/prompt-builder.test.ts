@@ -349,3 +349,77 @@ describe("buildCoEngramMemoryPrompt / 可见性风险识别 section", () => {
     expect(tagIdx).toBeGreaterThan(riskIdx);
   });
 });
+
+// ============================================================
+// skill catalog section(确定性注入)
+// ============================================================
+
+describe("buildCoEngramMemoryPrompt / skill catalog section", () => {
+  it("skills=undefined 不注入 skill 段(基础 17 行不变)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+    });
+    expect(lines.length).toBe(17);
+  });
+
+  it("skills 空数组不注入 skill 段", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+      skills: [],
+    });
+    expect(lines.length).toBe(17);
+  });
+
+  it("skills 非空注入标题 + hint + 每条一行(zh)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "zh",
+      skills: [
+        { skillId: "demo-skill", description: "当用户需要演示时使用" },
+        { skillId: "another", description: "另一个技能" },
+      ],
+    });
+    // 17 基础 + 2(title + hint) + 2 条目
+    expect(lines.length).toBe(21);
+    const joined = lines.join("\n");
+    expect(joined).toContain("## 团队技能");
+    expect(joined).toContain("- demo-skill: 当用户需要演示时使用");
+    expect(joined).toContain("- another: 另一个技能");
+  });
+
+  it("skills 非空注入标题 + hint + 每条一行(en)", () => {
+    const lines = buildCoEngramMemoryPrompt({
+      availableTools: makeTools(["memory_search"]),
+      language: "en",
+      skills: [{ skillId: "demo-skill", description: "For demos" }],
+    });
+    const joined = lines.join("\n");
+    expect(joined).toContain("## Team Skills");
+    expect(joined).toContain("- demo-skill: For demos");
+  });
+
+  it("skillsProvider 动态调用(createPromptBuilder 工厂)", () => {
+    let callCount = 0;
+    const builder = createPromptBuilder({
+      language: "zh",
+      skillsProvider: () => {
+        callCount += 1;
+        return [{ skillId: "dyn-skill", description: "动态技能" }];
+      },
+    });
+    const lines = builder({ availableTools: makeTools(["memory_search"]) });
+    expect(callCount).toBe(1);
+    expect(lines.join("\n")).toContain("dyn-skill");
+  });
+
+  it("skillsProvider 返回空数组不注入", () => {
+    const builder = createPromptBuilder({
+      language: "zh",
+      skillsProvider: () => [],
+    });
+    const lines = builder({ availableTools: makeTools(["memory_search"]) });
+    expect(lines.length).toBe(17);
+  });
+});

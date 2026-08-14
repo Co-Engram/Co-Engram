@@ -56,6 +56,8 @@ import {
   DEFAULT_LANGUAGE,
   pathOverviewFromTree,
   formatPathOverview,
+  formatSkillCatalog,
+  collectSkillCatalog,
   type ToolContext,
   type SignalSink,
   type MaintenanceConfig,
@@ -509,6 +511,13 @@ export function registerCoEngramTools(
       proposalCountProvider: () => proposalEngine?.listPending().length ?? 0,
       pathOverviewProvider: () =>
         pathOverviewFromTree(repository.listPathTree(), 2),
+      // 团队技能清单(确定性注入):实时读 SKILL.md description,forgotten 已过滤
+      ...(ctx.skillRepository
+        ? {
+            skillsProvider: () =>
+              collectSkillCatalog(ctx.skillRepository!, effectiveDataRoot),
+          }
+        : {}),
     });
     api.registerMemoryCapability({ promptBuilder });
     // 兜底:registerMemoryCapability 是 exclusive slot,某些 coclaw 版本不调它。
@@ -538,7 +547,7 @@ export function registerCoEngramTools(
       try {
         const parts: string[] = [];
 
-        // 1. 每个 prompt 都注入 pathOverview + topTags(cache-stable,不破坏 prompt cache)。
+        // 1. 每个 prompt 都注入 pathOverview + topTags + skillCatalog(cache-stable,不破坏 prompt cache)。
         // openclaw 的 registerMemoryCapability 被 contextEngine="lossless-claw" 短路(attempt.ts:1363),
         // promptBuilder 从不被调用。appendSystemContext 是唯一可靠的 cache-stable 注入通道。
         const overview = formatPathOverview(
@@ -546,6 +555,16 @@ export function registerCoEngramTools(
           language,
         );
         if (overview) parts.push(overview);
+
+        // 团队技能清单(确定性注入,与 promptBuilder 共用 collectSkillCatalog:
+        // 实时读 SKILL.md description + forgotten 过滤;内容随 SKILL.md 变化才变,cache-stable)
+        if (ctx.skillRepository) {
+          const skillCatalog = formatSkillCatalog(
+            collectSkillCatalog(ctx.skillRepository, effectiveDataRoot),
+            language,
+          );
+          if (skillCatalog) parts.push(skillCatalog);
+        }
 
         const topTags = config.promptSignals?.topTags ?? [];
         if (topTags.length > 0) {

@@ -15,6 +15,7 @@ flowchart LR
 - Communication is over stdio (JSON-RPC 2.0)
 - The MCP server loads `@co-engram/core`, wires up tools, optionally starts the maintenance engine
 - Tools are exposed as `mcp__co-engram__<tool_name>` in the Claude Code session
+- At MCP initialize, a deterministic **team skill catalog** is injected into the system prompt (each skill's skillId + native SKILL.md description, ordered by utility, max 10 entries); skills whose `retentionStage` is `forgotten` are excluded — the list evolves automatically as the maintenance engine recomputes decay
 
 > **Single-daemon mode (default since 2026-07).** Each `co-engram-mcp` spawn thin-launches to a shared long-lived **daemon** — one `ToolContext` reused across every Claude Code session on the same data root — so the second session onward skips cold boot. The daemon auto-exits after 30 min idle. Set `CO_ENGRAM_DAEMON=0` to fall back to one-process-per-session; any daemon spawn/connect failure also falls back transparently to the in-process path. Claude Code-only — OpenClaw is unaffected. See [Environment Variables](#environment-variables).
 

@@ -25,7 +25,7 @@
  * @module @co-engram/contracts-test
  */
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,11 +34,13 @@ import {
   registerCoEngramTools,
   type CoEngramPluginHostApi,
 } from "@co-engram/openclaw";
-import type {
-  AuditLog,
-  EffectivenessTracker,
-  ProposalEngine,
-  ToolContext,
+import {
+  collectSkillCatalog,
+  SkillRepository,
+  type AuditLog,
+  type EffectivenessTracker,
+  type ProposalEngine,
+  type ToolContext,
 } from "@co-engram/core";
 
 import type { ContractResult, ContractDiff } from "./index.js";
@@ -298,6 +300,81 @@ export async function runAdapterContractTests(): Promise<ContractResult> {
           kind: "adapter",
           detail: `OC missing lifecycle handle key "${handle}"`,
         });
+      }
+    }
+
+    // ===== 契约 5:skill catalog 注入一致性(确定性注入,forgotten 过滤)=====
+    // 两端各在 tmp dataRoot 下注册相同 skill 集(2 active + 1 forgotten),
+    // collectSkillCatalog 结果必须 byte-for-byte 一致 —— 双宿主注入同一份清单。
+    const seedSkills = (dataRoot: string): void => {
+      const repo = new SkillRepository(dataRoot);
+      for (const [id, desc] of [
+        ["contract-a", "契约测试技能 A"],
+        ["contract-b", "契约测试技能 B"],
+      ] as const) {
+        const dir = join(dataRoot, "skills", id);
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(
+          join(dir, "SKILL.md"),
+          `---\nname: ${id}\ndescription: ${desc}\n---\n\nbody\n`,
+          "utf8",
+        );
+        repo.createSkill({
+          skillId: id,
+          sourcePath: `skills/${id}`,
+          initiationSet: desc,
+          createdBy: "contract",
+        });
+      }
+      // forgotten skill:目录在但 imprint 直标 forgotten
+      const dir = join(dataRoot, "skills", "contract-old");
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "SKILL.md"),
+        "---\nname: contract-old\ndescription: 过期技能\n---\n\nbody\n",
+        "utf8",
+      );
+      const old = repo.createSkill({
+        skillId: "contract-old",
+        sourcePath: "skills/contract-old",
+        initiationSet: "过期技能",
+        createdBy: "contract",
+      });
+      const impPath = join(dir, ".co-engram", "imprint.json");
+      writeFileSync(
+        impPath,
+        JSON.stringify({ ...old, retentionStage: "forgotten" }, null, 2),
+        "utf8",
+      );
+    };
+    seedSkills(ccTmp);
+    seedSkills(ocTmp);
+
+    const ccSkills = ccRuntime.ctx.skillRepository
+      ? collectSkillCatalog(ccRuntime.ctx.skillRepository, ccTmp)
+      : null;
+    const ocSkills = ocRuntime.ctx.skillRepository
+      ? collectSkillCatalog(ocRuntime.ctx.skillRepository, ocTmp)
+      : null;
+    if (ccSkills === null) {
+      diffs.push({ kind: "adapter", detail: "CC ctx.skillRepository missing — skill catalog injection impossible" });
+    }
+    if (ocSkills === null) {
+      diffs.push({ kind: "adapter", detail: "OC ctx.skillRepository missing — skill catalog injection impossible" });
+    }
+    if (ccSkills !== null && ocSkills !== null) {
+      if (JSON.stringify(ccSkills) !== JSON.stringify(ocSkills)) {
+        diffs.push({
+          kind: "adapter",
+          detail: `skill catalog diverged: CC=${JSON.stringify(ccSkills)} OC=${JSON.stringify(ocSkills)}`,
+        });
+      }
+      const ids = ccSkills.map((e) => e.skillId);
+      if (ids.includes("contract-old")) {
+        diffs.push({ kind: "adapter", detail: "forgotten skill leaked into catalog (retentionStage filter broken)" });
+      }
+      if (!ids.includes("contract-a") || !ids.includes("contract-b")) {
+        diffs.push({ kind: "adapter", detail: `active skills missing from catalog: got ${JSON.stringify(ids)}` });
       }
     }
   } finally {

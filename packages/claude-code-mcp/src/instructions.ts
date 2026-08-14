@@ -20,7 +20,9 @@
 import type { Language } from "@co-engram/core";
 import {
   formatPathOverview,
+  formatSkillCatalog,
   type PathOverviewItem,
+  type SkillCatalogEntry,
 } from "@co-engram/core";
 import type { ToolProfile } from "./tool-profile.js";
 import { PROFILE_TOOL_SETS } from "./tool-profile.js";
@@ -42,6 +44,11 @@ export interface InstructionSessionState {
   readonly lowConfidenceTopics: readonly string[];
   /** 最近遗漏话题(RPE false negative) */
   readonly missedTopics: readonly string[];
+  /**
+   * 团队技能清单(collectSkillCatalog 结果:SKILL.md 原生 description,
+   * forgotten 已过滤)。空/undefined 时不注入 skill 段。
+   */
+  readonly skills?: readonly SkillCatalogEntry[];
 }
 
 /**
@@ -214,6 +221,9 @@ function buildDynamicEn(
         .join(" ")}`,
     );
   }
+  // 团队技能清单(确定性注入,forgotten 已过滤;条数/长度由 collectSkillCatalog 预算防护)
+  const skills = formatSkillCatalog(s.skills ?? [], "en");
+  if (skills) lines.push("", skills);
   return lines.join("\n");
 }
 
@@ -248,5 +258,8 @@ function buildDynamicZh(
         .join(" ")}`,
     );
   }
+  // 团队技能清单(确定性注入,forgotten 已过滤;条数/长度由 collectSkillCatalog 预算防护)
+  const skills = formatSkillCatalog(s.skills ?? [], "zh");
+  if (skills) lines.push("", skills);
   return lines.join("\n");
 }

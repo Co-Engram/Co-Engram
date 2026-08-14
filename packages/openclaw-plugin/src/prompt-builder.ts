@@ -15,6 +15,7 @@ import {
   type BuildPromptInput,
   type PromptSignals,
   type PathOverviewItem,
+  type SkillCatalogEntry,
 } from "@co-engram/core";
 import type { Language } from "@co-engram/core";
 
@@ -55,18 +56,21 @@ export type BuildPromptInputLegacy = BuildPromptInput;
  *   - signals:固定 snapshot(plugin 注册时读取,下次重启刷新)
  *   - proposalCount:动态(每次 promptBuilder 调用时从 proposalEngine 获取)
  *   - pathOverview:动态(每次 promptBuilder 调用时取 depth=2 目录概览)
+ *   - skills:动态(每次 promptBuilder 调用时取 collectSkillCatalog 结果)
  */
 export function createCoEngramPromptBuilder(options: {
   readonly language?: Language;
   readonly signals?: PromptSignals;
   readonly proposalCountProvider?: () => number;
   readonly pathOverviewProvider?: () => readonly PathOverviewItem[];
+  readonly skillsProvider?: () => readonly SkillCatalogEntry[];
 }): MemoryPromptBuilder {
   const coreBuilder = coreCreateBuilder({
     language: options.language,
     signals: options.signals,
     proposalCountProvider: options.proposalCountProvider,
     pathOverviewProvider: options.pathOverviewProvider,
+    skillsProvider: options.skillsProvider,
   });
 
   return (params: MemoryPromptBuilderParams) => {

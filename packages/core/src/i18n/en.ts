@@ -843,6 +843,12 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "prompt.exclusivity.rule":
     "co-engram is the **single** memory write path this session. Do NOT write ~/.claude/projects/<cwd>/memory/*.md (Claude Code auto-memory) — it gets mirrored as pending proposals with visibility lost. Call engram_create directly.",
 
+  // ===== Prompt · Skill catalog (deterministic injection, forgotten filtered) =====
+  "prompt.skill.title": "## Team Skills",
+  "prompt.skill.hint":
+    "The following team skills are available on demand (skillId + trigger description; full usage in each skill's SKILL.md). Ordered by utility; expired skills excluded:",
+  "prompt.skill.entry": "- ${skillId}: ${description}",
+
   // ===== Viewer UI strings =====
   "viewer.title": "Co-Engram",
   "viewer.slogan": "Self-evolving team memory",

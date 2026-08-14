@@ -102,6 +102,8 @@ Because `openclaw.plugin.json` declares `"kind": "memory"`, OpenClaw treats Co-E
    - `lowConfidenceTopics`: tags whose engrams have `confidence < 0.4` AND `retrievalCount ≥ 2` — RPE feedback that tells the LLM "these areas are shaky, verify before citing".
    - `missedTopics`: reserved for future expansion (conversation-history mining).
 
+In addition, every prompt deterministically injects the **team skill catalog** (each skill's skillId + native SKILL.md description, ordered by utility, max 10 entries; skills whose `retentionStage` is `forgotten` are excluded). The injection goes through the `before_prompt_build` hook's `appendSystemContext` (cache-stable — content changes only when SKILL.md files change) and shares the same `collectSkillCatalog` data with the promptBuilder's skill section.
+
 The snapshot file is a cache; if absent or corrupt, the promptBuilder silently degrades to base guidance only. Deleting it forces a recompute on the next `light` tick.
 
 ```bash

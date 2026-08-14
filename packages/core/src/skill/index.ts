@@ -22,6 +22,13 @@ export { SkillRepository } from "./skill-repository.js";
 export type { RecordUseInput } from "./skill-repository.js";
 
 export {
+  collectSkillCatalog,
+  SKILL_CATALOG_MAX_ENTRIES,
+  SKILL_CATALOG_DESC_MAX_CHARS,
+} from "./skill-catalog.js";
+export type { SkillCatalogEntry } from "./skill-catalog.js";
+
+export {
   updateUtility,
   computeRetention,
   projectRetentionStage,

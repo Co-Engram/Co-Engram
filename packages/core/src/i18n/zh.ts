@@ -835,6 +835,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "prompt.exclusivity.rule":
     "co-engram 是本会话**唯一**记忆写入入口。不要写 ~/.claude/projects/<cwd>/memory/*.md(Claude Code auto-memory)——它会被镜像为待审批 proposal,visibility 归属丢失。直接调 engram_create。",
 
+  // ===== Prompt · 技能记忆清单(确定性注入,forgotten 已过滤) =====
+  "prompt.skill.title": "## 团队技能",
+  "prompt.skill.hint":
+    "以下团队技能可按需使用(skillId + 触发描述;完整用法见各技能 SKILL.md)。清单按效用排序,已排除过期技能:",
+  "prompt.skill.entry": "- ${skillId}: ${description}",
+
   // ===== 查看器 UI =====
   "viewer.title": "Co-Engram",
   "viewer.slogan": "自进化的团队记忆",

@@ -474,6 +474,7 @@ async function main(): Promise<void> {
         wrapAllToolsWithErrorBoundary,
         DEFAULT_LANGUAGE: DEFAULT_LANG,
         pathOverviewFromTree,
+        collectSkillCatalog,
       } = await import("@co-engram/core");
       const { registerCoEngramTool, buildInstructionSessionState } =
         await import("../register.js");
@@ -495,7 +496,11 @@ async function main(): Promise<void> {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 20)
         .map(([t]) => t);
-      const sessionState = buildInstructionSessionState(topTags);
+      // 团队技能清单(确定性注入,forgotten 已过滤;与 register.ts 装配对齐)
+      const skills = ctx.skillRepository
+        ? collectSkillCatalog(ctx.skillRepository, dataRoot)
+        : [];
+      const sessionState = buildInstructionSessionState(topTags, skills);
       const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 2);
       const instructions = buildServerInstructions(
         lang,

@@ -218,3 +218,59 @@ describe("buildServerInstructions / 动态 session 段", () => {
     expect(s).not.toContain("## Current state");
   });
 });
+
+describe("buildServerInstructions / skill catalog 注入", () => {
+  it("state.skills 非空时中文注入「## 团队技能」段与条目", () => {
+    const s = buildServerInstructions("zh", "standard", {
+      totalEngrams: 10,
+      pendingProposals: 0,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+      skills: [{ skillId: "demo-skill", description: "当用户需要演示时使用" }],
+    });
+    expect(s).toContain("## 团队技能");
+    expect(s).toContain("- demo-skill: 当用户需要演示时使用");
+  });
+
+  it("state.skills 非空时英文注入「## Team Skills」段与条目", () => {
+    const s = buildServerInstructions("en", "standard", {
+      totalEngrams: 10,
+      pendingProposals: 0,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+      skills: [{ skillId: "demo-skill", description: "For demos" }],
+    });
+    expect(s).toContain("## Team Skills");
+    expect(s).toContain("- demo-skill: For demos");
+  });
+
+  it("state.skills 为空数组时不注入 skill 段", () => {
+    const s = buildServerInstructions("zh", "standard", {
+      totalEngrams: 10,
+      pendingProposals: 0,
+      topTags: [],
+      lowConfidenceTopics: [],
+      missedTopics: [],
+      skills: [],
+    });
+    expect(s).not.toContain("## 团队技能");
+  });
+
+  it("满额 skills(10 条 × 60 字符)时总长仍 < 2KB(prompt-cache 预算)", () => {
+    const skills = Array.from({ length: 10 }, (_, i) => ({
+      skillId: `skill-${String(i).padStart(2, "0")}`,
+      description: "描".repeat(60),
+    }));
+    const s = buildServerInstructions("zh", "full", {
+      totalEngrams: 9999,
+      pendingProposals: 0,
+      topTags: ["a", "b", "c", "d", "e", "f", "g"],
+      lowConfidenceTopics: ["x", "y", "z", "w"],
+      missedTopics: ["m1", "m2", "m3", "m4"],
+      skills,
+    });
+    expect(s.length).toBeLessThan(2048);
+  });
+});

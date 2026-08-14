@@ -28,6 +28,8 @@ import type {
   PromptSignals,
 } from "./types.js";
 import { formatPathOverview, type PathOverviewItem } from "./path-overview.js";
+import { buildSkillSection } from "./skill-section.js";
+import type { SkillCatalogEntry } from "../skill/skill-catalog.js";
 
 export type { BuildPromptInput, PromptBuilder, PromptSignals };
 
@@ -213,6 +215,7 @@ export function buildCoEngramMemoryPrompt(
     buildExclusivitySection(language),
     buildSignalsSection(input.signals, language),
     buildProposalSection(input.proposalCount ?? 0, language),
+    buildSkillSection(input.skills, language),
   ];
 
   return sections.flat();
@@ -226,12 +229,14 @@ export function buildCoEngramMemoryPrompt(
  *   - signals:固定 snapshot(adapter 注册时读取,下次重启刷新)
  *   - proposalCount:动态(每次调用时通过 provider 获取)
  *   - pathOverview:动态(每次调用时通过 provider 获取 depth=2 目录概览)
+ *   - skills:动态(每次调用时通过 provider 获取,collectSkillCatalog 结果)
  */
 export function createPromptBuilder(options: {
   readonly language?: Language;
   readonly signals?: PromptSignals;
   readonly proposalCountProvider?: () => number;
   readonly pathOverviewProvider?: () => readonly PathOverviewItem[];
+  readonly skillsProvider?: () => readonly SkillCatalogEntry[];
 }): PromptBuilder {
   return (input: BuildPromptInput) =>
     buildCoEngramMemoryPrompt({
@@ -240,5 +245,6 @@ export function createPromptBuilder(options: {
       signals: options.signals,
       proposalCount: options.proposalCountProvider?.() ?? 0,
       pathOverview: options.pathOverviewProvider?.(),
+      skills: options.skillsProvider?.(),
     });
 }

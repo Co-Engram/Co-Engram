@@ -102,6 +102,8 @@ plugins:
    - `lowConfidenceTopics`:其 engram 的 `confidence < 0.4` 且 `retrievalCount ≥ 2` 的标签 —— 这是 RPE 反馈,告知 LLM "这些领域不稳固,引用前先验证"。
    - `missedTopics`:预留给未来扩展(对话历史挖掘)。
 
+此外,每个 prompt 还会确定性注入**团队技能清单**(每个 skill 的 skillId + SKILL.md 原生 description,按效用排序,最多 10 条;`retentionStage` 为 `forgotten` 的过期技能不注入)。注入走 `before_prompt_build` hook 的 `appendSystemContext`(cache-stable,内容随 SKILL.md 变化才变),与 promptBuilder 的 skill section 共用同一份 `collectSkillCatalog` 数据。
+
 快照文件是缓存;若缺失或损坏,promptBuilder 会静默降级为仅基础引导。删除它将强制在下一个 `light` tick 时重算。
 
 ```bash

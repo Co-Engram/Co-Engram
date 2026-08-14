@@ -15,6 +15,7 @@ flowchart LR
 - 通过 stdio(JSON-RPC 2.0)通信
 - MCP server 加载 `@co-engram/core`,装配好各工具,可选启动维护引擎
 - 工具在 Claude Code 会话中以 `mcp__co-engram__<tool_name>` 的形式暴露
+- MCP initialize 时向系统提示确定性注入**团队技能清单**(每个 skill 的 skillId + SKILL.md 原生 description,按效用排序,最多 10 条);`retentionStage` 为 `forgotten` 的过期技能不注入,随维护引擎的衰退重算自动进出清单
 
 > **单进程 daemon 模式(2026-07 起为默认)。** 每次 `co-engram-mcp` 启动会 thin-launch 到一个共享的常驻 **daemon** —— 同一 data root 上所有 Claude Code 会话复用同一个 `ToolContext` —— 因此第二个会话起跳过冷启动。daemon 空闲 30 分钟自动退出。设 `CO_ENGRAM_DAEMON=0` 回退到每会话一进程;daemon 启动 / 连接失败也会透明回退到 in-process 路径。仅 Claude Code 受影响 —— OpenClaw 不变。详见[环境变量](#环境变量)。
 

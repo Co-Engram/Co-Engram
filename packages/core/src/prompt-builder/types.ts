@@ -10,6 +10,7 @@
 import type { Language } from "../i18n/index.js";
 import type { PromptSignalSnapshot } from "../prompt-signals/types.js";
 import type { PathOverviewItem } from "./path-overview.js";
+import type { SkillCatalogEntry } from "../skill/skill-catalog.js";
 
 /**
  * 自进化信号(从 PromptSignalSnapshot 派生)
@@ -48,6 +49,13 @@ export interface BuildPromptInput {
    * 设计判断详见 `path-overview.ts` 模块注释。
    */
   readonly pathOverview?: readonly PathOverviewItem[];
+  /**
+   * 技能记忆清单(确定性注入,forgotten 已过滤)。
+   *
+   * undefined / 空数组时跳过 skill section。提供时由 host adapter 从
+   * `collectSkillCatalog()` 获取(实时读 SKILL.md description)。
+   */
+  readonly skills?: readonly SkillCatalogEntry[];
 }
 
 /**
