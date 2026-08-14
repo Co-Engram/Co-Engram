@@ -20,7 +20,10 @@
     "memory",
     "ai-memory",
     "agent-memory",
-    "engram"
+    "engram",
+    "llm",
+    "knowledge-graph",
+    "team-knowledge"
   ],
   "publishConfig": {
     "access": "public"
