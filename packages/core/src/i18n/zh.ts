@@ -961,6 +961,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.incubations.trigger.scheduled": "定时",
   "viewer.incubations.externalCalls": "外部调用 {n} 次(审计留痕)",
   "viewer.incubations.note": "备注:{note}",
+  "viewer.maintenance.insightStats.title": "洞察质量度量",
+  "viewer.maintenance.insightStats.total": "洞察提案 {n} 条",
+  "viewer.maintenance.insightStats.acceptance": "采纳率 {v}",
+  "viewer.maintenance.insightStats.laterUse": "后续使用率 {v}",
   "viewer.help.nightThinkingTitle": "夜思(Overnight Thinking)",
   "viewer.help.nightThinkingDesc": "<strong>夜思</strong>:在「更多 → 夜思实验室」播种一个问题,Agent 每夜深想一轮(也可「立即夜思」),洞察以提案呈现,审批后才成为记忆。联网调研默认关闭,需按条目开启;过程计划与轨迹完全透明。",
   "viewer.tab.health.tip":

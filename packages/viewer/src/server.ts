@@ -1035,6 +1035,78 @@ async function routeApi(
     }
   }
 
+  // /api/insight-stats —— 洞察质量度量埋点(spec §九:采纳率/后续使用率/critic 一致性基线)
+  if (path === "/api/insight-stats" && req.method === "GET") {
+    if (!ctx.proposalEngine) {
+      respondJson(res, 503, { enabled: false });
+      return;
+    }
+    const insights = ctx.proposalEngine
+      .listAll()
+      .filter((p) => p.source === "rem-insight");
+    let accepted = 0;
+    let dismissed = 0;
+    let pending = 0;
+    const criticScores: Array<{ accepted: boolean; score: number }> = [];
+    const usage: Array<{ engramId: string; retrievalCount: number; reinforcementScore: number; failedUses: number }> = [];
+    for (const p of insights) {
+      if (p.status === "accepted") {
+        accepted += 1;
+        const payload = p.payload as { criticScore?: number } | undefined;
+        criticScores.push({ accepted: true, score: payload?.criticScore ?? 0 });
+        if (p.acceptedEngramId) {
+          try {
+            const e = ctx.repository.readEngram(p.acceptedEngramId);
+            usage.push({
+              engramId: e.id,
+              retrievalCount: e.retrievalCount,
+              reinforcementScore: e.reinforcementScore,
+              failedUses: e.failedUses,
+            });
+          } catch {
+            // engram 可能已被删除
+          }
+        }
+      } else if (p.status === "dismissed") {
+        dismissed += 1;
+        const payload = p.payload as { criticScore?: number } | undefined;
+        criticScores.push({ accepted: false, score: payload?.criticScore ?? 0 });
+      } else {
+        pending += 1;
+      }
+    }
+    // 后续使用率:accepted 洞察被检索/强化过的比例(存活期第三关不是死代码的度量)
+    const used = usage.filter((u) => u.retrievalCount > 0 || u.reinforcementScore > 0).length;
+    // critic 一致性:critic 分与人工 accept 的 Pearson 相关(样本 ≥3 才有意义)
+    let criticCorrelation: number | null = null;
+    if (criticScores.length >= 3) {
+      const n = criticScores.length;
+      const xs = criticScores.map((c) => c.score);
+      const ys = criticScores.map((c): number => (c.accepted ? 1 : 0));
+      const mx = xs.reduce((a, b) => a + b, 0) / n;
+      const my = ys.reduce((a, b) => a + b, 0) / n;
+      let num = 0, dx = 0, dy = 0;
+      for (let i = 0; i < n; i++) {
+        num += (xs[i]! - mx) * (ys[i]! - my);
+        dx += (xs[i]! - mx) ** 2;
+        dy += (ys[i]! - my) ** 2;
+      }
+      criticCorrelation = dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : null;
+    }
+    respondJson(res, 200, {
+      enabled: true,
+      total: insights.length,
+      accepted,
+      dismissed,
+      pending,
+      acceptanceRate: accepted + dismissed > 0 ? accepted / (accepted + dismissed) : null,
+      laterUseRate: accepted > 0 ? used / accepted : null,
+      criticCorrelation,
+      usage,
+    });
+    return;
+  }
+
   // ============================================================
   // /api/incubations(夜思实验室,spec §四/§六)+ 异步任务 + 轮询
   // ============================================================

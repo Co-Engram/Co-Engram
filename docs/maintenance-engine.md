@@ -80,6 +80,41 @@ Since commit `d9618698` / `8433de95`, **REM does not auto-persist structural cha
 
 Proposals surface in the **Memory proposals** page of the viewer and in `engram_list_proposals`. The user explicitly accepts or dismisses each one — REM never rewrites memory on its own.
 
+## REM deep thought (2026-08)
+
+Beyond mechanical evaluation (metacognition scoring, similarity clustering), REM now runs a **deep-thought step** when event signals justify it. Three thinking modes ship in phase 1 (integration / retrospective / inspiration; four more are planned), each with an event-driven trigger, a seed selector, a prompt, and a mode-specific rubric:
+
+| Mode | Trigger signal | Thinks about |
+| ---- | -------------- | ------------ |
+| Integration | many new synapses, dense same-domain additions | cross-context common structures and themes |
+| Retrospective | `failedUses ≥ 3`, refutations | AAR causal chains (expected → actual → cause → improvement) |
+| Inspiration | new cross-domain tags (generic tags like `imported` filtered out) | structure-mapping between deliberately distant domains |
+
+Each run picks the top-K modes by signal strength (default 2; an active night-thinking entry pins inspiration to the top slot). Material selection is **seed-oriented spreading activation** over the memory graph (new / reactivated / reconnected nodes as seeds, two hops with decay, ~30-node subgraph cap) — a different layer from the five-factor query scoring, which stays query-oriented. An importance-ranked neighborhood baseline is computed alongside for ablation measurement.
+
+**Time-fallback REM runs skip deep thought entirely** (zero LLM calls): a quiet repository never burns tokens. The whole pipeline is **off by default** (`maintenance.remInsight.enabled: false`) until the critic threshold and prompts are calibrated via human blind evaluation.
+
+Three-stage validation applies to every insight:
+
+1. **Proposal time** — mechanical checks (citation closure, per-type structure, dedup by Jaccard ≥ 0.65, mode-specific structure such as disjoint domains for analogies) plus an **independent second-call critic** scoring four dimensions (evidence sufficiency / novelty / actionability / consistency) below threshold → no proposal. Hard cap of **5 insight proposals per REM run**.
+2. **Accept time** — sources must still exist and not be refuted; acceptance creates a `pattern` (or `hypothesis`) engram with `confidence = critic score` (a machine-subjective initial value, not ground truth) and a `derives_from` evidence chain.
+3. **Lifetime** — insights get no privilege: evidence-chain decay (>30% refuted/non-active endpoints lands the insight in a daily re-review digest, not a per-item proposal flood), and an insight with `failedUses ≥ 3` becomes a retrospective seed next run — the system retrospects its own output.
+
+## Night thinking (Overnight Thinking)
+
+The flagship differentiator: *feed a question before sleep; the agent thinks deeply overnight; you harvest insights on waking.*
+
+Incubation entries live in a sidecar (`.co-engram/incubations.json`) — question, optional seed memories, status (`active / in-flight / suggested-resolve / resolved / paused`), rounds, and a full timeline. Entries can be created from chat (`incubation_create`), the viewer's **Night Lab** tab, or CLI.
+
+Execution is two-tier:
+
+- **L2 agent orchestration (main path)** — a full agent session (capability inventory → plan → read-only execution → structured write-back via `incubation_report`, the only write path). On claude-code this spawns a headless `claude -p` session for scheduled runs; the conversational entry executes in your current session with the fixed protocol returned by `incubation_run`.
+- **L1 baseline (fallback)** — a single-LLM distant-analogy pass, used when no agent runtime is available or L2 fails. openclaw runs L1 in phase 1.
+
+Scheduling is **independent of REM cadence**: active entries run one round every 24 h (checked on each light tick), and immediate runs are always allowed. A cross-process in-flight lock (TTL 30 min) prevents double-counted rounds. Each round's prompt re-anchors the question and carries the full dream history (previous insights + accept/dismiss reasons) with a *deepen or pivot, do not repeat* instruction; insights too similar to history (Jaccard ≥ 0.65) are vetoed, two fully-duplicate rounds auto-pause the entry, and 5 rounds without any accepted proposal pause it for user adjudication. Accepting an insight moves the entry to `suggested-resolve`; answering "did it answer your question?" archives it (timeline preserved — the dream diary).
+
+**Privacy boundaries (hard constraints):** web research is off by default and opted in per entry; the L2 prompt carries only summary-level seed content (never raw memory text) and external calls are logged to the audit trail. The viewer shows plans and traces — process transparency is the trust source.
+
 ## The math
 
 Three quantities govern how a memory's strength evolves. Each is computed by a single authoritative function — no other path should mutate these fields.

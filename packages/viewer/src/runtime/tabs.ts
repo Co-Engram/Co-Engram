@@ -4532,6 +4532,9 @@ window.CO_ENGRAM_MAINTENANCE = {
   async render(root) {
     const T = CO_ENGRAM_T;
     root.innerHTML = '<div class="loading">' + T.t('viewer.maintenance.loading') + '</div>';
+    // 洞察质量度量(spec §九):采纳率/后续使用率/critic 一致性,失败静默不阻塞
+    let insightStats = null;
+    try { insightStats = await CO_ENGRAM.apiGet('/api/insight-stats'); } catch (_) {}
     let payload;
     try {
       payload = await CO_ENGRAM.apiGet('/api/maintenance-state');
@@ -4543,7 +4546,23 @@ window.CO_ENGRAM_MAINTENANCE = {
       root.innerHTML = '<div class="empty">' + T.t('viewer.maintenance.disabledHint') + '</div>';
       return;
     }
-    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals);
+    const insightHtml = CO_ENGRAM_MAINTENANCE.renderInsightStats(insightStats);
+    root.innerHTML = insightHtml + CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals);
+  },
+
+  renderInsightStats(st) {
+    const T = CO_ENGRAM_T;
+    if (!st || !st.enabled || !st.total) return '';
+    const pct = (v) => (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : '—');
+    return '<div class="panel" style="margin-bottom:1rem;padding:1rem 1.2rem">'
+      + '<h3 style="margin-top:0">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.title')) + '</h3>'
+      + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.5rem">'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.total', { n: st.total })) + '</span>'
+      + '<span class="chip">✅ ' + st.accepted + ' · ✗ ' + st.dismissed + ' · ⏳ ' + st.pending + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.acceptance', { v: pct(st.acceptanceRate) })) + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.laterUse', { v: pct(st.laterUseRate) })) + '</span>'
+      + (typeof st.criticCorrelation === 'number' ? '<span class="chip" title="critic score vs human accept">critic r=' + st.criticCorrelation.toFixed(2) + '</span>' : '')
+      + '</div></div>';
   },
 
   renderHtml(state, intervals) {
