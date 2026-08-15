@@ -548,6 +548,7 @@ export interface EngramListProposalsToolResult {
       | "rem-pattern"
       | "rem-synapse"
       | "rem-tag-refresh"
+      | "rem-insight"
       | "skill";
     slug?: string;
     proposedTitle?: string;
@@ -575,6 +576,12 @@ export interface EngramListProposalsToolResult {
     synapseReason?: string;
     synapseFromTitle?: string;
     synapseToTitle?: string;
+    insightMode?: string;
+    insightType?: string;
+    criticScore?: number;
+    criticRationale?: string;
+    incubationId?: string;
+    insightRound?: number;
   }>;
   readonly nextCursor: string | null;
 }

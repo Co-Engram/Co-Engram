@@ -188,7 +188,7 @@ describe("validateInsightDraft", () => {
     const existing: readonly ProposalLike[] = [
       {
         source: "rem-insight",
-        payload: { title: "跨情境主题", content: "共性结构说明 alpha beta" },
+        payload: { content: "跨情境主题 共性结构说明 alpha beta gamma delta" },
       },
     ];
     const r = validateInsightDraft(

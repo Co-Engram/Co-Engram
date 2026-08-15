@@ -47,6 +47,8 @@ import {
   writePromptSignals,
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
+import { runDeepThought, scanInsightDecay } from "./insight/run.js";
+import { DEFAULT_REM_INSIGHT } from "./insight/types.js";
 import {
   writeStageState,
   readMaintenanceState,
@@ -98,6 +100,9 @@ export class MaintenanceEngine {
       enabledStages:
         config.enabledStages ?? (["light", "deep", "rem"] as const),
       trash: config.trash ?? { enabled: false },
+      remInsight: config.remInsight
+        ? { ...DEFAULT_REM_INSIGHT, ...config.remInsight }
+        : { ...DEFAULT_REM_INSIGHT },
     };
   }
 
@@ -498,6 +503,38 @@ export class MaintenanceEngine {
         }
       }
 
+      // 2.5 REM 深度思考(spec §三/§五):事件驱动模式 top-K → 扩散激活子图 →
+      //     机械校验 + 独立 critic → rem-insight 提案(每轮硬上限 5 条)。
+      //     一期兜底 REM(无事件信号)整体跳过、零 LLM 调用;enabled 默认 false
+      //     (spec §九:人工盲评校准后才可默认开启)。单模式失败不阻塞 REM。
+      let deepThought: import("./insight/run.js").DeepThoughtReport | undefined;
+      try {
+        deepThought = await runDeepThought({
+          repository: this.deps.repository,
+          proposalEngine: this.deps.proposalEngine as import("./insight/run.js").DeepThoughtProposalSink | undefined,
+          llmClient: this.deps.llmClient,
+          lastRemAt: lastRemState?.stages.rem?.lastRunAt ?? null,
+          config: this.resolvedConfig.remInsight,
+          ...(this.deps.incubator ? { incubator: this.deps.incubator } : {}),
+        });
+      } catch {
+        // 深度思考失败不阻塞 REM 主流程
+      }
+
+      // 2.6 存活期证据链衰减监测(spec §五第三关,纯代码无 LLM):
+      //     rem-insight 洞察的 derives_from 对端 refute/非 active 占比 > 30%
+      //     → 汇入 insight-review.json 重审摘要(不逐条出提案,防泛滥)。
+      let insightDecay: import("./insight/run.js").InsightDecayItem[] | undefined;
+      try {
+        insightDecay = await scanInsightDecay(
+          this.deps.repository,
+          this.deps.dataRoot,
+          this.deps.processLock,
+        );
+      } catch {
+        // 衰减扫描失败不阻塞 REM
+      }
+
       // dreaming 模式提炼的 pattern 提案(供 viewer「上次 REM 修改」展示,
       // 补 metacognition 升级/反驳之外的「模式提炼」类型)。
       // dreamRecord.result 是 Light/Deep/Rem DreamingResult union,需收窄出 Rem 的 proposals。
@@ -530,6 +567,8 @@ export class MaintenanceEngine {
           patternProposals,
           tagRefresh,
           synapseRefine,
+          ...(deepThought ? { deepThought } : {}),
+          ...(insightDecay !== undefined ? { insightDecayCount: insightDecay.length } : {}),
         },
       };
     });

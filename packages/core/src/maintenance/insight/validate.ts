@@ -125,7 +125,7 @@ export function validateInsightDraft(
   const draftText = `${draft.title}\n${draft.content}`;
   for (const p of existingProposals) {
     if (p.source === "rem-insight" && p.payload?.content) {
-      if (contentJaccard(draftText, `${p.payload.title ?? ""}\n${p.payload.content}`) >= INSIGHT_LIMITS.jaccardDup) {
+      if (contentJaccard(draftText, p.payload.content) >= INSIGHT_LIMITS.jaccardDup) {
         return { ok: false, reason: "duplicates an existing rem-insight proposal (jaccard >= threshold)" };
       }
     }

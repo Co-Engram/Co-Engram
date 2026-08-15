@@ -21,6 +21,7 @@ import {
   DEFAULT_REM_ACTIVITY_THRESHOLD,
   DEFAULT_REM_MIN_INTERVAL_MS,
 } from "../maintenance/types.js";
+import { DEFAULT_REM_INSIGHT } from "../maintenance/insight/types.js";
 import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_ENGINE_CONFIG } from "../reinforcement/config.js";
 import {
   DEFAULT_HOTNESS_HALF_LIFE_DAYS,
@@ -61,6 +62,8 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,
+  // REM 深度思考(enabled 默认 false —— 人工盲评校准后才可默认开启,spec §九)
+  remInsight: DEFAULT_REM_INSIGHT,
 };
 
 /** Proposals 默认值 */

@@ -112,6 +112,23 @@ export interface MaintenanceDeps {
       readonly toTitle?: string;
     }): boolean;
     /**
+     * REM 深度思考洞察提案(rem-insight)。entityId 纳入轮次
+     * (mode|incubationId|round|sourceIds)防夜思回灌多轮撞幂等(spec §七)。
+     */
+    proposeInsight?(input: {
+      readonly mode: string;
+      readonly insightType: string;
+      readonly title: string;
+      readonly content: string;
+      readonly summary: string;
+      readonly domainTags: readonly string[];
+      readonly sourceIds: readonly string[];
+      readonly criticScore: number;
+      readonly criticRationale: string;
+      readonly incubationId?: string;
+      readonly round?: number;
+    }): boolean;
+    /**
      * REM 标签刷新提案(tag-refresh 产出)。全审批:用户 accept 才改 domainTags,
      * dismiss 则保持。结构同 ProposalEngine.proposeTagRefresh。
      */
@@ -174,6 +191,14 @@ export interface MaintenanceDeps {
    * 按 Oblivion 模型进行时间驱动的衰退。未注入时跳过(向后兼容)。
    */
   readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
+  /**
+   * 夜思孵化器(可选,结构类型)。REM 灵感模式与 active 条目合并执行;
+   * light 阶段尾部独立日调度(runDue,active 条目 24h 一轮,不依赖 REM 节拍)。
+   * 未注入时深度思考照常跑(无孵化合并),夜思不可用。
+   */
+  readonly incubator?: import("./insight/run.js").IncubationSource & {
+    runDue(): Promise<{ ran: readonly string[]; skipped: readonly string[] }>;
+  };
 }
 
 /** 默认配置常量 */
@@ -219,6 +244,11 @@ export interface MaintenanceConfig {
    * catch-up 不受此限制),避免高活动期 light 每 5 分钟连续烧 LLM。
    */
   readonly remMinIntervalMs?: number;
+  /**
+   * REM 深度思考配置(spec §七)。默认 enabled=false —— 人工盲评校准
+   * critic 阈值与 prompt 后才可默认开启(spec §九)。
+   */
+  readonly remInsight?: import("./insight/types.js").RemInsightConfig;
   /**
    * daily 阶段调度间隔（默认 24 小时）。
    *
