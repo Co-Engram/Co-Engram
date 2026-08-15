@@ -10,6 +10,7 @@ import {
   findTrashed,
   restoreFromTrash,
   purgeAllTrash,
+  purgeTrashed,
   readTrashed,
   formatTrashPartition,
   deriveTrashFilePaths,
@@ -500,5 +501,55 @@ describe("runDeepDreaming trash 集成", () => {
     });
     expect(r.trash).toBeNull();
     expect(repo.exists(e.id)).toBe(true); // 没被移动
+  });
+});
+
+// ============================================================
+// purgeTrashed(单条彻底清除,viewer 回收站行内按钮)
+// ============================================================
+
+describe("purgeTrashed", () => {
+  it("单条清除 → 只删该文件,其他条目保留,审计 actor=user source=purge_one", () => {
+    const auditLog = new AuditLog(tmpDir);
+    const e1 = makeEngram({ title: "A", domainTags: ["x"] });
+    const e2 = makeEngram({ title: "B", domainTags: ["y"] });
+    for (const e of [e1, e2]) {
+      repo.updateLifecycle(e.id, "forgotten", "forgotten");
+      backdateMetaMtime(e.id, 60);
+    }
+    sweepToTrash(repo, { afterDays: 30 });
+    expect(listTrashed(repo).length).toBe(2);
+
+    const before = findTrashed(repo, e1.id);
+    expect(before).not.toBeNull();
+
+    const r = purgeTrashed(repo, e1.id, { auditLog });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.partition).toBe(formatTrashPartition(new Date()));
+    expect(findTrashed(repo, e1.id)).toBeNull();
+    expect(existsSync(before!.contentPath)).toBe(false);
+    expect(listTrashed(repo).length).toBe(1); // e2 保留
+
+    const purged = auditLog.query({ engramId: e1.id, action: "purge" });
+    expect(purged.length).toBe(1);
+    expect(purged[0]!.actor).toBe("user");
+    expect(purged[0]!.metadata?.source).toBe("purge_one");
+  });
+
+  it("id 不在 trash → ok:false 不抛", () => {
+    const r = purgeTrashed(repo, "01NOT-IN-TRASH");
+    expect(r.ok).toBe(false);
+  });
+
+  it("dryRun=true → 校验存在但不删除", () => {
+    const e = makeEngram({ title: "A", domainTags: ["x"] });
+    repo.updateLifecycle(e.id, "forgotten", "forgotten");
+    backdateMetaMtime(e.id, 60);
+    sweepToTrash(repo, { afterDays: 30 });
+
+    const r = purgeTrashed(repo, e.id, { dryRun: true });
+    expect(r.ok).toBe(true);
+    expect(listTrashed(repo).length).toBe(1); // 文件仍在
   });
 });

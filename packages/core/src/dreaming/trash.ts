@@ -476,6 +476,49 @@ export function purgeAllTrash(
 }
 
 /**
+ * 单条彻底清除:从 trash 中物理删除指定 id 的 engram 文件
+ *
+ * 与 purgeAllTrash(分区粒度)相对,本函数是单文件粒度,供 viewer
+ * 回收站行内「彻底清除」按钮使用。行为:
+ *   - 找不到该 id → { ok: false, reason }(调用方决定 404)
+ *   - 删除该 .md 文件;若所在分区因此变空,best-effort 清掉空目录
+ *   - 审计 action='purge',actor='user',metadata.source='purge_one'
+ *   - dryRun=true 只校验存在性,不删
+ */
+export function purgeTrashed(
+  repo: EngramRepository,
+  engramId: string,
+  options: {
+    readonly dryRun?: boolean;
+    readonly auditLog?: AuditLog;
+    readonly actor?: "user" | "llm" | "system";
+  } = {},
+): { ok: true; partition: string } | { ok: false; reason: string } {
+  const found = findTrashed(repo, engramId);
+  if (!found) {
+    return { ok: false, reason: `not found in trash: ${engramId}` };
+  }
+  if (!options.dryRun) {
+    try {
+      rmSync(found.contentPath, { force: true });
+    } catch (err) {
+      return {
+        ok: false,
+        reason: err instanceof Error ? err.message : String(err),
+      };
+    }
+    cleanupEmptyPartition(repo, found.partition);
+    options.auditLog?.append({
+      actor: options.actor ?? "user",
+      action: "purge",
+      engramId,
+      metadata: { partition: found.partition, source: "purge_one" },
+    });
+  }
+  return { ok: true, partition: found.partition };
+}
+
+/**
  * 读取 trash 中某个 engram 的完整内容(供 UI 预览)
  *
  * 返回 frontmatter + body,以及 partition / trashedAt 元信息。

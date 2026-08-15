@@ -52,6 +52,7 @@ import {
   listTrashed,
   restoreFromTrash,
   purgeAllTrash,
+  purgeTrashed,
   readTrashed,
   readTeamMemoryConfig,
   writeTeamMemoryConfig,
@@ -1699,6 +1700,28 @@ async function routeApi(
       }
     }
     respondJson(res, 404, { error: `Not in trash: ${id}` });
+    return;
+  }
+
+  // /api/trash/:id — 单条彻底清除(物理删除该 .trash/ 文件,审计 purge;
+  // 不可逆,前端二次确认)。与 DELETE /api/trash(批量清空)区分。
+  const trashPurgeMatch = /^\/api\/trash\/([^/]+)$/.exec(path);
+  if (trashPurgeMatch && req.method === "DELETE") {
+    const id = decodeURIComponent(trashPurgeMatch[1]!);
+    if (!ctx.repository) {
+      respondJson(res, 503, { error: "Repository not available" });
+      return;
+    }
+    const result = purgeTrashed(
+      ctx.repository,
+      id,
+      ctx.auditLog ? { auditLog: ctx.auditLog } : {},
+    );
+    if (result.ok) {
+      respondJson(res, 200, { ok: true, id, partition: result.partition });
+      return;
+    }
+    respondJson(res, 404, { ok: false, error: result.reason, id });
     return;
   }
 

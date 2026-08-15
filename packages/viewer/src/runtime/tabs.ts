@@ -3836,7 +3836,8 @@ window.CO_ENGRAM_TRASH = {
         + '<div class="t-s">' + sourceBadge + ' ' + CO_ENGRAM.escapeHtml(trashedAt) + ' · <span' + partTipAttr + '>' + CO_ENGRAM.escapeHtml(formatPartitionLabel(part)) + '</span></div></div>'
         + (daysLeft != null ? '<div class="days"><b>' + daysLeft + '</b>' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.daysLeftUnit')) + '</div>' : '')
         + '<button class="btn-link" onclick="CO_ENGRAM_TRASH.preview(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.previewBtn') + '</button> '
-        + '<button class="btn" onclick="CO_ENGRAM_TRASH.restore(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.restoreBtn') + '</button>'
+        + '<button class="btn" onclick="CO_ENGRAM_TRASH.restore(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.restoreBtn') + '</button> '
+        + '<button class="btn danger" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.purgeTip')) + '" onclick="CO_ENGRAM_TRASH.purge(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.purgeBtn')) + '</button>'
         + '</div>';
     }
     html += '</div>';
@@ -3939,6 +3940,18 @@ window.CO_ENGRAM_TRASH = {
       CO_ENGRAM._trashLoaded = false;
       await this.render(document.getElementById('trash-content'));
     } catch (e) { alert(T.t('viewer.trash.restoreFailed', { err: e.message || String(e) })); }
+  },
+
+  // 单条彻底清除(2026-08):物理删除 .trash/ 中该文件,审计 action='purge';
+  // 不可逆,二次确认文案与批量清空一致强调「无法恢复」
+  async purge(id) {
+    const T = CO_ENGRAM_T;
+    if (!confirm(T.t('viewer.trash.purgeConfirm', { id }))) return;
+    try {
+      await CO_ENGRAM.apiJson('/api/trash/' + encodeURIComponent(id), 'DELETE');
+      CO_ENGRAM._trashLoaded = false;
+      await this.render(document.getElementById('trash-content'));
+    } catch (e) { alert(T.t('viewer.trash.purgeFailed', { err: e.message || String(e) })); }
   },
 
   // 永久清空:byPartition=true 只清当前筛选分区,false=清全部
