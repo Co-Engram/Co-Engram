@@ -89,9 +89,10 @@ export async function critique(
   try {
     raw = await llm.complete(prompt, {
       temperature: 0.2,
-      // 2048:思考型模型(GLM 等)会先输出 thinking 块,512 会被思考耗尽
-      // 导致 text 为空 → fail-closed 全拒(2026-08-15 真实场景验证发现)
-      maxTokens: 2048,
+      // 效果优先(2026-08-15 用户决策):critic 输出短但思考长,真实库上
+      // 2048 仍造成大量解析失败(fail-closed 拒绝);16384 + 600s 给足
+      maxTokens: 16384,
+      timeoutMs: 600_000,
     });
   } catch {
     return null; // fail-closed

@@ -191,9 +191,12 @@ export async function runDeepThought(deps: {
       );
       const raw = await deps.llmClient.complete(prompt, {
         temperature: 0.4,
-        // 思考型模型先输出 thinking 块(真实库 30 节点 prompt 实测思考即可耗
-        // 8k+),预算不足导致 text 为空或 JSON 截断(截断由 parseDrafts 抢救兜底)
-        maxTokens: 32768,
+        // GLM 等思考型模型单次 126-263s;默认 15s 会砍掉所有调用
+        timeoutMs: 600_000,
+        // 效果优先(2026-08-15 用户决策):预算给到模型上限 128k。思考型模型
+        // thinking 块即可耗尽小预算导致 text 为空或 JSON 截断(截断由
+        // parseDrafts 抢救兜底,预算给足则极少触发)
+        maxTokens: 131072,
       });
       // 别名(S1..Sn)→ 真实 id:LLM 抄写 ULID 易错,prompt 用短别名
       const aliasMap = buildAliasMap(subgraph);

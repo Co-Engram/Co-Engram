@@ -70,7 +70,7 @@ export function createL1Executor(
         seedText || "(no seeds)",
         task.dreamHistory,
       );
-      const raw = await llm.complete(prompt, { temperature: 0.5, maxTokens: 32768 });
+      const raw = await llm.complete(prompt, { temperature: 0.5, maxTokens: 131072, timeoutMs: 600_000 });
       const insights = parseDrafts(raw, "inspiration")
         .map((d) => ({
           ...d,

@@ -55,13 +55,14 @@ export class LlmPatternAbstraction implements PatternAbstractionProvider {
 
     let raw: unknown;
     try {
-      // 32768/240s:思考型模型(GLM 等)thinking 块即可耗尽 4k 预算 → text
-      // 为空 → 解析失败 → 静默降级回启发式垃圾(2026-08-15 与 insight 管线
-      // 同源修复;GLM 实测单次 126-263s)
+      // 效果优先(2026-08-15 用户决策):预算给到模型上限,不做人为收紧。
+      // 思考型模型(GLM 等)thinking 块即可耗尽小预算 → text 为空 → 解析失败
+      // → 静默降级回启发式垃圾;GLM 实测单次 126-263s,REM 为后台低频任务,
+      // 600s 超时给足。
       raw = await this.client.complete(prompt, {
-        maxTokens: 32768,
+        maxTokens: 131072,
         temperature: 0.3,
-        timeoutMs: 240_000,
+        timeoutMs: 600_000,
       });
     } catch {
       // LLM 调用失败 → 启发式兜底
