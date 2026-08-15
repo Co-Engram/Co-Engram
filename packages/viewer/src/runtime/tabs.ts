@@ -314,6 +314,11 @@ window.CO_ENGRAM_ENGRAMS = {
   // 兼容旧调用名
   setView(mode) { this.setMode(mode); },
 
+  // 展开/折叠全部目录树(details.open 批量切换)
+  treeAll(open) {
+    document.querySelectorAll('#engrams-body details').forEach(function(d) { d.open = !!open; });
+  },
+
   applyFilter() {
     const pager = CO_ENGRAM._engramsPager;
     const cache = pager ? pager.getItems() : (CO_ENGRAM._engramsCache || []);
@@ -623,7 +628,18 @@ window.CO_ENGRAM_ENGRAMS = {
     // 故这里直接用 T.t() 内联生成 title(顺带修掉原先 tip('...cumulativeCount') 的空 title)。
     const cumTitle = ' title="' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.cumulativeCount')) + '"';
 
-    // 递归渲染目录节点;每个目录都是可展开 <details>,展开后内联显示「直属文件 + 子目录」。
+    // 2026-08 改版:目录树顶部提供 展开/折叠全部(一棵整体树的全局操作)
+body.innerHTML = ''
+var treeBar = document.createElement('div');
+treeBar.className = 'filter-bar';
+treeBar.innerHTML = '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS.treeAll(true)">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.expandAll')) + '</button>'
+  + '<button class="btn mini" onclick="CO_ENGRAM_ENGRAMS.treeAll(false)">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.collapseAll')) + '</button>'
+  + '<span class="spacer"></span><span class="chip">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.tree')) + '</span>';
+body.appendChild(treeBar);
+var treeHost = document.createElement('div');
+body.appendChild(treeHost);
+body = treeHost;
+// 递归渲染目录节点;每个目录都是可展开 <details>,展开后内联显示「直属文件 + 子目录」。
     // depth=0(顶层目录)默认展开,其余默认折叠;直属文件占位由 toggle 监听器懒填充。
     const renderNode = (node, depth) => {
       const children = node.children || [];
@@ -1306,27 +1322,27 @@ window.CO_ENGRAM_SKILLS = {
     body.innerHTML = '<div class="grid cols-3">' + filtered.map(s => {
       // acquisitionStage 徽标颜色映射
       const stageColors = {
-        draft: '#94a3b8',
-        compiled: '#5eead4',
-        tuned: '#fcd34d'
+        draft: '#8B857B',
+        compiled: '#0F766E',
+        tuned: '#B45309'
       };
-      const stageColor = stageColors[s.acquisitionStage] || '#94a3b8';
+      const stageColor = stageColors[s.acquisitionStage] || '#8B857B';
 
       // retentionStage 衰退条颜色映射
       const retentionColors = {
-        active: '#5eead4',
-        aging: '#fcd34d',
-        stale: '#fb923c',
-        forgotten: '#f87171'
+        active: '#0F766E',
+        aging: '#B45309',
+        stale: '#D7730D',
+        forgotten: '#E02424'
       };
-      const retentionColor = retentionColors[s.retentionStage] || '#94a3b8';
+      const retentionColor = retentionColors[s.retentionStage] || '#8B857B';
 
       // utility 进度条 + 可信度(N<3 时 utility 不可靠 → 灰色 + 样本不足标记)
       const utilityPercent = Math.round((s.utility || 0) * 100);
       const _succ = s.successCount || 0, _fail = s.failureCount || 0;
       const _N = _succ + _fail;
       const _lowConf = _N < 3;
-      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:' + (_lowConf ? '#94a3b8' : '#5eead4') + '"></div></div>';
+      const utilityBar = '<div class="bar-track" style="width:100px;height:8px;background:#F0EDE7;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + utilityPercent + '%;background:' + (_lowConf ? '#8B857B' : '#0F766E') + '"></div></div>';
       const lowConfBadge = _lowConf ? ' <span style="font-size:0.75rem;color:var(--muted,#666)"' + CO_ENGRAM.tip('skills.lowConfidence.tip') + '>' + CO_ENGRAM.escapeHtml(T.t('skills.lowConfidence')) + '</span>' : '';
       // 成功率(替代 raw success/failure 计数:用户真正关心"靠谱吗")
       const _rate = _N > 0 ? Math.round(_succ / _N * 100) : null;
@@ -1395,12 +1411,12 @@ window.CO_ENGRAM_SKILLS = {
   // 认知科学:程序性记忆半衰期~11 月(Tatel 2025),远耐于事实记忆,但仍衰退 —— 可视化是 co-engram 差异化卖点
   _decayRisk(retentionStage, lastUsedAt) {
     const T = CO_ENGRAM_T;
-    if (retentionStage === 'forgotten') return { color: '#f87171', text: T.t('skills.decayRisk.forgotten') };
-    if (retentionStage === 'stale') return { color: '#fb923c', text: T.t('skills.decayRisk.stale') };
-    if (retentionStage === 'aging') return { color: '#fcd34d', text: T.t('skills.decayRisk.aging') };
+    if (retentionStage === 'forgotten') return { color: '#E02424', text: T.t('skills.decayRisk.forgotten') };
+    if (retentionStage === 'stale') return { color: '#D7730D', text: T.t('skills.decayRisk.stale') };
+    if (retentionStage === 'aging') return { color: '#B45309', text: T.t('skills.decayRisk.aging') };
     if (retentionStage === 'active' && lastUsedAt) {
       const days = CO_ENGRAM_SKILLS._daysSince(lastUsedAt);
-      if (days > 180) return { color: '#fcd34d', text: T.t('skills.decayRisk.soonAging', { days: days }) };
+      if (days > 180) return { color: '#B45309', text: T.t('skills.decayRisk.soonAging', { days: days }) };
     }
     return null;
   },
@@ -1422,12 +1438,12 @@ window.CO_ENGRAM_SKILLS = {
       CO_ENGRAM.openDrawer('<h2>' + CO_ENGRAM.escapeHtml(skillId) + '</h2><div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>');
       return;
     }
-    const stageColors = { draft: '#94a3b8', compiled: '#5eead4', tuned: '#fcd34d' };
-    const retentionColors = { active: '#5eead4', aging: '#fcd34d', stale: '#fb923c', forgotten: '#f87171' };
-    const sc = stageColors[skill.acquisitionStage] || '#94a3b8';
-    const rc = retentionColors[skill.retentionStage] || '#94a3b8';
+    const stageColors = { draft: '#8B857B', compiled: '#0F766E', tuned: '#B45309' };
+    const retentionColors = { active: '#0F766E', aging: '#B45309', stale: '#D7730D', forgotten: '#E02424' };
+    const sc = stageColors[skill.acquisitionStage] || '#8B857B';
+    const rc = retentionColors[skill.retentionStage] || '#8B857B';
     const up = Math.round((skill.utility || 0) * 100);
-    const ub = '<div class="bar-track" style="width:120px;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + up + '%;background:#5eead4"></div></div>';
+    const ub = '<div class="bar-track" style="width:120px;height:8px;background:#F0EDE7;border-radius:4px;overflow:hidden"><div class="bar-fill" style="width:' + up + '%;background:#0F766E"></div></div>';
     const _sc = skill.successCount || 0, _fc = skill.failureCount || 0;
     const _rateStr = (_sc + _fc) > 0 ? Math.round(_sc / (_sc + _fc) * 100) + '%' : '—';
     const body = '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.detailTitle')) + '</strong><code style="font-size:0.75rem">' + CO_ENGRAM.escapeHtml(skill.skillId) + '</code><button class="btn secondary" onclick="CO_ENGRAM_SKILLS.openDir(\\\'' + CO_ENGRAM.escapeHtml(skill.skillId) + '\\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.skill.openDir')) + '</button></div>'
@@ -2049,12 +2065,12 @@ window.CO_ENGRAM_PROPOSALS = {
           else if (remScore >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
           else if (remScore >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
           else if (remScore >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
-          else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+          else { bandKey = 'veryLow'; bandColor = '#E02424'; }
           var bandZh = T.t('viewer.proposals.rem.band.' + bandKey);
           var bandTip = T.t('viewer.proposals.rem.bandTip', { score: remScore.toFixed(2) });
 
           // 场景:反驳(红)/升级(青)
-          var sceneColor = isRefute ? '#f87171' : 'var(--accent,#5DECD9)';
+          var sceneColor = isRefute ? '#E02424' : 'var(--accent,#5DECD9)';
           var sceneLabel = T.t(isRefute ? 'viewer.proposals.rem.scene.refute' : 'viewer.proposals.rem.scene.verify');
           var reasonZh = T.t(isRefute ? 'viewer.proposals.rem.reason.refute' : 'viewer.proposals.rem.reason.verify');
 
@@ -2072,7 +2088,7 @@ window.CO_ENGRAM_PROPOSALS = {
           if (isAccepted) {
             html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '(' + CO_ENGRAM.escapeHtml(afterZh) + ')</span></div>';
           } else if (isDismissed) {
-            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
           } else {
             var acceptLabel = T.t(isRefute ? 'viewer.proposals.rem.accept.refute' : 'viewer.proposals.rem.accept.verify');
             var dismissLabel = T.t('viewer.proposals.rem.dismiss');
@@ -2104,12 +2120,12 @@ window.CO_ENGRAM_PROPOSALS = {
           else if (sConf >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
           else if (sConf >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
           else if (sConf >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
-          else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+          else { bandKey = 'veryLow'; bandColor = '#E02424'; }
           var bandZh = T.t('viewer.proposals.rem.band.' + bandKey);
           var bandTip = T.t('viewer.proposals.rem.bandTip', { score: sConf.toFixed(2) });
 
           // 场景色:add 青 / delete 红 / retype 黄
-          var sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#f87171' : '#fbbf24');
+          var sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#E02424' : '#fbbf24');
           var synapseKindLabel = T.enumLabel('synapseKind', sKind) || sKind;
           var synapseKindColor = CO_ENGRAM.edgeColor(sKind);
 
@@ -2132,7 +2148,7 @@ window.CO_ENGRAM_PROPOSALS = {
           if (isAccepted) {
             html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
           } else if (isDismissed) {
-            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
           } else {
             html += '<div style="margin-top:.55rem;display:flex;gap:.5rem">'
               + '<button class="btn mini" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</button>'
@@ -2154,7 +2170,7 @@ window.CO_ENGRAM_PROPOSALS = {
           var isAccepted = p.status === 'accepted';
           var isDismissed = p.status === 'dismissed';
 
-          var sceneColor = '#c084fc';
+          var sceneColor = '#7C3AED';
           var sceneLabel = T.t('viewer.proposals.rem.scene.tagRefresh');
 
           // oldTags → newTags diff:删除(红,删除线)/ 保留(灰)/ 新增(绿,加粗)
@@ -2175,7 +2191,7 @@ window.CO_ENGRAM_PROPOSALS = {
             + '</div>'
             + '<div style="font-size:.83rem;color:var(--fg-muted);margin:.3rem 0 .15rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.from')) + '</div>'
             + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.35rem">'
-            + removedTags.map(function (t) { return '<span class="chip" style="color:#f87171;text-decoration:line-through">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
+            + removedTags.map(function (t) { return '<span class="chip" style="color:#E02424;text-decoration:line-through">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
             + keptTags.map(function (t) { return '<span class="chip" style="opacity:.55">' + CO_ENGRAM.escapeHtml(t) + '</span>'; }).join('')
             + (removedTags.length === 0 && keptTags.length === 0 ? '<span class="chip" style="opacity:.4">∅</span>' : '')
             + '</div>'
@@ -2188,7 +2204,7 @@ window.CO_ENGRAM_PROPOSALS = {
           if (isAccepted) {
             html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
           } else if (isDismissed) {
-            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+            html += '<div class="card-meta" style="margin-top:.5rem"><span class="chip" style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
           } else {
             html += '<div style="margin-top:.55rem;display:flex;gap:.5rem">'
               + '<button class="btn mini" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.accept')) + '</button>'
@@ -2209,7 +2225,7 @@ window.CO_ENGRAM_PROPOSALS = {
         var isRemPattern = p.source === 'rem-pattern';
         var rpConf = (p.payload && typeof p.payload.remConfidence === 'number') ? p.payload.remConfidence : 0;
         var rpBandKey = rpConf >= 0.85 ? 'veryHigh' : (rpConf >= 0.7 ? 'high' : (rpConf >= 0.5 ? 'medium' : (rpConf >= 0.3 ? 'low' : 'veryLow')));
-        var rpConfColor = rpConf >= 0.7 ? '#34d399' : (rpConf >= 0.5 ? '#fbbf24' : '#f87171');
+        var rpConfColor = rpConf >= 0.7 ? '#34d399' : (rpConf >= 0.5 ? '#fbbf24' : '#E02424');
         var rpSrcN = (p.payload && p.payload.remSourceIds) ? p.payload.remSourceIds.length : 0;
         var remPatternChips = isRemPattern
           ? '<span class="chip" style="border-color:var(--accent,#5DECD9);color:var(--accent,#5DECD9)">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.pattern')) + '</span>'
@@ -2219,13 +2235,13 @@ window.CO_ENGRAM_PROPOSALS = {
         // skill 专属标识(程序性记忆提案,区别于 engram/ext-md/REM):🛠️ 醒目 chip
         var isSkill = p.source === 'skill';
         var skillChip = isSkill
-          ? '<span class="chip" style="border-color:var(--kind-procedure,#fb923c);color:var(--kind-procedure,#fb923c)">🛠️ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillBadge')) + '</span>'
+          ? '<span class="chip" style="border-color:var(--kind-procedure,#D7730D);color:var(--kind-procedure,#D7730D)">🛠️ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillBadge')) + '</span>'
           : '';
         // rem-insight 专属标识(深度思考/夜思洞察,spec §三/§五):模式 + critic 分
         var isRemInsight = p.source === 'rem-insight';
         var riMode = (p.payload && p.payload.insightMode) ? p.payload.insightMode : '';
         var riScore = (p.payload && typeof p.payload.criticScore === 'number') ? p.payload.criticScore : 0;
-        var riColor = riScore >= 0.7 ? '#34d399' : (riScore >= 0.5 ? '#fbbf24' : '#f87171');
+        var riColor = riScore >= 0.7 ? '#34d399' : (riScore >= 0.5 ? '#fbbf24' : '#E02424');
         var riHasInc = !!(p.payload && p.payload.incubationId);
         var remInsightChips = isRemInsight
           ? '<span class="chip" style="border-color:#a78bfa;color:#a78bfa">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
@@ -2256,7 +2272,7 @@ window.CO_ENGRAM_PROPOSALS = {
         if (previewClip) {
           if (isSkill) {
             // skill 的 previewClip = description(用途)——审批核心,突出显示(非通用灰色预览)
-            html += '<div style="font-size:0.9rem;margin:.15rem 0 .4rem;line-height:1.55"><span style="color:var(--kind-procedure,#fb923c);font-weight:600">📌 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.usage')) + '</span> ' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
+            html += '<div style="font-size:0.9rem;margin:.15rem 0 .4rem;line-height:1.55"><span style="color:var(--kind-procedure,#D7730D);font-weight:600">📌 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skill.usage')) + '</span> ' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
           } else {
             html += '<div style="font-size:0.82rem;color:var(--fg-muted);margin-bottom:0.4rem;line-height:1.5">' + CO_ENGRAM.escapeHtml(previewClip) + '</div>';
           }
@@ -2658,11 +2674,11 @@ window.CO_ENGRAM_PROPOSALS = {
     else if (sConf >= 0.7) { bandKey = 'high'; bandColor = '#34d399'; }
     else if (sConf >= 0.5) { bandKey = 'medium'; bandColor = '#fbbf24'; }
     else if (sConf >= 0.3) { bandKey = 'low'; bandColor = '#fbbf24'; }
-    else { bandKey = 'veryLow'; bandColor = '#f87171'; }
+    else { bandKey = 'veryLow'; bandColor = '#E02424'; }
     const bandLabel = T.t('viewer.proposals.rem.band.' + bandKey);
 
     // 场景色
-    const sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#f87171' : '#fbbf24');
+    const sceneColor = op === 'add' ? 'var(--accent,#5DECD9)' : (op === 'delete' ? '#E02424' : '#fbbf24');
     const synapseKindLabel = T.enumLabel('synapseKind', synapseKind) || synapseKind;
     const synapseKindColor = CO_ENGRAM.edgeColor(synapseKind);
 
@@ -2685,7 +2701,7 @@ window.CO_ENGRAM_PROPOSALS = {
     if (isAccepted) {
       actionBtns = '<div class="config-save-bar"><span class="chip" style="color:var(--accent)">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.applied')) + '</span></div>';
     } else if (isDismissed) {
-      actionBtns = '<div class="config-save-bar"><span class="chip" style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
+      actionBtns = '<div class="config-save-bar"><span class="chip" style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.kept')) + '</span></div>';
     } else {
       actionBtns = '<div class="config-save-bar">'
         + '<button class="btn" style="background:' + sceneColor + ';color:#050816;font-weight:600" onclick="CO_ENGRAM_PROPOSALS.acceptRem(\\'' + CO_ENGRAM.escapeHtml(entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</button>'
@@ -3282,7 +3298,7 @@ window.CO_ENGRAM_MERGES = {
     const bar = (label, count, max, color) =>
       '<div class="bar-row">' +
       '<div class="bar-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
-      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#5eead4') + '"></div></div>' +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100).toFixed(1) : 0) + '%;background:' + (color || '#0F766E') + '"></div></div>' +
       '<div class="bar-value">' + count + '</div>' +
       '</div>';
 
@@ -3312,7 +3328,7 @@ window.CO_ENGRAM_MERGES = {
       html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byStrategy') + '</h3>';
       html += '<div style="margin-bottom:1rem">';
       for (const [name, count] of strategies.slice(0, 8)) {
-        html += bar(name, count, max, '#5eead4');
+        html += bar(name, count, max, '#0F766E');
       }
       html += '</div>';
     }
@@ -3439,7 +3455,7 @@ window.CO_ENGRAM_TRASH = {
       const part = t.partition || '';
       const sourceBadge = t.source === 'soft'
         ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
-        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
+        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#0F766E;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
       const titleCell = t.title
         ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
         : '<span style="color:var(--fg-dim)">—</span>';
@@ -3510,7 +3526,7 @@ window.CO_ENGRAM_TRASH = {
     const sourceBadge = d.source === 'soft'
       ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSoft')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
       : (d.source === 'swept'
-        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#5eead4;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
+        ? '<span class="chip" style="background:rgba(94,234,212,0.12);color:#0F766E;border-color:rgba(94,234,212,0.25)" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.partitionTipSwept')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> '
         : '');
 
     // 分区显示:软删走 enumLabel,物理清空加 (swept) 后缀
@@ -4443,7 +4459,7 @@ window.CO_ENGRAM_INCUBATIONS = {
       const r = await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/run', 'POST');
       if (r.jobId) CO_ENGRAM_INCUBATIONS.poll(r.jobId, id);
     } catch (e) {
-      if (slot) slot.innerHTML = '<span style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: e.message })) + '</span>';
+      if (slot) slot.innerHTML = '<span style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: e.message })) + '</span>';
     }
   },
 
@@ -4462,7 +4478,7 @@ window.CO_ENGRAM_INCUBATIONS = {
         if (root) await CO_ENGRAM_INCUBATIONS.render(root);
       } else if (job.status === 'error') {
         clearInterval(timer);
-        if (slot) slot.innerHTML = '<span style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: job.error || '?' })) + '</span>';
+        if (slot) slot.innerHTML = '<span style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: job.error || '?' })) + '</span>';
         const root = document.getElementById('incubations-content');
         if (root) await CO_ENGRAM_INCUBATIONS.render(root);
       }
@@ -4775,7 +4791,7 @@ window.CO_ENGRAM_MAINTENANCE = {
 
       // REM 加「梦睡眠」徽章(独特语义,需要明显视觉提示)
       const dreamBadge = stage === 'rem'
-        ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(94,234,212,0.15));color:var(--accent,#5eead4);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
+        ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(94,234,212,0.15));color:var(--accent,#0F766E);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
         : '';
 
       // 顶部行:图标(带 tip)+ stage 名 + dream 徽章 + 状态徽章 + 时间
@@ -4831,7 +4847,7 @@ window.CO_ENGRAM_MAINTENANCE = {
             + ' data-before="' + CO_ENGRAM.escapeHtml(String(m.before ?? '')) + '"'
             + ' data-delta="' + (typeof m.delta === 'number' ? m.delta : '') + '"'
             + ' data-to="' + CO_ENGRAM.escapeHtml(String(m.to ?? '')) + '"'
-            + ' style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline">' + CO_ENGRAM.escapeHtml(actionText(m)) + ' · ' + CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) + '</span>';
+            + ' style="cursor:pointer;color:var(--accent,#0F766E);text-decoration:underline">' + CO_ENGRAM.escapeHtml(actionText(m)) + ' · ' + CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) + '</span>';
         }).join('、');
         if (modifiedItems.length > MAX_REM_SHOW) {
           remModifiedHtml += ' <span style="opacity:0.6">等 ' + modifiedItems.length + ' 条</span>';
@@ -4848,7 +4864,7 @@ window.CO_ENGRAM_MAINTENANCE = {
           + patternProposals.map(function(p) {
               // 点击 → 跳转到来源记忆(sourceIds[0]);data-stage=pattern 区分(app.ts 委托直跳 engram)
               var srcId = (p.sourceIds && p.sourceIds[0]) ? p.sourceIds[0] : '';
-              return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(srcId) + '" data-stage="pattern" style="cursor:pointer;color:var(--accent,#5eead4);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击查看来源记忆)">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
+              return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(srcId) + '" data-stage="pattern" style="cursor:pointer;color:var(--accent,#0F766E);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击查看来源记忆)">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
             }).join('、')
           + '</div>';
       }
