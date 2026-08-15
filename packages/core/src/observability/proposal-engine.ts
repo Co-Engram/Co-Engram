@@ -415,6 +415,16 @@ export class ProposalEngine {
   private readonly necessityEvaluator: NecessityEvaluator;
   private readonly skillRepository?: SkillRepository;
   /**
+   * 空文件 noise_filtered 已记录过的 sourcePath 集合(内存去重)。
+   *
+   * 背景(2026-08 修复):IDE 新建的空文件会持续触发 watcher(每次编辑器
+   * 保存/聚焦都可能再 fire),旧实现每次都写一条 noise_filtered audit ——
+   * 实测同一空文件每 2 秒刷一条,audit.jsonl 被淹没,viewer 动态流/审计
+   * tab 全是同一行。这里保证每个空路径只记一次;文件有实质内容真正进入
+   * 提案流程时从集合移除,再次变空可再记一次。
+   */
+  private readonly emptyNoiseLogged = new Set<string>();
+  /**
    * 默认创建者(host adapter 注入的 git author:user.name > user.email)。
    *
    * accept 内部 createdBy 兜底链:
@@ -2080,18 +2090,25 @@ export class ProposalEngine {
       // watcher 再次触发才生成。仅作用于"首次生成";已 pending 提案的内容
       // 刷新走 proposeExternalMarkdown 的 existing(upsert)分支,不受此拦截影响。
       if (raw.trim().length === 0) {
-        this.auditLog.append({
-          actor: "system",
-          action: "noise_filtered",
-          metadata: {
-            entityId: externalMarkdownEntityId(relPath),
-            source: "external-markdown",
-            sourcePath: relPath,
-            reason: "empty-content",
-          },
-        });
+        // 去重:同一路径只记一次空文件噪声(见 emptyNoiseLogged 注释),
+        // 后续 watcher 重复触发静默跳过,不再刷 audit。
+        if (!this.emptyNoiseLogged.has(relPath)) {
+          this.emptyNoiseLogged.add(relPath);
+          this.auditLog.append({
+            actor: "system",
+            action: "noise_filtered",
+            metadata: {
+              entityId: externalMarkdownEntityId(relPath),
+              source: "external-markdown",
+              sourcePath: relPath,
+              reason: "empty-content",
+            },
+          });
+        }
         return;
       }
+      // 文件已有实质内容:清掉空文件噪声标记,此后若再变空可再记一次
+      this.emptyNoiseLogged.delete(relPath);
 
       // 路径 1:合法 engram(有 frontmatter 且含 title + kind)→ 现有同步逻辑
       if (parsed) {

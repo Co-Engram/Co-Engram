@@ -77,31 +77,32 @@ CO_ENGRAM.on('stats', async function() {
   let html = '<div class="ov-stats-block">'
     + '<div class="ov-kpi-row">'
     + kpi(T.t('viewer.stats.totalEngrams'), String(totalEngrams), engramsSub, 'engrams', T.t('viewer.stats.totalEngramsTip'), weekly > 0 ? T.t('viewer.stats.weeklyNew', { n: weekly }) : '')
-    + kpi(T.t('viewer.stats.totalSynapses'), String(data.totalSynapses || 0), '', 'graph', null, '')
-    + kpi(T.t('viewer.stats.totalSkills'), String(data.totalSkills || 0), '', 'skills', T.t('viewer.stats.totalSkillsTip'), '')
-    + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', null, '')
+    + kpi(T.t('viewer.stats.totalSynapses'), String(data.totalSynapses || 0), '', 'graph', null,
+        (data.weeklyNewSynapses || 0) > 0 ? T.t('viewer.stats.weeklyNew', { n: data.weeklyNewSynapses }) : '')
+    + kpi(T.t('viewer.stats.totalSkills'), String(data.totalSkills || 0), '', 'skills', T.t('viewer.stats.totalSkillsTip'),
+        (data.weeklyNewSkills || 0) > 0 ? T.t('viewer.stats.weeklyNew', { n: data.weeklyNewSkills }) : '')
+    + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', null,
+        (data.weeklyRetrievals || 0) > 0 ? T.t('viewer.stats.weeklyRetrievals', { n: data.weeklyRetrievals }) : '')
     // 第五框:技能调用(与印迹检索分开统计,DEMO g2-overview 五格 KPI)
     + kpi(T.t('viewer.stats.skillInvocations'), String(data.totalSkillInvocations || 0),
         (data.totalSkillInvocations || 0) > 0 ? T.t('viewer.stats.skillSuccessRate', { pct: skillPct }) : '', 'skills',
-        T.t('viewer.stats.skillInvocationsTip'), '')
+        T.t('viewer.stats.skillInvocationsTip'),
+        (data.weeklySkillInvocations || 0) > 0 ? T.t('viewer.stats.weeklyInvocations', { n: data.weeklySkillInvocations }) : '')
     + '</div>';
 
-  // ---- 记忆脉搏(30 天柱状,峰值高亮;服务端已补零,直接等宽渲染) ----
-  const pulse = data.createdLast30d || [];
+  // ---- 记忆更新(30 天逐日,新增或内容有更新;无峰值高亮,点击柱子弹当日明细) ----
+  const pulse = data.updatesLast30d || data.createdLast30d || [];
   if (pulse.length) {
     const maxCount = Math.max(1, ...pulse.map(d => d.count || 0));
-    let peakIdx = 0;
-    pulse.forEach((d, i) => { if ((d.count || 0) > (pulse[peakIdx].count || 0)) peakIdx = i; });
-    const peak = pulse[peakIdx];
     html += '<div class="ov-pulse-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle'))
       + '<small>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseSub')) + '</small></div>'
-      + '<div class="ov-pulse" role="img" aria-label="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle')) + '">';
+      + '<div class="ov-pulse ov-pulse-clickable" role="listbox" aria-label="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle')) + '">';
     pulse.forEach((d) => {
       const h = Math.max(3, Math.round(((d.count || 0) / maxCount) * 100));
-      html += '<i style="height:' + h + '%"' + (d.count ? ' title="' + d.date + ' · ' + d.count + '"' : '') + (d === peak ? ' class="hot"' : '') + '></i>';
+      html += '<i style="height:' + h + '"' + (d.count ? ' title="' + d.date + ' · ' + d.count + '"' : '')
+        + (d.count ? ' role="option" tabindex="0" onclick="CO_ENGRAM.showDayPopup(\\'' + d.date + '\\')"' : '') + '></i>';
     });
     html += '</div><div class="ov-pulse-axis"><span>' + pulse[0].date.slice(5) + '</span>'
-      + (peak && peak.count ? '<span class="peak">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulsePeak', { date: peak.date.slice(5), n: peak.count })) + '</span>' : '')
       + '<span>' + pulse[pulse.length - 1].date.slice(5) + '</span></div>';
   }
   html += '</div>';
@@ -126,28 +127,34 @@ CO_ENGRAM.on('stats', async function() {
       + '<span class="ov-heat-val">' + t.count + '</span></div>';
   });
 
-  // 检索热点(topRetrieved)
+  // 检索热点(topRetrieved):行内 kind 彩色小徽标(DEMO kd-mini)+ 点击标题开详情
   const hot = data.topRetrieved || [];
+  // 类型徽标 + 可点标题:点击打开印迹详情抽屉(openEngramDetail 内部阻断冒泡,
+  // 防触发整卡展开;onclick 字符串保持纯 MODULE.method 形态 —— 交互契约
+  // 测试禁止 inline handler 引用裸 event 标识符)
+  const topRowMeta = (e) => {
+    const kindLabel = T.enumLabel('kind', e.kind) || e.kind || '';
+    const kindTip = CO_ENGRAM.tip('kind.' + e.kind) || '';
+    return '<span class="chip kind-' + CO_ENGRAM.escapeHtml(e.kind) + ' kd-mini"' + kindTip + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
+      + '<span class="ov-top-title" onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + CO_ENGRAM.escapeHtml(e.title) + '</span>';
+  };
   let hotRows = '', hotMore = '';
   hot.slice(0, 5).forEach(e => {
-    hotRows += '<div class="ov-top-row"><span class="chip kind-dot-' + e.kind + '"></span>'
-      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+    hotRows += '<div class="ov-top-row">' + topRowMeta(e)
       + '<span class="ov-top-val"><b>' + e.retrievalCount + '</b> ' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.retrievalsShort', { n: e.retrievalCount }).replace(String(e.retrievalCount), '').trim()) + '</span></div>';
   });
   hot.slice(5, 20).forEach(e => {
-    hotMore += '<div class="ov-top-row ov-more-rows"><span class="chip kind-dot-' + e.kind + '"></span>'
-      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+    hotMore += '<div class="ov-top-row ov-more-rows">' + topRowMeta(e)
       + '<span class="ov-top-val"><b>' + e.retrievalCount + '</b></span></div>';
   });
 
-  // 冷却榜(topCooling):最久未取用 · 重要度
+  // 冷却榜(topCooling):最久未取用 · 重要度(同样带 kind 徽标 + 可点标题)
   const cool = data.topCooling || [];
   const dayMs = 86400000;
   let coolRows = '', coolMore = '';
   const coolRow = (e) => {
     const days = e.lastRetrievedAt ? Math.max(1, Math.floor((Date.now() - e.lastRetrievedAt) / dayMs)) : null;
-    return '<div class="ov-top-row"><span class="chip kind-dot-' + e.kind + '"></span>'
-      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+    return '<div class="ov-top-row">' + topRowMeta(e)
       + '<span class="ov-top-val ov-cool">' + (days ? CO_ENGRAM.escapeHtml(T.t('viewer.stats.daysAgo', { n: days })) : CO_ENGRAM.escapeHtml(T.t('viewer.stats.neverRetrieved'))) + ' · ' + e.importance.toFixed(2) + ' ▾</span></div>';
   };
   cool.slice(0, 5).forEach(e => { coolRows += coolRow(e); });
@@ -164,10 +171,24 @@ CO_ENGRAM.on('stats', async function() {
   contribArr.slice(0, 5).forEach((c, i) => { contribRows += contribRow(c, i); });
   contribArr.slice(5, 20).forEach((c, i) => { contribMore += contribRow(c, i + 5); });
 
+  // 贡献热度排行(2026-08):以人为单位,记忆被检索次数 + 技能被调用次数
+  const heatArr = data.topContributorHeat || [];
+  const heatMax = heatArr.length ? Math.max(1, ...heatArr.map(c => c.total || 0)) : 1;
+  let heatRows = '', heatMore = '';
+  const heatRow = (c, i) => '<div class="ov-contrib-row"><span class="ov-rank">' + (i + 1) + '</span>'
+    + '<span class="ov-contrib-name">' + CO_ENGRAM.escapeHtml(c.actor) + '<small>'
+    + CO_ENGRAM.escapeHtml(T.t('viewer.stats.heatRetrievalsShort', { n: c.retrievalCount })) + ' · '
+    + CO_ENGRAM.escapeHtml(T.t('viewer.stats.heatSkillShort', { n: c.skillInvocations })) + '</small></span>'
+    + '<span class="ov-contrib-bar"><span style="width:' + ((c.total / heatMax) * 100).toFixed(1) + '%"></span></span>'
+    + '<span class="ov-contrib-val">' + c.total + '</span></div>';
+  heatArr.slice(0, 5).forEach((c, i) => { heatRows += heatRow(c, i); });
+  heatArr.slice(5, 20).forEach((c, i) => { heatMore += heatRow(c, i + 5); });
+
   const sideCol = expandCard(T.t('viewer.stats.domainHeat'), T.t('viewer.stats.domainHeatSub'), tagRows + '<div class="ov-more-wrap">' + tagMore + '</div>', 'ov-card-heat')
     + (hot.length ? expandCard(T.t('viewer.stats.monthlyHot'), T.t('viewer.stats.monthlyHotSub'), hotRows + '<div class="ov-more-wrap">' + hotMore + '</div>', 'ov-card-hot') : '')
     + (cool.length ? expandCard(T.t('viewer.stats.monthlyCool'), T.t('viewer.stats.monthlyCoolSub'), coolRows + '<div class="ov-more-wrap">' + coolMore + '</div>', 'ov-card-cool') : '')
-    + (contribArr.length ? expandCard(T.t('viewer.stats.contributorRanking2'), '', contribRows + '<div class="ov-more-wrap">' + contribMore + '</div>', 'ov-card-contrib') : '');
+    + (contribArr.length ? expandCard(T.t('viewer.stats.contributorRanking2'), '', contribRows + '<div class="ov-more-wrap">' + contribMore + '</div>', 'ov-card-contrib') : '')
+    + (heatArr.length ? expandCard(T.t('viewer.stats.contributorHeat'), T.t('viewer.stats.contributorHeatSub'), heatRows + '<div class="ov-more-wrap">' + heatMore + '</div>', 'ov-card-heat-rank') : '');
 
   // ---- 布局:左列(KPI+脉搏+动态) + 右列(榜单) ----
   // ov-search-mount:搜索栏挂载点,位于统计块与动态流之间(DEMO sline 位)。
@@ -208,9 +229,12 @@ CO_ENGRAM.on('stats', async function() {
     CO_ENGRAM.setProposalsBadge(data.pendingProposals || 0);
   }
 
-  // ---- 记忆动态:audit 事件流(limit=50,游标语义;渲染为按天分组的轻量时间线) ----
+  // ---- 记忆动态:audit 事件流(服务端按动作过滤,防止高频噪声
+  // (noise_filtered 等)占满 limit=50 把有效事件挤光 —— 2026-08 修复
+  // 「记忆动态为空」:此前客户端过滤,50 条全噪声时渲染结果为空串) ----
   try {
-    const auditData = await CO_ENGRAM.apiGet('/api/audit?limit=50');
+    const feedActions = Object.keys(CO_ENGRAM.FEED_ACTIONS).join(',');
+    const auditData = await CO_ENGRAM.apiGet('/api/audit?action=' + encodeURIComponent(feedActions) + '&limit=50');
     CO_ENGRAM.renderFeed(document.getElementById('ov-feed'), (auditData && auditData.results) || []);
   } catch (e) {
     const feedEl = document.getElementById('ov-feed');
@@ -222,6 +246,20 @@ CO_ENGRAM.on('stats', async function() {
 CO_ENGRAM.toggleTopCard = function(id) {
   var card = document.getElementById(id);
   if (card) card.classList.toggle('expanded');
+};
+
+// 打开印迹详情抽屉(热点/冷却/当日弹卡行共用)。
+// 阻断冒泡用 window.event(Chrome inline handler 语义),onclick 属性里
+// 不出现裸 event 标识符 —— 交互契约测试(interaction-contract)要求
+// inline handler 只引用已挂载的 MODULE.method。
+CO_ENGRAM.openEngramDetail = function(id) {
+  try {
+    if (window.event && window.event.stopPropagation) window.event.stopPropagation();
+  } catch (_) { /* 非浏览器/无事件上下文时忽略 */ }
+  const pop = document.getElementById('day-popup');
+  if (pop) pop.remove(); // 从当日弹卡进入时随手关掉弹卡
+  CO_ENGRAM.showTab('engrams');
+  setTimeout(function() { CO_ENGRAM_ENGRAMS.open(id); }, 50);
 };
 
 // 记忆动态渲染:按天分组 + 动作色点。只展示用户关心的动作子集,
@@ -265,7 +303,55 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       + '</div><div class="ov-feed-meta">' + CO_ENGRAM.escapeHtml(e.action) + ' · ' + CO_ENGRAM.escapeHtml(e.actor || '') + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div></div></div>';
   }
   if (lastDay !== '') html += '</div>';
-  root.innerHTML = html;
+  // 客户端仍可能全被过滤掉(服务端动作集合内的条目缺 metadata 等):
+  // 显示空态而非空串(2026-08 修复「记忆动态为空」另一半)
+  root.innerHTML = html || '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedEmpty')) + '</div>';
+};
+
+// 当日记忆弹卡(记忆更新图点击某天):拉 /api/updates?date=,浮层列出当日
+// 新增/内容更新实体;印迹行可点开详情抽屉。点遮罩或 ✕ 关闭。
+CO_ENGRAM.showDayPopup = async function(date) {
+  const T = CO_ENGRAM_T;
+  let pop = document.getElementById('day-popup');
+  if (pop) pop.remove();
+  pop = document.createElement('div');
+  pop.id = 'day-popup';
+  pop.className = 'day-pop';
+  pop.innerHTML = '<div class="day-pop-card"><button class="day-pop-close" aria-label="' + CO_ENGRAM.escapeHtml(T.t('action.close')) + '">✕</button>'
+    + '<h3>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.dayPopupTitle', { date })) + '</h3>'
+    + '<div class="day-pop-body"><div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div></div></div>';
+  document.body.appendChild(pop);
+  const close = () => pop.remove();
+  pop.addEventListener('click', (ev) => { if (ev.target === pop) close(); });
+  pop.querySelector('.day-pop-close').addEventListener('click', close);
+
+  const body = pop.querySelector('.day-pop-body');
+  try {
+    const data = await CO_ENGRAM.apiGet('/api/updates?date=' + encodeURIComponent(date));
+    const items = (data && data.items) || [];
+    if (!items.length) {
+      body.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.dayPopupEmpty')) + '</div>';
+      return;
+    }
+    const typeKey = { engram: 'viewer.stats.itemEngram', synapse: 'viewer.stats.itemSynapse', skill: 'viewer.stats.itemSkill' };
+    let html = '';
+    for (const it of items) {
+      const actionLabel = T.t(it.action === 'created' ? 'viewer.stats.itemCreated' : 'viewer.stats.itemUpdated');
+      const kindLabel = it.kind && it.type === 'engram' ? (T.enumLabel('kind', it.kind) || it.kind) : it.kind;
+      const openAttr = it.type === 'engram' && it.id
+        ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(it.id) + '\\')"'
+        : '';
+      html += '<div class="day-pop-item' + (openAttr ? ' clickable' : '') + '"' + openAttr + '>'
+        + '<span class="day-pop-type t-' + CO_ENGRAM.escapeHtml(it.type) + '">' + CO_ENGRAM.escapeHtml(T.t(typeKey[it.type] || 'viewer.stats.itemEngram')) + '</span>'
+        + '<span class="day-pop-title">' + CO_ENGRAM.escapeHtml(it.title || it.id) + '</span>'
+        + (kindLabel ? '<span class="chip kind-' + CO_ENGRAM.escapeHtml(it.kind) + ' kd-mini">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>' : '')
+        + '<span class="day-pop-act">' + CO_ENGRAM.escapeHtml(actionLabel) + '</span>'
+        + '</div>';
+    }
+    body.innerHTML = html;
+  } catch (e) {
+    body.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>';
+  }
 };
 
 // ============================================================

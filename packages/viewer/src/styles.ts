@@ -130,8 +130,11 @@ body {
   font-weight: 600;
   letter-spacing: 0.04em;
 }
-.brand-logo { width: 40px; height: 40px; flex-shrink: 0; }
+/* 品牌徽标(2026-08 用户反馈):当前为浅色纸面主题,只显示 light 变体;
+   dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。尺寸放大一倍(40→80)。 */
+.brand-logo { width: 80px; height: 80px; flex-shrink: 0; }
 .brand-logo svg { width: 100%; height: 100%; }
+.brand-logo-dark { display: none; }
 
 .side-sec {
   font-size: 0.7rem;
@@ -350,8 +353,33 @@ body {
 .ov-pulse { display: flex; align-items: flex-end; gap: 3px; height: 50px; }
 .ov-pulse i { flex: 1; background: var(--panel-bg-alt); border-radius: 2px 2px 0 0; min-height: 3px; }
 .ov-pulse i.hot { background: var(--accent); }
+/* 记忆更新(2026-08):每日数量,无峰值高亮;有数据的柱子可点弹当日明细 */
+.ov-pulse.ov-pulse-clickable i[role="option"] { cursor: pointer; background: color-mix(in srgb, var(--accent) 42%, var(--panel-bg-alt)); }
+.ov-pulse.ov-pulse-clickable i[role="option"]:hover { background: var(--accent); }
 .ov-pulse-axis { display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--fg-dim); margin-top: 0.3rem; }
 .ov-pulse-axis .peak { color: var(--accent); font-weight: 600; }
+
+/* 当日记忆弹卡(记忆更新图点击) */
+.day-pop { position: fixed; inset: 0; background: rgba(45, 42, 38, 0.32); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+.day-pop-card { background: var(--panel-bg, #fff); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 18px 50px rgba(45, 42, 38, 0.22); width: 520px; max-width: 92vw; max-height: 70vh; display: flex; flex-direction: column; padding: 1.1rem 1.3rem; position: relative; }
+.day-pop-card h3 { margin: 0 2rem 0.7rem 0; font-size: 1rem; }
+.day-pop-close { position: absolute; top: 0.8rem; right: 0.8rem; background: transparent; border: none; cursor: pointer; color: var(--fg-dim); font-size: 0.9rem; padding: 0.2rem 0.4rem; border-radius: 6px; }
+.day-pop-close:hover { background: var(--chip-bg); color: var(--fg); }
+.day-pop-body { overflow-y: auto; }
+.day-pop-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.42rem 0.2rem; border-bottom: 1px dotted var(--border); font-size: 0.8rem; }
+.day-pop-item:last-child { border-bottom: none; }
+.day-pop-item.clickable { cursor: pointer; }
+.day-pop-item.clickable:hover .day-pop-title { color: var(--accent); }
+.day-pop-type { font-size: 0.66rem; font-weight: 600; border-radius: 5px; padding: 1px 6px; flex-shrink: 0; }
+.day-pop-type.t-engram { background: rgba(15, 118, 110, 0.12); color: var(--accent); }
+.day-pop-type.t-synapse { background: rgba(37, 99, 235, 0.12); color: #2563EB; }
+.day-pop-type.t-skill { background: rgba(124, 58, 237, 0.12); color: #7C3AED; }
+.day-pop-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--fg); }
+.day-pop-act { font-size: 0.68rem; color: var(--fg-dim); flex-shrink: 0; }
+
+/* 榜单行内类型小徽标(DEMO kd-mini):覆盖 .chip 默认内边距,缩成小方徽标 */
+.chip.kd-mini { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; flex-shrink: 0; align-self: center; line-height: 1.5; }
+.ov-top-row .ov-top-title { cursor: pointer; }
 
 .ov-feed-h { font-size: 1.05rem; font-weight: 700; margin: 1.3rem 0 0.6rem; display: flex; align-items: baseline; gap: 0.6rem; }
 .ov-feed-h small { font-weight: 400; color: var(--fg-dim); font-size: 0.72rem; }
@@ -1157,7 +1185,12 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
   backdrop-filter: blur(24px) saturate(140%);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   border-left: 1px solid var(--border-strong);
-  box-shadow: -20px 0 60px rgba(45, 42, 38, 0.18), -1px 0 0 var(--accent);
+  /* 2026-08 用户反馈:去掉旧阴影里的 -1px accent 绿线(纸面主题下突兀);
+     改为中性分层投影 + 细渐变,拉开与主区的层次而不抢色。 */
+  box-shadow:
+    -1px 0 0 rgba(45, 42, 38, 0.06),
+    -8px 0 24px rgba(45, 42, 38, 0.08),
+    -24px 0 64px rgba(45, 42, 38, 0.14);
   transform: translateX(100%);
   transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;

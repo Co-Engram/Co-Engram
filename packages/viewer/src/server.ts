@@ -303,7 +303,12 @@ export function startViewerServer(
   const maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
   const token = config.token;
   const language = config.language ?? DEFAULT_LANGUAGE;
-  const dataRoot = config.dataRoot;
+  // dataRoot 兜底(2026-08 修复):config 未显式传时取 ctx.repository.rootPath。
+  // 修复场景:standalone-viewer 等宿主只把 dataRoot 传给 createCoEngramMcpServer,
+  // 不传 viewer config —— /api/stats 走 repository 正常,但 /api/status 读到
+  // 空 dataRoot 报「未配置」,健康检查 tab 整页空白。repository.rootPath 是
+  // 实际生效的根,作为兜底语义等价;两者同时缺省时保持首装 bootstrap 流程。
+  const dataRoot = config.dataRoot ?? ctx.repository?.rootPath;
 
   return tryListen(
     ctx,
@@ -475,6 +480,19 @@ async function routeApi(
   // /api/stats
   if (path === "/api/stats" && req.method === "GET") {
     respondJson(res, 200, getStats(ctx));
+    return;
+  }
+
+  // /api/updates?date=YYYY-MM-DD — 概览「记忆更新」图某一天的明细
+  // (新增或内容有更新的印迹/突触/技能;口径与 /api/stats.updatesLast30d 一致)。
+  // 供点击柱状图后的当日记忆卡片;单日量小,标题批量从 SQLite 查(一次 IN 查询)。
+  if (path === "/api/updates" && req.method === "GET") {
+    const date = url.searchParams.get("date") ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !ctx.auditLog) {
+      respondJson(res, 200, { enabled: false, date, items: [] });
+      return;
+    }
+    respondJson(res, 200, getUpdatesForDay(ctx, date));
     return;
   }
 
@@ -2185,7 +2203,7 @@ function pruneTreeForJson(
 // Helpers
 // ============================================================
 
-interface StatsResponse {
+interface StatsBaseResponse {
   /**
    * 主索引全部 engram 行数(含 active/archived/forgotten/draft)。
    *
@@ -2215,7 +2233,7 @@ interface StatsResponse {
   // === 2026-08 概览改版新增 ===
   /** 近 7 天新建 engram 数(周增量) */
   readonly weeklyNewEngrams: number;
-  /** 近 30 天逐日新建数(记忆脉搏;date=YYYY-MM-DD,缺失日已补 0) */
+  /** 近 30 天逐日新建(audit 缺失时作 updatesLast30d 退化数据源) */
   readonly createdLast30d: ReadonlyArray<{
     readonly date: string;
     readonly count: number;
@@ -2254,6 +2272,34 @@ interface StatsResponse {
   readonly skillSuccessCount: number;
 }
 
+/** getStats 在 StatsBaseResponse 之上再补的增强字段(见 enrichStats) */
+interface StatsResponse extends StatsBaseResponse {
+  /**
+   * 近 30 天逐日「记忆更新」数(新增或内容有更新,元数据更新不计)。
+   * 口径(2026-08 用户定稿):印迹/突触/技能三类合计,按天去重
+   * (同一印迹一天内多次更新只算 1);audit 未启用时退化为 createdLast30d。
+   */
+  readonly updatesLast30d: StatsBaseResponse["createdLast30d"];
+  /** 近 7 天新建突触数(audit create + target=synapse,按 synapseId 去重) */
+  readonly weeklyNewSynapses: number;
+  /** 近 7 天新建技能数(Skill.createdAt) */
+  readonly weeklyNewSkills: number;
+  /** 近 7 天检索命中次数(observation-windows hitAt) */
+  readonly weeklyRetrievals: number;
+  /** 近 7 天技能调用次数(audit skill_invoke) */
+  readonly weeklySkillInvocations: number;
+  /**
+   * 贡献热度排行(2026-08 用户需求):以人为单位,其记忆被检索次数
+   * + 其技能被调用次数。与 topContributors(数量)并列两卡。
+   */
+  readonly topContributorHeat: ReadonlyArray<{
+    readonly actor: string;
+    readonly retrievalCount: number;
+    readonly skillInvocations: number;
+    readonly total: number;
+  }>;
+}
+
 function getStats(ctx: ToolContext): StatsResponse {
   // 按需同步派生层:补救 fs.watch(inotify)对编辑器原子写漏事件,导致 engram .md
   // 外部编辑未同步到 SQLite(无 indexDb 时 rescanModifiedEngrams 内部 noop;有则仅
@@ -2265,14 +2311,285 @@ function getStats(ctx: ToolContext): StatsResponse {
   }
   // 优先 SQLite fast path:1000+ engram 规模下,< 100ms
   // 老路径走 listEngrams + N+1 readEngram,1026 ghost 让 /api/stats 卡 47s(2026-07 修复)
+  let base: StatsBaseResponse;
   if (ctx.repository.indexDb) {
     try {
-      return getStatsFromSqlite(ctx);
+      base = getStatsFromSqlite(ctx);
     } catch (err) {
       console.error("[viewer] SQLite stats failed, falling back:", err);
+      base = getStatsLegacy(ctx);
+    }
+  } else {
+    base = getStatsLegacy(ctx);
+  }
+  return enrichStats(ctx, base);
+}
+
+const DAY_MS_STAT = 86_400_000;
+
+/** /api/updates 单条明细(当日记忆卡片行) */
+interface DayUpdateItem {
+  readonly type: "engram" | "synapse" | "skill";
+  /** engram id / synapse id / skillId */
+  readonly id: string;
+  /** 展示标题(engram: 当前标题;synapse: from→to 短 id;skill: skillId) */
+  readonly title: string;
+  /** engram kind(徽标);synapse 为关系 kind;skill 为空 */
+  readonly kind: string;
+  /** created / updated */
+  readonly action: "created" | "updated";
+}
+
+/**
+ * 某一天(UTC)的「记忆更新」明细。口径与 enrichStats 的 updatesLast30d 完全一致:
+ * 印迹 created(含 accept)/ changes.content 变更;突触 created/updated;技能
+ * skill_create/skill_update。同一天同一实体只出一次(action 取最新)。
+ */
+function getUpdatesForDay(
+  ctx: ToolContext,
+  date: string,
+): { enabled: boolean; date: string; items: DayUpdateItem[] } {
+  const since = new Date(`${date}T00:00:00.000Z`).toISOString();
+  const until = new Date(
+    new Date(`${date}T00:00:00.000Z`).getTime() + DAY_MS_STAT,
+  ).toISOString();
+  const entries = ctx.auditLog!.query({
+    since,
+    until,
+    action: ["create", "update", "accept", "skill_create", "skill_update"],
+  });
+
+  // 按实体去重,保留最新 action(ts 倒序遍历,先见即最终)
+  const byEntity = new Map<string, DayUpdateItem>();
+  for (const e of [...entries].sort((a, b) => b.ts.localeCompare(a.ts))) {
+    const m = (e.metadata ?? {}) as Record<string, unknown>;
+    let item: DayUpdateItem | null = null;
+    if (e.action === "skill_create" || e.action === "skill_update") {
+      item = {
+        type: "skill",
+        id: String(m.skillId ?? ""),
+        title: String(m.skillId ?? ""),
+        kind: "",
+        action: e.action === "skill_create" ? "created" : "updated",
+      };
+    } else if (m.target === "synapse") {
+      const id = String(m.synapseId ?? e.engramId ?? "");
+      const from = String(m.from ?? "");
+      const to = String(m.to ?? "");
+      item = {
+        type: "synapse",
+        id,
+        title: `${from.slice(0, 10)}… → ${to.slice(0, 10)}…`,
+        kind: String(m.kind ?? ""),
+        action: e.action === "create" ? "created" : "updated",
+      };
+    } else {
+      if (
+        e.action === "update" &&
+        !(m.changes && typeof m.changes === "object" && "content" in (m.changes as object))
+      ) {
+        continue;
+      }
+      item = {
+        type: "engram",
+        id: String(e.engramId ?? ""),
+        title: "",
+        kind: String(m.kind ?? ""),
+        action: e.action === "update" ? "updated" : "created",
+      };
+    }
+    if (!item.id) continue;
+    if (!byEntity.has(`${item.type}:${item.id}`)) {
+      byEntity.set(`${item.type}:${item.id}`, item);
     }
   }
-  return getStatsLegacy(ctx);
+
+  const items = [...byEntity.values()];
+
+  // 批量补 engram 标题/kind(一次查询;synapse/skill 已带展示文本)
+  const engramIds = items.filter((i) => i.type === "engram").map((i) => i.id);
+  if (engramIds.length > 0 && ctx.repository.indexDb) {
+    try {
+      const placeholders = engramIds.map(() => "?").join(",");
+      const rows = ctx.repository.indexDb
+        .prepare(`SELECT id, title, kind FROM engrams WHERE id IN (${placeholders})`)
+        .all(...engramIds) as { id: string; title: string; kind: string }[];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i]!;
+        if (it.type !== "engram") continue;
+        const row = byId.get(it.id);
+        if (row) {
+          items[i] = {
+            ...it,
+            title: row.title,
+            kind: row.kind || it.kind,
+          };
+        }
+      }
+    } catch {
+      // 标题补齐失败:保留空标题(前端显示 id)
+    }
+  }
+
+  // 排序:印迹在前,created 在前
+  const typeOrder = { engram: 0, synapse: 1, skill: 2 } as const;
+  items.sort(
+    (a, b) =>
+      typeOrder[a.type] - typeOrder[b.type] ||
+      a.action.localeCompare(b.action) ||
+      a.title.localeCompare(b.title),
+  );
+  return { enabled: true, date, items };
+}
+
+/**
+ * 概览增强指标(2026-08 第二轮):周增量四项 + 记忆更新逐日 + 贡献热度排行。
+ *
+ * 数据源:
+ *   - 周检索增量:effectivenessTracker.countHitsSince(window 文件,不淹 audit)
+ *   - 周突触/技能调用增量:audit(create+target=synapse / skill_invoke)
+ *   - 周新建技能:Skill.createdAt(无 audit 依赖)
+ *   - 记忆更新逐日:audit(create/update/accept/skill_*)按「内容有更新」口径过滤;
+ *     audit 未启用 → 退化为 base.createdLast30d(仅新建)
+ *   - 贡献热度:SQLite SUM(retrieval_count) GROUP BY created_by +
+ *     技能 successCount+failureCount GROUP BY createdBy(无 SQLite 时跳过 engram 侧)
+ *
+ * 全部单查询/单遍聚合,无 N+1。
+ */
+function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
+  const now = Date.now();
+  const weekAgoIso = new Date(now - 7 * DAY_MS_STAT).toISOString();
+
+  // --- 周增量 ---
+  let weeklyNewSynapses = 0;
+  let weeklySkillInvocations = 0;
+  let updatesLast30d: ReadonlyArray<{ date: string; count: number }> =
+    base.createdLast30d;
+  if (ctx.auditLog) {
+    const since30d = new Date(now - 30 * DAY_MS_STAT).toISOString();
+    const entries = ctx.auditLog.query({
+      since: since30d,
+      action: [
+        "create",
+        "update",
+        "accept",
+        "skill_create",
+        "skill_update",
+        "skill_invoke",
+      ],
+    });
+
+    // 记忆更新:按天 × (type,id) 去重。口径:
+    //   印迹:created(含 accept)/ changes.content 变更
+    //   突触:created / updated(关系数据本体变更即内容更新)
+    //   技能:skill_create / skill_update
+    const byDay = new Map<string, Set<string>>();
+    const weekSynapses = new Set<string>();
+    for (const e of entries) {
+      const m = (e.metadata ?? {}) as Record<string, unknown>;
+      let type: "engram" | "synapse" | "skill" | null = null;
+      let id = "";
+      if (e.action === "skill_create" || e.action === "skill_update") {
+        type = "skill";
+        id = String(m.skillId ?? "");
+      } else if (e.action === "skill_invoke") {
+        if (e.ts >= weekAgoIso) weeklySkillInvocations++;
+        continue;
+      } else if (m.target === "synapse") {
+        type = "synapse";
+        id = String(m.synapseId ?? e.engramId ?? "");
+        if (e.action === "create" && e.ts >= weekAgoIso && id) {
+          weekSynapses.add(id);
+        }
+      } else {
+        // engram create / accept / update
+        if (
+          e.action === "update" &&
+          !(m.changes && typeof m.changes === "object" && "content" in (m.changes as object))
+        ) {
+          continue; // 元数据-only 更新不计
+        }
+        type = "engram";
+        id = String(e.engramId ?? "");
+      }
+      if (!type || !id) continue;
+      const day = e.ts.slice(0, 10);
+      const key = `${type}:${id}`;
+      let set = byDay.get(day);
+      if (!set) {
+        set = new Set();
+        byDay.set(day, set);
+      }
+      set.add(key);
+    }
+    weeklyNewSynapses = weekSynapses.size;
+
+    const filled: { date: string; count: number }[] = [];
+    for (let i = 29; i >= 0; i--) {
+      const t = now - i * DAY_MS_STAT;
+      const date = new Date(t).toISOString().slice(0, 10);
+      filled.push({ date, count: byDay.get(date)?.size ?? 0 });
+    }
+    updatesLast30d = filled;
+  }
+
+  const weeklyRetrievals = ctx.effectivenessTracker
+    ? ctx.effectivenessTracker.countHitsSince(weekAgoIso)
+    : 0;
+
+  let weeklyNewSkills = 0;
+  if (ctx.skillRepository) {
+    const weekAgoMs = now - 7 * DAY_MS_STAT;
+    for (const s of ctx.skillRepository.listSkills()) {
+      const created = Date.parse(s.createdAt);
+      if (Number.isFinite(created) && created >= weekAgoMs) weeklyNewSkills++;
+    }
+  }
+
+  // --- 贡献热度排行 ---
+  const heatMap = new Map<string, { retrieval: number; skill: number }>();
+  if (ctx.repository.indexDb) {
+    try {
+      const rows = ctx.repository.indexDb
+        .prepare(
+          `SELECT created_by AS actor, COALESCE(SUM(retrieval_count), 0) AS r
+           FROM engrams WHERE created_by != '' GROUP BY created_by`,
+        )
+        .all() as { actor: string; r: number }[];
+      for (const r of rows) heatMap.set(r.actor, { retrieval: r.r, skill: 0 });
+    } catch {
+      // SQLite 聚合失败:热度排行退化为仅技能侧
+    }
+  }
+  if (ctx.skillRepository) {
+    for (const s of ctx.skillRepository.listSkills()) {
+      if (!s.createdBy) continue;
+      const entry = heatMap.get(s.createdBy) ?? { retrieval: 0, skill: 0 };
+      entry.skill += s.successCount + s.failureCount;
+      heatMap.set(s.createdBy, entry);
+    }
+  }
+  const topContributorHeat = Array.from(heatMap.entries())
+    .map(([actor, h]) => ({
+      actor,
+      retrievalCount: h.retrieval,
+      skillInvocations: h.skill,
+      total: h.retrieval + h.skill,
+    }))
+    .filter((h) => h.total > 0)
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 20);
+
+  return {
+    ...base,
+    updatesLast30d,
+    weeklyNewSynapses,
+    weeklyNewSkills,
+    weeklyRetrievals,
+    weeklySkillInvocations,
+    topContributorHeat,
+  };
 }
 
 /**
@@ -2287,7 +2604,7 @@ function getStats(ctx: ToolContext): StatsResponse {
  *     彻底消除 readEngram loop(26 条 readEngram × assembleEngram 卡 24s)。
  *   - synapse contributors 暂省略 — graph.json 不含 createdBy 字段。
  */
-function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
+function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
   const db = ctx.repository.indexDb!;
   const byKind: Record<string, number> = {};
   const byStatus: Record<string, number> = {};
@@ -2532,7 +2849,7 @@ function readGraphCache(ctx: ToolContext): {
 }
 
 /** Legacy fallback:小规模或 SQLite 不可用时走老路径(N+1 readEngram) */
-function getStatsLegacy(ctx: ToolContext): StatsResponse {
+function getStatsLegacy(ctx: ToolContext): StatsBaseResponse {
   const entries = ctx.repository.listEngrams();
   const byKind: Record<string, number> = {};
   const byStatus: Record<string, number> = {};

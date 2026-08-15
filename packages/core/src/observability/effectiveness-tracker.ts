@@ -255,6 +255,16 @@ export class EffectivenessTracker {
   }
 
   /**
+   * 统计某时间点之后的检索命中次数(概览「印迹检索 · 本周增量」数据源)。
+   *
+   * 与 audit 的 retrieve_* 不同:window 文件每个 retrieve_hit 一条记录,
+   * 且不会被高频事件淹没(见 effectiveness 注释),按 hitAt 过滤即可。
+   */
+  countHitsSince(sinceIso: string): number {
+    return this.readAll().filter((r) => r.hitAt >= sinceIso).length;
+  }
+
+  /**
    * 派生某 engram 的有效率统计
    *
    * 数据源:

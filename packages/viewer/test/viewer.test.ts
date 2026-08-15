@@ -379,16 +379,34 @@ describe("GET /api/stats", () => {
 // ============================================================
 
 describe("GET /api/status", () => {
-  it("dataRoot 未配置时返回 overall=error 占位快照", async () => {
+  // 2026-08 语义更新:startViewerServer 未显式传 dataRoot 时,兜底取
+  // ctx.repository.rootPath(修复 standalone-viewer 场景 /api/status 报
+  // 「未配置」导致健康检查 tab 整页空白,而 /api/stats 却正常)。
+  it("dataRoot 未显式传入时兜底到 repository.rootPath", async () => {
     const ctx = makeCtx(tmpDir);
     await withViewer(ctx, undefined, async (port) => {
       const res = await makeRequest(port, "/api/status");
       expect(res.status).toBe(200);
       const data = JSON.parse(res.body);
-      expect(data.overall).toBe("error");
-      expect(data.dataRootExists).toBe(false);
-      expect(data.stats.total).toBe(0);
+      expect(data.dataRoot).toBe(tmpDir);
+      expect(data.dataRootExists).toBe(true);
     });
+  });
+
+  it("dataRoot 与 repository 均缺失时返回 overall=error 占位快照", async () => {
+    const ctx = makeCtx(tmpDir);
+    await withViewer(
+      { ...ctx, repository: undefined },
+      undefined,
+      async (port) => {
+        const res = await makeRequest(port, "/api/status");
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.overall).toBe("error");
+        expect(data.dataRootExists).toBe(false);
+        expect(data.stats.total).toBe(0);
+      },
+    );
   });
 
   it("dataRoot 指向真实仓库时返回 checks + overall", async () => {
