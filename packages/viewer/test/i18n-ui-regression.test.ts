@@ -155,7 +155,7 @@ describe("Layer 1 / 静态骨架:所有按钮与显示在 zh/en 下全量渲染"
       "viewer.search.clear",
       "viewer.graph.toolbar.fit",
       "viewer.graph.toolbar.physics",
-      "viewer.graph.toolbar.reset",
+      "viewer.graph.tools.hoverHl",
       "viewer.graph.filter.pathBtn2",
       "viewer.graph.modes.structure",
       "viewer.graph.replay.title",

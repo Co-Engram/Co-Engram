@@ -394,16 +394,7 @@ async function renderGraphInner(container) {
       const cls = 'hull' + (ci % 3 === 1 ? ' h2' : ci % 3 === 2 ? ' h3' : '');
       inner += '<path class="' + cls + '" d="' + CO_ENGRAM_HULL_PATH(hull, 26) + '"></path>';
     });
-    // 2) 高重要度(≥0.7)节点发光脉冲光环(DEMO .halo)
-    for (const n of nodesDataset.get()) {
-      const imp = (n._raw && n._raw.importance != null) ? n._raw.importance : 0.5;
-      if (imp < 0.7) continue;
-      const d = domOf(n.id);
-      if (!d) continue;
-      const r = (10 + imp * 18) * 0.9 + 4;
-      inner += '<circle class="halo" cx="' + d.x.toFixed(1) + '" cy="' + d.y.toFixed(1) + '" r="' + r.toFixed(1) + '" stroke="' + (state.night ? '#8CC8FF' : '#B8941D') + '"></circle>';
-    }
-    // 3) 聚焦邻域流动边(DEMO .flow:邻接边虚线流动)
+    // 2) 聚焦邻域流动边(DEMO .flow:邻接边虚线流动)
     if (state.focusedId) {
       for (const e of edgesDataset.get()) {
         if (e.from !== state.focusedId && e.to !== state.focusedId) continue;
@@ -415,7 +406,7 @@ async function renderGraphInner(container) {
           + ' Q ' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1) + '"></path>';
       }
     }
-    // 4) 簇标签(最上层)
+    // 3) 簇标签(最上层)
     for (const cl of clusters) {
       const pts = cl.members.map(m => domOf(m.id)).filter(Boolean);
       if (pts.length < 3) continue;
@@ -602,7 +593,7 @@ async function renderGraphInner(container) {
         + '<span class="ek">' + CO_ENGRAM.escapeHtml(e.kind) + '</span></div>';
     }
 
-    insp.innerHTML = '<span class="kind" style="color:' + kindColor + '">' + CO_ENGRAM.escapeHtml((T.enumLabel('kind', node ? node.kind : '') || '').toUpperCase() + ' · ' + (T.enumLabel('kind', node ? node.kind : '') || node.kind)) + '</span>'
+    insp.innerHTML = '<span class="kind">' + CO_ENGRAM.escapeHtml((T.enumLabel('kind', node ? node.kind : '') || '').toUpperCase() + ' · ' + (T.enumLabel('kind', node ? node.kind : '') || node.kind)) + '</span>'
       + '<h3>' + CO_ENGRAM.escapeHtml(detail ? detail.title : (node ? node.title : id)) + '</h3>'
       + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.importanceShort')) + '</span><b>' + imp.toFixed(2)
         + (detail && detail.verificationStatus ? ' · ' + CO_ENGRAM.escapeHtml(T.enumLabel('verificationStatus', detail.verificationStatus) || detail.verificationStatus) : '') + '</b></div>'
@@ -688,9 +679,8 @@ async function renderGraphInner(container) {
   // 着色模式(DEMO modes):structure/vitality/conflict/heat + 按钮态
   CO_ENGRAM._graphState.setColorMode = function(mode) {
     state.colorMode = mode;
-    document.querySelectorAll('.graph-topbar .modes .m[data-gmode]').forEach(b => {
-      b.classList.toggle('on', b.getAttribute('data-gmode') === mode);
-    });
+    const sel = document.getElementById('graph-color-mode');
+    if (sel) sel.value = mode;
     // 颜色只依赖 nodeColorFor → 重算节点 color(不重建位置)
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
@@ -712,31 +702,6 @@ async function renderGraphInner(container) {
     network.setOptions({ interaction: { hoverConnectedEdges: state.hoverHl } });
     const btn = document.getElementById('graph-hover-hl');
     if (btn) btn.classList.toggle('on', state.hoverHl);
-  };
-  CO_ENGRAM._graphState.resetView = function() {
-    state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true };
-    state.showSynapseKinds = Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true]));
-    state.textFilter = '';
-    state.pathFilter = '';
-    state.minImportance = 0;
-    state.timeRatio = 1;
-    state.focusedId = null;
-    state.statusFilter = 'active';
-    const qInput = document.getElementById('graph-q');
-    if (qInput) qInput.value = '';
-    const impRange = document.getElementById('graph-imp-range');
-    if (impRange) impRange.value = '0';
-    const tlRange = document.getElementById('graph-time-range');
-    if (tlRange) tlRange.value = '100';
-    const statusSel = document.getElementById('graph-status');
-    if (statusSel) statusSel.value = 'active';
-    const insp = document.getElementById('graph-insp');
-    if (insp) insp.hidden = true;
-    CO_ENGRAM_GRAPH._refreshTextChip();
-    CO_ENGRAM_GRAPH._refreshPathChip();
-    CO_ENGRAM._graphState.applyFilters();
-    CO_ENGRAM_GRAPH._refreshFilterCount();
-    network.fit({ animation: true });
   };
 }
 
@@ -887,7 +852,6 @@ window.CO_ENGRAM_GRAPH = {
   },
   togglePhysics() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.togglePhysics(); },
   fit() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.fit(); },
-  reset() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.resetView(); },
   setImportance(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setImportance(v); },
   setTimeReplay(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setTimeReplay(v); },
   toggleNight() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleNight(); },

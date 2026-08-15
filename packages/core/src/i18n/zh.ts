@@ -1907,18 +1907,19 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.filter.searchPlaceholder": "按标题/标签/ID 搜索节点…",
   "viewer.graph.filter.searchPlaceholder2": "按标题 / 标签文本筛选节点…",
   "viewer.graph.filter.pathBtn2": "按路径筛选:全部路径 ▾",
-  "viewer.graph.modes.title": "着色模式",
-  "viewer.graph.modes.structure": "结构",
-  "viewer.graph.modes.vitality": "活力",
-  "viewer.graph.modes.conflict": "冲突",
-  "viewer.graph.modes.heat": "热力",
-  "viewer.graph.modes.heatTitle": "按取用热度着色",
+  "viewer.graph.modes.title": "节点着色方式",
+  "viewer.graph.status.tip": "按记忆状态筛选节点",
+  "viewer.graph.modes.structure": "类型着色(默认)",
+  "viewer.graph.modes.vitality": "取用次数着色",
+  "viewer.graph.modes.conflict": "矛盾高亮",
+  "viewer.graph.modes.heat": "取用热度着色",
+  "viewer.graph.modes.heatTitle": "按最近取用时间着色:一周内深暖、一月内橙、更久灰",
   "viewer.graph.legend.pickFilter": "点选筛选",
   "viewer.graph.status.activeOnly": "状态:仅活跃",
   "viewer.graph.status.all": "状态:含归档 / 已取代",
   "viewer.graph.status.contradictionsOnly": "状态:仅矛盾待裁决",
   "viewer.graph.reading.title": "阅读方式",
-  "viewer.graph.reading.hint": "大小 = 重要度 · 颜色 = 模式着色<br>发光 = 重要度 ≥0.7 · 虚线红 = 失效边<br>悬停高亮邻边 · 点击聚焦邻域 · Esc 返回",
+  "viewer.graph.reading.hint": "节点大小 = 重要度 · 虚线红边 = 失效边<br>悬停高亮邻边 · 点击节点看邻域 · Esc 返回",
   "viewer.graph.countLine.items": "条",
   "viewer.graph.countLine.visible": "可见(重要度 ≥${imp})",
   "viewer.graph.countLine.clusters": "个 Louvain 簇",
@@ -2127,7 +2128,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.conceptsTitle": "核心概念",
   "viewer.help.graphTitle": "记忆突触页(图谱)阅读方式",
   "viewer.help.graphDesc":
-    "节点大小 = 重要度,颜色 = 类型;重要度 ≥ 0.7 的节点带发光脉冲光环,Louvain 社区检测自动圈出呼吸状簇凸包。左上角滑杆设重要度阈值,底部滑杆按创建时间回放图的生长(两者同时生效);🌙 夜览切换明暗底色。点击节点聚焦其邻域:邻接边流动、非邻居淡出,按 Esc 返回。",
+    "节点大小 = 重要度,默认按类型着色(可在上方功能栏切换取用次数/矛盾高亮/取用热度);Louvain 社区检测自动圈出呼吸状簇凸包。搜索、路径、状态、重要度阈值等功能性筛选都在舞台上方的功能栏;底部滑杆按创建时间回放图的生长(与重要度阈值同时生效);🌙 夜览切换明暗底色。点击节点查看邻域(邻边流动、非邻居淡出,Esc 返回)。",
   "viewer.help.conceptEngram": "<strong>记忆印迹(engram)</strong>",
   "viewer.help.conceptEngramDesc":
     "一条结构化的记忆条目,含标题/内容/类型/标签/重要性/置信度等字段。类型分 5 种:<code>fact(事实)</code> <code>observation(观察)</code> <code>pattern(模式)</code> <code>procedure(流程)</code> <code>hypothesis(假设)</code>。鼠标悬停字段可以看到该字段的解释。",
@@ -2178,7 +2179,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tabSkills":
     "<strong>技能</strong>—程序性记忆(skill)卡片:按习得深度(draft/compiled/tuned)与保留阶段(active/aging/stale/forgotten)浏览,展示 utility、调用次数与组合(composes)关系。dataRoot 下检测到的 skill 目录会先进提案队列审批。",
   "viewer.help.tabGraph":
-    "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点;重要度阈值与时间回放滑杆收窄视野,Louvain 簇凸包与发光光环标注高价值节点,🌙 夜览切换明暗底色;点击节点聚焦邻域(邻边流动、非邻居淡出),Esc 返回。详见上文「记忆突触页阅读方式」。",
+    "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点;功能性筛选(搜索/路径/状态/重要度阈值/着色方式)在舞台上方的功能栏,Louvain 簇凸包标注社区结构,🌙 夜览切换明暗底色;点击节点查看邻域(邻边流动、非邻居淡出),Esc 返回。详见上文「记忆突触页阅读方式」。",
   "viewer.help.tabProposals":
     "<strong>记忆提案</strong>—候选记忆审批队列。来源:对话聚类(同一主题被提及≥3 次)、Claude Code auto-memory 文件、dataRoot 下检测到的未追踪 .md(例如用户拷贝进来的文件)。由人工/LLM 采纳(engram_accept_proposal)或忽略(engram_dismiss_proposal)。",
   "viewer.help.tabAudit":

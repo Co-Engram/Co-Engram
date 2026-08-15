@@ -24,6 +24,7 @@ export const VIEWER_CSS = `
   --border-strong: rgba(45, 42, 38, 0.22);
   --border-glow: rgba(15, 118, 110, 0.35);
   --accent: #0F766E;         /* 青绿 → 深青(浅底上的可读主色) */
+  --accent-2: #0D9488;       /* 主色渐变端(缺定义曾让全部 .btn 渐变失效变透明) */
   --accent-soft: #EDF7F5;
   --accent-warm: #B45309;    /* 琥珀 → 深琥珀 */
   --accent-fg: #FFFFFF;
@@ -773,7 +774,29 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 }
 .bar-row .bar-value { text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 
-/* === Graph stage(2026-08 DEMO g2-synapses 定稿:点阵纸面舞台 + 四浮层)=== */
+/* === Graph 功能栏(2026-08 v3:功能性筛选独立于图例,置于舞台上方)=== */
+.graph-funcbar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  background: var(--panel-bg-solid, #FFF);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 0.6rem 0.9rem;
+  margin-bottom: 0.8rem;
+  box-shadow: var(--shadow);
+  font-size: 0.8rem;
+}
+.graph-funcbar .gt { font-weight: 600; font-size: 0.9rem; margin-right: 0.4rem; white-space: nowrap; }
+.graph-funcbar .gt small { font-weight: 400; color: var(--fg-dim); font-size: 0.7rem; margin-left: 0.4rem; }
+.graph-funcbar .ftext { width: 200px; margin-top: 0; }
+.graph-funcbar .pathbtn { width: auto; margin-top: 0; }
+.graph-funcbar .fselect { width: auto; margin-top: 0; }
+.graph-funcbar .graph-slider { flex-direction: row; align-items: center; gap: 0.4rem; padding: 0; min-width: 150px; }
+.graph-funcbar .graph-slider input[type=range] { width: 90px; margin: 0; }
+
+/* === Graph stage(2026-08 DEMO g2-synapses 定稿:点阵纸面舞台 + 浮层)=== */
 main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 .graph-container {
   position: relative;
@@ -804,41 +827,6 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 }
 #graph-canvas { width: 100%; height: 100%; position: relative; }
 #graph-canvas .vis-network { background: transparent !important; }
-
-/* 顶部:标题 + 计数 + 着色模式 + 夜览 */
-.graph-topbar {
-  position: absolute;
-  top: 14px;
-  left: 16px;
-  right: 16px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  z-index: 20;
-}
-.graph-topbar .gt { color: var(--sv-ink); font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
-.graph-topbar .gt small { font-weight: 400; color: var(--sv-ink3); font-size: 11.5px; }
-.graph-topbar .modes {
-  margin-left: auto;
-  display: flex;
-  gap: 3px;
-  background: var(--panel-bg-solid, #FFF);
-  border: 1px solid var(--border);
-  border-radius: 11px;
-  padding: 4px;
-  box-shadow: 0 2px 8px rgba(45, 42, 38, 0.08);
-}
-.graph-topbar .modes .m {
-  font: inherit;
-  font-size: 12.5px;
-  padding: 4px 13px;
-  border-radius: 8px;
-  border: none;
-  background: none;
-  color: var(--sv-ink3);
-  cursor: pointer;
-}
-.graph-topbar .modes .m.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 
 /* 左:图例筛选浮层 */
 .graph-legend {
@@ -1035,13 +1023,11 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 .hull.h2 { fill: rgba(14, 159, 110, 0.05); stroke: rgba(14, 159, 110, 0.22); animation-delay: -1.6s; }
 .hull.h3 { fill: rgba(215, 115, 13, 0.04); stroke: rgba(215, 115, 13, 0.2); animation-delay: -3.2s; }
 @keyframes hullbreathe { 0%, 100% { fill-opacity: 0.55; } 50% { fill-opacity: 1.15; } }
-.halo { fill: none; stroke-width: 2; animation: halopulse 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
-@keyframes halopulse { 0%, 100% { stroke-opacity: 0.55; transform: scale(1); } 50% { stroke-opacity: 0.12; transform: scale(1.18); } }
 .flow { fill: none; stroke-width: 2; stroke-dasharray: 5 9; animation: flowdash 1.2s linear infinite; }
 @keyframes flowdash { to { stroke-dashoffset: -28; } }
 .cluster-lab { font-size: 11px; fill: #8B857B; letter-spacing: 0.12em; }
 .graph-container.night .cluster-lab { fill: #7580A8; }
-@media (prefers-reduced-motion: reduce) { .hull, .halo, .flow { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .hull, .flow { animation: none !important; } }
 
 /* 操作按钮行:横排 */
 .graph-toolbar .toolbar-actions {
@@ -1156,11 +1142,11 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
   width: 480px;
   max-width: 92vw;
   height: 100vh;
-  background: linear-gradient(180deg, rgba(45, 42, 38, 0.95), rgba(45, 42, 38, 0.95));
+  background: rgba(255, 255, 255, 0.97);
   backdrop-filter: blur(24px) saturate(140%);
   -webkit-backdrop-filter: blur(24px) saturate(140%);
   border-left: 1px solid var(--border-strong);
-  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5), -1px 0 0 var(--accent);
+  box-shadow: -20px 0 60px rgba(45, 42, 38, 0.18), -1px 0 0 var(--accent);
   transform: translateX(100%);
   transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;

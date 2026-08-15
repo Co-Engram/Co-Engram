@@ -210,56 +210,48 @@ ${SIDE_ICONS}
     <!-- Graph -->
     <section class="tab-panel" data-tab="graph">
       <!--
-        2026-08 改版(DEMO g2-synapses 定稿结构):
-          stage(点阵纸面画布,夜览切换)
-          ├ topbar:标题 + 计数 + 着色模式(结构/活力/冲突/热力)+ 🌙 夜览
-          ├ legend(左浮层):KIND 点选筛选行(带计数)/ 关系族行 / 重要度滑杆 /
-          │   按路径 / 按文本 / 状态下拉 / 阅读方式提示
-          ├ insp(右浮层):节点检查器(点击节点填充,Esc 关闭)
-          └ bottombar(居中浮层):时间回放滑杆 + 工具(适配/邻居高亮/复位)
+        2026-08 v3(用户反馈重排):功能性筛选(搜索/路径/状态/重要度阈值/着色/夜览)
+        独立到舞台上方的功能栏;舞台内只留视觉图例(KIND 点选 + 关系族)与检查器。
+        发光脉冲已删(心智负担);重置视图已删。
       -->
-      <div class="graph-container" id="graph-stage">
-        <div class="graph-topbar">
-          <div class="gt">${t(language, "viewer.tab.graph")} <small id="graph-count-line"></small></div>
-          <div class="modes" role="group" aria-label="${t(language, "viewer.graph.modes.title")}">
-            <button class="m on" data-gmode="structure" onclick="CO_ENGRAM_GRAPH.setColorMode('structure')">${t(language, "viewer.graph.modes.structure")}</button>
-            <button class="m" data-gmode="vitality" onclick="CO_ENGRAM_GRAPH.setColorMode('vitality')">${t(language, "viewer.graph.modes.vitality")}</button>
-            <button class="m" data-gmode="conflict" onclick="CO_ENGRAM_GRAPH.setColorMode('conflict')">${t(language, "viewer.graph.modes.conflict")}</button>
-            <button class="m" data-gmode="heat" onclick="CO_ENGRAM_GRAPH.setColorMode('heat')" title="${t(language, "viewer.graph.modes.heatTitle")}">${t(language, "viewer.graph.modes.heat")}</button>
-            <button class="m" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
-          </div>
+      <div class="graph-funcbar">
+        <div class="gt">${t(language, "viewer.tab.graph")} <small id="graph-count-line"></small></div>
+        <input type="search" class="ftext" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder2")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
+        <button class="pathbtn" onclick="CO_ENGRAM_GRAPH.openPathPicker()">📂 ${t(language, "viewer.graph.filter.pathBtn2")}</button>
+        <span class="chip removable" id="graph-path-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
+        <span class="chip removable" id="graph-text-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearTextFilter()"></span>
+        <select class="fselect" id="graph-status" onchange="CO_ENGRAM_GRAPH.setStatusFilter(this.value)" title="${t(language, "viewer.graph.status.tip")}">
+          <option value="active">${t(language, "viewer.graph.status.activeOnly")}</option>
+          <option value="all">${t(language, "viewer.graph.status.all")}</option>
+          <option value="contradictions">${t(language, "viewer.graph.status.contradictionsOnly")}</option>
+        </select>
+        <select class="fselect" id="graph-color-mode" onchange="CO_ENGRAM_GRAPH.setColorMode(this.value)" title="${t(language, "viewer.graph.modes.title")}">
+          <option value="structure">${t(language, "viewer.graph.modes.structure")}</option>
+          <option value="vitality">${t(language, "viewer.graph.modes.vitality")}</option>
+          <option value="conflict">${t(language, "viewer.graph.modes.conflict")}</option>
+          <option value="heat">${t(language, "viewer.graph.modes.heat")}</option>
+        </select>
+        <div class="graph-slider">
+          <span class="slider-val" id="graph-imp-val"></span>
+          <input type="range" id="graph-imp-range" min="0" max="100" value="0" aria-label="${t(language, "viewer.graph.filter.impTitle")}" oninput="CO_ENGRAM_GRAPH.setImportance(this.value)">
         </div>
-
+        <span class="chip" id="graph-filter-count"></span>
+        <span class="spacer"></span>
+        <button class="btn secondary mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
+      </div>
+      <div class="graph-container" id="graph-stage">
         <div class="graph-legend">
           <h4>KIND · ${t(language, "viewer.graph.legend.pickFilter")}</h4>
           <div id="legend-kinds"></div>
           <h4 style="margin-top:9px">${t(language, "viewer.graph.synapseKindsTitle")}</h4>
           <div id="legend-families"></div>
-          <h4 style="margin-top:9px">${t(language, "viewer.graph.filter.impTitle")}</h4>
-          <div class="graph-slider">
-            <span class="slider-val" id="graph-imp-val"></span>
-            <input type="range" id="graph-imp-range" min="0" max="100" value="0" aria-label="${t(language, "viewer.graph.filter.impTitle")}" oninput="CO_ENGRAM_GRAPH.setImportance(this.value)">
-          </div>
-          <button class="pathbtn" onclick="CO_ENGRAM_GRAPH.openPathPicker()">📂 ${t(language, "viewer.graph.filter.pathBtn2")}</button>
-          <span class="chip removable" id="graph-path-chip" style="display:none;margin-top:4px" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
-          <input type="search" class="ftext" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder2")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
-          <span class="chip removable" id="graph-text-chip" style="display:none;margin-top:4px" onclick="CO_ENGRAM_GRAPH.clearTextFilter()"></span>
-          <select class="fselect" id="graph-status" onchange="CO_ENGRAM_GRAPH.setStatusFilter(this.value)">
-            <option value="active">${t(language, "viewer.graph.status.activeOnly")}</option>
-            <option value="all">${t(language, "viewer.graph.status.all")}</option>
-            <option value="contradictions">${t(language, "viewer.graph.status.contradictionsOnly")}</option>
-          </select>
-          <span class="chip" id="graph-filter-count" style="margin-top:6px;display:inline-block"></span>
           <h4 style="margin-top:9px">${t(language, "viewer.graph.reading.title")}</h4>
           <div class="read-hint">${t(language, "viewer.graph.reading.hint")}</div>
         </div>
-
         <div id="graph-canvas">
           <div class="loading">${t(language, "viewer.loading.graph")}</div>
         </div>
-
         <div class="graph-insp" id="graph-insp" hidden></div>
-
         <div class="graph-bottombar">
           <div class="tl-lab"><b>${t(language, "viewer.graph.replay.title")}</b>${t(language, "viewer.graph.replay.sub")}</div>
           <input type="range" class="tl" id="graph-time-range" min="0" max="100" value="100" aria-label="${t(language, "viewer.graph.replay.title")}" oninput="CO_ENGRAM_GRAPH.setTimeReplay(this.value)">
@@ -268,7 +260,6 @@ ${SIDE_ICONS}
             <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
             <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
             <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
-            <button class="tb" onclick="CO_ENGRAM_GRAPH.reset()" title="${t(language, "viewer.graph.toolbar.resetTitle")}">🎯 ${t(language, "viewer.graph.toolbar.reset")}</button>
           </div>
         </div>
       </div>
