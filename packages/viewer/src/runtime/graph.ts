@@ -53,6 +53,15 @@ async function renderGraphInner(container) {
   // minImportance / timeRatio: 重要度阈值 + 时间回放(2026-08 改版,DEMO g2-synapses)
   // focusedId / night: 聚焦邻域(边流动 + 非邻居淡出)/ 夜览
   const ALL_SYNAPSE_KINDS = ['extends', 'part_of', 'similar_to', 'depends_on', 'causes', 'follows', 'derives_from', 'contradicts', 'exemplifies', 'supersedes', 'consolidates', 'contextualizes'];
+  // 关系族 → kinds(DEMO 图例的「关系族」行,点选整族)
+  const FAMILIES = [
+    ['structural', ['extends', 'part_of', 'similar_to']],
+    ['causal', ['depends_on', 'causes', 'follows']],
+    ['evidential', ['derives_from', 'contradicts', 'exemplifies']],
+    ['temporal', ['supersedes', 'consolidates']],
+    ['modulatory', ['contextualizes']],
+  ];
+  const KIND_ORDER = ['observation', 'fact', 'pattern', 'procedure', 'hypothesis', 'skill'];
   const state = {
     showKinds: { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true },
     showSynapseKinds: Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true])),
@@ -63,7 +72,11 @@ async function renderGraphInner(container) {
     timeRatio: 1,
     focusedId: null,
     night: false,
-    timeRange: null
+    timeRange: null,
+    // 2026-08 DEMO 校准:着色模式(结构/活力/冲突/热力)+ 状态筛选 + 悬停邻边高亮
+    colorMode: 'structure',
+    statusFilter: 'active',
+    hoverHl: true
   };
   CO_ENGRAM._graphState = { initialized: false, network: null, data: graph, state };
 
@@ -89,6 +102,61 @@ async function renderGraphInner(container) {
     const cut = timeCutoffMs();
     if (cut != null && !(typeof n.createdAtMs === 'number' && n.createdAtMs > 0 && n.createdAtMs <= cut)) return false;
     return true;
+  }
+
+  // 状态过滤(DEMO fselect):仅活跃 / 含归档 / 仅矛盾待裁决。
+  // 旧缓存无 status 字段的节点放行(与时间回放同一兼容策略)。
+  function statusPassSet() {
+    if (state.statusFilter === 'contradictions') {
+      const keep = new Set();
+      for (const e of graph.edges) {
+        if (e.kind === 'contradicts') { keep.add(e.from); keep.add(e.to); }
+      }
+      return keep;
+    }
+    return null;
+  }
+  function passesStatus(n, contraSet) {
+    if (state.statusFilter === 'all') return true;
+    if (state.statusFilter === 'contradictions') return contraSet.has(n.id);
+    // 'active'(默认)
+    return !n.status || n.status === 'active';
+  }
+
+  // 着色模式(DEMO modes):结构=类型色 / 活力=取用次数渐变 /
+  // 冲突=矛盾相关红 + 其余灰 / 热力=取用新近度渐变
+  const _contraNodeSet = new Set();
+  for (const e of graph.edges) {
+    if (e.kind === 'contradicts') { _contraNodeSet.add(e.from); _contraNodeSet.add(e.to); }
+  }
+  function lerpColor(a, b, t) {
+    const pa = [parseInt(a.slice(1, 3), 16), parseInt(a.slice(3, 5), 16), parseInt(a.slice(5, 7), 16)];
+    const pb = [parseInt(b.slice(1, 3), 16), parseInt(b.slice(3, 5), 16), parseInt(b.slice(5, 7), 16)];
+    return '#' + pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('');
+  }
+  let _vitalityMax = 1;
+  for (const n of graph.nodes) {
+    if (typeof n.retrievalCount === 'number' && n.retrievalCount > _vitalityMax) _vitalityMax = n.retrievalCount;
+  }
+  function nodeColorFor(n) {
+    const isSkillNode = n.kind === 'skill';
+    if (state.colorMode === 'vitality' && !isSkillNode) {
+      const t = Math.min(1, Math.log1p(n.retrievalCount || 0) / Math.log1p(_vitalityMax));
+      return lerpColor('#C9C4B8', '#2563EB', t);
+    }
+    if (state.colorMode === 'conflict') {
+      if (isSkillNode) return '#a78bfa';
+      return _contraNodeSet.has(n.id) ? '#BE3B3B' : '#C9C4B8';
+    }
+    if (state.colorMode === 'heat' && !isSkillNode) {
+      const DAY = 86400000;
+      const idle = n.lastRetrievedAt ? (Date.now() - n.lastRetrievedAt) / DAY : Infinity;
+      if (idle <= 7) return lerpColor('#D7730D', '#BE3B3B', Math.max(0, 1 - idle / 7));
+      if (idle <= 30) return '#D7730D';
+      if (idle <= 90) return '#B8941D';
+      return '#C9C4B8';
+    }
+    return isSkillNode ? '#a78bfa' : CO_ENGRAM.kindColor(n.kind);
   }
 
   // === 节点匹配文本/路径过滤(顶栏) ===
@@ -122,15 +190,16 @@ async function renderGraphInner(container) {
     return state.night ? '#C6D0EC' : getComputedStyle(document.body).color;
   }
   function buildNodes() {
+    const contraSet = statusPassSet();
     return graph.nodes
       .filter(n => state.showKinds[n.kind] !== false)
       .filter(n => matchesNodeFilters(n))
       .filter(n => passesImpTime(n))
+      .filter(n => passesStatus(n, contraSet))
       .map(n => {
         const importance = (n.importance != null ? n.importance : 0.5);
         const size = 10 + importance * 18;
-        const isSkillNode = n.kind === 'skill';
-        const nodeColor = isSkillNode ? '#a78bfa' : CO_ENGRAM.kindColor(n.kind);
+        const nodeColor = nodeColorFor(n);
         const kindLabel = T.enumLabel('kind', n.kind) || n.kind;
         const kindTip = (CO_ENGRAM.TOOLTIPS && CO_ENGRAM.TOOLTIPS.kind && CO_ENGRAM.TOOLTIPS.kind[n.kind]) || '';
         const tipText = n.title + '\\n[' + kindLabel + ' / ' + n.kind + ']\\n' + T.t('viewer.graph.tagsLabel') + (n.domainTags || []).join(', ') + (kindTip ? '\\n\\n' + kindTip : '');
@@ -147,18 +216,21 @@ async function renderGraphInner(container) {
           },
           size,
           font: { color: nodeFontColor(), size: 11, face: 'sans-serif' },
-          shape: isSkillNode ? 'diamond' : 'dot',
+          shape: n.kind === 'skill' ? 'diamond' : 'dot',
           _raw: n
         };
       });
   }
 
   function buildEdges() {
-    // 顶栏过滤后保留的节点 id 集合(用于边的两端都需通过过滤)
+    // 过滤后保留的节点 id 集合(边的两端都需通过与节点同一套过滤:类型/文本/路径/重要度/时间/状态)
+    const contraSet = statusPassSet();
     const passNodeFilter = new Set(
       graph.nodes
         .filter(n => state.showKinds[n.kind] !== false)
         .filter(n => matchesNodeFilters(n))
+        .filter(n => passesImpTime(n))
+        .filter(n => passesStatus(n, contraSet))
         .map(n => n.id),
     );
     const out = [];
@@ -226,7 +298,7 @@ async function renderGraphInner(container) {
         fit: true
       }
     },
-    interaction: { hover: true, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false }
+    interaction: { hover: true, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: state.hoverHl }
   };
 
   const network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, options);
@@ -313,14 +385,15 @@ async function renderGraphInner(container) {
       return { x: d.x, y: d.y };
     };
     const clusters = CO_ENGRAM._graphClusters || [];
-    // 1) Louvain 簇呼吸凸包
-    for (const cl of clusters) {
+    // 1) Louvain 簇呼吸凸包(DEMO:蓝/绿/橙三色虚线轮换呼吸)
+    clusters.forEach((cl, ci) => {
       const pts = cl.members.map(m => domOf(m.id)).filter(Boolean);
-      if (pts.length < 3) continue;
+      if (pts.length < 3) return;
       const hull = CO_ENGRAM_CONVEX_HULL(pts);
-      if (hull.length < 3) continue;
-      inner += '<path class="hull" d="' + CO_ENGRAM_HULL_PATH(hull, 26) + '"></path>';
-    }
+      if (hull.length < 3) return;
+      const cls = 'hull' + (ci % 3 === 1 ? ' h2' : ci % 3 === 2 ? ' h3' : '');
+      inner += '<path class="' + cls + '" d="' + CO_ENGRAM_HULL_PATH(hull, 26) + '"></path>';
+    });
     // 2) 高重要度(≥0.7)节点发光脉冲光环(DEMO .halo)
     for (const n of nodesDataset.get()) {
       const imp = (n._raw && n._raw.importance != null) ? n._raw.importance : 0.5;
@@ -380,6 +453,56 @@ async function renderGraphInner(container) {
   updateSliderLabels();
   queueRefreshOverlay();
 
+  // ============================================================
+  // 左侧图例(DEMO .legend):KIND 点选筛选行 + 关系族行,带计数。
+  // 点击整行 toggle(行 off 时降透明度);族行 toggle 该族全部 kinds。
+  // ============================================================
+  function renderLegend() {
+    const T = CO_ENGRAM_T;
+    const kindsEl = document.getElementById('legend-kinds');
+    const famsEl = document.getElementById('legend-families');
+    if (!kindsEl || !famsEl) return;
+    const kindCount = {};
+    for (const n of graph.nodes) kindCount[n.kind] = (kindCount[n.kind] || 0) + 1;
+    let kh = '';
+    for (const k of KIND_ORDER) {
+      const on = state.showKinds[k] !== false;
+      kh += '<div class="fk' + (on ? '' : ' off') + '" onclick="CO_ENGRAM_GRAPH.toggleKind(\\'' + k + '\\', ' + (!on) + ')">'
+        + '<span class="d" style="background:' + (k === 'skill' ? '#a78bfa' : CO_ENGRAM.kindColor(k)) + '"></span>'
+        + CO_ENGRAM.escapeHtml(T.enumLabel('kind', k) || k)
+        + '<span class="c">' + (kindCount[k] || 0) + '</span></div>';
+    }
+    kindsEl.innerHTML = kh;
+    const famEdgeCount = {};
+    for (const e of graph.edges) {
+      const fam = CO_ENGRAM.synapseFamily(e.kind);
+      famEdgeCount[fam] = (famEdgeCount[fam] || 0) + 1;
+    }
+    let fh = '';
+    for (const [fam, kinds] of FAMILIES) {
+      const on = kinds.every(k => state.showSynapseKinds[k] !== false);
+      fh += '<div class="fk' + (on ? '' : ' off') + '" onclick="CO_ENGRAM_GRAPH.toggleFamily(\\'' + fam + '\\', ' + (!on) + ')">'
+        + '<span class="d sq" style="background:' + CO_ENGRAM.familyColor(fam) + '"></span>'
+        + CO_ENGRAM.escapeHtml(T.enumLabel('family', fam) || fam)
+        + '<span class="c">' + (famEdgeCount[fam] || 0) + '</span></div>';
+    }
+    famsEl.innerHTML = fh;
+  }
+
+  // 顶栏计数行(DEMO gt small):「N 条 · M 可见(重要度 ≥x)· K 个 Louvain 簇」
+  function updateCountLine() {
+    const T = CO_ENGRAM_T;
+    const el = document.getElementById('graph-count-line');
+    if (!el) return;
+    const visible = nodesDataset.length;
+    const clusters = (CO_ENGRAM._graphClusters || []).length;
+    el.textContent = graph.nodes.length + ' ' + T.t('viewer.graph.countLine.items') + ' · '
+      + visible + ' ' + T.t('viewer.graph.countLine.visible', { imp: state.minImportance.toFixed(2) })
+      + (clusters ? ' · ' + clusters + ' ' + T.t('viewer.graph.countLine.clusters') : '');
+  }
+  renderLegend();
+  updateCountLine();
+
   // 顶栏 chip + 计数初始显示
   CO_ENGRAM_GRAPH._refreshTextChip();
   CO_ENGRAM_GRAPH._refreshPathChip();
@@ -407,6 +530,8 @@ async function renderGraphInner(container) {
 
   function resetHighlight() {
     state.focusedId = null;
+    const insp = document.getElementById('graph-insp');
+    if (insp) insp.hidden = true;
     const allNodes = nodesDataset.get();
     const allEdges = edgesDataset.get();
     nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
@@ -434,94 +559,64 @@ async function renderGraphInner(container) {
       opacity: connectedEdgeIds.has(e.id) ? 1.0 : 0.05
     })));
     queueRefreshOverlay();
-    showNodeDetail(id);
+    renderInspector(id);
   }
 
-  async function showNodeDetail(id) {
+  // ============================================================
+  // 右侧检查器(DEMO .insp):点击节点填充;Esc / 点空白关闭。
+  // 「打开全文」进印迹详情抽屉(完整编辑能力保留在抽屉)。
+  // ============================================================
+  async function renderInspector(id) {
     const T = CO_ENGRAM_T;
-    // skill 节点(id 以 "skill:" 前缀)走 /api/skills 而非 /api/engrams
+    const insp = document.getElementById('graph-insp');
+    if (!insp) return;
+    insp.hidden = false;
+
+    const node = graph.nodes.find(n => n.id === id);
     if (id.indexOf('skill:') === 0) {
-      const skillId = id.slice(6);
-      CO_ENGRAM_SKILLS.open(skillId);
-      return;
-    }
-    let detail;
-    try {
-      detail = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id));
-    } catch (e) {
-      CO_ENGRAM.openDrawer('<h2>' + CO_ENGRAM.escapeHtml(id) + '</h2><div class="empty">' + T.t('viewer.common.loadFailed', { err: e.message }) + '</div>');
+      insp.innerHTML = '<span class="kind">SKILL</span>'
+        + '<h3>' + CO_ENGRAM.escapeHtml(node ? node.title : id.slice(6)) + '</h3>'
+        + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.skillNode')) + '</span></div>'
+        + '<div class="iacts"><button class="ab" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(id.slice(6)) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.openFull')) + '</button></div>';
       return;
     }
 
-    // 找该节点的所有 synapse
+    let detail = null;
+    try { detail = await CO_ENGRAM.apiGet('/api/engrams/' + encodeURIComponent(id)); } catch (e) { /* 降级用 _raw */ }
+
+    const imp = node && node.importance != null ? node.importance : (detail ? detail.importance ?? 0.5 : 0.5);
+    const kindColor = node ? nodeColorFor(node) : '#8B857B';
     const outgoing = graph.edges.filter(e => e.from === id);
     const incoming = graph.edges.filter(e => e.to === id);
+    const titleById = new Map(graph.nodes.map(n => [n.id, n.title]));
+    const cluster = (CO_ENGRAM._graphClusters || []).find(cl => cl.members.some(m => m.id === id));
 
-    const familyGroup = (list, label) => {
-      if (!list.length) return '';
-      const grouped = {};
-      for (const e of list) {
-        const fam = CO_ENGRAM.synapseFamily(e.kind);
-        (grouped[fam] = grouped[fam] || []).push(e);
-      }
-      let html = '<h3>' + CO_ENGRAM.escapeHtml(label) + ' (' + list.length + ')</h3>';
-      for (const fam of Object.keys(grouped)) {
-        html += '<div class="field"><span class="chip dot" style="color:' + CO_ENGRAM.familyColor(fam) + '">' + (T.enumLabel('family', fam) || fam) + '</span></div>';
-        for (const e of grouped[fam]) {
-          const other = e.from === id ? e.to : e.from;
-          const kindLabel = T.enumLabel('synapseKind', e.kind) || e.kind;
-          html += '<div class="field" style="padding-left:0.5rem">'
-            + '<span class="chip synapse-link" data-synapse-id="' + CO_ENGRAM.escapeHtml(e.id) + '" style="background:' + CO_ENGRAM.edgeColor(e.kind) + '22;color:' + CO_ENGRAM.edgeColor(e.kind) + ';cursor:pointer">' + kindLabel + '</span> '
-            + '<span class="engram-link" data-engram-id="' + CO_ENGRAM.escapeHtml(other) + '">' + CO_ENGRAM.escapeHtml(other) + '</span>'
-            + (e.resolutionStatus ? ' <span class="chip" style="background:rgba(239,68,68,.15);color:#ef4444">' + (T.enumLabel('resolution', e.resolutionStatus) || e.resolutionStatus) + '</span>' : '')
-            + '</div>';
-        }
-      }
-      return html;
-    };
+    let neighHtml = '';
+    for (const e of outgoing.concat(incoming)) {
+      const other = e.from === id ? e.to : e.from;
+      const otherNode = graph.nodes.find(n => n.id === other);
+      const kindLabel = T.enumLabel('synapseKind', e.kind) || e.kind;
+      neighHtml += '<div class="nl" onclick="CO_ENGRAM_GRAPH.focusById(\\'' + CO_ENGRAM.escapeHtml(other) + '\\')">'
+        + '<span class="d" style="background:' + (otherNode ? nodeColorFor(otherNode) : '#8B857B') + '"></span>'
+        + '<span class="nl-t">' + CO_ENGRAM.escapeHtml(titleById.get(other) || other) + '</span>'
+        + '<span class="ek">' + CO_ENGRAM.escapeHtml(e.kind) + '</span></div>';
+    }
 
-    const body = [
-      '<div class="edit-banner" style="display:flex;gap:.5rem;align-items:center"><strong style="margin-right:auto">' + T.t('viewer.graph.nodeDetailTitle') + '</strong>'
-      + '<button class="btn" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(()=>CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(detail.id) + '\\'),50)">' + T.t('viewer.graph.editInEngrams') + '</button>'
-      + '</div>',
-      '<h2>' + CO_ENGRAM.escapeHtml(detail.title || detail.id) + '</h2>',
-      '<div class="field"><span class="chip kind-' + detail.kind + '">' + (T.enumLabel('kind', detail.kind) || detail.kind) + '</span> '
-      + CO_ENGRAM.importanceBar(detail.importance) + ' <span class="kpi-sub">' + T.t('viewer.graph.importanceShort') + ' ' + (detail.importance || 0).toFixed(2) + '</span></div>',
-      '<div class="field"><span class="field-label">' + T.t('viewer.synapses.idField') + '</span><code>' + CO_ENGRAM.escapeHtml(detail.id) + '</code></div>',
-      (detail.domainTags && detail.domainTags.length
-        ? '<div class="field"><span class="field-label">' + T.fieldLabel('domainTags') + ':</span>' + detail.domainTags.map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ') + '</div>'
-        : ''),
-      (detail.summary ? '<h3>' + T.t('viewer.graph.summaryTitle') + '</h3><div class="field">' + CO_ENGRAM.escapeHtml(detail.summary) + '</div>' : ''),
-      '<h3>' + T.t('viewer.graph.statsTitle') + '</h3>',
-      '<div class="field"><span class="field-label">' + T.t('viewer.graph.retrievalLabel') + '</span>' + (detail.retrievalCount || 0)
-      + ' <span class="field-label">' + T.t('viewer.graph.effectiveLabel') + '</span>' + (detail.effectiveRetrievals || 0)
-      + ' <span class="field-label">' + T.t('viewer.graph.failedLabel') + '</span>' + (detail.failedUses || 0) + '</div>',
-      '<div class="field"><span class="field-label">' + T.t('viewer.synapses.creatorField') + '</span>' + CO_ENGRAM.escapeHtml(detail.createdBy || '')
-      + ' <span class="field-label">' + T.t('viewer.synapses.timeField') + '</span>' + CO_ENGRAM.escapeHtml(detail.createdAt || '') + '</div>',
-      familyGroup(outgoing, T.t('viewer.graph.outgoingSynapses')),
-      familyGroup(incoming, T.t('viewer.graph.incomingSynapses'))
-    ].join('\\n');
-    CO_ENGRAM.openDrawer(body);
-
-    // drawer 内的 engram / synapse 链接点击 → focus / open
-    setTimeout(() => {
-      document.querySelectorAll('#detail-drawer .engram-link').forEach(el => {
-        el.onclick = () => {
-          const targetId = el.getAttribute('data-engram-id');
-          if (targetId) {
-            network.focus(targetId, { scale: 1.2, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
-            network.selectNodes([targetId]);
-            focusNode(targetId);
-          }
-        };
-      });
-      document.querySelectorAll('#detail-drawer .synapse-link').forEach(el => {
-        el.onclick = () => {
-          const sid = el.getAttribute('data-synapse-id');
-          if (sid) CO_ENGRAM_SYNAPSES.open(sid);
-        };
-      });
-    }, 50);
+    insp.innerHTML = '<span class="kind" style="color:' + kindColor + '">' + CO_ENGRAM.escapeHtml((T.enumLabel('kind', node ? node.kind : '') || '').toUpperCase() + ' · ' + (T.enumLabel('kind', node ? node.kind : '') || node.kind)) + '</span>'
+      + '<h3>' + CO_ENGRAM.escapeHtml(detail ? detail.title : (node ? node.title : id)) + '</h3>'
+      + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.importanceShort')) + '</span><b>' + imp.toFixed(2)
+        + (detail && detail.verificationStatus ? ' · ' + CO_ENGRAM.escapeHtml(T.enumLabel('verificationStatus', detail.verificationStatus) || detail.verificationStatus) : '') + '</b></div>'
+      + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.retrieval')) + '</span><b>'
+        + ((detail && detail.retrievalCount) || (node && node.retrievalCount) || 0) + ' · '
+        + ((node && node.lastRetrievedAt) ? CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(node.lastRetrievedAt)) : CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.never'))) + '</b></div>'
+      + (cluster ? '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.cluster')) + '</span><b>' + CO_ENGRAM.escapeHtml(cluster.label) + '</b></div>' : '')
+      + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.degrees')) + '</span><b>' + incoming.length + ' / ' + outgoing.length + '</b></div>'
+      + '<div class="neigh"><h5>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.neighborhood', { n: outgoing.length + incoming.length })) + '</h5>' + (neighHtml || '<div class="nl">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.noNeighbors')) + '</div>') + '</div>'
+      + '<div class="iacts">'
+      + '<button class="ab" onclick="CO_ENGRAM.showTab(\\'engrams\\');setTimeout(function(){CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(id) + '\\')},60)">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.openFull')) + '</button>'
+      + '<button class="ab" onclick="CO_ENGRAM.showTab(\\'audit\\');setTimeout(function(){var i=document.getElementById(\\'audit-engram\\');if(i){i.value=\\'' + CO_ENGRAM.escapeHtml(id) + '\\';CO_ENGRAM_AUDIT.applyFilter();}},60)">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.auditTrail')) + '</button>'
+      + '<button class="ab" onclick="CO_ENGRAM._graphState.resetFocus()">' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.insp.back')) + '</button>'
+      + '</div>';
   }
 
   // === 工具栏交互 ===
@@ -531,9 +626,15 @@ async function renderGraphInner(container) {
     nodesDataset.add(buildNodes());
     edgesDataset.add(buildEdges());
     // 焦点节点被过滤掉时清焦(防流动边指向不存在节点)
-    if (state.focusedId && !nodesDataset.get(state.focusedId)) state.focusedId = null;
+    if (state.focusedId && !nodesDataset.get(state.focusedId)) {
+      state.focusedId = null;
+      const insp = document.getElementById('graph-insp');
+      if (insp) insp.hidden = true;
+    }
     recomputeClusters();
     updateSliderLabels();
+    renderLegend();
+    updateCountLine();
     queueRefreshOverlay();
   };
   CO_ENGRAM._graphState.togglePhysics = function() {
@@ -568,10 +669,12 @@ async function renderGraphInner(container) {
     }
     debouncedApply();
   };
-  // 夜览切换(DEMO stage.night):深底色 + 节点标签/光环配色跟随
+  // 夜览切换(DEMO stage.night):深底色 + 节点标签/光环配色跟随。
+  // night 类挂在 .graph-container(舞台)上 —— 点阵底色/浮层配色都由它驱动
   CO_ENGRAM._graphState.toggleNight = function() {
     state.night = !state.night;
-    container.classList.toggle('night', state.night);
+    const stage = document.getElementById('graph-stage') || container;
+    stage.classList.toggle('night', state.night);
     const btn = document.getElementById('graph-night-btn');
     if (btn) btn.textContent = state.night
       ? '☀️ ' + T.t('viewer.graph.night.disable')
@@ -581,6 +684,35 @@ async function renderGraphInner(container) {
     queueRefreshOverlay();
   };
   CO_ENGRAM._graphState.resetFocus = function() { resetHighlight(); };
+  CO_ENGRAM._graphState.focusNode = focusNode;
+  // 着色模式(DEMO modes):structure/vitality/conflict/heat + 按钮态
+  CO_ENGRAM._graphState.setColorMode = function(mode) {
+    state.colorMode = mode;
+    document.querySelectorAll('.graph-topbar .modes .m[data-gmode]').forEach(b => {
+      b.classList.toggle('on', b.getAttribute('data-gmode') === mode);
+    });
+    // 颜色只依赖 nodeColorFor → 重算节点 color(不重建位置)
+    nodesDataset.update(nodesDataset.get().map(n => {
+      const raw = graph.nodes.find(x => x.id === n.id);
+      const c = raw ? nodeColorFor(raw) : n.color;
+      return { id: n.id, color: { background: c, border: c, highlight: { background: c, border: '#000' }, hover: { background: c, border: '#fff' } } };
+    }));
+    renderLegend();
+    queueRefreshOverlay();
+  };
+  // 状态筛选(DEMO fselect):仅活跃 / 含归档 / 仅矛盾
+  CO_ENGRAM._graphState.setStatusFilter = function(v) {
+    state.statusFilter = v || 'active';
+    CO_ENGRAM._graphState.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+  };
+  // 悬停邻边高亮(DEMO ✨邻居高亮 toggle;vis 原生 hoverConnectedEdges)
+  CO_ENGRAM._graphState.toggleHoverHl = function() {
+    state.hoverHl = !state.hoverHl;
+    network.setOptions({ interaction: { hoverConnectedEdges: state.hoverHl } });
+    const btn = document.getElementById('graph-hover-hl');
+    if (btn) btn.classList.toggle('on', state.hoverHl);
+  };
   CO_ENGRAM._graphState.resetView = function() {
     state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true };
     state.showSynapseKinds = Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true]));
@@ -589,13 +721,17 @@ async function renderGraphInner(container) {
     state.minImportance = 0;
     state.timeRatio = 1;
     state.focusedId = null;
-    document.querySelectorAll('.graph-toolbar input[type=checkbox]').forEach(c => c.checked = true);
+    state.statusFilter = 'active';
     const qInput = document.getElementById('graph-q');
     if (qInput) qInput.value = '';
     const impRange = document.getElementById('graph-imp-range');
     if (impRange) impRange.value = '0';
     const tlRange = document.getElementById('graph-time-range');
     if (tlRange) tlRange.value = '100';
+    const statusSel = document.getElementById('graph-status');
+    if (statusSel) statusSel.value = 'active';
+    const insp = document.getElementById('graph-insp');
+    if (insp) insp.hidden = true;
     CO_ENGRAM_GRAPH._refreshTextChip();
     CO_ENGRAM_GRAPH._refreshPathChip();
     CO_ENGRAM._graphState.applyFilters();
@@ -755,6 +891,32 @@ window.CO_ENGRAM_GRAPH = {
   setImportance(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setImportance(v); },
   setTimeReplay(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setTimeReplay(v); },
   toggleNight() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleNight(); },
+  setColorMode(m) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setColorMode(m); },
+  setStatusFilter(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setStatusFilter(v); },
+  toggleHoverHl() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleHoverHl(); },
+  // 图例族行:toggle 该族全部 kinds(on = 该族所有 kind 开)
+  toggleFamily(fam, on) {
+    const s = CO_ENGRAM._graphState;
+    if (!s) return;
+    const FAM_KINDS = {
+      structural: ['extends', 'part_of', 'similar_to'],
+      causal: ['depends_on', 'causes', 'follows'],
+      evidential: ['derives_from', 'contradicts', 'exemplifies'],
+      temporal: ['supersedes', 'consolidates'],
+      modulatory: ['contextualizes'],
+    };
+    for (const k of (FAM_KINDS[fam] || [])) s.state.showSynapseKinds[k] = on;
+    s.applyFilters();
+    CO_ENGRAM_GRAPH._refreshFilterCount();
+  },
+  // 检查器邻域行点击 → 聚焦该节点(复用画布聚焦逻辑)
+  focusById(id) {
+    const s = CO_ENGRAM._graphState;
+    if (!s || !s.network) return;
+    s.network.focus(id, { scale: 1.2, animation: { duration: 400, easingFunction: 'easeInOutQuad' } });
+    s.network.selectNodes([id]);
+    s.focusNode(id);
+  },
 
   // === 顶栏过滤(2026-07 新增)===
   // 关键词过滤:oninput 实时触发,空值清空
@@ -914,14 +1076,20 @@ window.CO_ENGRAM_GRAPH = {
     if (!countEl) return;
     // 重新计算保留的节点 / 边数(与 buildNodes / buildEdges 一致)
     const T = CO_ENGRAM_T;
-    // 重要度阈值 + 时间回放(与 buildNodes 的 passesImpTime 同一谓词,内联复算)
+    // 重要度阈值 + 时间回放 + 状态(与 buildNodes 同一谓词,内联复算)
     const cut = (s.state.timeRange && s.state.timeRatio < 1)
       ? s.state.timeRange.min + (s.state.timeRange.max - s.state.timeRange.min) * s.state.timeRatio
       : null;
+    const contraSet = s.state.statusFilter === 'contradictions' ? new Set(
+      s.data.edges.filter(e => e.kind === 'contradicts').flatMap(e => [e.from, e.to]),
+    ) : null;
     const passNodes = s.data.nodes.filter(n =>
       s.state.showKinds[n.kind] !== false
       && ((n.importance != null ? n.importance : 0.5) >= s.state.minImportance)
       && (cut == null || (typeof n.createdAtMs === 'number' && n.createdAtMs > 0 && n.createdAtMs <= cut))
+      && (s.state.statusFilter === 'all' ? true
+        : s.state.statusFilter === 'contradictions' ? contraSet.has(n.id)
+        : (!n.status || n.status === 'active'))
       && (function matchesNodeFilters(n) {
         if (s.state.pathFilter !== '') {
           const locMap = CO_ENGRAM._engramLocations;

@@ -773,134 +773,275 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 }
 .bar-row .bar-value { text-align: right; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 
-/* === Graph overlay === */
+/* === Graph stage(2026-08 DEMO g2-synapses 定稿:点阵纸面舞台 + 四浮层)=== */
+main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 .graph-container {
   position: relative;
-  background: var(--panel-bg);
+  height: calc(100vh - 120px);
+  min-height: 560px;
+  border-radius: 20px;
+  overflow: hidden;
+  --sv-bg: #F7F4EC;
+  --sv-line: #E3DDD0;
+  --sv-ink: #3A362E;
+  --sv-ink2: #6A655D;
+  --sv-ink3: #8B857B;
+  background: var(--sv-bg);
+  background-image: radial-gradient(var(--sv-line) 1px, transparent 1px);
+  background-size: 26px 26px;
+  border: 1px solid var(--border);
+  box-shadow: 0 8px 30px rgba(45, 42, 38, 0.08);
+}
+.graph-container.night {
+  --sv-bg: #0E1226;
+  --sv-line: #1C2340;
+  --sv-ink: #DFE6F5;
+  --sv-ink2: #B9C3E2;
+  --sv-ink3: #7580A8;
+  background: radial-gradient(ellipse 70% 55% at 62% 22%, #1A2140 0%, #0E1226 65%);
+  border-color: #232A4A;
+  box-shadow: 0 20px 60px rgba(20, 26, 58, 0.35);
+}
+#graph-canvas { width: 100%; height: 100%; position: relative; }
+#graph-canvas .vis-network { background: transparent !important; }
+
+/* 顶部:标题 + 计数 + 着色模式 + 夜览 */
+.graph-topbar {
+  position: absolute;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 20;
+}
+.graph-topbar .gt { color: var(--sv-ink); font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
+.graph-topbar .gt small { font-weight: 400; color: var(--sv-ink3); font-size: 11.5px; }
+.graph-topbar .modes {
+  margin-left: auto;
+  display: flex;
+  gap: 3px;
+  background: var(--panel-bg-solid, #FFF);
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(45, 42, 38, 0.08);
+}
+.graph-topbar .modes .m {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 4px 13px;
+  border-radius: 8px;
+  border: none;
+  background: none;
+  color: var(--sv-ink3);
+  cursor: pointer;
+}
+.graph-topbar .modes .m.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+
+/* 左:图例筛选浮层 */
+.graph-legend {
+  position: absolute;
+  left: 14px;
+  top: 60px;
+  width: 196px;
+  background: rgba(255, 255, 255, 0.92);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  height: calc(100vh - 200px);
-  min-height: 480px;
-  overflow: hidden;
-}
-#graph-canvas { width: 100%; height: 100%; }
-#graph-canvas .vis-network {
-  background: transparent !important;
-}
-.graph-toolbar {
-  position: absolute;
-  top: 0.85rem;
-  left: 0.85rem;
-  z-index: 5;
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  background: rgba(45, 42, 38, 0.82);
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 0.55rem 0.65rem;
-  font-size: 0.72rem;
-  box-shadow: var(--shadow);
-  width: 240px;
-  max-width: 260px;
-  max-height: calc(100% - 1.7rem);
+  border-radius: 14px;
+  padding: 13px;
+  z-index: 20;
+  color: var(--sv-ink2);
+  box-shadow: 0 4px 18px rgba(45, 42, 38, 0.10);
+  max-height: calc(100% - 140px);
   overflow-y: auto;
-  overflow-x: hidden;
+  font-size: 12.5px;
 }
-.graph-toolbar::-webkit-scrollbar { width: 6px; }
-.graph-toolbar::-webkit-scrollbar-track { background: transparent; }
-.graph-toolbar::-webkit-scrollbar-thumb {
-  background: rgba(94, 234, 212, 0.2);
-  border-radius: 3px;
-}
-.graph-toolbar::-webkit-scrollbar-thumb:hover { background: rgba(94, 234, 212, 0.4); }
-
-/* === 2026-08 图谱改版(DEMO g2-synapses)=== */
-/* 重要度阈值滑杆 */
-.graph-slider { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0.15rem; }
-.graph-slider .slider-val { font-size: 0.68rem; color: var(--fg-dim); }
-.graph-slider input[type=range] { width: 100%; accent-color: var(--accent); }
-
-/* SVG 覆盖层:呼吸凸包 / 发光脉冲 / 流动边(pointer-events 穿透,画布交互不受影响) */
-.graph-overlay {
-  position: absolute;
-  inset: 0;
+.graph-container.night .graph-legend { background: rgba(14, 18, 38, 0.88); color: var(--sv-ink2); }
+.graph-legend h4 { font-size: 10.5px; color: var(--sv-ink3); letter-spacing: 0.09em; margin: 2px 0 7px; font-weight: 600; }
+.fk { display: flex; align-items: center; gap: 8px; padding: 2.5px 0; cursor: pointer; font-size: 12.5px; }
+.fk:hover { color: var(--sv-ink); }
+.fk.off { opacity: 0.42; }
+.fk .d { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.fk .d.sq { border-radius: 2px; }
+.fk .c { margin-left: auto; font-size: 11px; color: var(--sv-ink3); font-variant-numeric: tabular-nums; }
+.graph-slider { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0; }
+.graph-slider .slider-val { font-size: 11px; color: var(--accent); font-family: ui-monospace, Consolas, monospace; }
+.graph-slider input[type=range] {
+  -webkit-appearance: none;
+  appearance: none;
   width: 100%;
-  height: 100%;
-  pointer-events: none;
-  z-index: 4;
-  overflow: visible;
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #D8D2C4, var(--accent));
+  outline: none;
+  margin: 6px 0 3px;
 }
-.hull {
-  fill: rgba(15, 118, 110, 0.04);
-  stroke: rgba(15, 118, 110, 0.35);
-  stroke-width: 1.5;
-  animation: hullbreathe 4s ease-in-out infinite;
+.graph-slider input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 5px rgba(15, 118, 110, 0.5);
+  cursor: pointer;
 }
-@keyframes hullbreathe {
-  0%, 100% { stroke-opacity: 0.55; fill-opacity: 1; }
-  50% { stroke-opacity: 0.2; fill-opacity: 0.35; }
+.pathbtn {
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  background: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 7px;
+  padding: 4px 9px;
+  color: var(--sv-ink3);
+  cursor: pointer;
+  margin-top: 4px;
+  text-align: left;
 }
-.halo {
-  fill: none;
-  stroke-width: 2;
-  animation: halopulse 3s ease-in-out infinite;
-  transform-box: fill-box;
-  transform-origin: center;
+.pathbtn:hover { color: var(--accent); border-color: var(--accent); }
+.ftext {
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  background: var(--sv-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 9px;
+  color: var(--sv-ink);
+  outline: none;
+  margin-top: 4px;
 }
-@keyframes halopulse {
-  0%, 100% { stroke-opacity: 0.55; transform: scale(1); }
-  50% { stroke-opacity: 0.12; transform: scale(1.18); }
+.ftext::placeholder { color: var(--sv-ink3); }
+.fselect {
+  width: 100%;
+  font: inherit;
+  font-size: 11.5px;
+  background: var(--sv-bg);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 4px 6px;
+  color: var(--sv-ink);
+  outline: none;
+  margin-top: 4px;
 }
-.flow {
-  fill: none;
-  stroke-width: 2;
-  stroke-dasharray: 5 9;
-  animation: flowdash 1.2s linear infinite;
-}
-@keyframes flowdash { to { stroke-dashoffset: -28; } }
-.cluster-lab { font-size: 11px; fill: #8B857B; letter-spacing: 0.12em; }
-@media (prefers-reduced-motion: reduce) {
-  .hull, .halo, .flow { animation: none !important; }
-}
+.graph-legend .read-hint { font-size: 11px; color: var(--sv-ink3); line-height: 1.8; }
 
-/* 夜览(DEMO stage.night):深蓝底 + 点阵弱化;节点标签色由 graph.ts 切换 */
-#graph-canvas { position: relative; transition: background-color 0.3s; }
-#graph-canvas.night {
-  background:
-    radial-gradient(rgba(140, 155, 205, 0.14) 1px, transparent 1px) 0 0 / 22px 22px,
-    #0A0D1C;
+/* 右:检查器 */
+.graph-insp {
+  position: absolute;
+  right: 14px;
+  top: 60px;
+  width: 264px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  z-index: 20;
+  color: var(--sv-ink2);
+  box-shadow: 0 4px 18px rgba(45, 42, 38, 0.10);
+  max-height: calc(100% - 140px);
+  overflow-y: auto;
 }
-#graph-canvas.night ~ .graph-bottombar { background: linear-gradient(180deg, transparent, rgba(10, 13, 28, 0.92) 45%); }
-#graph-canvas.night ~ .graph-bottombar .tl-val, #graph-canvas.night ~ .graph-bottombar .tl-lab { color: #8A94B8; }
-#graph-canvas.night ~ .graph-bottombar .tl-lab b { color: #C6D0EC; }
-#graph-canvas.night + .graph-bottombar { background: linear-gradient(180deg, transparent, rgba(10, 13, 28, 0.92) 45%); }
-#graph-canvas.night + .graph-bottombar .tl-val, #graph-canvas.night + .graph-bottombar .tl-lab { color: #8A94B8; }
-#graph-canvas.night + .graph-bottombar .tl-lab b { color: #C6D0EC; }
-#graph-canvas.night ~ * .cluster-lab, #graph-canvas.night .cluster-lab { fill: #7580A8; }
+.graph-container.night .graph-insp { background: rgba(14, 18, 38, 0.9); }
+.graph-insp .kind {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  border-radius: 5px;
+  padding: 1.5px 8px;
+  display: inline-block;
+  margin-bottom: 6px;
+  background: rgba(37, 99, 235, 0.1);
+}
+.graph-insp h3 { font-size: 14.5px; line-height: 1.5; margin-bottom: 7px; color: var(--sv-ink); font-weight: 600; }
+.graph-insp .irow { display: flex; justify-content: space-between; font-size: 12px; padding: 2.5px 0; color: var(--sv-ink2); gap: 8px; }
+.graph-insp .irow b { font-weight: 500; color: var(--sv-ink); font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; }
+.graph-insp .neigh { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 9px; }
+.graph-insp .neigh h5 { font-size: 10.5px; color: var(--sv-ink3); margin-bottom: 5px; letter-spacing: 0.06em; font-weight: 600; }
+.graph-insp .nl { display: flex; align-items: center; gap: 7px; padding: 2.5px 0; font-size: 12px; color: var(--sv-ink2); cursor: pointer; }
+.graph-insp .nl:hover { color: var(--sv-ink); }
+.graph-insp .nl .d { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.graph-insp .nl .nl-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-insp .nl .ek { margin-left: auto; font-size: 10px; color: var(--sv-ink3); font-family: ui-monospace, Consolas, monospace; }
+.graph-insp .iacts { display: flex; gap: 6px; margin-top: 12px; }
+.graph-insp .ab {
+  flex: 1;
+  font: inherit;
+  font-size: 11.5px;
+  text-align: center;
+  border-radius: 8px;
+  padding: 5px 0;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--sv-ink2);
+}
+.graph-insp .ab:hover { border-color: var(--accent); color: var(--accent); }
 
-/* 底部时间回放栏(DEMO bottombar) */
+/* 底部:时间回放 + 工具(居中浮层) */
 .graph-bottombar {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 6;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
+  gap: 14px;
   align-items: center;
-  gap: 0.9rem;
-  padding: 0.7rem 1rem;
-  background: linear-gradient(180deg, transparent, rgba(251, 250, 248, 0.92) 45%);
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 18px;
+  z-index: 20;
+  width: min(680px, 92%);
+  box-shadow: 0 4px 18px rgba(45, 42, 38, 0.10);
 }
-.graph-bottombar .tl-lab { font-size: 0.72rem; color: var(--fg-dim); white-space: nowrap; }
-.graph-bottombar .tl-lab b { color: var(--fg); font-size: 0.78rem; margin-right: 0.4rem; }
-.graph-bottombar .tl-lab small { font-size: 0.65rem; }
-.graph-bottombar .tl { flex: 1; accent-color: var(--accent); }
-.graph-bottombar .tl-val { font-size: 0.72rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 8.5rem; text-align: right; }
+.graph-container.night .graph-bottombar { background: rgba(14, 18, 38, 0.9); }
+.graph-bottombar .tl-lab { font-size: 11.5px; color: var(--sv-ink3); white-space: nowrap; }
+.graph-bottombar .tl-lab b { color: var(--sv-ink); display: block; font-size: 12px; }
+.graph-bottombar .tl {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, #D8D2C4, var(--accent));
+  outline: none;
+}
+.graph-bottombar .tl::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 6px rgba(15, 118, 110, 0.5);
+  cursor: pointer;
+}
+.graph-bottombar .tl-val { font-size: 12px; color: var(--accent); font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
+.graph-bottombar .tools { display: flex; gap: 2px; }
+.graph-bottombar .tb { font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 7px; border: none; background: none; color: var(--sv-ink3); cursor: pointer; white-space: nowrap; }
+.graph-bottombar .tb:hover { background: #F2EFEA; color: var(--sv-ink); }
+.graph-bottombar .tb.on { background: var(--accent-soft); color: var(--accent); }
+
+/* SVG 覆盖层:呼吸凸包(DEMO 虚线三色)/ 发光脉冲 / 流动边 */
+.graph-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 4; overflow: visible; }
+.hull { fill: rgba(37, 99, 235, 0.05); stroke: rgba(37, 99, 235, 0.22); stroke-width: 1; stroke-dasharray: 5 5; animation: hullbreathe 5s ease-in-out infinite; }
+.hull.h2 { fill: rgba(14, 159, 110, 0.05); stroke: rgba(14, 159, 110, 0.22); animation-delay: -1.6s; }
+.hull.h3 { fill: rgba(215, 115, 13, 0.04); stroke: rgba(215, 115, 13, 0.2); animation-delay: -3.2s; }
+@keyframes hullbreathe { 0%, 100% { fill-opacity: 0.55; } 50% { fill-opacity: 1.15; } }
+.halo { fill: none; stroke-width: 2; animation: halopulse 3s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+@keyframes halopulse { 0%, 100% { stroke-opacity: 0.55; transform: scale(1); } 50% { stroke-opacity: 0.12; transform: scale(1.18); } }
+.flow { fill: none; stroke-width: 2; stroke-dasharray: 5 9; animation: flowdash 1.2s linear infinite; }
+@keyframes flowdash { to { stroke-dashoffset: -28; } }
+.cluster-lab { font-size: 11px; fill: #8B857B; letter-spacing: 0.12em; }
+.graph-container.night .cluster-lab { fill: #7580A8; }
+@media (prefers-reduced-motion: reduce) { .hull, .halo, .flow { animation: none !important; } }
 
 /* 操作按钮行:横排 */
 .graph-toolbar .toolbar-actions {

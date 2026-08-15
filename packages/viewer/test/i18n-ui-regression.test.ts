@@ -143,7 +143,8 @@ const STATIC_KEYS = Array.from(
 
 describe("Layer 1 / 静态骨架:所有按钮与显示在 zh/en 下全量渲染", () => {
   it("扫描器 sanity:≥ 80 个静态 key(防 regex 失效静默通过)", () => {
-    expect(STATIC_KEYS.length).toBeGreaterThanOrEqual(80);
+    // 2026-08 图谱改版:关系族/类型图例改 JS 动态渲染(带计数),静态 key 减少
+    expect(STATIC_KEYS.length).toBeGreaterThanOrEqual(60);
   });
 
   it("扫描覆盖已知锚点按钮(tab / 搜索 / graph toolbar / more-menu)", () => {
@@ -155,7 +156,10 @@ describe("Layer 1 / 静态骨架:所有按钮与显示在 zh/en 下全量渲染"
       "viewer.graph.toolbar.fit",
       "viewer.graph.toolbar.physics",
       "viewer.graph.toolbar.reset",
-      "viewer.graph.filter.pathBtn",
+      "viewer.graph.filter.pathBtn2",
+      "viewer.graph.modes.structure",
+      "viewer.graph.replay.title",
+      "viewer.graph.status.activeOnly",
       "viewer.footer",
     ];
     for (const a of anchors) {

@@ -209,209 +209,67 @@ ${SIDE_ICONS}
 
     <!-- Graph -->
     <section class="tab-panel" data-tab="graph">
-      <div class="filter-bar graph-filter-bar">
-        <input type="search" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
-        <button class="btn mini" onclick="CO_ENGRAM_GRAPH.openPathPicker()" title="${t(language, "viewer.graph.filter.pathBtnTitle")}">${t(language, "viewer.graph.filter.pathBtn")}</button>
-        <span class="chip removable" id="graph-path-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
-        <span class="chip removable" id="graph-text-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearTextFilter()"></span>
-        <span class="spacer"></span>
-        <span class="chip" id="graph-filter-count"></span>
-      </div>
-      <div class="graph-container">
-        <div class="graph-toolbar">
-          <div class="toolbar-actions">
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">${t(language, "viewer.graph.toolbar.fit")}</button>
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">${t(language, "viewer.graph.toolbar.physics")}</button>
-            <button class="mini" onclick="CO_ENGRAM_GRAPH.reset()" title="${t(language, "viewer.graph.toolbar.resetTitle")}">${t(language, "viewer.graph.toolbar.reset")}</button>
-            <button class="mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
+      <!--
+        2026-08 改版(DEMO g2-synapses 定稿结构):
+          stage(点阵纸面画布,夜览切换)
+          ├ topbar:标题 + 计数 + 着色模式(结构/活力/冲突/热力)+ 🌙 夜览
+          ├ legend(左浮层):KIND 点选筛选行(带计数)/ 关系族行 / 重要度滑杆 /
+          │   按路径 / 按文本 / 状态下拉 / 阅读方式提示
+          ├ insp(右浮层):节点检查器(点击节点填充,Esc 关闭)
+          └ bottombar(居中浮层):时间回放滑杆 + 工具(适配/邻居高亮/复位)
+      -->
+      <div class="graph-container" id="graph-stage">
+        <div class="graph-topbar">
+          <div class="gt">${t(language, "viewer.tab.graph")} <small id="graph-count-line"></small></div>
+          <div class="modes" role="group" aria-label="${t(language, "viewer.graph.modes.title")}">
+            <button class="m on" data-gmode="structure" onclick="CO_ENGRAM_GRAPH.setColorMode('structure')">${t(language, "viewer.graph.modes.structure")}</button>
+            <button class="m" data-gmode="vitality" onclick="CO_ENGRAM_GRAPH.setColorMode('vitality')">${t(language, "viewer.graph.modes.vitality")}</button>
+            <button class="m" data-gmode="conflict" onclick="CO_ENGRAM_GRAPH.setColorMode('conflict')">${t(language, "viewer.graph.modes.conflict")}</button>
+            <button class="m" data-gmode="heat" onclick="CO_ENGRAM_GRAPH.setColorMode('heat')" title="${t(language, "viewer.graph.modes.heatTitle")}">${t(language, "viewer.graph.modes.heat")}</button>
+            <button class="m" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
           </div>
+        </div>
 
-          <div class="group-title">${t(language, "viewer.graph.filter.impTitle")}</div>
+        <div class="graph-legend">
+          <h4>KIND · ${t(language, "viewer.graph.legend.pickFilter")}</h4>
+          <div id="legend-kinds"></div>
+          <h4 style="margin-top:9px">${t(language, "viewer.graph.synapseKindsTitle")}</h4>
+          <div id="legend-families"></div>
+          <h4 style="margin-top:9px">${t(language, "viewer.graph.filter.impTitle")}</h4>
           <div class="graph-slider">
             <span class="slider-val" id="graph-imp-val"></span>
             <input type="range" id="graph-imp-range" min="0" max="100" value="0" aria-label="${t(language, "viewer.graph.filter.impTitle")}" oninput="CO_ENGRAM_GRAPH.setImportance(this.value)">
           </div>
-
-          <div class="group-title">${t(language, "viewer.graph.synapseKindsTitle")}</div>
-          ${[
-            {
-              family: "structural",
-              familyColor: "#3b82f6",
-              label: t(language, "viewer.graph.familyGroupStructural"),
-              desc: t(language, "viewer.graph.familyDesc.structural"),
-              kinds: [
-                [
-                  "extends",
-                  t(language, "enum.synapseKind.extends"),
-                  "#3b82f6",
-                  t(language, "viewer.graph.synapseDesc.extends"),
-                ],
-                [
-                  "part_of",
-                  t(language, "enum.synapseKind.part_of"),
-                  "#60a5fa",
-                  t(language, "viewer.graph.synapseDesc.part_of"),
-                ],
-                [
-                  "similar_to",
-                  t(language, "enum.synapseKind.similar_to"),
-                  "#1e40af",
-                  t(language, "viewer.graph.synapseDesc.similar_to"),
-                ],
-              ],
-            },
-            {
-              family: "causal",
-              familyColor: "#f97316",
-              label: t(language, "viewer.graph.familyGroupCausal"),
-              desc: t(language, "viewer.graph.familyDesc.causal"),
-              kinds: [
-                [
-                  "depends_on",
-                  t(language, "enum.synapseKind.depends_on"),
-                  "#f97316",
-                  t(language, "viewer.graph.synapseDesc.depends_on"),
-                ],
-                [
-                  "causes",
-                  t(language, "enum.synapseKind.causes"),
-                  "#fb923c",
-                  t(language, "viewer.graph.synapseDesc.causes"),
-                ],
-                [
-                  "follows",
-                  t(language, "enum.synapseKind.follows"),
-                  "#c2410c",
-                  t(language, "viewer.graph.synapseDesc.follows"),
-                ],
-              ],
-            },
-            {
-              family: "evidential",
-              familyColor: "#10b981",
-              label: t(language, "viewer.graph.familyGroupEvidential"),
-              desc: t(language, "viewer.graph.familyDesc.evidential"),
-              kinds: [
-                [
-                  "derives_from",
-                  t(language, "enum.synapseKind.derives_from"),
-                  "#10b981",
-                  t(language, "viewer.graph.synapseDesc.derives_from"),
-                ],
-                [
-                  "exemplifies",
-                  t(language, "enum.synapseKind.exemplifies"),
-                  "#6ee7b7",
-                  t(language, "viewer.graph.synapseDesc.exemplifies"),
-                ],
-                [
-                  "contradicts",
-                  t(language, "enum.synapseKind.contradicts"),
-                  "#ef4444",
-                  t(language, "viewer.graph.synapseDesc.contradicts"),
-                ],
-              ],
-            },
-            {
-              family: "temporal",
-              familyColor: "#8b5cf6",
-              label: t(language, "viewer.graph.familyGroupTemporal"),
-              desc: t(language, "viewer.graph.familyDesc.temporal"),
-              kinds: [
-                [
-                  "supersedes",
-                  t(language, "enum.synapseKind.supersedes"),
-                  "#8b5cf6",
-                  t(language, "viewer.graph.synapseDesc.supersedes"),
-                ],
-                [
-                  "consolidates",
-                  t(language, "enum.synapseKind.consolidates"),
-                  "#c4b5fd",
-                  t(language, "viewer.graph.synapseDesc.consolidates"),
-                ],
-              ],
-            },
-            {
-              family: "modulatory",
-              familyColor: "#6b7280",
-              label: t(language, "viewer.graph.familyGroupModulatory"),
-              desc: t(language, "viewer.graph.familyDesc.modulatory"),
-              kinds: [
-                [
-                  "contextualizes",
-                  t(language, "enum.synapseKind.contextualizes"),
-                  "#6b7280",
-                  t(language, "viewer.graph.synapseDesc.contextualizes"),
-                ],
-              ],
-            },
-          ]
-            .map(
-              (group) => `
-            <fieldset class="family-group">
-              <legend title="${group.desc}"><span class="family-dot" style="background:${group.familyColor}"></span>${group.label}</legend>
-              <div class="family-kinds">
-                ${group.kinds
-                  .map(
-                    ([id, label, color, desc]) =>
-                      `<label title="${desc}"><input type="checkbox" checked onchange="CO_ENGRAM_GRAPH.toggleSynapseKind('${id}', event.target.checked)"><span class="swatch" style="background:${color}"></span>${label}</label>`,
-                  )
-                  .join("")}
-              </div>
-            </fieldset>
-          `,
-            )
-            .join("")}
-
-          <div class="group-title">${t(language, "viewer.graph.engramKindsTitle")}</div>
-          <div class="group kind-grid">
-            ${[
-              [
-                "fact",
-                t(language, "enum.kind.fact"),
-                "#10b981",
-                t(language, "viewer.graph.kindDesc.fact"),
-              ],
-              [
-                "observation",
-                t(language, "enum.kind.observation"),
-                "#3b82f6",
-                t(language, "viewer.graph.kindDesc.observation"),
-              ],
-              [
-                "pattern",
-                t(language, "enum.kind.pattern"),
-                "#8b5cf6",
-                t(language, "viewer.graph.kindDesc.pattern"),
-              ],
-              [
-                "procedure",
-                t(language, "enum.kind.procedure"),
-                "#f97316",
-                t(language, "viewer.graph.kindDesc.procedure"),
-              ],
-              [
-                "hypothesis",
-                t(language, "enum.kind.hypothesis"),
-                "#ef4444",
-                t(language, "viewer.graph.kindDesc.hypothesis"),
-              ],
-            ]
-              .map(
-                ([k, label, color, desc]) =>
-                  `<label title="${desc}"><input type="checkbox" checked onchange="CO_ENGRAM_GRAPH.toggleKind('${k}', event.target.checked)"><span class="swatch" style="background:${color}"></span>${label}</label>`,
-              )
-              .join("")}
-          </div>
+          <button class="pathbtn" onclick="CO_ENGRAM_GRAPH.openPathPicker()">📂 ${t(language, "viewer.graph.filter.pathBtn2")}</button>
+          <span class="chip removable" id="graph-path-chip" style="display:none;margin-top:4px" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
+          <input type="search" class="ftext" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder2")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
+          <span class="chip removable" id="graph-text-chip" style="display:none;margin-top:4px" onclick="CO_ENGRAM_GRAPH.clearTextFilter()"></span>
+          <select class="fselect" id="graph-status" onchange="CO_ENGRAM_GRAPH.setStatusFilter(this.value)">
+            <option value="active">${t(language, "viewer.graph.status.activeOnly")}</option>
+            <option value="all">${t(language, "viewer.graph.status.all")}</option>
+            <option value="contradictions">${t(language, "viewer.graph.status.contradictionsOnly")}</option>
+          </select>
+          <span class="chip" id="graph-filter-count" style="margin-top:6px;display:inline-block"></span>
+          <h4 style="margin-top:9px">${t(language, "viewer.graph.reading.title")}</h4>
+          <div class="read-hint">${t(language, "viewer.graph.reading.hint")}</div>
         </div>
+
         <div id="graph-canvas">
           <div class="loading">${t(language, "viewer.loading.graph")}</div>
         </div>
+
+        <div class="graph-insp" id="graph-insp" hidden></div>
+
         <div class="graph-bottombar">
-          <div class="tl-lab"><b>${t(language, "viewer.graph.replay.title")}</b><small>${t(language, "viewer.graph.replay.sub")}</small></div>
+          <div class="tl-lab"><b>${t(language, "viewer.graph.replay.title")}</b>${t(language, "viewer.graph.replay.sub")}</div>
           <input type="range" class="tl" id="graph-time-range" min="0" max="100" value="100" aria-label="${t(language, "viewer.graph.replay.title")}" oninput="CO_ENGRAM_GRAPH.setTimeReplay(this.value)">
           <span class="tl-val" id="graph-time-val"></span>
+          <div class="tools">
+            <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
+            <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
+            <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
+            <button class="tb" onclick="CO_ENGRAM_GRAPH.reset()" title="${t(language, "viewer.graph.toolbar.resetTitle")}">🎯 ${t(language, "viewer.graph.toolbar.reset")}</button>
+          </div>
         </div>
       </div>
     </section>
