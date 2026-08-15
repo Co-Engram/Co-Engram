@@ -281,6 +281,8 @@ ${SIDE_ICONS}
 
     <!-- Merges (P4.3) -->
     <section class="tab-panel" data-tab="merges">
+      <h1 class="page-h">${t(language, "viewer.page.merges.title")}</h1>
+      <div class="page-sub">${t(language, "viewer.page.merges.sub")}</div>
       <div id="merges-content"></div>
     </section>
 
@@ -296,6 +298,8 @@ ${SIDE_ICONS}
 
     <!-- Trash -->
     <section class="tab-panel" data-tab="trash">
+      <h1 class="page-h">${t(language, "viewer.page.trash.title")}</h1>
+      <div class="page-sub">${t(language, "viewer.page.trash.sub")}</div>
       <div id="trash-content"></div>
     </section>
 
@@ -306,11 +310,15 @@ ${SIDE_ICONS}
 
     <!-- Health -->
     <section class="tab-panel" data-tab="health">
+      <h1 class="page-h">${t(language, "viewer.page.health.title")}</h1>
+      <div class="page-sub">${t(language, "viewer.page.health.sub")}</div>
       <div id="health-content"></div>
     </section>
 
     <!-- Config -->
     <section class="tab-panel" data-tab="config">
+      <h1 class="page-h">${t(language, "viewer.page.config.title")}</h1>
+      <div class="page-sub">${t(language, "viewer.page.config.sub")}</div>
       <div id="config-content"></div>
     </section>
 

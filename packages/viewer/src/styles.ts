@@ -2390,6 +2390,10 @@ div.vis-tooltip {
 }
 .ex code { font-size: 0.65rem; background: none; }
 
+/* === 2026-08 治理页页头(DEMO 各 tab h1 + sub)=== */
+.page-h { font-size: 1.45rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
+.page-sub { font-size: 0.78rem; color: var(--fg-dim); margin-bottom: 1.1rem; }
+
 /* === 2026-08 梦境睡眠报告(DEMO g2-dream)=== */
 .slp-head { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
 .slp-head .when { font-size: 0.78rem; color: var(--fg-dim); flex: 1; min-width: 200px; }
