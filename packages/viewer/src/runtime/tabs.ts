@@ -4234,36 +4234,38 @@ window.CO_ENGRAM_CONFIG = {
 
     let html = '';
 
-    // 运行时提示:在每个持久化配置项下方显示当前运行时实际值
-    const runtimeHint = (runtimeVal) => {
-      return '<span style="font-size:.75rem;color:var(--text-muted);margin-left:.4rem">' + T.t('viewer.config.runtimeHintPrefix') + CO_ENGRAM.escapeHtml(String(runtimeVal)) + T.t('viewer.config.runtimeHintSuffix') + '</span>';
-    };
+    // 2026-08 重设计(用户反馈:黑阴影/「已保存,重启后生效」横幅莫名其妙):
+    // 对齐 DEMO g2-config 的 .fr 表单行 —— 左标签列 + 右控件 + 行下 hint;
+    // 「运行中值」只在保存值 ≠ 运行值(真正需要动作)时才显示;
+    // 顶部 pending 横幅移除(与逐字段提示重复)。
+    // 行构造:label 左列;hint 合并 desc + 可选运行中差异提示,放行下方整行。
+    const fr = (label, controlHtml, hintHtml) => '<div class="config-row">'
+      + '<div class="config-label">' + label + '</div>'
+      + '<div class="config-control">' + controlHtml + '</div>'
+      + (hintHtml ? '<div class="hint">' + hintHtml + '</div>' : '')
+      + '</div>';
+    // 运行中差异提示(仅 diff 时):「运行中:X · 保存并重启后生效」
+    const runtimeDiffHint = (runtimeVal) =>
+      '<span class="runtime-diff">' + T.t('viewer.config.runtimeDiffHint', { val: CO_ENGRAM.escapeHtml(String(runtimeVal)) }) + '</span>';
 
-    // 持久化配置:可编辑,保存后重启生效.
-    // 当保存值与运行时值不一致时,在节标题下方显示一条提示横幅。
     const langChanged = (LANG_LABEL[persisted.language] || persisted.language || '') !== (LANG_LABEL[runtime.language] || runtime.language || '');
     const profileChanged = (persisted.toolsProfile || '') !== (runtime.profile || '');
     const createdByChanged = (persisted.defaultCreatedBy || '') !== (runtime.defaultCreatedBy || '');
-    const hasPendingRestart = langChanged || profileChanged || createdByChanged;
 
     html += '<div class="config-section">';
     html += '<h3>' + T.t('viewer.config.sectionPersisted') + '</h3>';
-    if (hasPendingRestart) {
-      const pendingItems = [];
-      if (langChanged) pendingItems.push(T.t('viewer.config.pendingField.language'));
-      if (profileChanged) pendingItems.push(T.t('viewer.config.pendingField.toolsProfile'));
-      if (createdByChanged) pendingItems.push(T.t('viewer.config.pendingField.defaultCreatedBy'));
-      html += '<div class="pending-banner">'
-        + '<span class="pending-banner-icon">&#8635;</span> '
-        + T.t('viewer.config.pendingBanner', { fields: pendingItems.join('、'), host: HOST_LABEL })
-        + '</div>';
-    }
-    html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.language') + '<span class="desc">' + T.t('viewer.config.field.language.desc') + runtimeHint(LANG_LABEL[runtime.language] || runtime.language || '—') + '</span></div>'
-      + '<div class="config-control"><select id="cf-language">' + langOptions + '</select></div></div>';
-    html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.defaultCreatedBy') + '<span class="desc">' + T.t('viewer.config.field.defaultCreatedBy.desc') + runtimeHint(runtime.defaultCreatedBy || T.t('viewer.config.runtimeNotSet')) + '</span></div>'
-      + '<div class="config-control"><input id="cf-default-created-by" type="text" value="' + CO_ENGRAM.escapeHtml(persisted.defaultCreatedBy || '') + '" placeholder="' + T.t('viewer.config.field.defaultCreatedBy.placeholder') + '"></div></div>';
-    html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.toolsProfile') + '<span class="desc">' + T.t('viewer.config.field.toolsProfile.desc') + runtimeHint(runtime.profile || 'standard') + '</span></div>'
-      + '<div class="config-control"><select id="cf-tools-profile">' + profileOptions + '</select></div></div>';
+    html += fr(T.t('viewer.config.field.language'),
+      '<select id="cf-language">' + langOptions + '</select>',
+      T.t('viewer.config.field.language.desc')
+      + (langChanged ? runtimeDiffHint(LANG_LABEL[runtime.language] || runtime.language || '—') : ''));
+    html += fr(T.t('viewer.config.field.defaultCreatedBy'),
+      '<input id="cf-default-created-by" type="text" value="' + CO_ENGRAM.escapeHtml(persisted.defaultCreatedBy || '') + '" placeholder="' + T.t('viewer.config.field.defaultCreatedBy.placeholder') + '">',
+      T.t('viewer.config.field.defaultCreatedBy.desc')
+      + (createdByChanged ? runtimeDiffHint(runtime.defaultCreatedBy || T.t('viewer.config.runtimeNotSet')) : ''));
+    html += fr(T.t('viewer.config.field.toolsProfile'),
+      '<select id="cf-tools-profile">' + profileOptions + '</select>',
+      T.t('viewer.config.field.toolsProfile.desc')
+      + (profileChanged ? runtimeDiffHint(runtime.profile || 'standard') : ''));
     html += '</div>';
 
     // 运行时状态:可编辑(下次启动生效),viewer 自身只读避免 UI 自杀
@@ -4277,8 +4279,7 @@ window.CO_ENGRAM_CONFIG = {
       const badge = (desiredOn !== undefined && desiredOn !== currentOn)
         ? '<span class="chip restart-pending">' + T.t('viewer.common.restartToApply') + '</span>'
         : '';
-      return '<div class="config-row"><div class="config-label">' + label + (desc ? '<span class="desc">' + desc + '</span>' : '') + badge + '</div>'
-        + '<div class="config-control" style="display:flex;align-items:center;gap:.6rem">' + control + '</div></div>';
+      return fr(label + badge, '<div style="display:flex;align-items:center;gap:.6rem">' + control + '</div>', desc);
     };
 
     html += '<div class="config-section">';
@@ -4308,23 +4309,25 @@ window.CO_ENGRAM_CONFIG = {
         + '<div style="margin-top:.6rem;font-size:.85em;color:var(--muted,#666)">' + T.t('viewer.config.dataRootWelcomeCustom') + '</div>'
         + '</div>';
     }
-    html += '<div class="config-row"><div class="config-label">' + T.t('viewer.config.field.dataRoot') + '<span class="desc">' + T.t('viewer.config.field.dataRoot.desc') + '</span></div>'
-      + '<div class="config-control" style="display:flex;gap:.4rem;align-items:center">'
+    html += fr(T.t('viewer.config.field.dataRoot'),
+      '<div style="display:flex;gap:.4rem;align-items:center">'
       + '<input id="cf-dataRoot-input" type="text" value="' + CO_ENGRAM.escapeHtml(currentDataRoot) + '" style="flex:1" placeholder="/home/USER/team-memory">'
       + '<button class="btn" onclick="CO_ENGRAM_CONFIG.saveDataRoot()">' + T.t('viewer.config.dataRootSave') + '</button>'
-      + '</div></div>';
+      + '</div>',
+      T.t('viewer.config.field.dataRoot.desc'));
     html += '<div id="cf-dataRoot-banner" class="info-banner" style="margin:0 0 .8rem 0">' + T.t('viewer.config.dataRootEditableHint') + '</div>';
-    html += '<div class="config-row readonly"><div class="config-label">' + T.t('viewer.config.field.configVersion') + '</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(String(persisted.version || 1)) + '" readonly></div></div>';
-    html += '<div class="config-row readonly"><div class="config-label">' + T.t('viewer.config.field.createdAt') + '</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(persisted.createdAt || '—') + '" readonly></div></div>';
-    html += '<div class="config-row readonly"><div class="config-label">' + T.t('viewer.config.field.updatedAt') + '</div>'
-      + '<div class="config-control"><input type="text" value="' + CO_ENGRAM.escapeHtml(persisted.updatedAt || persisted.createdAt || '—') + '" readonly></div></div>';
+    html += fr(T.t('viewer.config.field.configVersion'),
+      '<input type="text" value="' + CO_ENGRAM.escapeHtml(String(persisted.version || 1)) + '" readonly>', '');
+    html += fr(T.t('viewer.config.field.createdAt'),
+      '<input type="text" value="' + CO_ENGRAM.escapeHtml(persisted.createdAt || '—') + '" readonly>', '');
+    html += fr(T.t('viewer.config.field.updatedAt'),
+      '<input type="text" value="' + CO_ENGRAM.escapeHtml(persisted.updatedAt || persisted.createdAt || '—') + '" readonly>', '');
     html += '</div>';
 
     html += '<div class="config-save-bar">'
-      + '<button class="btn secondary" onclick="CO_ENGRAM_CONFIG.reload()">' + T.t('viewer.config.saveBar.reset') + '</button>'
       + '<button class="btn" onclick="CO_ENGRAM_CONFIG.save()">' + T.t('viewer.config.saveBar.save') + '</button>'
+      + '<button class="btn secondary" onclick="CO_ENGRAM_CONFIG.reload()">' + T.t('viewer.config.saveBar.reset') + '</button>'
+      + '<span class="save-bar-hint">' + T.t('viewer.config.saveBarHint') + '</span>'
       + '</div>';
 
     root.innerHTML = html;

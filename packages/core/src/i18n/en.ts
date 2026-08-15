@@ -2068,6 +2068,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.config.pendingBanner":
     "${fields} saved — restart ${host} to take effect",
   "viewer.config.runtimeHintPrefix": "(current: ",
+  "viewer.config.runtimeDiffHint": "running: ${val}; save and restart to apply",
+  "viewer.config.saveBarHint": "writes the repo config.json; language / profile take effect after restart",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(not set)",
   "viewer.config.field.language": "Language",

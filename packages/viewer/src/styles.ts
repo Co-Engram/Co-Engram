@@ -1853,54 +1853,59 @@ footer.app-footer {
   letter-spacing: 0.1em;
   font-weight: 600;
 }
+/* DEMO g2-config .fr:左标签列 170px + 右控件,hint 占第二行整行(2026-08 重设计) */
 .config-row {
   display: grid;
-  grid-template-columns: 200px 1fr;
-  gap: 1rem;
+  grid-template-columns: 170px 1fr;
+  gap: 0.75rem;
   align-items: center;
-  padding: 0.6rem 0;
-  border-bottom: 1px dashed var(--border);
+  padding: 0.7rem 0;
+  border-bottom: 1px solid var(--border);
 }
 .config-row:last-child { border-bottom: none; }
 .config-row .config-label {
-  color: var(--fg);
-  font-size: 0.85rem;
-}
-.config-row .config-label .desc {
-  display: block;
   color: var(--fg-muted);
+  font-size: 0.81rem;
+}
+.config-row .hint {
+  grid-column: 2;
+  color: var(--fg-dim);
   font-size: 0.72rem;
-  margin-top: 0.15rem;
+  margin-top: -0.35rem;
+  line-height: 1.5;
+}
+.config-row .hint .runtime-diff {
+  color: #B45309;
+  margin-left: 0.4rem;
 }
 .config-row .config-control input[type=text],
 .config-row .config-control input[type=number],
 .config-row .config-control select {
-  background: rgba(15, 118, 110, 0.04);
+  background: var(--panel-bg, #fff);
   border: 1px solid var(--border);
   color: var(--fg);
-  padding: 0.4rem 0.65rem;
-  border-radius: 4px;
+  padding: 0.38rem 0.62rem;
+  border-radius: 8px;
   font-family: inherit;
-  font-size: 0.82rem;
+  font-size: 0.81rem;
   width: 100%;
-  max-width: 320px;
+  max-width: 420px;
 }
 .config-row .config-control input:focus, .config-row .config-control select:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.15);
 }
-/* dark dropdown options (browser default is white) */
+/* 下拉选项:纸面浅色主题用浅色选项(旧深藏青 #0a0f1f 是暗色主题残留) */
 .config-row select option,
 .drawer select option,
 .filter-bar select option {
-  background: #0a0f1f;
+  background: #fff;
   color: var(--fg);
 }
 .config-row select option:checked,
 .drawer select option:checked,
 .filter-bar select option:checked {
-  background: rgba(94, 234, 212, 0.2);
+  background: var(--accent-soft, #EDF7F5);
   color: var(--accent);
 }
 
@@ -2008,14 +2013,22 @@ footer.app-footer {
   color: var(--fg-muted);
   cursor: not-allowed;
 }
+/* 保存栏(2026-08 重设计):旧深藏青渐变是暗色主题残留,页底一块黑影;
+   改纸面浅色:同底色 + 顶部分隔线,主按钮在左(DEMO 顺序),右侧淡提示 */
 .config-save-bar {
   position: sticky;
   bottom: 0;
-  background: linear-gradient(180deg, transparent, rgba(5, 8, 22, 0.9) 30%);
-  padding: 1rem 0;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 0.85rem 0;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 0.5rem;
+}
+.config-save-bar .save-bar-hint {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--fg-dim);
 }
 
 /* === Editable indicator === */

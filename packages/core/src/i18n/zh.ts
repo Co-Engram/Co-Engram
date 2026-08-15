@@ -2014,6 +2014,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.config.sectionMetadata": "仓库信息",
   "viewer.config.pendingBanner": "${fields} 已保存,重启 ${host} 后生效",
   "viewer.config.runtimeHintPrefix": "(当前: ",
+  "viewer.config.runtimeDiffHint": "运行中:${val},保存并重启后生效",
+  "viewer.config.saveBarHint": "写入仓库 config.json;语言 / Profile 等重启后生效",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(未设置)",
   "viewer.config.field.language": "语言",
