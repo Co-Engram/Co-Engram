@@ -255,6 +255,15 @@ export class MaintenanceEngine {
     // Σimportance 是否达标(内容密度驱动,非日历驱动)。达标且过防抖窗口则
     // 提前触发 REM;时间兜底(remIntervalMs 定时器 + 启动 catch-up)不受影响。
     await this.maybeRunRemByActivity();
+
+    // 夜思独立日调度(spec §四):active 孵化条目 24h 一轮,不依赖 REM 节拍
+    // (REM 为 7 天级低频,与「每夜」叙事错位)。light tick(5min)检查即触发;
+    // fire-and-forget,失败不阻塞 light。仅注入 incubator 时生效。
+    if (this.deps.incubator) {
+      void this.deps.incubator.runDue().catch(() => {
+        // 单轮夜思失败下次 tick 重试
+      });
+    }
     return report;
   }
 

@@ -250,6 +250,25 @@ export interface Proposal {
 /** auto-memory proposal 的 entityId 前缀(命名空间隔离,永不与对话聚类 `c<dim>-<hash>` 冲突) */
 export const AUTO_MEMORY_PROPOSAL_PREFIX = "am:";
 
+/**
+ * rem-insight 提案的确定性 entityId(导出供 incubator 在 timeline 记录同案 id):
+ * `rem-insight:<sha256(mode|incubationId|round|sortedSourceIds)[:16]>`。
+ * 显式纳入轮次防夜思回灌多轮撞幂等(spec §七 v2 关键修复)。
+ */
+export function insightEntityId(
+  mode: string,
+  incubationId: string | undefined,
+  round: number,
+  sourceIds: readonly string[],
+): string {
+  const sortedIds = [...sourceIds].sort();
+  const hash = createHash("sha256")
+    .update([mode, incubationId ?? "", String(round), sortedIds.join(",")].join("|"))
+    .digest("hex")
+    .slice(0, 16);
+  return `rem-insight:${hash}`;
+}
+
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
 export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
@@ -833,12 +852,13 @@ export class ProposalEngine {
   /**
    * REM 深度思考洞察提案(rem-insight;spec §七)。
    *
-   * entityId = `rem-insight:<sha256(mode|incubationId|round|sortedSourceIds)[:16]>`
-   * —— **显式纳入轮次**(v2 关键修复):夜思回灌多轮若沿用 proposePattern 式
-   * 纯 sourceIds 哈希,第二轮起会被幂等机制吞掉;纳入 mode+incubationId+round 后
-   * 每轮独立成案。非孵化路径 round=0,同 mode+sources 天然去重(期望语义)。
+   * entityId 由 insightEntityId() 计算(纳入轮次,v2 关键修复):夜思回灌
+   * 多轮若沿用 proposePattern 式纯 sourceIds 哈希,第二轮起会被幂等机制吞掉;
+   * 纳入 mode+incubationId+round 后每轮独立成案。非孵化路径 round=0,
+   * 同 mode+sources 天然去重(期望语义)。
    *
-   * 幂等三段与 proposePattern 一致:accepted 跳过 / dismissed 冷却 / tombstone 防复活。
+   * 幂等三段与 proposePattern 一致:accepted 跳过 / pending 同案不重写 /
+   * dismissed 冷却 / tombstone 防复活。
    */
   proposeInsight(input: {
     readonly mode: string;
@@ -853,19 +873,12 @@ export class ProposalEngine {
     readonly incubationId?: string;
     readonly round?: number;
   }): boolean {
-    const sortedIds = [...input.sourceIds].sort();
-    const hash = createHash("sha256")
-      .update(
-        [
-          input.mode,
-          input.incubationId ?? "",
-          String(input.round ?? 0),
-          sortedIds.join(","),
-        ].join("|"),
-      )
-      .digest("hex")
-      .slice(0, 16);
-    const entityId = `rem-insight:${hash}`;
+    const entityId = insightEntityId(
+      input.mode,
+      input.incubationId,
+      input.round ?? 0,
+      input.sourceIds,
+    );
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
 
