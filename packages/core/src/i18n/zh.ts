@@ -1115,6 +1115,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.health.doctor.fixKind.derived_field_stale":
     "已重算过期的派生字段(内容哈希/大小)",
   "viewer.search.placeholder": "全文检索记忆印迹...",
+  "viewer.search.placeholderCount": "在 ${n} 条记忆中检索标题、标签、全文",
   "viewer.search.button": "搜索",
   "viewer.search.clear": "清空",
   "viewer.search.clear_title": "清空搜索结果,回到统计默认视图",

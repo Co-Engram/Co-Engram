@@ -1134,6 +1134,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.fixKind.derived_field_stale":
     "Recomputed stale derived field (content hash/size)",
   "viewer.search.placeholder": "Full-text search engrams...",
+  "viewer.search.placeholderCount": "Search titles, tags & full text across ${n} memories",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",
   "viewer.search.clear_title":

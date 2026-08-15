@@ -179,14 +179,22 @@ ${SIDE_ICONS}
   <main>
     <!-- Stats -->
     <section class="tab-panel" data-tab="stats">
-      <!-- Search bar 仅在 stats tab 显示 -->
-      <form id="search-form" class="search-bar">
-        <input id="search-input" type="text" name="q" placeholder="${searchPlaceholder}" autocomplete="off"/>
-        <button type="submit">${searchBtn}</button>
-        <button type="button" id="search-clear" title="${searchClearTitle}" onclick="CO_ENGRAM.clearSearch()">${searchClearBtn}</button>
-      </form>
-      <div id="search-results" class="panel" style="margin-bottom:1.5rem;display:none"></div>
+      <!--
+        2026-08 改版(DEMO g2-overview):统计块在上、搜索栏顶吸、动态流在下。
+        统计块与动态流由 stats-content 渲染。搜索栏这对节点常驻 #search-dock
+        (stats-content 之外,重渲染 innerHTML 不会销毁它们),每次 stats 渲染后
+        被 tabs.ts 插到「统计块与动态流之间」的标记位,父级是全高的 ov-main,
+        position: sticky 才能跨越动态流全程顶吸。
+      -->
       <div id="stats-content"></div>
+      <div id="search-dock" hidden>
+        <form id="search-form" class="search-bar">
+          <input id="search-input" type="text" name="q" placeholder="${searchPlaceholder}" autocomplete="off"/>
+          <button type="submit">${searchBtn}</button>
+          <button type="button" id="search-clear" title="${searchClearTitle}" onclick="CO_ENGRAM.clearSearch()">${searchClearBtn}</button>
+        </form>
+        <div id="search-results" class="panel" style="margin-bottom:1.5rem;display:none"></div>
+      </div>
     </section>
 
     <!-- Engrams -->

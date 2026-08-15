@@ -32,6 +32,16 @@ CO_ENGRAM.renderVisibilityBadge = function(visibility) {
 CO_ENGRAM.on('stats', async function() {
   const el = document.getElementById('stats-content');
   if (!el) return;
+  // 重渲染保护(必须在任何 innerHTML 覆盖之前):上次渲染已把搜索栏 form/results
+  // 插进 stats-content 子树,先撤回 #search-dock,否则下面 loading 覆盖即销毁
+  // (销毁则 app.ts 绑定的 submit 监听丢失,搜索栏假死)
+  const dock = document.getElementById('search-dock');
+  const prevForm = document.getElementById('search-form');
+  const prevResults = document.getElementById('search-results');
+  if (dock) {
+    if (prevForm) dock.appendChild(prevForm);
+    if (prevResults) dock.appendChild(prevResults);
+  }
   // 不缓存:stats 数据会被 batch accept / 单条 accept / dismiss / delete / git pull
   // 等多源改变,维护 invalidate 列表易漏。后端 /api/stats ~24ms,每次进 tab 都拉
   // 最新数据,避免用户看到陈旧计数(2026-07 修复:batch accept 30 条后切到 stats
@@ -154,12 +164,38 @@ CO_ENGRAM.on('stats', async function() {
     + (contribArr.length ? expandCard(T.t('viewer.stats.contributorRanking2'), '', contribRows + '<div class="ov-more-wrap">' + contribMore + '</div>', 'ov-card-contrib') : '');
 
   // ---- 布局:左列(KPI+脉搏+动态) + 右列(榜单) ----
+  // ov-search-mount:搜索栏挂载点,位于统计块与动态流之间(DEMO sline 位)。
+  // stats 渲染后把静态 search-form 移进来 → 统计卡随滚动滑走,搜索栏 sticky 顶吸。
   html = '<div class="ov-layout"><div class="ov-main">' + html
+    + '<div id="ov-search-mount"></div>'
     + '<div class="ov-feed-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedTitle')) + '<small>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedSub')) + '</small></div>'
     + '<div id="ov-feed" class="ov-feed"><div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div></div>'
     + '</div><aside class="ov-side">' + sideCol + '</aside></div>';
 
   el.innerHTML = html;
+
+  // ---- 搜索栏顶吸(DEMO .sline):插入统计块与动态流之间 + stuck 滚动态 ----
+  // form/results 常驻 #search-dock(section 内、stats-content 外),handler 顶部
+  // 已撤回;插入标记位后父级是全高的 ov-main,sticky 才能跨动态流全程吸顶。
+  // insertBefore 移动已有节点(非重建),app.ts 绑定的 submit 监听保留。
+  const marker = document.getElementById('ov-search-mount');
+  const form = document.getElementById('search-form');
+  const resultsEl = document.getElementById('search-results');
+  if (marker && form && dock) {
+    marker.parentNode.insertBefore(form, marker);
+    if (resultsEl) marker.parentNode.insertBefore(resultsEl, marker);
+    marker.remove();
+    // 占位符带总数(DEMO:「在 914 条记忆中检索标题、标签、全文」)
+    const input = document.getElementById('search-input');
+    if (input && totalEngrams > 0) input.placeholder = T.t('viewer.search.placeholderCount', { n: totalEngrams });
+    // stuck 态(顶吸生效时)加底边线 + 投影;监听只绑一次
+    if (!CO_ENGRAM._searchStuckBound) {
+      CO_ENGRAM._searchStuckBound = true;
+      const toggle = () => form.classList.toggle('stuck', form.getBoundingClientRect().top <= 1);
+      window.addEventListener('scroll', toggle, { passive: true });
+      toggle();
+    }
+  }
 
   // stats 已经拉到 pendingProposals,顺手更新「记忆提案」tab 上的徽标。
   if (typeof CO_ENGRAM.setProposalsBadge === 'function') {

@@ -425,6 +425,21 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
   gap: 0.5rem;
   margin-bottom: 1.25rem;
 }
+/* 概览搜索栏顶吸(DEMO g2-overview .sline):统计卡随滚动滑走,
+   搜索栏 sticky 顶吸;stuck 态(已吸附)加底边线 + 投影 */
+#search-form.search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  padding: 0.5rem 0;
+  margin-bottom: 1rem;
+  background: var(--bg);
+  border-bottom: 1px solid transparent;
+}
+#search-form.search-bar.stuck {
+  border-bottom-color: var(--border);
+  box-shadow: 0 4px 12px rgba(45, 42, 38, 0.04);
+}
 .search-bar input {
   flex: 1;
   background: var(--panel-bg);
