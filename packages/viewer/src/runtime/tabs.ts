@@ -25,7 +25,9 @@ CO_ENGRAM.renderVisibilityBadge = function(visibility) {
 };
 
 // ============================================================
-// Stats
+// Stats → 概览(2026-08 改版:KPI + 记忆脉搏 + 记忆动态 + 右侧 TOP 榜卡)
+// 性能:全部数据来自 /api/stats 单次 SQL 聚合 + /api/audit?limit=50,
+// 无 N+1、无全量扫描;榜单卡默认 TOP5,点击整卡展开 TOP20(纯 CSS 类切换)。
 // ============================================================
 CO_ENGRAM.on('stats', async function() {
   const el = document.getElementById('stats-content');
@@ -40,121 +42,189 @@ CO_ENGRAM.on('stats', async function() {
   try { data = await CO_ENGRAM.apiGet('/api/stats'); }
   catch (e) { el.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>'; return; }
 
-  const kpiClickable = (label, value, sub, tab, tipText) => '<div class="kpi"'
-    + (tipText ? ' title="' + CO_ENGRAM.escapeHtml(tipText).replaceAll('"', '&quot;') + '"' : '')
-    + (tab ? ' onclick="CO_ENGRAM.showTab(\\'' + tab + '\\')"' : '') + '>'
-    + '<div class="kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>'
-    + '<div class="kpi-value">' + CO_ENGRAM.escapeHtml(value) + '</div>'
-    + (sub ? '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '') + '</div>';
-
-  const barRow = (label, count, max, color, onclick, tipAttr) => '<div class="bar-row">'
-    + '<div class="bar-label"' + (tipAttr || '') + (onclick ? ' onclick="' + onclick + '"' : '') + '>' + CO_ENGRAM.escapeHtml(label) + '</div>'
-    + '<div class="bar-track"><div class="bar-fill" style="width:' + (max ? (count / max * 100) : 0).toFixed(1) + '%;background:' + (color || '#5eead4') + '"></div></div>'
-    + '<div class="bar-value">' + count + '</div></div>';
-
-  const kindMap = data.byKind || {};
-  const kindKeys = Object.keys(kindMap);
-  const kindMax = Math.max(1, ...kindKeys.map(k => kindMap[k] || 0));
-  const statusMap = data.byStatus || {};
-  const statusKeys = Object.keys(statusMap);
-  const statusMax = Math.max(1, ...statusKeys.map(k => statusMap[k] || 0));
-  const synKindMap = data.bySynapseKind || {};
-  const synKindKeys = Object.keys(synKindMap);
-  const synKindMax = Math.max(1, ...synKindKeys.map(k => synKindMap[k] || 0));
-  const tagArr = data.topTags || [];
-  const tagMax = tagArr.length ? Math.max(1, ...tagArr.map(t => t.count || 0)) : 1;
-  const contribArr = data.topContributors || [];
-  const contribMax = contribArr.length ? Math.max(1, ...contribArr.map(c => c.total || 0)) : 1;
-  // skill 维度(S6):习得深度/保留阶段分布,颜色与 skills tab 卡片一致
-  const acqMap = data.skillsByAcquisitionStage || {};
-  const acqKeys = ['draft', 'compiled', 'tuned'].filter(k => acqMap[k]);
-  const acqMax = Math.max(1, ...acqKeys.map(k => acqMap[k] || 0));
-  const retMap = data.skillsByRetentionStage || {};
-  const retKeys = ['active', 'aging', 'stale', 'forgotten'].filter(k => retMap[k]);
-  const retMax = Math.max(1, ...retKeys.map(k => retMap[k] || 0));
-  const skillAcqColors = { draft: '#94a3b8', compiled: '#5eead4', tuned: '#fcd34d' };
-  const skillRetColors = { active: '#5eead4', aging: '#fcd34d', stale: '#fb923c', forgotten: '#f87171' };
-
-  // 记忆印迹总数:KPI 值只显总数(标签写的就是"总数",出现 769/914 双数字让用户
-  // 误以为格式坏了——2026-07 用户反馈)。活跃/归档拆解放到 sub,信息不丢但视觉干净。
+  // ---- KPI 行(五格:印迹/突触/技能/印迹检索/有效率并入副行) ----
   const totalEngrams = data.totalEngrams || 0;
   const activeEngrams = data.activeEngrams != null ? (data.activeEngrams || 0) : (data.byStatus?.active || 0);
-  // archivedCount = frozen + archived(旧值兼容) + forgotten;变量名保留以匹配后端 stats.archived 字段
   const archivedCount = (data.byStatus?.frozen || 0) + (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
-  const engramsKpiValue = String(totalEngrams);
-  const engramsKpiSub = (archivedCount > 0)
-    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.frozenCount') + ' ' + archivedCount + ' · ' + T.t('viewer.stats.clickToViewAll')
-    : T.t('viewer.stats.clickToViewAll');
+  const weekly = data.weeklyNewEngrams || 0;
+  const totalRetrievals = data.totalRetrievals || 0;
+  const effective = data.effectiveRetrievals || 0;
+  const effPct = totalRetrievals > 0 ? Math.round((effective / totalRetrievals) * 100) : 0;
 
-  let html = '<div class="kpi-grid">'
-    + kpiClickable(T.t('viewer.stats.totalEngrams'), engramsKpiValue, engramsKpiSub, 'engrams', T.t('viewer.stats.totalEngramsTip'))
-    + kpiClickable(T.t('viewer.stats.totalSynapses'), data.totalSynapses || 0, T.t('viewer.stats.clickToViewGraph'), 'graph')
-    + kpiClickable(T.t('viewer.stats.pendingProposals'), data.pendingProposals || 0, T.t('viewer.stats.clickToHandle'), 'proposals')
-    + kpiClickable(T.t('viewer.stats.totalSkills'), data.totalSkills || 0, T.t('viewer.stats.clickToViewSkills'), 'skills', T.t('viewer.stats.totalSkillsTip'))
+  const kpi = (label, value, sub, tab, tipText, upText) => '<div class="ov-kpi"'
+    + (tipText ? ' title="' + CO_ENGRAM.escapeHtml(tipText).replaceAll('"', '&quot;') + '"' : '')
+    + (tab ? ' onclick="CO_ENGRAM.showTab(\\'' + tab + '\\')"' : '') + '>'
+    + '<div class="ov-kpi-value">' + CO_ENGRAM.escapeHtml(value) + (upText ? ' <span class="ov-up">' + CO_ENGRAM.escapeHtml(upText) + '</span>' : '') + '</div>'
+    + '<div class="ov-kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>'
+    + (sub ? '<div class="ov-kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '') + '</div>';
+
+  const engramsSub = (archivedCount > 0)
+    ? T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams + ' · ' + T.t('viewer.stats.frozenCount') + ' ' + archivedCount
+    : T.t('viewer.stats.activeEngrams') + ' ' + activeEngrams;
+
+  let html = '<div class="ov-stats-block">'
+    + '<div class="ov-kpi-row">'
+    + kpi(T.t('viewer.stats.totalEngrams'), String(totalEngrams), engramsSub, 'engrams', T.t('viewer.stats.totalEngramsTip'), weekly > 0 ? T.t('viewer.stats.weeklyNew', { n: weekly }) : '')
+    + kpi(T.t('viewer.stats.totalSynapses'), String(data.totalSynapses || 0), '', 'graph', null, '')
+    + kpi(T.t('viewer.stats.totalSkills'), String(data.totalSkills || 0), '', 'skills', T.t('viewer.stats.totalSkillsTip'), '')
+    + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', null, '')
     + '</div>';
 
-  // 记忆印迹区(独立一块)
-  html += '<div class="card" style="margin-top:1.25rem"><h3 class="section-title"' + CO_ENGRAM.tip('kind.fact') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.kindDistribution')) + '</h3>';
-  if (!kindKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-  else kindKeys.forEach(k => html += barRow(T.enumLabel('kind', k), kindMap[k], kindMax, CO_ENGRAM.kindColor(k), 'CO_ENGRAM.showTab(\\'engrams\\')', CO_ENGRAM.tip('kind.' + k)));
-  html += '</div>';
-
-  html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('status.active') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.statusDistribution')) + '</h3>';
-  if (!statusKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-  else statusKeys.forEach(k => html += barRow(T.enumLabel('status', k), statusMap[k], statusMax, '#94a3b8', '', CO_ENGRAM.tip('status.' + k)));
-  html += '</div>';
-
-  // 记忆突触区(独立一块,与印迹分开)
-  html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('family.structural') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.synapseKindDistribution')) + '</h3>';
-  if (!synKindKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.synapsesEmpty')) + '</div>';
-  else synKindKeys.forEach(k => html += barRow(T.enumLabel('synapseKind', k), synKindMap[k], synKindMax, CO_ENGRAM.edgeColor(k), 'CO_ENGRAM.showTab(\\'graph\\')', CO_ENGRAM.tip('synapse.' + k)));
-  html += '</div>';
-
-  // 技能记忆区(S6):习得深度 + 保留阶段分布,点击跳 skills tab
-  if (data.totalSkills) {
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.skillAcquisitionDistribution')) + '</h3>';
-    if (!acqKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-    else acqKeys.forEach(k => html += barRow(T.enumLabel('acquisitionStage', k), acqMap[k], acqMax, skillAcqColors[k], 'CO_ENGRAM.showTab(\\'skills\\')'));
-    html += '</div>';
-
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.skillRetentionDistribution')) + '</h3>';
-    if (!retKeys.length) html += '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.empty')) + '</div>';
-    else retKeys.forEach(k => html += barRow(T.enumLabel('retentionStage', k), retMap[k], retMax, skillRetColors[k], 'CO_ENGRAM.showTab(\\'skills\\')'));
-    html += '</div>';
-  }
-
-  // 贡献者排名
-  if (contribArr.length) {
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.contributorRanking')) + '</h3>';
-    html += '<table class="data-table"><thead><tr><th>#</th><th>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.contributorCol')) + '</th><th>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.engramCol')) + '</th><th>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.synapseCol')) + '</th><th style="width:35%">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.totalCol')) + '</th></tr></thead><tbody>';
-    contribArr.forEach((c, i) => {
-      const pct = (c.total / contribMax * 100).toFixed(1);
-      html += '<tr>'
-        + '<td>' + (i + 1) + '</td>'
-        + '<td><code>' + CO_ENGRAM.escapeHtml(c.actor) + '</code></td>'
-        + '<td>' + c.engramCount + '</td>'
-        + '<td>' + c.synapseCount + '</td>'
-        + '<td><div class="bar-track" style="min-width:120px"><div class="bar-fill" style="width:' + pct + '%;background:#5eead4"></div></div> <span style="margin-left:.4rem">' + c.total + '</span></td>'
-        + '</tr>';
+  // ---- 记忆脉搏(30 天柱状,峰值高亮;服务端已补零,直接等宽渲染) ----
+  const pulse = data.createdLast30d || [];
+  if (pulse.length) {
+    const maxCount = Math.max(1, ...pulse.map(d => d.count || 0));
+    let peakIdx = 0;
+    pulse.forEach((d, i) => { if ((d.count || 0) > (pulse[peakIdx].count || 0)) peakIdx = i; });
+    const peak = pulse[peakIdx];
+    html += '<div class="ov-pulse-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle'))
+      + '<small>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseSub')) + '</small></div>'
+      + '<div class="ov-pulse" role="img" aria-label="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle')) + '">';
+    pulse.forEach((d) => {
+      const h = Math.max(3, Math.round(((d.count || 0) / maxCount) * 100));
+      html += '<i style="height:' + h + '%"' + (d.count ? ' title="' + d.date + ' · ' + d.count + '"' : '') + (d === peak ? ' class="hot"' : '') + '></i>';
     });
-    html += '</tbody></table>';
-    html += '</div>';
+    html += '</div><div class="ov-pulse-axis"><span>' + pulse[0].date.slice(5) + '</span>'
+      + (peak && peak.count ? '<span class="peak">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulsePeak', { date: peak.date.slice(5), n: peak.count })) + '</span>' : '')
+      + '<span>' + pulse[pulse.length - 1].date.slice(5) + '</span></div>';
   }
+  html += '</div>';
 
-  if (tagArr.length) {
-    html += '<div class="card" style="margin-top:1rem"><h3 class="section-title"' + CO_ENGRAM.tip('stats.topTagsTip') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.topTags')) + '</h3>';
-    tagArr.slice(0, 10).forEach(t => { html += barRow(t.tag, t.count, tagMax, '#c084fc'); });
-    html += '</div>';
-  }
+  // ---- 右侧榜单卡列(TOP5 默认,点击整卡展开 TOP20) ----
+  const expandCard = (title, sub, rowsHtml, cardId) => '<div class="ov-card" id="' + cardId + '" onclick="CO_ENGRAM.toggleTopCard(\\'' + cardId + '\\')" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.expandTip')) + '">'
+    + '<h3>' + CO_ENGRAM.escapeHtml(title) + '<small>' + CO_ENGRAM.escapeHtml(sub) + '</small></h3>' + rowsHtml + '</div>';
+
+  // 领域热度(topTags:默认 5,展开 20)
+  const tagArr = data.topTags || [];
+  const tagMax = tagArr.length ? Math.max(1, ...tagArr.map(t => t.count || 0)) : 1;
+  let tagRows = '';
+  tagArr.slice(0, 5).forEach(t => {
+    tagRows += '<div class="ov-heat-row"><span class="ov-heat-name">' + CO_ENGRAM.escapeHtml(t.tag) + '</span>'
+      + '<span class="ov-heat-bar"><span style="width:' + ((t.count / tagMax) * 100).toFixed(1) + '%"></span></span>'
+      + '<span class="ov-heat-val">' + t.count + '</span></div>';
+  });
+  let tagMore = '';
+  tagArr.slice(5, 20).forEach(t => {
+    tagMore += '<div class="ov-heat-row ov-more-rows"><span class="ov-heat-name">' + CO_ENGRAM.escapeHtml(t.tag) + '</span>'
+      + '<span class="ov-heat-bar"><span style="width:' + ((t.count / tagMax) * 100).toFixed(1) + '%"></span></span>'
+      + '<span class="ov-heat-val">' + t.count + '</span></div>';
+  });
+
+  // 检索热点(topRetrieved)
+  const hot = data.topRetrieved || [];
+  let hotRows = '', hotMore = '';
+  hot.slice(0, 5).forEach(e => {
+    hotRows += '<div class="ov-top-row"><span class="chip kind-dot-' + e.kind + '"></span>'
+      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+      + '<span class="ov-top-val"><b>' + e.retrievalCount + '</b> ' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.retrievalsShort', { n: e.retrievalCount }).replace(String(e.retrievalCount), '').trim()) + '</span></div>';
+  });
+  hot.slice(5, 20).forEach(e => {
+    hotMore += '<div class="ov-top-row ov-more-rows"><span class="chip kind-dot-' + e.kind + '"></span>'
+      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+      + '<span class="ov-top-val"><b>' + e.retrievalCount + '</b></span></div>';
+  });
+
+  // 冷却榜(topCooling):最久未取用 · 重要度
+  const cool = data.topCooling || [];
+  const dayMs = 86400000;
+  let coolRows = '', coolMore = '';
+  const coolRow = (e) => {
+    const days = e.lastRetrievedAt ? Math.max(1, Math.floor((Date.now() - e.lastRetrievedAt) / dayMs)) : null;
+    return '<div class="ov-top-row"><span class="chip kind-dot-' + e.kind + '"></span>'
+      + '<span class="ov-top-title">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
+      + '<span class="ov-top-val ov-cool">' + (days ? CO_ENGRAM.escapeHtml(T.t('viewer.stats.daysAgo', { n: days })) : CO_ENGRAM.escapeHtml(T.t('viewer.stats.neverRetrieved'))) + ' · ' + e.importance.toFixed(2) + ' ▾</span></div>';
+  };
+  cool.slice(0, 5).forEach(e => { coolRows += coolRow(e); });
+  cool.slice(5, 20).forEach(e => { coolMore += coolRow(e); });
+
+  // 贡献者排行(topContributors)
+  const contribArr = data.topContributors || [];
+  const contribMax = contribArr.length ? Math.max(1, ...contribArr.map(c => c.total || 0)) : 1;
+  let contribRows = '', contribMore = '';
+  const contribRow = (c, i) => '<div class="ov-contrib-row"><span class="ov-rank">' + (i + 1) + '</span>'
+    + '<span class="ov-contrib-name">' + CO_ENGRAM.escapeHtml(c.actor) + '<small>' + c.engramCount + ' + ' + c.synapseCount + '</small></span>'
+    + '<span class="ov-contrib-bar"><span style="width:' + ((c.total / contribMax) * 100).toFixed(1) + '%"></span></span>'
+    + '<span class="ov-contrib-val">' + c.total + '</span></div>';
+  contribArr.slice(0, 5).forEach((c, i) => { contribRows += contribRow(c, i); });
+  contribArr.slice(5, 20).forEach((c, i) => { contribMore += contribRow(c, i + 5); });
+
+  const sideCol = expandCard(T.t('viewer.stats.domainHeat'), T.t('viewer.stats.domainHeatSub'), tagRows + '<div class="ov-more-wrap">' + tagMore + '</div>', 'ov-card-heat')
+    + (hot.length ? expandCard(T.t('viewer.stats.monthlyHot'), T.t('viewer.stats.monthlyHotSub'), hotRows + '<div class="ov-more-wrap">' + hotMore + '</div>', 'ov-card-hot') : '')
+    + (cool.length ? expandCard(T.t('viewer.stats.monthlyCool'), T.t('viewer.stats.monthlyCoolSub'), coolRows + '<div class="ov-more-wrap">' + coolMore + '</div>', 'ov-card-cool') : '')
+    + (contribArr.length ? expandCard(T.t('viewer.stats.contributorRanking2'), '', contribRows + '<div class="ov-more-wrap">' + contribMore + '</div>', 'ov-card-contrib') : '');
+
+  // ---- 布局:左列(KPI+脉搏+动态) + 右列(榜单) ----
+  html = '<div class="ov-layout"><div class="ov-main">' + html
+    + '<div class="ov-feed-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedTitle')) + '<small>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedSub')) + '</small></div>'
+    + '<div id="ov-feed" class="ov-feed"><div class="loading">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loading')) + '</div></div>'
+    + '</div><aside class="ov-side">' + sideCol + '</aside></div>';
 
   el.innerHTML = html;
 
   // stats 已经拉到 pendingProposals,顺手更新「记忆提案」tab 上的徽标。
-  // 进 stats tab 是用户主动查看全局状态的场景,徽标同步这里最自然。
   if (typeof CO_ENGRAM.setProposalsBadge === 'function') {
     CO_ENGRAM.setProposalsBadge(data.pendingProposals || 0);
   }
+
+  // ---- 记忆动态:audit 事件流(limit=50,游标语义;渲染为按天分组的轻量时间线) ----
+  try {
+    const auditData = await CO_ENGRAM.apiGet('/api/audit?limit=50');
+    CO_ENGRAM.renderFeed(document.getElementById('ov-feed'), (auditData && auditData.results) || []);
+  } catch (e) {
+    const feedEl = document.getElementById('ov-feed');
+    if (feedEl) feedEl.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>';
+  }
 });
+
+// 榜单卡展开/收起(点击整卡;h3 箭头 ▾/▴ 由 CSS ::after 呈现)
+CO_ENGRAM.toggleTopCard = function(id) {
+  var card = document.getElementById(id);
+  if (card) card.classList.toggle('expanded');
+};
+
+// 记忆动态渲染:按天分组 + 动作色点。只展示用户关心的动作子集,
+// 其余(retrieve_hit 高频噪声等)折叠在「其余 N 条」内,防淹没。
+CO_ENGRAM.FEED_ACTIONS = {
+  create: { cls: 'feed-create', icon: '＋' },
+  update: { cls: 'feed-update', icon: '✎' },
+  reinforce: { cls: 'feed-reinforce', icon: '↗' },
+  contradicted: { cls: 'feed-contradicted', icon: '⚖' },
+  accept: { cls: 'feed-create', icon: '＋' },
+  maintenance_run: { cls: 'feed-maintenance', icon: '☾' },
+  retrieve_effective: { cls: 'feed-retrieval', icon: '↻' }
+};
+CO_ENGRAM.renderFeed = function(root, entries) {
+  if (!root) return;
+  const T = CO_ENGRAM_T;
+  if (!entries.length) {
+    root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedEmpty')) + '</div>';
+    return;
+  }
+  // 稳健性:倒序(最新在前),按本地日期分组
+  const sorted = entries.slice().sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+  let html = '';
+  let lastDay = '';
+  let dayCount = 0;
+  for (const e of sorted) {
+    const meta = CO_ENGRAM.FEED_ACTIONS[e.action];
+    if (!meta) continue;
+    const day = (e.ts || '').slice(0, 10);
+    if (day !== lastDay) {
+      if (lastDay !== '') html += '</div>';
+      html += '<div class="ov-feed-day">' + CO_ENGRAM.escapeHtml(day) + '</div><div class="ov-feed-group">';
+      lastDay = day;
+      dayCount++;
+      if (dayCount > 3) break; // 概览只渲染最近 3 天,更早去审计 tab 看
+    }
+    html += '<div class="ov-feed-item ' + meta.cls + '">'
+      + '<span class="ov-feed-ico">' + meta.icon + '</span>'
+      + '<div class="ov-feed-body"><div class="ov-feed-title">'
+      + CO_ENGRAM.escapeHtml(e.metadata?.title || e.engramId || e.action)
+      + '</div><div class="ov-feed-meta">' + CO_ENGRAM.escapeHtml(e.action) + ' · ' + CO_ENGRAM.escapeHtml(e.actor || '') + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div></div></div>';
+  }
+  if (lastDay !== '') html += '</div>';
+  root.innerHTML = html;
+};
 
 // ============================================================
 // Engrams

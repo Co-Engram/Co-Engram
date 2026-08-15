@@ -2157,6 +2157,34 @@ interface StatsResponse {
     readonly synapseCount: number;
     readonly total: number;
   }>;
+  // === 2026-08 概览改版新增 ===
+  /** 近 7 天新建 engram 数(周增量) */
+  readonly weeklyNewEngrams: number;
+  /** 近 30 天逐日新建数(记忆脉搏;date=YYYY-MM-DD,缺失日已补 0) */
+  readonly createdLast30d: ReadonlyArray<{
+    readonly date: string;
+    readonly count: number;
+  }>;
+  /** 累计检索次数(SUM(retrieval_count)) */
+  readonly totalRetrievals: number;
+  /** 有效检索数(SUM(effective_retrievals),用于取用有效率) */
+  readonly effectiveRetrievals: number;
+  /** 检索次数 TOP(本月热点,热点榜) */
+  readonly topRetrieved: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly kind: string;
+    readonly retrievalCount: number;
+    readonly importance: number;
+  }>;
+  /** 冷却榜:活跃 + 低重要度 + 最久未取用(重要度降幅的代理指标) */
+  readonly topCooling: ReadonlyArray<{
+    readonly id: string;
+    readonly title: string;
+    readonly kind: string;
+    readonly importance: number;
+    readonly lastRetrievedAt: number | null;
+  }>;
   readonly pendingProposals: number;
   readonly auditEnabled: boolean;
   readonly effectivenessEnabled: boolean;
@@ -2242,10 +2270,85 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
      FROM engram_domains
      GROUP BY domain
      ORDER BY n DESC, domain ASC
-     LIMIT 10`,
+     LIMIT 20`,
     )
     .all() as { domain: string; n: number }[];
   const topTags = tagRows.map((r) => ({ tag: r.domain, count: r.n }));
+
+  // === 2026-08 概览改版新指标(全部走既有列,零新 schema) ===
+  const DAY_MS = 86_400_000;
+  const now = Date.now();
+  const weekAgo = now - 7 * DAY_MS;
+  const weeklyNewEngrams =
+    (
+      db
+        .prepare(`SELECT count(*) AS n FROM engrams WHERE created_at >= ?`)
+        .get(weekAgo) as { n: number }
+    )?.n ?? 0;
+
+  // 记忆脉搏:近 30 天逐日新建(SQL GROUP BY 天 + 服务端补零,客户端直接渲染)
+  const pulseRows = db
+    .prepare(
+      `SELECT (created_at / 86400000) AS day, count(*) AS n
+       FROM engrams
+       WHERE created_at >= ?
+       GROUP BY day`,
+    )
+    .all(weekAgo - 23 * DAY_MS) as { day: number; n: number }[];
+  const pulseMap = new Map<number, number>(
+    pulseRows.map((r) => [r.day, r.n]),
+  );
+  const createdLast30d: { date: string; count: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const t = now - i * DAY_MS;
+    const day = Math.floor(t / DAY_MS);
+    const date = new Date(t).toISOString().slice(0, 10);
+    createdLast30d.push({ date, count: pulseMap.get(day) ?? 0 });
+  }
+
+  const retrievalAgg = db
+    .prepare(
+      `SELECT COALESCE(SUM(retrieval_count), 0) AS total,
+              COALESCE(SUM(effective_retrievals), 0) AS effective
+       FROM engrams`,
+    )
+    .get() as { total: number; effective: number };
+
+  const topRetrieved = (
+    db
+      .prepare(
+        `SELECT id, title, kind, retrieval_count AS retrievalCount, importance
+         FROM engrams
+         WHERE status = 'active' AND retrieval_count > 0
+         ORDER BY retrieval_count DESC, updated_at DESC
+         LIMIT 20`,
+      )
+      .all() as {
+      id: string;
+      title: string;
+      kind: string;
+      retrievalCount: number;
+      importance: number;
+    }[]
+  ).map((r) => ({ ...r, importance: Number(r.importance.toFixed(2)) }));
+
+  const topCooling = (
+    db
+      .prepare(
+        `SELECT id, title, kind, importance, last_retrieved_at AS lastRetrievedAt
+         FROM engrams
+         WHERE status = 'active' AND last_retrieved_at IS NOT NULL
+         ORDER BY last_retrieved_at ASC, importance ASC
+         LIMIT 20`,
+      )
+      .all() as {
+      id: string;
+      title: string;
+      kind: string;
+      importance: number;
+      lastRetrievedAt: number | null;
+    }[]
+  ).map((r) => ({ ...r, importance: Number(r.importance.toFixed(2)) }));
 
   // 4. topContributors:engram 作者走 SQLite GROUP BY(毫秒级);
   //    synapse 作者走 graph.json edges 的 createdBy 字段(GraphBuilder 2026-07 加)。
@@ -2318,6 +2421,12 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     topTags,
     topContributors,
     pendingProposals: ctx.proposalEngine?.listPending().length ?? 0,
+    weeklyNewEngrams,
+    createdLast30d,
+    totalRetrievals: retrievalAgg.total,
+    effectiveRetrievals: retrievalAgg.effective,
+    topRetrieved,
+    topCooling,
     auditEnabled: !!ctx.auditLog,
     effectivenessEnabled: !!ctx.effectivenessTracker,
     proposalEnabled: !!ctx.proposalEngine,
@@ -2445,6 +2554,12 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     topTags,
     topContributors,
     pendingProposals: ctx.proposalEngine?.listPending().length ?? 0,
+    weeklyNewEngrams: 0,
+    createdLast30d: [],
+    totalRetrievals: 0,
+    effectiveRetrievals: 0,
+    topRetrieved: [],
+    topCooling: [],
     auditEnabled: !!ctx.auditLog,
     effectivenessEnabled: !!ctx.effectivenessTracker,
     proposalEnabled: !!ctx.proposalEngine,
