@@ -19,7 +19,17 @@ import {
   ProposalEngine,
   AuditLog,
   runDeepThought,
+  buildSubgraph,
+  buildModePrompt,
+  buildAliasMap,
+  retrospectiveSeedFilter,
+  inspirationSeedFilter,
+  critique,
+  parseDrafts,
+  validateInsightDraft,
   type LlmClient,
+  type InsightDraft,
+  type DeepThoughtMode,
 } from "@co-engram/core";
 
 const realRoot = process.argv[2];
@@ -111,29 +121,43 @@ async function main() {
     );
   }
 
-  // 第二轮:threshold=0(critic 放行全部)生成盲评材料 —— 人工判断
-  // critic 拒绝是否过严正是校准的核心数据(spec §九)
-  if (engine.listAll().filter((p) => p.source === "rem-insight" && p.status === "pending").length < 20) {
-    console.log("[blind-eval] 正常阈值下提案不足 20,追加 threshold=0 校准轮……");
-    for (const r of runs) {
-      const out = await runDeepThought({
-        repository: repo,
-        proposalEngine: engine,
-        llmClient: llm,
-        lastRemAt: r.lastRemAt,
-        config: { enabled: true, modesPerRun: 3, criticThreshold: 0, maxSubgraphNodes: 30 },
-      });
-      console.log(`[blind-eval][calibration] ${r.label}: drafts=${out.draftsGenerated} mechanicalRejected=${out.mechanicalRejected} criticRejected=${out.criticRejected} proposals=${out.proposals}`);
+  // 第二轮:草稿级采集 —— 盲评的正确语义是评「原始草稿 + critic 分」,
+  // 而非仅评存活提案(critic 偏严恰是待校准对象)。每窗口 × 模式直接
+  // 生成,critic 限流前 40 条(每条附分),机械校验结果一并标注。
+  const MODES: DeepThoughtMode[] = ["integration", "retrospective", "inspiration"];
+  interface SheetItem { draft: InsightDraft; critic: number | null; mechanical: string | null; window: string; }
+  const sheet: SheetItem[] = [];
+  let criticCalls = 0;
+  for (const r of runs) {
+    for (const mode of MODES) {
+      try {
+        const seedFilter = mode === "retrospective" ? retrospectiveSeedFilter(repo) : mode === "inspiration" ? inspirationSeedFilter(repo) : undefined;
+        const sub = buildSubgraph(repo, { lastRemAt: r.lastRemAt, maxNodes: 30, ...(seedFilter ? { seedFilter } : {}) });
+        if (sub.nodes.length === 0) continue;
+        const prompt = buildModePrompt(mode, sub);
+        const raw = await llm.complete(prompt, { temperature: 0.4, maxTokens: 32768 });
+        const aliasMap = buildAliasMap(sub);
+        const drafts = parseDrafts(raw, mode).map((d) => ({ ...d, sourceIds: d.sourceIds.map((x) => aliasMap.get(x) ?? x) }));
+        for (const d of drafts) {
+          const v = validateInsightDraft(d, sub, repo, engine.listAll());
+          let criticScore: number | null = null;
+          if (v.ok && criticCalls < 40) {
+            criticCalls += 1;
+            const sc = await critique(llm, d, sub, mode).catch(() => null);
+            criticScore = sc ? sc.overall : null;
+          }
+          sheet.push({ draft: d, critic: criticScore, mechanical: v.ok ? null : v.reason, window: r.label });
+        }
+        console.log(`[blind-eval][drafts] ${r.label}/${mode}: ${drafts.length} drafts (cum ${sheet.length})`);
+      } catch (e) {
+        console.log(`[blind-eval][drafts] ${r.label}/${mode} FAILED: ${e instanceof Error ? e.message : e}`);
+      }
     }
   }
+  console.log(`[blind-eval] sheet items: ${sheet.length}`);
 
-  const insights = engine
-    .listAll()
-    .filter((p) => p.source === "rem-insight" && p.status === "pending");
-  console.log(`[blind-eval] total pending rem-insight proposals: ${insights.length}`);
-
-  // 打乱顺序(盲评:不暴露模式/批次)
-  const shuffled = [...insights];
+  // 打乱顺序(盲评:不暴露模式/批次;critic=null = 解析失败/未评)
+  const shuffled = [...sheet];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
@@ -142,29 +166,29 @@ async function main() {
   const lines: string[] = [];
   lines.push("# 夜思/深度思考 洞察盲评清单(2026-08-15)");
   lines.push("");
-  lines.push(`- 来源:真实记忆库克隆(${totalEngrams} engrams),3 个时间窗口 × 3 模式,critic 阈值 0.5`);
-  lines.push(`- 洞察数:${insights.length}(已打乱顺序,不标注模式与批次)`);
+  lines.push(`- 来源:真实记忆库克隆(${repo.listEngramIndex().length} engrams),3 个时间窗口 × 3 模式,草稿级采集(critic 分逐条附注;机械校验结果一并标注)`);
+  lines.push(`- 洞察数:${sheet.length}(已打乱顺序,不标注模式/批次)`);
   lines.push("- 评分口径(每条三选一):");
   lines.push("  - **真洞察**:跨记忆的共性结构 / 可行动因果链 / 有依据的远域映射 —— 你事先没意识到");
   lines.push("  - **复述**:单条记忆的内容换个说法,没有新信息");
   lines.push("  - **牵强**:形式像洞察但映射/因果站不住");
-  lines.push("- 附加(可选):critic 分是否与你的判断同向(critic 分见每条标注)");
+  lines.push("- 附加(可选):critic 分是否与你的判断同向(null = critic 调用失败/未评,本身是校准数据)");
   lines.push("");
-  shuffled.forEach((p, i) => {
-    const payload = p.payload!;
-    const sources = (payload.remSourceIds ?? []).map((id) => {
+  shuffled.forEach((it, i) => {
+    const d = it.draft;
+    const sources = d.sourceIds.map((id) => {
       try {
         const e = repo.readEngram(id);
         return `${e.title}(摘要:${(e.summary ?? "").slice(0, 50)}…)`;
       } catch {
-        return `${id}(已不存在)`;
+        return `${id}(不在库)`;
       }
     });
-    lines.push(`## #${i + 1}  [critic ${((payload.criticScore ?? 0) as number).toFixed(2)}]`);
+    lines.push(`## #${i + 1}  [critic ${it.critic === null ? "null" : it.critic.toFixed(2)}]${it.mechanical ? ` [机械拒:${it.mechanical.slice(0, 40)}]` : ""}`);
     lines.push("");
-    lines.push(`**${payload.title}**`);
+    lines.push(`**${d.title}**`);
     lines.push("");
-    lines.push((payload.content ?? "").slice(0, 600));
+    lines.push((d.content ?? "").slice(0, 600));
     lines.push("");
     lines.push(`> 来源:${sources.join(" / ")}`);
     lines.push("");
@@ -176,12 +200,13 @@ async function main() {
   lines.push(`- 真洞察:___ / ${shuffled.length}`);
   lines.push(`- 复述:___ / ${shuffled.length}`);
   lines.push(`- 牵强:___ / ${shuffled.length}`);
-  lines.push("- critic 一致性(高分=真洞察、低分=复述/牵强):___");
-  lines.push("- 校准建议(critic 阈值 / prompt 调整):________");
+  lines.push(`- critic 一致性(高分=真洞察、低分=复述/牵强;null 率:___):________`);
+  lines.push(`- 机械拒绝被人工推翻数(误拒):___ / ${sheet.filter((x) => x.mechanical).length}`);
+  lines.push("- 校准建议(critic 阈值 / prompt / 机械规则调整):________");
   lines.push("");
   const out = join(homedir(), "superpowers", "night-thinking-blind-eval-2026-08-15.md");
   writeFileSync(out, lines.join("\n"), "utf8");
-  console.log(`[blind-eval] sheet written: ${out}`);
+  console.log(`[blind-eval] sheet written: ${out} (${sheet.length} items)`);
 
   // 消融数据留档(写入同目录)
   try {
