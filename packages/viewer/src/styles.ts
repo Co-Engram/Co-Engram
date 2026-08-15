@@ -2390,6 +2390,23 @@ div.vis-tooltip {
 }
 .ex code { font-size: 0.65rem; background: none; }
 
+/* === 2026-08 梦境睡眠报告(DEMO g2-dream)=== */
+.slp-head { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.slp-head .when { font-size: 0.78rem; color: var(--fg-dim); flex: 1; min-width: 200px; }
+.slp-head .nums { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.slp-head .nm { text-align: center; }
+.slp-head .nm b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.slp-head .nm span { font-size: 0.68rem; color: var(--fg-dim); }
+.c-ac { color: var(--accent); }
+.c-rd { color: #BE3B3B; }
+.c-am { color: var(--accent-warm); }
+.c-pu { color: #7C3AED; }
+.slp-h { font-size: 1.02rem; margin: 1.1rem 0 0.5rem; }
+.slp-h small { font-weight: 400; font-size: 0.72rem; color: var(--fg-dim); margin-left: 0.4rem; }
+.slp-card { padding: 0.6rem 0.9rem; margin-bottom: 0.45rem; }
+.slp-card .ct { display: flex; gap: 0.7rem; align-items: baseline; }
+.slp-card .delta { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+
 /* === 2026-08 提案勾选批量 + 5 秒撤销 toast(DEMO g2-proposals)=== */
 .prop-selectable { position: relative; }
 .prop-check {

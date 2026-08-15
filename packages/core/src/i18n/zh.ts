@@ -1762,6 +1762,22 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Maintenance 面板(viewer.maintenance.*) — 方案 A viewer tab =====
   "viewer.maintenance.loading": "加载维护状态中",
+  "viewer.maintenance.sleep.title": "睡眠报告",
+  "viewer.maintenance.sleep.sub": "deep(衰减整合)+ rem(元认知)两阶段 · 每晚自动运行",
+  "viewer.maintenance.sleep.when": "最近一次:${t}",
+  "viewer.maintenance.sleep.reinforce": "强化(RPE)",
+  "viewer.maintenance.sleep.decay": "衰减(deep)",
+  "viewer.maintenance.sleep.upgrade": "验证升级(REM)",
+  "viewer.maintenance.sleep.pattern": "模式提炼",
+  "viewer.maintenance.sleep.archive": "归档/遗忘",
+  "viewer.maintenance.sleep.upgradeSub": "rem 元认知 · 验证状态跃迁",
+  "viewer.maintenance.sleep.reinforceSub": "RPE · 取用后正向反馈",
+  "viewer.maintenance.sleep.decaySub": "deep · 30 天未取用自动降权(软降权,不删除)",
+  "viewer.maintenance.sleep.patternSub": "梦境提炼 · 以提案呈现,审批后成为记忆",
+  "viewer.maintenance.sleep.empty": "最近一轮维护没有产生记忆变更",
+  "viewer.maintenance.sleep.next": "下次维护:${stage},约 ${h} 小时后",
+  "viewer.maintenance.sleep.softening":
+    "规则说明:衰减为软降权,记忆仍可被检索;连续多个维护期未唤醒才进入回收站候选。点击条目可查看修改说明与来源记忆。",
   "viewer.maintenance.disabledHint": "未启用维护服务或 dataRoot 不可用。",
   "viewer.maintenance.title": "梦境状态",
   "viewer.maintenance.intro":

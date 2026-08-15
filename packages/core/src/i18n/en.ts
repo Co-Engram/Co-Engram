@@ -1799,6 +1799,22 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Maintenance panel (viewer.maintenance.*) — plan A viewer tab =====
   "viewer.maintenance.loading": "Loading maintenance state",
+  "viewer.maintenance.sleep.title": "Sleep report",
+  "viewer.maintenance.sleep.sub": "deep (decay & consolidation) + rem (metacognition) stages · runs automatically every night",
+  "viewer.maintenance.sleep.when": "Last run: ${t}",
+  "viewer.maintenance.sleep.reinforce": "Reinforced (RPE)",
+  "viewer.maintenance.sleep.decay": "Decayed (deep)",
+  "viewer.maintenance.sleep.upgrade": "Verification upgrades (REM)",
+  "viewer.maintenance.sleep.pattern": "Pattern distillation",
+  "viewer.maintenance.sleep.archive": "Archived / forgotten",
+  "viewer.maintenance.sleep.upgradeSub": "rem metacognition · verification transitions",
+  "viewer.maintenance.sleep.reinforceSub": "RPE · positive feedback after retrieval",
+  "viewer.maintenance.sleep.decaySub": "deep · auto soft-demotion after 30d unused (no deletion)",
+  "viewer.maintenance.sleep.patternSub": "dream distillation · surfaces as proposals for approval",
+  "viewer.maintenance.sleep.empty": "The latest maintenance run produced no memory changes",
+  "viewer.maintenance.sleep.next": "Next maintenance: ${stage}, in about ${h} h",
+  "viewer.maintenance.sleep.softening":
+    "Rule: decay is a soft demotion — memories remain retrievable; only after several untouched cycles do they become trash candidates. Click an item to see the change details and source memory.",
   "viewer.maintenance.disabledHint":
     "Maintenance service not enabled or dataRoot unavailable.",
   "viewer.maintenance.title": "Dream State",
