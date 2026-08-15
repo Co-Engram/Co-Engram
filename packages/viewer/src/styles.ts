@@ -2511,6 +2511,10 @@ div.vis-tooltip {
 .inc-progress-hint { flex-basis: 100%; color: #8B857B; font-size: 0.72rem; line-height: 1.5; }
 .btn.mini.disabled, .btn.disabled { opacity: 0.45; cursor: not-allowed; }
 .inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.inc-last-round { margin-top: 0.45rem; padding: 0.5rem 0.7rem; background: var(--chip-bg, #F0EDE7); border-radius: 8px; font-size: 0.78rem; }
+.inc-last-round .ilr-h { font-weight: 600; color: var(--fg-muted); font-size: 0.72rem; margin-bottom: 0.25rem; }
+.inc-last-round .ilr-s { color: var(--fg); line-height: 1.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inc-last-round .ilr-s.ilr-none { color: var(--fg-dim); font-style: italic; }
 .inc-timeline { margin-top: 0.6rem; }
 .inc-timeline summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }
 .inc-timeline ul { padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0 0; }
