@@ -1790,7 +1790,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.trash.purgeConfirm2":
     "Second confirmation: really purge all ${n} items in ${scope}?",
   "viewer.trash.purgeDone": "Permanently deleted ${n} memories.",
-  "viewer.trash.purgeFailed": "Purge failed: ${err}",
   "viewer.trash.colTitle": "Title",
   "viewer.trash.sourceSoft": "soft",
   "viewer.trash.sourceSwept": "swept",
