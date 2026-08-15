@@ -48,7 +48,12 @@
       "engram_list_paths",
       "engram_synthesize",
       "engram_audit_query",
-      "engram_sync"
+      "engram_sync",
+      "incubation_create",
+      "incubation_run",
+      "incubation_list",
+      "incubation_resolve",
+      "incubation_report"
     ]
   },
   "name": "Co-Engram",
@@ -72,7 +77,10 @@
       },
       "language": {
         "type": "string",
-        "enum": ["en", "zh"],
+        "enum": [
+          "en",
+          "zh"
+        ],
         "description": "Language for tool descriptions, viewer UI, and system prompts. If unset, falls back to team-memory persisted config, then DEFAULT_LANGUAGE (zh)."
       },
       "startMaintenance": {
@@ -114,8 +122,12 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "port": { "type": "number" },
-          "token": { "type": "string" }
+          "port": {
+            "type": "number"
+          },
+          "token": {
+            "type": "string"
+          }
         },
         "description": "Viewer server config (port / token). Default port 18899 (shared by both hosts since 2026-07; legacy Claude Code default 18799 is deprecated). Env CO_ENGRAM_VIEWER_PORT overrides."
       }

@@ -32,12 +32,18 @@ import type { ContractResult, ContractDiff } from "./index.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * 上溯查找 monorepo root(含 packages/ 的目录)
+ * 上溯查找 monorepo root(含 packages/ 的目录)。
+ *
+ * 以 `packages/core/src/config/types.ts` 的真实存在为准 —— 仅判 `packages/`
+ * 目录会在 dist 运行布局(packages/X/dist → 上溯先命中 packages/X)下
+ * 解析到子包目录,拼出 `packages/packages/...` 双层路径(2026-08-15 修复)。
  */
 function findMonorepoRoot(startDir: string): string {
   let cur = startDir;
   for (let i = 0; i < 8; i++) {
-    if (existsSync(join(cur, "packages"))) return cur;
+    if (existsSync(join(cur, "packages", "core", "src", "config", "types.ts"))) {
+      return cur;
+    }
     const parent = dirname(cur);
     if (parent === cur) break;
     cur = parent;

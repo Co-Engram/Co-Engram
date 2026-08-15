@@ -332,27 +332,48 @@ WHEN TO CALL:
 WHEN NOT TO CALL: no inconsistency; for a specific engram use engram_get.
 
 RETURNS: timestamps, counts, autoFixesApplied, pendingManualReview, issues[] (kind/path/message/autoFixed).`,
-  "tool.incubation_create.agent": `Create an overnight-thinking (night) incubation entry: feed a question
-before sleep; the agent thinks deeply overnight; you harvest insights on waking. Free-text
-question; optional seedEngramIds. webResearchOptIn defaults to false — web research requires
-explicit per-entry opt-in (confirm with the user before enabling).`,
-  "tool.incubation_run.agent": `Run one night-thinking round immediately. mode=agent (default, conversational
-entry): marks in-flight and returns the fixed-protocol task package — execute
-inventory→plan→read-only work→incubation_report in the current session. mode=auto
-(viewer/CLI/daily schedule): runs the L2 headless executor directly, falling back to L1
-single-pass distant analogy; returns synchronously. Errors if already in-flight
-(30-min TTL auto-recovery).`,
-  "tool.incubation_list.agent": `List night-thinking incubation entries (including resolved/paused honor
-records): id / question / status (active|in-flight|suggested-resolve|resolved|paused) /
-rounds / web opt-in / last hatched at.`,
-  "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after accepting an insight the entry
-becomes suggested-resolve; ask the user "did it answer your question?" — yes → resolved
-(dream timeline archived), no → stays active.`,
-  "tool.incubation_report.agent": `Night-thinking write-back (the ONLY write path for the L2 agent):
-submit one round's structured output (insights/plan/trace/externalCalls). Each insight is
-immediately mechanically validated + independently critiqued → rem-insight proposal
-(engram created only on user accept); rounds+1 and the timeline is appended; duplicate
-insights are vetoed for the round; 2 fully-duplicate rounds auto-pause the entry.`,
+  "tool.incubation_create.agent": `Create an overnight-thinking (night) incubation entry: feed a question before sleep; the agent thinks deeply overnight; you harvest insights on waking.
+
+WHEN TO CALL:
+- User expresses night-thinking intent ("think about X overnight", "feed a question before sleep")
+- User raises a question worth multi-round deep exploration that needs no immediate answer
+
+WHEN NOT TO CALL:
+- User wants an immediate answer (answer directly or use engram_search)
+- One-off trivial questions
+
+RETURNS: { id, status, question, rounds }. webResearchOptIn defaults to false — confirm with the user before enabling (the question summary will be sent to search engines).`,
+  "tool.incubation_run.agent": `Run one night-thinking round immediately.
+
+WHEN TO CALL:
+- User says "think now" / "run night thinking now" (conversational entry, default mode=agent)
+- Viewer/CLI async job or daily schedule (mode=auto)
+
+WHEN NOT TO CALL:
+- Entry already in-flight (30-min TTL auto-recovery)
+
+RETURNS: mode=agent returns the fixed-protocol task package (question / seed digests / dream history / protocol) — execute inventory→plan→read-only work→incubation_report in the current session; mode=auto returns synchronously { level, proposals, cycleVetoed, rounds }.`,
+  "tool.incubation_list.agent": `List night-thinking incubation entries.
+
+WHEN TO CALL:
+- User asks "my night-thinking entries", "which night are we on", "any paused entries"
+
+RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, lastHatchedAt, timelineRounds }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused.`,
+  "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after an insight is accepted the entry becomes suggested-resolve; ask the user "did it answer your question?".
+
+WHEN TO CALL:
+- Entry status=suggested-resolve and the user has given a verdict
+
+RETURNS: { id, status } — answered=true → resolved (dream timeline archived); false → stays active.`,
+  "tool.incubation_report.agent": `Night-thinking write-back (the ONLY write path for the L2 agent).
+
+WHEN TO CALL:
+- Exactly once, after you complete inventory→plan→read-only work per the protocol returned by incubation_run (agent mode)
+
+WHEN NOT TO CALL:
+- Before executing the protocol; or when the round was already reported
+
+RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round; 2 fully-duplicate rounds auto-pause the entry.`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
