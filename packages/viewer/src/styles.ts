@@ -326,7 +326,7 @@ body {
 }
 
 /* === 概览(2026-08 改版):KPI + 脉搏 + 动态 + 右侧榜单 === */
-.ov-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 1.5rem; }
+.ov-layout { display: grid; grid-template-columns: minmax(0, 780px) 300px; justify-content: space-between; gap: 1.5rem; }
 @media (max-width: 1000px) { .ov-layout { grid-template-columns: 1fr; } .ov-side { order: 2; } }
 .ov-stats-block {
   background: var(--panel-bg);
@@ -405,12 +405,17 @@ body {
 .kind-dot-hypothesis { background: var(--kind-hypothesis); }
 
 main {
-  max-width: 1080px;
+  /* 2026-08 改版(DEMO):内容页版心 960px(印迹/技能/提案/审计等)。
+     概览页例外 —— :has 加宽到 1200px,ov-layout 主列 780 + 侧列 300。 */
+  max-width: 960px;
   margin: 0 auto;
   padding: 1.5rem 2rem 3rem;
   position: relative;
   z-index: 1;
   width: 100%;
+}
+main:has(> section.tab-panel[data-tab="stats"].active) {
+  max-width: 1200px;
 }
 section.tab-panel { display: none; }
 section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
@@ -2203,6 +2208,86 @@ div.vis-tooltip {
 }
 .tree-file .leaf-m { display: flex; gap: 0.6rem; font-size: 0.68rem; color: var(--fg-dim); white-space: nowrap; }
 .tree-file .leaf-m .imp2 { font-variant-numeric: tabular-nums; color: var(--fg-muted); }
+
+/* === 2026-08 技能卡片解剖(DEMO g2-skills .sk)=== */
+.card.sk { display: flex; flex-direction: column; gap: 0.5rem; }
+.sk-head { display: flex; gap: 0.4rem; align-items: center; flex-wrap: wrap; }
+.sk-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--fg-bright, var(--fg));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.sk-head .chip { font-size: 0.65rem; font-weight: 700; padding: 1px 8px; }
+.sk-desc {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.util-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.7rem; color: var(--fg-dim); }
+.util-row b { font-variant-numeric: tabular-nums; }
+.util-b { flex: 1; height: 7px; background: #F0EDE7; border-radius: 4px; overflow: hidden; }
+.util-f { display: block; height: 100%; border-radius: 4px; }
+.sk-meta { display: flex; gap: 0.7rem; font-size: 0.7rem; color: var(--fg-dim); flex-wrap: wrap; }
+.sk-meta .ok { color: var(--accent); }
+.sk-meta .fail { color: #B45309; }
+.sk-extra { display: flex; gap: 0.35rem; flex-wrap: wrap; border-top: 1px dashed var(--border); padding-top: 0.45rem; margin-top: auto; }
+.ex {
+  font-size: 0.65rem;
+  color: var(--fg-dim);
+  background: #F5F2EC;
+  border-radius: 5px;
+  padding: 0 7px;
+}
+.ex code { font-size: 0.65rem; background: none; }
+
+/* === 2026-08 提案勾选批量 + 5 秒撤销 toast(DEMO g2-proposals)=== */
+.prop-selectable { position: relative; }
+.prop-check {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 2;
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+#prop-select-bar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: var(--accent-soft, rgba(15, 118, 110, 0.08));
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.undo-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 200;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.6rem 1rem;
+  background: rgba(45, 42, 38, 0.92);
+  color: #FBFAF8;
+  border-radius: 10px;
+  font-size: 0.82rem;
+  box-shadow: 0 8px 24px rgba(45, 42, 38, 0.25);
+  animation: fade-in 0.2s ease-out;
+}
 .btn.mini {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;

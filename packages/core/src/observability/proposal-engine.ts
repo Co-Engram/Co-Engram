@@ -2447,6 +2447,34 @@ export class ProposalEngine {
   }
 
   /**
+   * 撤销驳回(viewer「5 秒撤销」toast):dismissed → pending,清除 dismissedUntil。
+   *
+   * 使用场景:批量驳回后 5 秒内反悔。tombstone 不删除 —— 它只影响
+   * 「purge 后从 source 文件重建 proposal」路径,与本方法(status 翻转)正交;
+   * 5 秒窗口内撤销,提案直接回到待审列表。
+   *
+   * @returns true 若找到并还原了 dismissed 提案;false(不存在 / 非 dismissed)
+   */
+  reactivate(entityId: string): boolean {
+    const proposals = this.readProposals();
+    const target = proposals.find((p) => p.entityId === entityId);
+    if (!target || target.status !== "dismissed") return false;
+    this.writeProposals(
+      proposals.map((p) =>
+        p.entityId === entityId
+          ? ({ ...p, status: "pending", dismissedUntil: undefined } as Proposal)
+          : p,
+      ),
+    );
+    this.auditLog.append({
+      actor: "user",
+      action: "update",
+      metadata: { entityId, proposalReactivated: true },
+    });
+    return true;
+  }
+
+  /**
    * 批量 accept(AI-8):按 source 过滤,自动 accept 所有匹配的 pending proposal。
    *
    * 设计约束:

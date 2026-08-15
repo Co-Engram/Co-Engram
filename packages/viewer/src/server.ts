@@ -1214,13 +1214,16 @@ async function routeApi(
     return;
   }
 
-  // /api/proposals/:entityId/accept | /dismiss
-  const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss)$/.exec(
+  // /api/proposals/:entityId/accept | /dismiss | /reactivate
+  const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(
     path,
   );
   if (proposalActionMatch && req.method === "POST") {
     const entityId = decodeURIComponent(proposalActionMatch[1]!);
-    const action = proposalActionMatch[2] as "accept" | "dismiss";
+    const action = proposalActionMatch[2] as
+      | "accept"
+      | "dismiss"
+      | "reactivate";
     if (!ctx.proposalEngine) {
       respondJson(res, 503, {
         error: "Proposal engine not enabled",
@@ -1301,6 +1304,13 @@ async function routeApi(
           });
           return;
         }
+      }
+      // reactivate(撤销驳回,viewer 5 秒撤销 toast):dismissed → pending。
+      // 幂等:非 dismissed(不存在 / 已是 pending / 已 accept)返回 restored:false,不抛错。
+      if (action === "reactivate") {
+        const restored = ctx.proposalEngine.reactivate(entityId);
+        respondJson(res, 200, { ok: true, action, restored });
+        return;
       }
       // dismiss
       ctx.proposalEngine.dismiss(entityId, body?.reason, body?.dismissDays);

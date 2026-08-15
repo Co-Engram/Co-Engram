@@ -1493,26 +1493,16 @@ window.CO_ENGRAM_SKILLS = {
       const _dr = CO_ENGRAM_SKILLS._decayRisk(s.retentionStage, s.lastUsedAt);
       const decayRow = _dr ? '<div class="card-meta" style="color:' + _dr.color + '">⏳ ' + CO_ENGRAM.escapeHtml(_dr.text) + '</div>' : '';
 
-      // 统计数据:成功率 + 调用次数 + 最近使用(raw failureCount 融入成功率,不再单独显示)
+      // 统计数据(DEMO .sk-meta):成败计数 + 成功率 + 最近使用
       const stats = [];
-      if (_rate != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successRate.tip')) + '">✓ ' + _rate + '%</span>');
-      if (s.invocationCount != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.invocationCount.tip')) + '">🔄 ' + s.invocationCount + '</span>');
+      stats.push('<span class="ok"' + CO_ENGRAM.tip('skills.successCount') + '>✓ ' + CO_ENGRAM.escapeHtml(T.t('skills.successCountN', { n: _succ })) + '</span>');
+      stats.push('<span class="fail"' + CO_ENGRAM.tip('skills.failureCount') + '>✗ ' + CO_ENGRAM.escapeHtml(T.t('skills.failureCountN', { n: _fail })) + '</span>');
+      if (_rate != null) stats.push('<span title="' + CO_ENGRAM.escapeHtml(T.t('skills.successRate.tip')) + '">' + _rate + '%</span>');
       if (s.lastUsedAt) stats.push('<span title="' + CO_ENGRAM.escapeHtml(s.lastUsedAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(s.lastUsedAt)) + '</span>');
-
-      // initiationSet 摘要(显示为「描述」:规则版内容即 SKILL.md description)
-      let triggerInfo = '';
-      if (s.initiationSet && s.initiationSet.length) {
-        triggerInfo += '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.initiationSet')) + ':</span> ' + CO_ENGRAM.escapeHtml(s.initiationSet) + '</div>';
-      }
-
-      // composes 计数
-      const composesBadge = s.composes && s.composes.length
-        ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('skills.composes.tip')) + '">🔗 ' + s.composes.length + '</span>'
-        : '';
 
       // SKILL.md 原生 version chip(A+1:内部字段 skillVersion,SKILL.md frontmatter version 经 parseSkillMd 映射)
       const versionChip = s.skillVersion
-        ? '<span class="chip" style="border-left:3px solid var(--muted,#666)" title="' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '">v' + CO_ENGRAM.escapeHtml(s.skillVersion) + '</span> '
+        ? '<span class="chip ex" style="border-left:3px solid var(--muted,#666)" title="' + CO_ENGRAM.escapeHtml(T.t('skills.version')) + '">v' + CO_ENGRAM.escapeHtml(s.skillVersion) + '</span> '
         : '';
 
       // 来源标识(展示层从 compatibility 推断,不存 sourceType 字段;YAGNI)
@@ -1523,28 +1513,34 @@ window.CO_ENGRAM_SKILLS = {
       const sourceIcon = '<span title="' + CO_ENGRAM.escapeHtml(_srcTip) + '">'
         + (_compat.includes('openclaw') ? '🦾' : _compat.includes('claude') ? '🧩' : '🌐') + '</span> ';
 
-      // sourcePath 副标题
-      const sourcePathHtml = s.sourcePath
-        ? '<div class="card-meta"><span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.sourcePath')) + ':</span> <code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></div>'
+      // composes 计数 + 名单 tooltip(DEMO「编排进 → X」)
+      const composesTip = s.composes && s.composes.length
+        ? ' title="' + CO_ENGRAM.escapeHtml(T.t('skills.composes.tip') + ':\\n' + s.composes.join('\\n')) + '"' : '';
+      const composesBadge = s.composes && s.composes.length
+        ? '<span class="ex"' + composesTip + '>🔗 ' + CO_ENGRAM.escapeHtml(T.t('skills.composesInto', { first: s.composes[0] })) + (s.composes.length > 1 ? ' ×' + s.composes.length : '') + '</span>'
+        : '';
+      // 关联记忆数(DEMO「关联记忆 ×N」)
+      const relatedBadge = (s.relatedEngrams && s.relatedEngrams.length)
+        ? '<span class="ex"' + CO_ENGRAM.tip('skills.relatedEngrams') + '>' + CO_ENGRAM.escapeHtml(T.t('skills.relatedCount', { n: s.relatedEngrams.length })) + '</span>'
+        : '';
+      // 来源 SKILL.md(DEMO .ex 最后一项)
+      const sourceBadge = s.sourcePath
+        ? '<span class="ex"' + CO_ENGRAM.tip('skills.sourcePath') + '><code>' + CO_ENGRAM.escapeHtml(s.sourcePath) + '</code></span>'
         : '';
 
-      return '<div class="card" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\\')">'
-        + '<div class="card-title">' + sourceIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</div>'
-        + sourcePathHtml
-        + '<div>'
-        + '<span class="chip" style="background:' + stageColor + '"' + CO_ENGRAM.tip('acquisitionStage.' + s.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
-        + '<span class="chip" style="background:' + retentionColor + '"' + CO_ENGRAM.tip('retentionStage.' + s.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
-        + composesBadge
-        + versionChip
+      return '<div class="card sk" style="cursor:pointer" onclick="CO_ENGRAM_SKILLS.open(\\'' + CO_ENGRAM.escapeHtml(s.skillId) + '\\')">'
+        + '<div class="sk-head">'
+        + '<span class="sk-name">' + sourceIcon + CO_ENGRAM.escapeHtml(s.skillId) + '</span>'
+        + '<span class="chip acq" style="background:' + stageColor + '"' + CO_ENGRAM.tip('acquisitionStage.' + s.acquisitionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('acquisitionStage', s.acquisitionStage)) + '</span> '
+        + '<span class="chip ret" style="background:' + retentionColor + '"' + CO_ENGRAM.tip('retentionStage.' + s.retentionStage) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('retentionStage', s.retentionStage)) + '</span> '
         + '</div>'
-        + '<div class="card-meta" style="align-items:center;gap:0.5rem">'
-        + '<span class="card-meta-label">' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + ':</span> '
-        + utilityBar
-        + '<span>' + utilityPercent + '%</span>'
-        + lowConfBadge
-        + '</div>'
-        + (stats.length ? '<div class="card-meta">' + stats.join(' · ') + '</div>' : '')
-        + triggerInfo
+        + (s.initiationSet && s.initiationSet.length ? '<div class="sk-desc">' + CO_ENGRAM.escapeHtml(s.initiationSet) + '</div>' : '')
+        + '<div class="util-row"><span>' + CO_ENGRAM.escapeHtml(T.t('skills.utility')) + '</span>'
+        + '<span class="util-b"><span class="util-f" style="width:' + utilityPercent + '%;background:' + (_lowConf ? '#8B857B' : '#0F766E') + '"></span></span>'
+        + '<b>' + utilityPercent + '%</b>' + (_lowConf ? lowConfBadge : '') + '</div>'
+        + (stats.length ? '<div class="sk-meta">' + stats.join(' ') + '</div>' : '')
+        + (composesBadge || versionChip || relatedBadge || sourceBadge
+          ? '<div class="sk-extra">' + versionChip + composesBadge + relatedBadge + sourceBadge + '</div>' : '')
         + decayRow
         + '</div>';
     }).join('') + '</div>';
@@ -2217,7 +2213,7 @@ window.CO_ENGRAM_PROPOSALS = {
           var sceneLabel = T.t(isRefute ? 'viewer.proposals.rem.scene.refute' : 'viewer.proposals.rem.scene.verify');
           var reasonZh = T.t(isRefute ? 'viewer.proposals.rem.reason.refute' : 'viewer.proposals.rem.reason.verify');
 
-          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+          html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engId) + '\\')">'
             + CO_ENGRAM.escapeHtml(remTitle || engId.slice(-8))
             + '</div>'
@@ -2272,7 +2268,7 @@ window.CO_ENGRAM_PROPOSALS = {
           var synapseKindLabel = T.enumLabel('synapseKind', sKind) || sKind;
           var synapseKindColor = CO_ENGRAM.edgeColor(sKind);
 
-          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+          html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_PROPOSALS.openSynapseDetail(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</div>'
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.synapse')) + '</span>'
@@ -2323,7 +2319,7 @@ window.CO_ENGRAM_PROPOSALS = {
           var addedTags = (tNew || []).filter(function (t) { return !oldSet[t]; });
           var keptTags = (tOld || []).filter(function (t) { return newSet[t]; });
 
-          html += '<div class="card" style="border-left:3px solid ' + sceneColor + '">'
+          html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(tEngId) + '\\')">'
             + CO_ENGRAM.escapeHtml(tTitle || tEngId.slice(-8))
             + '</div>'
@@ -2362,7 +2358,8 @@ window.CO_ENGRAM_PROPOSALS = {
         const kindLabel = T.enumLabel('kind', meta.kind);
         const kindColor = CO_ENGRAM.kindColor(meta.kind);
         const previewClip = this._previewClip(p);
-        const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"';
+        const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"'
+          + (p.status === 'pending' ? ' data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '"' : '');
         const sampleCount = (p.sampleQuotes || []).length;
         // rem-pattern 专属标识(dreaming 提炼的新模式记忆):梦境标识 + 提炼置信度 + 来源数
         var isRemPattern = p.source === 'rem-pattern';
@@ -2398,7 +2395,7 @@ window.CO_ENGRAM_PROPOSALS = {
         const tagsHtml = payloadTags.map(tg => '<span class="chip">' + CO_ENGRAM.escapeHtml(tg) + '</span>').join(' ')
           + (moreTags ? '<span class="chip">+' + moreTags + '</span>' : '');
 
-        html += '<div class="card"' + cardClick + '>'
+        html += '<div class="card' + (p.status === 'pending' ? ' prop-selectable' : '') + '"' + cardClick + '>'
           + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
           + remPatternChips
@@ -2472,6 +2469,131 @@ window.CO_ENGRAM_PROPOSALS = {
         + '</div>';
     }
     root.innerHTML = html;
+
+    // 勾选批量(DEMO g2-proposals:单条 / 勾选批量两种粒度):
+    // pending 卡片(.prop-selectable)注入复选框;stopPropagation 防触发卡片 onclick。
+    if (this._selected && this._selected.size) {
+      // 选中集里已不在当前列表的条目清理掉(翻页 / 状态过滤后)
+      const live = new Set(items.map(p => p.entityId));
+      for (const id of Array.from(this._selected)) {
+        if (!live.has(id)) this._selected.delete(id);
+      }
+    }
+    root.querySelectorAll('.prop-selectable').forEach(card => {
+      const id = card.getAttribute('data-entity-id');
+      if (!id) return;
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.className = 'prop-check';
+      cb.checked = this._selected.has(id);
+      cb.title = T.t('viewer.proposals.selectTip');
+      cb.onclick = (ev) => { ev.stopPropagation(); CO_ENGRAM_PROPOSALS.toggleSelect(id, cb.checked); };
+      card.prepend(cb);
+    });
+    this._refreshSelectBar();
+  },
+
+  // 勾选状态与批量操作条
+  _selected: new Set(),
+  toggleSelect(entityId, checked) {
+    if (checked) this._selected.add(entityId);
+    else this._selected.delete(entityId);
+    this._refreshSelectBar();
+  },
+  clearSelection() {
+    this._selected.clear();
+    document.querySelectorAll('.prop-check').forEach(cb => { cb.checked = false; });
+    this._refreshSelectBar();
+  },
+  _refreshSelectBar() {
+    const T = CO_ENGRAM_T;
+    let bar = document.getElementById('prop-select-bar');
+    if (!this._selected.size) {
+      if (bar) bar.remove();
+      return;
+    }
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'prop-select-bar';
+      const root = document.getElementById('proposals-content');
+      const grid = root && root.querySelector('.grid');
+      (grid || root).parentNode.insertBefore(bar, grid || root);
+    }
+    const n = this._selected.size;
+    bar.innerHTML =
+      '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.acceptSelected()">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.acceptSelected', { n })) + '</button> '
+      + '<button class="btn mini" onclick="CO_ENGRAM_PROPOSALS.dismissSelected()">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.dismissSelected', { n })) + '</button> '
+      + '<button class="btn secondary mini" onclick="CO_ENGRAM_PROPOSALS.clearSelection()">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.clearSelection')) + '</button>';
+  },
+
+  // 勾选批量采纳(二次确认;逐条 POST,conversation 来源缺 title 的失败计入 fail)
+  async acceptSelected() {
+    const T = CO_ENGRAM_T;
+    const ids = Array.from(this._selected);
+    if (!ids.length) return;
+    if (!window.confirm(T.t('viewer.proposals.batch.acceptSelectedConfirm', { n: ids.length }))) return;
+    let ok = 0, fail = 0;
+    for (const id of ids) {
+      try { await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(id) + '/accept', 'POST', {}); ok++; }
+      catch (e) { fail++; }
+    }
+    this.clearSelection();
+    CO_ENGRAM._proposalsLoaded = false;
+    CO_ENGRAM._engramsLoaded = false;
+    await this.render(document.getElementById('proposals-content'));
+    if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+    this._toast(T.t('viewer.proposals.batch.acceptToast', { ok, fail }));
+  },
+
+  // 勾选批量驳回(二次确认 + 5 秒撤销 toast —— 撤销即 reactivate 回到待审)
+  async dismissSelected() {
+    const T = CO_ENGRAM_T;
+    const ids = Array.from(this._selected);
+    if (!ids.length) return;
+    if (!window.confirm(T.t('viewer.proposals.batch.dismissSelectedConfirm', { n: ids.length }))) return;
+    let ok = 0, fail = 0;
+    const okIds = [];
+    for (const id of ids) {
+      try {
+        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(id) + '/dismiss', 'POST', { reason: 'batch-dismiss' });
+        ok++; okIds.push(id);
+      } catch (e) { fail++; }
+    }
+    this.clearSelection();
+    CO_ENGRAM._proposalsLoaded = false;
+    await this.render(document.getElementById('proposals-content'));
+    if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+    this._toast(T.t('viewer.proposals.batch.dismissToast', { ok, fail }), okIds);
+  },
+
+  // 5 秒撤销 toast(DEMO:生效后 5 秒撤销)。undoIds 非空时显示「撤销」按钮,
+  // 点击逐条 POST reactivate(仅 dismiss 可撤销;accept 已创建 engram,不可逆)。
+  _toast(text, undoIds) {
+    const T = CO_ENGRAM_T;
+    const old = document.getElementById('prop-undo-toast');
+    if (old) old.remove();
+    const el = document.createElement('div');
+    el.id = 'prop-undo-toast';
+    el.className = 'undo-toast';
+    el.innerHTML = '<span>' + CO_ENGRAM.escapeHtml(text) + '</span>'
+      + (undoIds && undoIds.length
+        ? '<button class="btn mini">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.undo', { n: undoIds.length })) + '</button>' : '');
+    document.body.appendChild(el);
+    const dismiss = () => el.remove();
+    const timer = setTimeout(dismiss, 5000);
+    if (undoIds && undoIds.length) {
+      const btn = el.querySelector('button');
+      btn.onclick = async () => {
+        clearTimeout(timer);
+        for (const id of undoIds) {
+          try { await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(id) + '/reactivate', 'POST', {}); } catch (e) { /* 单条失败不阻断 */ }
+        }
+        el.remove();
+        CO_ENGRAM._proposalsLoaded = false;
+        await CO_ENGRAM_PROPOSALS.render(document.getElementById('proposals-content'));
+        if (typeof CO_ENGRAM.refreshProposalsBadge === 'function') CO_ENGRAM.refreshProposalsBadge();
+      };
+    }
   },
 
   /**
@@ -2973,6 +3095,13 @@ CO_ENGRAM.on('audit', async function() {
     + '<option value="effective">' + T.t('viewer.audit.catEffective') + '</option>'
     + '<option value="contradicted">' + T.t('viewer.audit.catContradicted') + '</option>'
     + '<option value="proposal">' + T.t('viewer.audit.catProposal') + '</option></select></label>'
+    // 时间下拉(DEMO g2-audit:动作类型/操作者/时间三下拉 + engram ID 输入框)
+    + '<label>' + T.t('viewer.audit.filter.time') + ' <select id="audit-time" onchange="CO_ENGRAM_AUDIT.applyFilter()">'
+    + '<option value="">' + T.t('viewer.audit.timeAll') + '</option>'
+    + '<option value="today">' + T.t('viewer.audit.timeToday') + '</option>'
+    + '<option value="7d">' + T.t('viewer.audit.time7d') + '</option>'
+    + '<option value="30d">' + T.t('viewer.audit.time30d') + '</option>'
+    + '</select></label>'
     + '<input type="search" id="audit-engram" placeholder="' + T.t('viewer.audit.filter.engramPlaceholder') + '" oninput="CO_ENGRAM_AUDIT.applyFilter()">'
     + '<span class="chip removable audit-action-chip" id="audit-action-chip" style="display:none" title="' + T.t('viewer.audit.filter.actionChipTitle') + '" onclick="CO_ENGRAM_AUDIT.clearActionFilter()"></span>'
     + '<span class="spacer"></span>'
@@ -3068,13 +3197,24 @@ window.CO_ENGRAM_AUDIT = {
     const actor = (document.getElementById('audit-actor') || {}).value || '';
     const cat = (document.getElementById('audit-cat') || {}).value || '';
     const engramQ = ((document.getElementById('audit-engram') || {}).value || '').toLowerCase();
+    const timeRange = (document.getElementById('audit-time') || {}).value || '';
     const actionFilter = this._actionFilter || '';
+    // 时间窗(DEMO 时间下拉):today / 7d / 30d,按 e.ts(ISO)比较
+    let sinceMs = 0;
+    if (timeRange === 'today') {
+      const d = new Date(); d.setHours(0, 0, 0, 0);
+      sinceMs = d.getTime();
+    } else if (timeRange === '7d' || timeRange === '30d') {
+      sinceMs = Date.now() - (timeRange === '7d' ? 7 : 30) * 86400000;
+    }
+    const sinceIso = sinceMs > 0 ? new Date(sinceMs).toISOString() : '';
 
     const filtered = cache.filter(e => {
       if (actor && e.actor !== actor) return false;
       if (cat && CO_ENGRAM.auditActionClass(e.action) !== 'audit-' + cat) return false;
       if (engramQ && !(e.engramId || '').toLowerCase().includes(engramQ)) return false;
       if (actionFilter && e.action !== actionFilter) return false;
+      if (sinceIso && (e.ts || '') < sinceIso) return false;
       return true;
     });
 
