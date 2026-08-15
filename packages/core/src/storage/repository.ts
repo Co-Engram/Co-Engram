@@ -426,7 +426,11 @@ export class EngramRepository {
       contextTags: frontmatter.contextTags ?? frontmatter.tags ?? [],
       freshness,
       sourceType: frontmatter.sourceType ?? "firsthand",
-      contentHash: frontmatter.contentHash ?? "",
+      // 2026-08 修复:存「当前正文的计算哈希」而非 frontmatter 自报值 ——
+      // 否则外部编辑后 hash 永不收敛,mtime 扰动(touch)会重复误报 external-edit。
+      // frontmatter.contentHash 与正文计算值本应一致(derived-marker 不变量);
+      // 外部改正文未同步该字段时,以计算值为准(索引反映实际内容)。
+      contentHash: computeContentHash(content),
       lastRetrievedAt: frontmatter.lastRetrievedAt,
       lastEffectiveAt: frontmatter.lastEffectiveAt,
       effectiveRetrievals: frontmatter.effectiveRetrievals ?? 0,
@@ -1070,16 +1074,17 @@ export class EngramRepository {
    * scanForExternalMarkdown 看到文件已 tracked 直接 noop,SQLite engrams.created_by
    * 长期陈旧。本方法补齐修改方向的自动同步。
    */
-  private scanForModifiedEngrams(): void {
-    if (!this.indexDb) return; // 无 SQLite 派生层 → 无需同步,文件即 truth
+  private scanForModifiedEngrams(): { id: string; contentChanged: boolean }[] {
+    if (!this.indexDb) return []; // 无 SQLite 派生层 → 无需同步,文件即 truth
     // 直接读 index.json(不调 getIndex —— 同 scanForDeletedEngrams 的考量)
     let index: EngramIndexMap;
     try {
       index = readEngramIndex(this.config.rootPath);
     } catch {
-      return;
+      return [];
     }
     const root = this.config.rootPath;
+    const changed: { id: string; contentChanged: boolean }[] = [];
     for (const [, entry] of index.entries) {
       if (!isPathWithinRoot(root, entry.path)) continue;
       const absPath = safeJoinWithinRoot(root, entry.path);
@@ -1094,15 +1099,33 @@ export class EngramRepository {
       // mtime 变了 → 重读 frontmatter,触发 SQLite 同步 + 回写 index mtime
       try {
         const file = readEngramFile(absPath);
+        // 内容级判定(2026-08):外部编辑可能是实质内容变更(IDE/git pull),
+        // 也可能只是 touch/frontmatter 改写 —— 用新正文哈希对比 SQLite 里的
+        // 旧 content_hash(注:index.json 的 entry.contentHash 来自 frontmatter
+        // 自报值,与计算口径不一致,不可作比较基准),供调用方写
+        // external-edit 审计(动态流/记忆更新图只计实质变更)。
+        const newHash = computeContentHash(file.content);
+        let oldHash = "";
+        try {
+          const row = this.indexDb
+            .prepare(`SELECT content_hash AS h FROM engrams WHERE id = ?`)
+            .get(entry.id) as { h: string } | undefined;
+          oldHash = row?.h ?? "";
+        } catch {
+          oldHash = "";
+        }
+        const contentChanged = !!oldHash && oldHash !== newHash;
         this.syncEngramToIndex(file.frontmatter, file.content);
         // 回写 index.json 的 entry.mtime:否则 stat.mtimeMs 永远 ≠ entry.mtime,
         // 下次扫描重复 readEngramFile + SQLite upsert(浪费)。与 mutateFrontmatter
         // 的 updateIndexEntry 处理对齐。contentHash 等其他字段未变,沿用原 entry。
         this.updateIndexEntry({ ...entry, mtime: stat.mtimeMs });
+        changed.push({ id: entry.id, contentChanged });
       } catch {
         // 文件损坏(parse 错)留给 doctor 处理,下次扫描重试
       }
     }
+    return changed;
   }
 
   /**
@@ -1112,9 +1135,12 @@ export class EngramRepository {
    * 用途:fs.watch(inotify)对编辑器原子写可能漏事件,scheduleDataScan 未必
    * 触发 scanForModifiedEngrams;viewer 在 /api/stats 等读取入口调用本方法,
    * 确保「改文件 → 网页内容更新」不依赖 fs.watch 的实时性。无 indexDb 时 noop。
+   *
+   * 返回本次同步的条目及是否内容级变更(mtime 变 + hash 变)—— 调用方可
+   * 据此写 external-edit 审计;幂等:index mtime 回写后同文件不会重复上报。
    */
-  rescanModifiedEngrams(): void {
-    this.scanForModifiedEngrams();
+  rescanModifiedEngrams(): { id: string; contentChanged: boolean }[] {
+    return this.scanForModifiedEngrams();
   }
 
   /** 停止 watcher(主要用于测试隔离) */

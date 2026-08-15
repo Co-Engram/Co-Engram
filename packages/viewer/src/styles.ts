@@ -387,6 +387,7 @@ body {
 .ov-feed-day::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .ov-feed-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 0.65rem; padding: 0.55rem 0.75rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.4rem; }
 .ov-feed-body { min-width: 0; }
+.ov-feed-ext { font-size: 0.66rem; color: var(--accent-warm, #B45309); background: rgba(180, 83, 9, 0.09); border-radius: 4px; padding: 0 4px; }
 .ov-feed-times { font-size: 0.68rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
 .ov-feed-sentinel { text-align: center; color: var(--fg-dim); font-size: 0.72rem; padding: 0.6rem 0; }
 .ov-feed-more { text-align: center; padding: 0.5rem 0 0.2rem; font-size: 0.74rem; }
@@ -405,6 +406,7 @@ body {
 .feed-contradicted .ov-feed-ico { background: rgba(224, 36, 36, 0.10); color: #E02424; }
 .feed-retrieval .ov-feed-ico { background: var(--accent-soft); color: var(--accent); }
 .feed-maintenance .ov-feed-ico { background: rgba(180, 83, 9, 0.10); color: #B45309; }
+.feed-skill .ov-feed-ico { background: rgba(180, 83, 9, 0.12); color: #B45309; }
 .feed-update .ov-feed-ico { background: rgba(37, 99, 235, 0.10); color: #2563EB; }
 
 .ov-side { display: flex; flex-direction: column; gap: 0.9rem; }
@@ -1075,8 +1077,8 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 @keyframes hullbreathe { 0%, 100% { fill-opacity: 0.55; } 50% { fill-opacity: 1.15; } }
 .flow { fill: none; stroke-width: 2; stroke-dasharray: 5 9; animation: flowdash 1.2s linear infinite; }
 @keyframes flowdash { to { stroke-dashoffset: -28; } }
-.cluster-lab { font-size: 11px; fill: #8B857B; letter-spacing: 0.12em; }
-.graph-container.night .cluster-lab { fill: #7580A8; }
+.cluster-lab { font-size: 11.5px; fill: #57514A; letter-spacing: 0.12em; font-weight: 600; paint-order: stroke; stroke: #F7F4EC; stroke-width: 3px; }
+.graph-container.night .cluster-lab { fill: #C6D0EC; stroke: #0A0D1C; }
 @media (prefers-reduced-motion: reduce) { .hull, .flow { animation: none !important; } }
 
 /* 操作按钮行:横排 */

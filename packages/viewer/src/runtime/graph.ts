@@ -217,10 +217,12 @@ async function renderGraphInner(container) {
           group: n.kind,
           color: {
             background: nodeColor,
-            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离
+            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离。
+            // 2026-08 用户反馈:点击选中变「带外圈的颜色」很难看 ——
+            // highlight/hover 与普通态完全一致,点击不再变色。
             border: stageBg(),
-            highlight: { background: nodeColor, border: nodeBorderColor() },
-            hover: { background: nodeColor, border: nodeBorderColor() }
+            highlight: { background: nodeColor, border: stageBg() },
+            hover: { background: nodeColor, border: stageBg() }
           },
           size,
           // DEMO .nlabel:paint-order stroke 纸色 halo(vis 用 strokeWidth/strokeColor 等价实现)
@@ -502,6 +504,30 @@ async function renderGraphInner(container) {
   CO_ENGRAM_GRAPH._refreshFilterCount();
 
   // === 交互 ===
+  // 悬停邻边高亮(2026-08 用户反馈「好像没有用」→ 做成可见实效):
+  // 悬停节点 → 其邻接边全亮加粗,其余边淡出到 0.08;移开恢复。
+  // 受功能栏「邻居高亮」开关(state.hoverHl)控制,聚焦邻域时让位(已有更强的淡出)。
+  network.on('hoverNode', (params) => {
+    if (!state.hoverHl || state.focusedId) return;
+    const nid = params.node;
+    const conn = new Set();
+    for (const e of graph.edges) {
+      if (e.from === nid || e.to === nid) conn.add(e.id);
+    }
+    edgesDataset.update(edgesDataset.get().map(e2 => ({
+      id: e2.id,
+      opacity: conn.has(e2.id) ? 1 : 0.08,
+      width: conn.has(e2.id) ? baseEdgeWidth(e2) + 1 : baseEdgeWidth(e2),
+    })));
+  });
+  network.on('blurNode', () => {
+    if (!state.hoverHl || state.focusedId) return;
+    edgesDataset.update(edgesDataset.get().map(e2 => ({
+      id: e2.id,
+      opacity: baseEdgeOpacity(e2),
+      width: baseEdgeWidth(e2),
+    })));
+  });
   network.on('click', (params) => {
     // 优先处理边点击(突触详情)
     if (params.edges && params.edges.length > 0 && (!params.nodes || params.nodes.length === 0)) {
@@ -711,7 +737,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
       const c = raw ? nodeColorFor(raw) : n.color;
-      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: nodeBorderColor() }, hover: { background: c, border: nodeBorderColor() } } };
+      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: stageBg() }, hover: { background: c, border: stageBg() } } };
     }));
     renderLegend();
     queueRefreshOverlay();

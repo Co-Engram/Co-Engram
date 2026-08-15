@@ -2376,8 +2376,20 @@ function getStats(ctx: ToolContext): StatsResponse {
   // 按需同步派生层:补救 fs.watch(inotify)对编辑器原子写漏事件,导致 engram .md
   // 外部编辑未同步到 SQLite(无 indexDb 时 rescanModifiedEngrams 内部 noop;有则仅
   // stat 成本,mtime 未变的条目跳过)。让「改文件 → 网页内容更新」不依赖 fs.watch 实时性。
+  // 内容级变更(hash 变)写 external-edit 审计 —— 外部修改此前完全无事件,
+  // 动态流/记忆更新图/审计均不可见(2026-08 用户指出);幂等:index mtime
+  // 回写后同文件不重复上报。
   try {
-    ctx.repository.rescanModifiedEngrams();
+    const changed = ctx.repository.rescanModifiedEngrams();
+    for (const c of changed) {
+      if (!c.contentChanged) continue;
+      ctx.auditLog?.append({
+        actor: "system",
+        action: "update",
+        engramId: c.id,
+        metadata: { source: "external-edit" },
+      });
+    }
   } catch {
     // 同步失败不阻塞 stats 读取,下次 fs.watch 事件 / 启动扫描会重试
   }
@@ -2487,7 +2499,7 @@ function getUpdatesForDay(
         .prepare(`SELECT id, title, kind FROM engrams WHERE id IN (${placeholders})`)
         .all(...engramIds) as { id: string; title: string; kind: string }[];
       const byId = new Map(rows.map((r) => [r.id, r]));
-      for (let i = 0; i < items.length; i++) {
+      for (let i = items.length - 1; i >= 0; i--) {
         const it = items[i]!;
         if (it.type !== "engram") continue;
         const row = byId.get(it.id);

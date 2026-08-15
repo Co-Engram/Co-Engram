@@ -300,6 +300,8 @@ CO_ENGRAM.FEED_ACTIONS = {
   contradicted: { cls: 'feed-contradicted', icon: '⚖' },
   accept: { cls: 'feed-create', icon: '＋' },
   maintenance_run: { cls: 'feed-maintenance', icon: '☾' },
+  skill_create: { cls: 'feed-skill', icon: '🛠' },
+  skill_update: { cls: 'feed-skill', icon: '🛠' },
   retrieve_effective: { cls: 'feed-retrieval', icon: '↻' }
 };
 CO_ENGRAM.renderFeed = function(root, entries) {
@@ -365,8 +367,11 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     // 2026-08 修复(用户报:没改内容却出现「更新」):REM 标签维护
     // (tag-refresh)也写 action=update 的审计 —— 元数据刷新不是实质动态。
     // 与记忆更新图(updatesLast30d)同口径:update 必须有 changes.content
-    // (真实内容变更)才展示;标签漂移/重要度等元数据更新全部过滤。
-    if (e.action === 'update' && !(e.metadata && e.metadata.changes && e.metadata.changes.content)) continue;
+    // (真实内容变更)才展示;例外放行 source=external-edit(IDE/git pull
+    // 外部改文件,contentHash 已判定内容级变更,无 changes diff 可依)。
+    if (e.action === 'update'
+      && !(e.metadata && e.metadata.changes && e.metadata.changes.content)
+      && e.metadata?.source !== 'external-edit') continue;
     const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.ts));
     const prev = dedup.get(key);
     if (prev) prev.n++;
@@ -401,13 +406,16 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       + '<span class="ov-feed-ico">' + meta.icon + '</span>'
       + '<div class="ov-feed-body">'
       + '<div class="ov-feed-meta"><b>' + CO_ENGRAM.escapeHtml(actionLabel(e.action)) + '</b>'
-      + (n > 1 ? ' <span class="ov-feed-times">×' + n + '</span>' : '')
+      // ×N 徽标只对 update 显示:同 id 多条 update 是反复编辑,合并展示合理;
+      // 同 id 多条 create 多为 accept→dismiss→再提案的重建历史,展示「创建×5」
+      // 会误导(用户实测反馈),静默合并。
+      + (n > 1 && e.action === 'update' ? ' <span class="ov-feed-times">×' + n + '</span>' : '')
+      + (e.metadata?.source === 'external-edit' ? ' <span class="ov-feed-ext">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedExternalTag')) + '</span>' : '')
       + ' ' + CO_ENGRAM.escapeHtml(authorFor(e)) + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
       + '<div class="ov-feed-title"' + (canOpen ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : '') + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
       + (excerpt ? '<div class="ov-feed-excerpt">' + CO_ENGRAM.escapeHtml(excerpt) + '</div>' : '')
       + '<div class="ov-feed-chips">'
       + (kindLabel ? '<span class="chip kind-' + CO_ENGRAM.escapeHtml(kind) + ' kd-mini">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>' : '')
-      + (canOpen ? '<span class="ov-feed-link" onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedView')) + '</span>' : '')
       + '</div>'
       + '</div></div>';
   }
