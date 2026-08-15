@@ -92,6 +92,7 @@ export type ProposalSource =
   | "rem-pattern"
   | "rem-synapse"
   | "rem-tag-refresh"
+  | "rem-insight"
   | "skill";
 
 /**
@@ -174,6 +175,18 @@ export interface ProposalPayload {
   readonly tagReason?: string;
   /** rem-tag-refresh 专用:内容漂移度(展示用) */
   readonly tagDrift?: number;
+  /** rem-insight 专用:思维模式(integration/retrospective/inspiration) */
+  readonly insightMode?: string;
+  /** rem-insight 专用:洞察类型(theme/lesson/analogy/hypothesis) */
+  readonly insightType?: string;
+  /** rem-insight 专用:独立 critic 综合分(accept 时写入 engram.confidence;机器主观初值) */
+  readonly criticScore?: number;
+  /** rem-insight 专用:critic 评语(展示给用户,辅助审批) */
+  readonly criticRationale?: string;
+  /** rem-insight 专用:夜思孵化条目 id(无则非孵化产出) */
+  readonly incubationId?: string;
+  /** rem-insight 专用:夜思轮次(entityId 防撞车的关键成分) */
+  readonly insightRound?: number;
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -817,6 +830,105 @@ export class ProposalEngine {
    * dedup:同一目标 engram 视为同一提案——重复刷新覆盖(pending)/冷却(dismissed)/
    * 跳过(accepted)。entityId = rem-tag-refresh:<engramId>。
    */
+  /**
+   * REM 深度思考洞察提案(rem-insight;spec §七)。
+   *
+   * entityId = `rem-insight:<sha256(mode|incubationId|round|sortedSourceIds)[:16]>`
+   * —— **显式纳入轮次**(v2 关键修复):夜思回灌多轮若沿用 proposePattern 式
+   * 纯 sourceIds 哈希,第二轮起会被幂等机制吞掉;纳入 mode+incubationId+round 后
+   * 每轮独立成案。非孵化路径 round=0,同 mode+sources 天然去重(期望语义)。
+   *
+   * 幂等三段与 proposePattern 一致:accepted 跳过 / dismissed 冷却 / tombstone 防复活。
+   */
+  proposeInsight(input: {
+    readonly mode: string;
+    readonly insightType: string;
+    readonly title: string;
+    readonly content: string;
+    readonly summary: string;
+    readonly domainTags: readonly string[];
+    readonly sourceIds: readonly string[];
+    readonly criticScore: number;
+    readonly criticRationale: string;
+    readonly incubationId?: string;
+    readonly round?: number;
+  }): boolean {
+    const sortedIds = [...input.sourceIds].sort();
+    const hash = createHash("sha256")
+      .update(
+        [
+          input.mode,
+          input.incubationId ?? "",
+          String(input.round ?? 0),
+          sortedIds.join(","),
+        ].join("|"),
+      )
+      .digest("hex")
+      .slice(0, 16);
+    const entityId = `rem-insight:${hash}`;
+    const proposals = this.readProposals();
+    const existing = proposals.find((p) => p.entityId === entityId);
+
+    if (existing?.status === "accepted") return false;
+    // 已 pending 的同案(同 mode+incubationId+round+sources)不重写、返回 false:
+    // 让调用方(runner 限流计数 / incubator 循环检测)以返回值区分「新提案」
+    if (existing?.status === "pending") return false;
+    if (
+      existing?.status === "dismissed" &&
+      (existing.dismissedUntil === null ||
+        (!!existing.dismissedUntil &&
+          existing.dismissedUntil > new Date().toISOString()))
+    ) {
+      return false;
+    }
+    if (this.isTombstoned(entityId)) return false;
+
+    const now = new Date().toISOString();
+    const proposal: Proposal = {
+      entityId,
+      occurrences: (existing?.occurrences ?? 0) + 1,
+      sampleQuotes: [
+        `mode=${input.mode} type=${input.insightType} critic=${input.criticScore.toFixed(2)}`,
+        input.criticRationale.slice(0, 120),
+      ],
+      centroidExcerpt: input.title.slice(0, 80),
+      firstSeenAt: existing?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      createdAt: existing?.createdAt ?? now,
+      status: "pending",
+      source: "rem-insight",
+      payload: {
+        title: input.title,
+        content: input.content,
+        summary: input.summary,
+        domainTags: [...input.domainTags],
+        // 溯因假设产物建 kind=hypothesis,其余默认 pattern(spec §三)
+        kind: input.insightType === "hypothesis" ? "hypothesis" : "pattern",
+        sourceType: "inferred",
+        importance: 0.7,
+        // confidence = critic 分(机器主观初值,非客观真值)
+        remConfidence: input.criticScore,
+        remSourceIds: [...input.sourceIds],
+        remReason: input.criticRationale,
+        insightMode: input.mode,
+        insightType: input.insightType,
+        criticScore: input.criticScore,
+        criticRationale: input.criticRationale,
+        ...(input.incubationId !== undefined
+          ? { incubationId: input.incubationId }
+          : {}),
+        ...(input.round !== undefined ? { insightRound: input.round } : {}),
+      },
+    };
+
+    const updated = [
+      proposal,
+      ...proposals.filter((p) => p.entityId !== entityId),
+    ];
+    this.writeProposals(updated);
+    return true;
+  }
+
   proposeTagRefresh(input: {
     readonly engramId: string;
     readonly oldTags: readonly string[];
@@ -1237,6 +1349,115 @@ export class ProposalEngine {
         at: new Date().toISOString(),
       });
       return p.tagEngramId;
+    }
+
+    // REM insight proposal(深度思考/夜思):accept → 复验来源 → 创建 pattern/hypothesis
+    // engram(confidence=critic 分)+ derives_from 证据链(spec §五第二关)。
+    if (target.source === "rem-insight") {
+      const payload = target.payload;
+      if (!payload || !payload.title || !payload.content) {
+        throw validationError(
+          `rem-insight proposal missing payload (entityId=${entityId})`,
+        );
+      }
+      // ---- accept-time 复验:来源仍存在、未被 refute(删来源/refute 后 accept 被拦)----
+      const sourceIds = payload.remSourceIds ?? [];
+      for (const sourceId of sourceIds) {
+        if (!this.repository.exists(sourceId)) {
+          throw validationError(
+            `rem-insight:来源记忆 ${sourceId} 已不存在 —— 提案依据失效。proposal 保持 pending,请 dismiss。`,
+            { resourceId: sourceId },
+          );
+        }
+        const src = this.repository.readEngram(sourceId);
+        if (src.verificationStatus === "refuted") {
+          throw validationError(
+            `rem-insight:来源记忆 ${sourceId} 已被 refute —— 提案依据失效。proposal 保持 pending,请 dismiss。`,
+            { resourceId: sourceId },
+          );
+        }
+      }
+      const createdBy = input.createdBy ?? this.resolveCreatedByOrDefault();
+      // encodingContext 打上 rem-insight 标记:存活期证据链衰减监测据此识别
+      // 洞察类 engram(spec §五第三关)
+      let insightEngram: { id: string; createdAt: string };
+      try {
+        insightEngram = this.repository.createEngram({
+          title: payload.title,
+          content: payload.content,
+          summary: payload.summary,
+          kind: payload.kind === "hypothesis" ? "hypothesis" : "pattern",
+          domainTags: [...payload.domainTags],
+          importance: payload.importance ?? 0.7,
+          confidence: payload.criticScore ?? payload.remConfidence ?? 0.6,
+          sourceType: "inferred",
+          createdBy,
+          encodingContext: `rem-insight:${entityId}`,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const m = msg.match(/^Engram already exists at (.+)$/);
+        if (!m) throw e;
+        const existing = this.repository.ingestExistingEngramFile(m[1]!);
+        if (!existing) throw e;
+        insightEngram = existing;
+      }
+      // derives_from 证据链指向每条来源(与 rem-pattern 分支同构)
+      const timestamp = insightEngram.createdAt;
+      for (const sourceId of sourceIds) {
+        const synapse: Synapse = {
+          id: randomUUID(),
+          from: insightEngram.id,
+          to: sourceId,
+          kind: "derives_from",
+          weight: 0.8,
+          evidence: [
+            {
+              description: `REM 深度思考洞察(critic=${(payload.criticScore ?? 0).toFixed(2)}): ${payload.criticRationale ?? ""}`.slice(0, 200),
+              source: "rem-insight",
+              confidence: payload.criticScore ?? 0.6,
+              addedAt: timestamp,
+              addedBy: createdBy,
+            },
+          ],
+          createdBy,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          visibility: "public",
+        };
+        this.repository.addOutgoingSynapse(insightEngram.id, synapse);
+      }
+      this.auditLog.append({
+        actor: "user",
+        action: "accept",
+        engramId: insightEngram.id,
+        metadata: {
+          entityId,
+          source: "rem-insight",
+          mode: payload.insightMode,
+          criticScore: payload.criticScore,
+          ...(payload.incubationId !== undefined
+            ? { incubationId: payload.incubationId }
+            : {}),
+        },
+      });
+      const updated = proposals.map((p) =>
+        p.entityId === entityId
+          ? {
+              ...p,
+              status: "accepted" as const,
+              acceptedEngramId: insightEngram.id,
+            }
+          : p,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: insightEngram.id,
+        at: new Date().toISOString(),
+      });
+      return insightEngram.id;
     }
 
     // REM pattern proposal:accept → 创建**新** pattern engram + 连 derives_from synapse

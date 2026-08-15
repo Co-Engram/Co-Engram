@@ -205,6 +205,13 @@ export const engramListProposalsTool: Tool<
           tagNewTags?: readonly string[];
           tagReason?: string;
           tagDrift?: number;
+          // rem-insight 投影
+          insightMode?: string;
+          insightType?: string;
+          criticScore?: number;
+          criticRationale?: string;
+          incubationId?: string;
+          insightRound?: number;
         } = {
           entityId: p.entityId,
           occurrences: p.occurrences,
@@ -255,6 +262,17 @@ export const engramListProposalsTool: Tool<
           if (payload.tagNewTags) base.tagNewTags = payload.tagNewTags;
           if (payload.tagReason) base.tagReason = payload.tagReason;
           if (payload.tagDrift !== undefined) base.tagDrift = payload.tagDrift;
+          // rem-insight 投影
+          if (payload.insightMode) base.insightMode = payload.insightMode;
+          if (payload.insightType) base.insightType = payload.insightType;
+          if (payload.criticScore !== undefined)
+            base.criticScore = payload.criticScore;
+          if (payload.criticRationale)
+            base.criticRationale = payload.criticRationale;
+          if (payload.incubationId)
+            base.incubationId = payload.incubationId;
+          if (payload.insightRound !== undefined)
+            base.insightRound = payload.insightRound;
         }
         return base;
       }),
