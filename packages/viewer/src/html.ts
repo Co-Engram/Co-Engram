@@ -132,6 +132,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
       t(language, "viewer.tab.trash.tip"),
     ],
     [
+      "incubations",
+      t(language, "viewer.tab.incubations"),
+      t(language, "viewer.tab.incubations.tip"),
+    ],
+    [
       "health",
       t(language, "viewer.tab.health"),
       t(language, "viewer.tab.health.tip"),
@@ -451,6 +456,11 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <!-- Trash -->
     <section class="tab-panel" data-tab="trash">
       <div id="trash-content"></div>
+    </section>
+
+    <!-- Incubations(夜思实验室,spec §四/§六) -->
+    <section class="tab-panel" data-tab="incubations">
+      <div id="incubations-content"></div>
     </section>
 
     <!-- Health -->

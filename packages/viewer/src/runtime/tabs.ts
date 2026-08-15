@@ -2151,6 +2151,18 @@ window.CO_ENGRAM_PROPOSALS = {
         var skillChip = isSkill
           ? '<span class="chip" style="border-color:var(--kind-procedure,#fb923c);color:var(--kind-procedure,#fb923c)">🛠️ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.skillBadge')) + '</span>'
           : '';
+        // rem-insight 专属标识(深度思考/夜思洞察,spec §三/§五):模式 + critic 分
+        var isRemInsight = p.source === 'rem-insight';
+        var riMode = (p.payload && p.payload.insightMode) ? p.payload.insightMode : '';
+        var riScore = (p.payload && typeof p.payload.criticScore === 'number') ? p.payload.criticScore : 0;
+        var riColor = riScore >= 0.7 ? '#34d399' : (riScore >= 0.5 ? '#fbbf24' : '#f87171');
+        var riHasInc = !!(p.payload && p.payload.incubationId);
+        var remInsightChips = isRemInsight
+          ? '<span class="chip" style="border-color:#a78bfa;color:#a78bfa">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
+            + (riMode ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.mode.' + riMode)) + '</span>' : '')
+            + '<span class="chip" style="color:' + riColor + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">critic ' + riScore.toFixed(2) + '</span>'
+            + (riHasInc ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.incubationTip')) + '">🌙</span>' : '')
+          : '';
         // payload.domainTags(若有)+ occurrences/sample chip
         const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
         const moreTags = (p.payload && Array.isArray(p.payload.domainTags) && p.payload.domainTags.length > 4) ? (p.payload.domainTags.length - 4) : 0;
@@ -2161,6 +2173,7 @@ window.CO_ENGRAM_PROPOSALS = {
           + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
           + remPatternChips
+          + remInsightChips
           + skillChip
           + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
@@ -4239,6 +4252,165 @@ window.CO_ENGRAM_SYNAPSES = {
 // ============================================================
 // Help — 帮助文档(概念入门 + 各 tab 速查)
 // ============================================================
+// ============================================================
+// 夜思实验室(spec §四/§六):条目卡/立即夜思(异步任务+轮询)/梦境时间线
+// ============================================================
+CO_ENGRAM.on('incubations', async function() {
+  const root = document.getElementById('incubations-content');
+  if (!root) return;
+  await CO_ENGRAM_INCUBATIONS.render(root);
+});
+
+window.CO_ENGRAM_INCUBATIONS = {
+  _polling: {},
+
+  async render(root) {
+    const T = CO_ENGRAM_T;
+    let payload;
+    try {
+      payload = await CO_ENGRAM.apiGet('/api/incubations');
+    } catch (e) {
+      root.innerHTML = '<div class="empty">' + T.t('viewer.incubations.loadFailed', { err: e.message }) + '</div>';
+      return;
+    }
+    if (!payload.enabled) {
+      root.innerHTML = '<div class="empty">' + T.t('viewer.incubations.unavailable') + '</div>';
+      return;
+    }
+    let html = '<div class="panel" style="max-width:980px;margin:0 auto;padding:1.2rem 1.5rem">';
+    html += '<h2 style="margin-top:0">' + T.t('viewer.incubations.title') + '</h2>';
+    html += '<p style="color:var(--fg-muted)">' + T.t('viewer.incubations.intro') + '</p>';
+    html += '<div style="border:1px dashed var(--border);border-radius:.5rem;padding:.8rem;margin-bottom:1rem;font-size:.85rem">' + T.t('viewer.incubations.l2BudgetNotice') + '</div>';
+
+    // 播种表单
+    html += '<h3>' + T.t('viewer.incubations.createTitle') + '</h3>'
+      + '<div style="display:flex;flex-direction:column;gap:.5rem;max-width:640px;margin-bottom:1.5rem">'
+      + '<textarea id="inc-q" rows="2" style="width:100%" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.questionPlaceholder')) + '"></textarea>'
+      + '<input id="inc-seeds" type="text" style="width:100%" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.seedPlaceholder')) + '"/>'
+      + '<label style="font-size:.85rem"><input type="checkbox" id="inc-web"/> ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptIn')) + ' <span style="color:var(--fg-muted)">— ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptInHint')) + '</span></label>'
+      + '<div><button class="btn" onclick="CO_ENGRAM_INCUBATIONS.create()">🌱 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.createBtn')) + '</button></div>'
+      + '</div>';
+
+    const items = payload.items || [];
+    if (!items.length) {
+      html += '<div class="empty">' + T.t('viewer.incubations.empty') + '</div>';
+    } else {
+      // resolved/paused 折叠为荣誉记录(spec §六)
+      const active = items.filter(e => e.status !== 'resolved' && e.status !== 'paused');
+      const archived = items.filter(e => e.status === 'resolved' || e.status === 'paused');
+      html += active.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('');
+      if (archived.length) {
+        html += '<details style="margin-top:1rem"><summary style="cursor:pointer;color:var(--fg-muted)">🏛️ ' + archived.length + ' × ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.resolved')) + '/' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.paused')) + '</summary>'
+          + archived.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('') + '</details>';
+      }
+    }
+    html += '</div>';
+    root.innerHTML = html;
+  },
+
+  renderCard(e) {
+    const T = CO_ENGRAM_T;
+    const statusKey = 'viewer.incubations.status.' + e.status;
+    const statusLabel = T.t(statusKey) !== statusKey ? T.t(statusKey) : e.status;
+    const color = e.status === 'active' ? '#34d399' : (e.status === 'in-flight' ? '#fbbf24' : (e.status === 'suggested-resolve' ? '#a78bfa' : 'var(--fg-muted)'));
+    let html = '<div class="card" id="inc-card-' + CO_ENGRAM.escapeHtml(e.id) + '" style="margin-bottom:1rem;padding:1rem">'
+      + '<div class="card-title">' + CO_ENGRAM.escapeHtml(e.question) + '</div>'
+      + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-bottom:.5rem">'
+      + '<span class="chip" style="color:' + color + '">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.rounds', { n: e.rounds })) + '</span>'
+      + (e.webResearchOptIn ? '<span class="chip">🌐</span>' : '')
+      + (e.lastHatchedAt ? '<span title="' + CO_ENGRAM.escapeHtml(e.lastHatchedAt) + '">' + CO_ENGRAM.relativeTime(e.lastHatchedAt) + '</span>' : '')
+      + '</div>'
+      + '<div id="inc-job-' + CO_ENGRAM.escapeHtml(e.id) + '" style="margin-bottom:.5rem"></div>'
+      + '<div style="display:flex;gap:.4rem;flex-wrap:wrap">'
+      + ((e.status === 'active' || e.status === 'in-flight') ? '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.runNow(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.runNow')) + '</button>' : '')
+      + (e.status === 'suggested-resolve'
+        ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolvePrompt')) + '</span>'
+          + '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', true)">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveYes')) + '</button>'
+          + '<button class="btn mini secondary" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', false)">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveNo')) + '</button>'
+        : '')
+      + '</div>';
+    // 梦境时间线(过程透明是信任来源,spec §六)
+    const tl = e.timeline || [];
+    if (tl.length) {
+      html += '<details style="margin-top:.6rem"><summary style="cursor:pointer;font-size:.9rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.timeline')) + ' (' + tl.length + ')</summary><ul style="padding-left:1.1rem;font-size:.88rem;line-height:1.6">';
+      for (const t of tl) {
+        const triggerKey = 'viewer.incubations.trigger.' + t.trigger;
+        const trigger = T.t(triggerKey) !== triggerKey ? T.t(triggerKey) : t.trigger;
+        html += '<li><strong>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.timelineRound', { round: t.round, trigger: trigger })) + '</strong>'
+          + (t.summaries && t.summaries.length ? '<ul>' + t.summaries.map(x => '<li>' + CO_ENGRAM.escapeHtml(x) + '</li>').join('') + '</ul>' : '')
+          + (t.externalCallCount ? '<div style="color:var(--fg-muted);font-size:.82rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.externalCalls', { n: t.externalCallCount })) + '</div>' : '')
+          + (t.note ? '<div style="color:var(--fg-muted);font-size:.82rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.note', { note: t.note })) + '</div>' : '')
+          + '</li>';
+      }
+      html += '</ul></details>';
+    }
+    html += '</div>';
+    return html;
+  },
+
+  async create() {
+    const q = (document.getElementById('inc-q').value || '').trim();
+    if (q.length < 4) return;
+    const seedsRaw = (document.getElementById('inc-seeds').value || '').trim();
+    const seedEngramIds = seedsRaw ? seedsRaw.split(',').map(x => x.trim()).filter(Boolean) : undefined;
+    const webResearchOptIn = !!(document.getElementById('inc-web') && document.getElementById('inc-web').checked);
+    try {
+      await CO_ENGRAM.apiJson('/api/incubations', 'POST', { question: q, seedEngramIds, webResearchOptIn });
+      const root = document.getElementById('incubations-content');
+      if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+
+  /** 立即夜思:异步任务 + 轮询(不挂起 HTTP 请求,spec §六) */
+  async runNow(id) {
+    const T = CO_ENGRAM_T;
+    const slot = document.getElementById('inc-job-' + id);
+    if (slot) slot.innerHTML = '<span style="color:#fbbf24">⏳ ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.running')) + '</span>';
+    try {
+      const r = await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/run', 'POST');
+      if (r.jobId) CO_ENGRAM_INCUBATIONS.poll(r.jobId, id);
+    } catch (e) {
+      if (slot) slot.innerHTML = '<span style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: e.message })) + '</span>';
+    }
+  },
+
+  poll(jobId, incubationId) {
+    const T = CO_ENGRAM_T;
+    const timer = setInterval(async function() {
+      let job;
+      try {
+        job = await CO_ENGRAM.apiGet('/api/incubation-jobs/' + encodeURIComponent(jobId));
+      } catch (_) { clearInterval(timer); return; }
+      const slot = document.getElementById('inc-job-' + incubationId);
+      if (job.status === 'done') {
+        clearInterval(timer);
+        if (slot) slot.innerHTML = '<span style="color:#34d399">✅ ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobDone', { proposals: job.proposals || 0, level: job.level || '?' })) + '</span>';
+        const root = document.getElementById('incubations-content');
+        if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+      } else if (job.status === 'error') {
+        clearInterval(timer);
+        if (slot) slot.innerHTML = '<span style="color:#f87171">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.jobError', { err: job.error || '?' })) + '</span>';
+        const root = document.getElementById('incubations-content');
+        if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+      }
+    }, 3000);
+    CO_ENGRAM_INCUBATIONS._polling[jobId] = timer;
+  },
+
+  async resolve(id, answered) {
+    try {
+      await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/resolve', 'POST', { answered: answered });
+      const root = document.getElementById('incubations-content');
+      if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+};
+
 CO_ENGRAM.on('help', async function() {
   const el = document.getElementById('help-content');
   if (!el) return;
@@ -4300,6 +4472,9 @@ window.CO_ENGRAM_HELP = {
       + '<li>' + T.t('viewer.help.tabTrash') + '</li>'
       + '<li>' + T.t('viewer.help.tabConfig') + '</li>'
       + '</ul>'
+
+      + '<h3>' + T.t('viewer.help.nightThinkingTitle') + '</h3>'
+      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.nightThinkingDesc') + '</p>'
 
       + '<h3>' + T.t('viewer.help.evolutionTitle') + '</h3>'
       + '<ol style="padding-left:1.2rem">'

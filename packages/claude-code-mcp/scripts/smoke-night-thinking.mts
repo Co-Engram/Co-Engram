@@ -32,7 +32,7 @@ try {
   console.log("[smoke] plan steps:", report.plan.length, "| trace:", report.trace.length, "| externalCalls:", report.externalCalls.length);
   console.log("[smoke] insights:", report.insights.length);
   for (const d of report.insights) {
-    console.log(`  - [${d.type}] ${d.title} (sources: ${d.sourceIds.join(",")})`);
+    console.log(`  - [${d.type}] ${d.title} (sources: ${(d.sourceIds ?? []).join(",")})`);
   }
   if (report.insights.length === 0) {
     console.error("[smoke] FAIL: no insights produced");
