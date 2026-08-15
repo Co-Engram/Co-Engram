@@ -55,11 +55,13 @@ export class LlmPatternAbstraction implements PatternAbstractionProvider {
 
     let raw: unknown;
     try {
-      // maxTokens 4000 留足 content body 长度 + reasoning 模型预算
+      // 32768/240s:思考型模型(GLM 等)thinking 块即可耗尽 4k 预算 → text
+      // 为空 → 解析失败 → 静默降级回启发式垃圾(2026-08-15 与 insight 管线
+      // 同源修复;GLM 实测单次 126-263s)
       raw = await this.client.complete(prompt, {
-        maxTokens: 4000,
+        maxTokens: 32768,
         temperature: 0.3,
-        timeoutMs: 60_000,
+        timeoutMs: 240_000,
       });
     } catch {
       // LLM 调用失败 → 启发式兜底
@@ -82,6 +84,7 @@ export class LlmPatternAbstraction implements PatternAbstractionProvider {
       summary: draft.summary,
       confidence: draft.confidence,
       reason: draft.reason,
+      provider: "llm",
     };
   }
 }

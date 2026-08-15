@@ -51,6 +51,13 @@ export interface AbstractionOutput {
   readonly confidence: number;
   /** 抽象理由（可解释性） */
   readonly reason: string;
+  /**
+   * 产物来源(2026-08-15 质量闸门):"heuristic" = token 频率启发式 —— 其
+   * "提炼"是聚类依据的同义反复(共同 token 本就是分组原因),零信息增量,
+   * **不进提案、不自动采纳**;"llm" = 语义抽象。缺省按 "llm" 处理
+   * (向后兼容自定义 provider)。
+   */
+  readonly provider?: "llm" | "heuristic";
 }
 
 /**
@@ -100,6 +107,7 @@ export class LocalHeuristicPatternAbstraction implements PatternAbstractionProvi
         summary: "空 cluster",
         confidence: 0,
         reason: "empty cluster",
+        provider: "heuristic",
       };
     }
 
@@ -127,6 +135,7 @@ export class LocalHeuristicPatternAbstraction implements PatternAbstractionProvi
         summary: "低相似度 cluster",
         confidence: minConfidence,
         reason: "no common tokens above threshold",
+        provider: "heuristic",
       };
     }
 
@@ -153,6 +162,7 @@ export class LocalHeuristicPatternAbstraction implements PatternAbstractionProvi
       summary: `${commonTokens.length} 个共同关键词`,
       confidence,
       reason,
+      provider: "heuristic",
     };
   }
 }
@@ -389,19 +399,26 @@ export async function runRemDreaming(
     };
     proposals.push(proposal);
 
+    // 质量闸门(2026-08-15):启发式产物 = 聚类依据的同义反复(共同 token
+    // 本就是分组原因),零信息增量 —— 历史上持续产出「从 N 条相似记忆提炼
+    // 的模式」类噪声提案并被用户 dismiss。不出提案,宁缺毋滥。
+    const isHeuristic = output.provider === "heuristic";
+
     if (options.proposalEngine) {
-      // REM 审批化(2026-07):所有提炼的 pattern 都生成 rem-pattern 提案
+      // REM 审批化(2026-07):LLM 语义提炼的 pattern 生成 rem-pattern 提案
       // (用户 accept 才创建),不再自动 createEngram / 丢弃。
-      const domainTags = [...new Set(engrams.flatMap((e) => e.domainTags))];
-      options.proposalEngine.proposePattern({
-        title: proposal.title,
-        content: proposal.content,
-        summary: proposal.summary,
-        confidence: proposal.confidence,
-        reason: proposal.reason,
-        sourceIds: proposal.sourceIds,
-        domainTags,
-      });
+      if (!isHeuristic) {
+        const domainTags = [...new Set(engrams.flatMap((e) => e.domainTags))];
+        options.proposalEngine.proposePattern({
+          title: proposal.title,
+          content: proposal.content,
+          summary: proposal.summary,
+          confidence: proposal.confidence,
+          reason: proposal.reason,
+          sourceIds: proposal.sourceIds,
+          domainTags,
+        });
+      }
 
       // Task 5: REM 聚类驱动 add 发现（representative → 成员未连 similar_to）
       if (
@@ -431,7 +448,11 @@ export async function runRemDreaming(
           });
         }
       }
-    } else if (output.confidence >= autoAdoptionThreshold && !dryRun) {
+    } else if (
+      output.confidence >= autoAdoptionThreshold &&
+      !dryRun &&
+      !isHeuristic
+    ) {
       // 自动采纳：创建 pattern engram + derives_from synapse
       const patternEngram = repo.createEngram({
         title: proposal.title,
