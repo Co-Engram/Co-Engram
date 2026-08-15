@@ -240,6 +240,16 @@ async function main(): Promise<void> {
         ...(persistedConfig.maintenance?.remIntervalMs
           ? { remIntervalMs: persistedConfig.maintenance.remIntervalMs }
           : {}),
+        // P0-1 REM 活动量累积阈值/防抖:0 是合法值(禁用/不防抖),必须 !== undefined 判空
+        ...(persistedConfig.maintenance?.remActivityThreshold !== undefined
+          ? {
+              remActivityThreshold:
+                persistedConfig.maintenance.remActivityThreshold,
+            }
+          : {}),
+        ...(persistedConfig.maintenance?.remMinIntervalMs !== undefined
+          ? { remMinIntervalMs: persistedConfig.maintenance.remMinIntervalMs }
+          : {}),
         ...(persistedConfig.maintenance?.learningRate
           ? { learningRate: persistedConfig.maintenance.learningRate }
           : {}),
@@ -565,9 +575,8 @@ async function main(): Promise<void> {
       (autoMemorySyncConfig?.enabled === false ? "0" : "1")) !== "0";
   if (autoMemorySyncEnabled) {
     try {
-      const { AutoMemoryWatcher, AutoMemorySyncEngine } = await import(
-        "./memory-sync/index.js"
-      );
+      const { AutoMemoryWatcher, AutoMemorySyncEngine } =
+        await import("./memory-sync/index.js");
       const homeDir = process.env.HOME ?? "";
       const projectsRoot =
         autoMemorySyncConfig?.projectsRoot ||
@@ -618,9 +627,7 @@ async function main(): Promise<void> {
       );
     }
   } else {
-    process.stderr.write(
-      `[co-engram] auto-memory sync: disabled by config\n`,
-    );
+    process.stderr.write(`[co-engram] auto-memory sync: disabled by config\n`);
   }
 
   let shuttingDown = false;

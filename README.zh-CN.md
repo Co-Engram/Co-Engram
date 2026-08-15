@@ -254,6 +254,8 @@ unverified → plausible → probable → verified
 
 Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、freshness 驱动的遗忘、Hebbian 可塑性),写回更新后的字段。**REM 阶段自动做分析,但升级/反驳/模式提炼/突触操作建议会以提案形式呈现在「记忆提案」页,由你审批采纳后才落盘**,避免系统未经确认就改动你的记忆。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 
+REM 采用**混合触发**——活动量优先、时间兜底:每轮 light 结束时,引擎累加自上次 REM 以来新增 engram 的 `importance`,达到 `maintenance.remActivityThreshold`(默认 `12`,约 20 条新记忆 × 0.6)即提前触发 REM,让批量新增的记忆在几分钟内得到综合,而不是等满一个间隔。防抖窗口 `maintenance.remMinIntervalMs`(默认 12 小时)保证两次昂贵的 REM 不连跑。设 `remActivityThreshold: 0` 可退回纯时间触发。
+
 ### 访问 Web 查看器
 
 Co-Engram 内置了单页应用用于可视化探索。wiring 时启用:

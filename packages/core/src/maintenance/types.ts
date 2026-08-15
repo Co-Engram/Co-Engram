@@ -182,6 +182,17 @@ export const DEFAULT_DEEP_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 export const DEFAULT_REM_INTERVAL_MS = 1 * 24 * 60 * 60 * 1000; // 1 day(用户要求:记忆巩固周期 1 天,让 REM 频繁跑、效果可见)
 export const DEFAULT_SIGNAL_PRUNE_AGE_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
+/**
+ * REM 活动量累积阈值(P0-1,默认 12.0 ≈ 20 条 × 0.6 importance)。
+ *
+ * 自上次 REM 以来新增 engram 的 Σimportance 达到该值时,light 阶段尾部
+ * 提前触发 REM(内容密度驱动,对标 Park 2023 importance 累积阈值),
+ * 不必等 remIntervalMs 时间兜底。设为 0 禁用,退回纯时间触发。
+ */
+export const DEFAULT_REM_ACTIVITY_THRESHOLD = 12.0;
+/** 两次 REM 最小间隔(防抖,默认 12h)。窗口内活动量达标也不触发,等下一轮 light 检查 */
+export const DEFAULT_REM_MIN_INTERVAL_MS = 12 * 60 * 60 * 1000;
+
 /** 复用 signals/rpe.ts 的学习率（重导出避免分裂） */
 export { DEFAULT_RPE_LEARNING_RATE };
 
@@ -193,6 +204,21 @@ export interface MaintenanceConfig {
   readonly deepIntervalMs?: number;
   /** rem 阶段调度间隔（默认 7 天） */
   readonly remIntervalMs?: number;
+  /**
+   * REM 活动量累积阈值(默认 12.0 ≈ 20 条 × 0.6;P0-1 混合触发)。
+   *
+   * 自上次 REM 以来新增 engram 的 Σimportance ≥ 该值时,light 阶段尾部
+   * 提前触发 REM。口径只算现存 engram 的 importance(强化事件/访问量不计入)。
+   * 设为 0 禁用,退回纯时间触发(remIntervalMs + 启动 catch-up)。
+   */
+  readonly remActivityThreshold?: number;
+  /**
+   * 两次 REM 最小间隔(防抖,默认 12 小时)。
+   *
+   * 活动量触发的 REM 在该窗口内不重复触发(时间兜底的 remIntervalMs /
+   * catch-up 不受此限制),避免高活动期 light 每 5 分钟连续烧 LLM。
+   */
+  readonly remMinIntervalMs?: number;
   /**
    * daily 阶段调度间隔（默认 24 小时）。
    *

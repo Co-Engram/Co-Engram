@@ -876,6 +876,22 @@ export class IndexDb {
   }
 
   /**
+   * 统计 created_at > sinceEpochMs 的现存 engram 的 Σimportance(P0-1 REM 活动量累积阈值用)。
+   *
+   * 单条聚合 SQL,毫秒级;created_at 存 epoch ms,与 upsertEngramUnsafe 写入口径一致。
+   * REM 的 metacognition 升降级 / trash sweep 不改 created_at,所以口径天然是
+   * "自上次 REM 以来新增" —— 被删/trash 后物理清除的 engram 自动退出统计。
+   */
+  sumImportanceSince(sinceEpochMs: number): number {
+    const row = this.prepare(
+      `SELECT COALESCE(SUM(e.importance), 0) AS total
+       FROM engrams e
+       WHERE e.created_at > ?`,
+    ).get(sinceEpochMs) as { readonly total: number | null } | undefined;
+    return row?.total ?? 0;
+  }
+
+  /**
    * 批量读取 DigestLine 投影(单次 SQL,替代 N+1 readEngram)。
    *
    * 高频调用方(engram_list 后置过滤、collectNeighborDigests、

@@ -17,6 +17,10 @@ import type {
   ViewerSectionConfig,
 } from "./types.js";
 import type { TrashMaintenanceConfig } from "../maintenance/types.js";
+import {
+  DEFAULT_REM_ACTIVITY_THRESHOLD,
+  DEFAULT_REM_MIN_INTERVAL_MS,
+} from "../maintenance/types.js";
 import { DEFAULT_CONFIG as DEFAULT_REINFORCEMENT_ENGINE_CONFIG } from "../reinforcement/config.js";
 import {
   DEFAULT_HOTNESS_HALF_LIFE_DAYS,
@@ -51,6 +55,9 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   lightIntervalMs: 5 * 60 * 1000,
   deepIntervalMs: 60 * 60 * 1000,
   remIntervalMs: 7 * 24 * 60 * 60 * 1000,
+  // P0-1 REM 混合触发:活动量累积阈值 + 防抖(与 maintenance/types.ts 源码默认对齐)
+  remActivityThreshold: DEFAULT_REM_ACTIVITY_THRESHOLD,
+  remMinIntervalMs: DEFAULT_REM_MIN_INTERVAL_MS,
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,

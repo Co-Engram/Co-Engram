@@ -28,7 +28,9 @@ import type {
 import {
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_LIGHT_INTERVAL_MS,
+  DEFAULT_REM_ACTIVITY_THRESHOLD,
   DEFAULT_REM_INTERVAL_MS,
+  DEFAULT_REM_MIN_INTERVAL_MS,
   DEFAULT_RPE_LEARNING_RATE,
   DEFAULT_SIGNAL_PRUNE_AGE_MS,
 } from "./types.js";
@@ -77,6 +79,8 @@ export class MaintenanceEngine {
   private deepTimer: ReturnType<typeof setInterval> | null = null;
   private remTimer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  /** P0-1:活动量触发的 REM 是否在执行(防 light 5min 节拍与 REM 分钟级耗时交叠时重复触发) */
+  private remActivityRunning = false;
 
   constructor(deps: MaintenanceDeps, config: MaintenanceConfig = {}) {
     this.deps = deps;
@@ -84,6 +88,9 @@ export class MaintenanceEngine {
       lightIntervalMs: config.lightIntervalMs ?? DEFAULT_LIGHT_INTERVAL_MS,
       deepIntervalMs: config.deepIntervalMs ?? DEFAULT_DEEP_INTERVAL_MS,
       remIntervalMs: config.remIntervalMs ?? DEFAULT_REM_INTERVAL_MS,
+      remActivityThreshold:
+        config.remActivityThreshold ?? DEFAULT_REM_ACTIVITY_THRESHOLD,
+      remMinIntervalMs: config.remMinIntervalMs ?? DEFAULT_REM_MIN_INTERVAL_MS,
       signalPruneAgeMs: config.signalPruneAgeMs ?? DEFAULT_SIGNAL_PRUNE_AGE_MS,
       learningRate: config.learningRate ?? DEFAULT_RPE_LEARNING_RATE,
       rules: config.rules ?? DEFAULT_RULES,
@@ -107,7 +114,7 @@ export class MaintenanceEngine {
    * 如果注入了 effectivenessTracker,会扫描超时观察窗口（写 retrieve_inconclusive）。
    */
   async runLight(): Promise<MaintenanceReport> {
-    return this.runStage("light", async () => {
+    const report = await this.runStage("light", async () => {
       const events = this.deps.signalSink.drain() as ToolCallEvent[];
 
       let signalsProcessed = 0;
@@ -238,6 +245,60 @@ export class MaintenanceEngine {
 
       return baseResult;
     });
+
+    // P0-1 REM 活动量累积阈值:light 完成后检查自上次 REM 以来新增 engram 的
+    // Σimportance 是否达标(内容密度驱动,非日历驱动)。达标且过防抖窗口则
+    // 提前触发 REM;时间兜底(remIntervalMs 定时器 + 启动 catch-up)不受影响。
+    await this.maybeRunRemByActivity();
+    return report;
+  }
+
+  /**
+   * P0-1 REM 活动量累积阈值检查(runLight 尾部调用)。
+   *
+   * 触发条件(全部满足):
+   *   - remActivityThreshold > 0(设 0 禁用,退回纯时间触发)
+   *   - enabledStages 含 rem;dataRoot 可用(maintenance-state 是累积起点)
+   *   - 距上次 REM ≥ remMinIntervalMs(防抖:窗口内不触发,等下一轮 light 检查)
+   *   - 自上次 REM(无记录则从零起算)以来新增 engram 的 Σimportance ≥ 阈值
+   *
+   * 口径只算现存 engram 的 importance(强化事件/访问量不计入):前者要扫
+   * audit.jsonl,后者与检索 hotness(P0-2)双重激励。
+   *
+   * 串行保护:remActivityRunning flag 防 REM 执行期间下一轮 light 重复触发
+   * (light 5min 节拍与 REM 分钟级 LLM 耗时可能交叠)。时间兜底路径
+   * (remTimer / scheduleCatchUp)不经过本方法,不受 flag 影响。
+   */
+  private async maybeRunRemByActivity(): Promise<void> {
+    const cfg = this.resolvedConfig;
+    if (cfg.remActivityThreshold <= 0) return;
+    if (this.remActivityRunning) return;
+    if (!new Set(cfg.enabledStages).has("rem")) return;
+    if (!this.deps.dataRoot) return;
+
+    try {
+      const state = await readMaintenanceState(this.deps.dataRoot);
+      const lastRemAt = state.stages.rem?.lastRunAt;
+      if (lastRemAt) {
+        const sinceRemMs = Date.now() - new Date(lastRemAt).getTime();
+        if (sinceRemMs < cfg.remMinIntervalMs) return;
+      }
+
+      // 累积起点 = 上次 REM 完成时间;从未跑过则从零起算(全部现存 engram
+      // 计入,与启动 catch-up 对"从未跑过立即触发"的语义一致)
+      const sinceIso = lastRemAt ?? new Date(0).toISOString();
+      const sum = this.deps.repository.sumImportanceSince(sinceIso);
+      if (sum < cfg.remActivityThreshold) return;
+
+      this.remActivityRunning = true;
+      try {
+        await this.runRem();
+      } finally {
+        this.remActivityRunning = false;
+      }
+    } catch {
+      // 检查失败(state 读不了 / SUM 查询失败)不阻塞 light;下一轮再试
+    }
   }
 
   /**
@@ -270,7 +331,8 @@ export class MaintenanceEngine {
         | undefined;
       // Deep 修改的记忆:decay(遗忘/归档) + light(重复合并),供 viewer 展示(可点击跳详情)
       // to:merged 时记录合并目标 engramId,供「修改介绍卡片」显示「from → to」
-      const deepModified: { engramId: string; action: string; to?: string }[] = [];
+      const deepModified: { engramId: string; action: string; to?: string }[] =
+        [];
       for (const id of deepResult?.decay?.forgotten ?? []) {
         deepModified.push({ engramId: id, action: "forgotten" });
       }
@@ -401,7 +463,11 @@ export class MaintenanceEngine {
       let metacognitionApplied = 0;
       // 收集 REM 实际修改的 engram(升级/反驳),供 viewer 实例化展示
       // before:修改前 verificationStatus,供「修改介绍卡片」显示「从 before 到 action」
-      const remModified: { engramId: string; action: string; before?: string }[] = [];
+      const remModified: {
+        engramId: string;
+        action: string;
+        before?: string;
+      }[] = [];
       for (const candidate of candidates) {
         try {
           const result = await applyMetacognition(
@@ -533,11 +599,7 @@ export class MaintenanceEngine {
     const enabledStages = new Set(this.resolvedConfig.enabledStages);
 
     // 低频优先顺序
-    const order: readonly MaintenanceStage[] = [
-      "rem",
-      "deep",
-      "light",
-    ];
+    const order: readonly MaintenanceStage[] = ["rem", "deep", "light"];
     for (const stage of order) {
       if (!enabledStages.has(stage)) continue;
       const intervalMs = this.getIntervalMs(stage);
@@ -575,7 +637,8 @@ export class MaintenanceEngine {
   private async persistRemCheckpoint(
     partial: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    if (!this.deps.dataRoot || this.deps.processLock?.isHolder === false) return;
+    if (!this.deps.dataRoot || this.deps.processLock?.isHolder === false)
+      return;
     try {
       const state = await readMaintenanceState(this.deps.dataRoot);
       const nextState: MaintenanceState = {
@@ -694,8 +757,12 @@ export class MaintenanceEngine {
       promptSignalsUpdated: body.promptSignalsUpdated,
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
-      ...(body.skillsDecayed !== undefined ? { skillsDecayed: body.skillsDecayed } : {}),
-      ...(body.skillsScanned !== undefined ? { skillsScanned: body.skillsScanned } : {}),
+      ...(body.skillsDecayed !== undefined
+        ? { skillsDecayed: body.skillsDecayed }
+        : {}),
+      ...(body.skillsScanned !== undefined
+        ? { skillsScanned: body.skillsScanned }
+        : {}),
     };
 
     // 方案 A:写 maintenance-state.json(只在 dataRoot 注入 + 持锁时)。

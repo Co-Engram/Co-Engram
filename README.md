@@ -254,6 +254,8 @@ No one has time to curate a knowledge base. The maintenance engine is **enabled 
 
 Light and Deep are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, freshness-based forgetting, Hebbian plasticity), and writes back updated fields. **REM runs its analysis automatically, but its upgrade / refute / pattern-abstraction / synapse-operation suggestions are presented as proposals on the Proposals page, applied only after you approve them**, so the system never rewrites your memory unconfirmed. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
 
+REM uses a **hybrid trigger** — activity-driven first, time-based fallback: at the end of each light tick the engine sums the `importance` of engrams created since the last REM run, and once it reaches `maintenance.remActivityThreshold` (default `12`, roughly 20 new memories × 0.6) REM is triggered early, so a burst of new memories gets consolidated within minutes instead of waiting a full interval. A debounce window of `maintenance.remMinIntervalMs` (default 12 h) keeps expensive REM runs apart. Set `remActivityThreshold: 0` to fall back to pure time-based triggering.
+
 ### Access the web viewer
 
 Co-Engram ships a built-in SPA for visual exploration. Enable it when wiring:

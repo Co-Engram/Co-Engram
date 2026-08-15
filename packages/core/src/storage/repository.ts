@@ -2561,6 +2561,44 @@ export class EngramRepository {
   }
 
   /**
+   * 统计 createdAt > sinceIso 的现存 engram 的 Σimportance
+   * (P0-1 REM 活动量累积阈值用,maintenance engine 在 light 尾部调用)。
+   *
+   * SQLite 主路径:单条聚合 SQL(毫秒级),created_at 为 epoch ms。
+   * memory fallback:index entry 不存 importance,对时间窗内新增的 engram
+   * 逐条 readEngram(无 SQLite 部署典型规模小,N+1 代价可控)。
+   *
+   * 口径:只算现存 engram 的 importance —— 强化事件 / 访问量不计入
+   * (前者要扫 audit.jsonl,后者与检索 hotness 双重激励)。
+   */
+  sumImportanceSince(sinceIso: string): number {
+    const sinceMs = new Date(sinceIso).getTime();
+    if (!Number.isFinite(sinceMs)) return 0;
+
+    if (this.indexDb) {
+      try {
+        return this.indexDb.sumImportanceSince(sinceMs);
+      } catch {
+        // SQLite 查询失败 → fallback 到内存路径
+      }
+    }
+
+    let sum = 0;
+    for (const entry of this.getIndex().entries.values()) {
+      const createdAtMs = entry.createdAt
+        ? new Date(entry.createdAt).getTime()
+        : NaN;
+      if (!Number.isFinite(createdAtMs) || createdAtMs <= sinceMs) continue;
+      try {
+        sum += this.readEngram(entry.id).importance ?? 0;
+      } catch {
+        // 单条读取失败(文件损坏等)跳过,不阻塞统计
+      }
+    }
+    return sum;
+  }
+
+  /**
    * 按 verification status 过滤(支持单个 status 或数组,兼容历史调用方)。
    *
    * ⚠️ 性能注意:本方法内部 readEngram(逐个,含 synapse 扫描)。

@@ -173,6 +173,16 @@ async function main(): Promise<void> {
         ...(persistedConfig.maintenance?.remIntervalMs
           ? { remIntervalMs: persistedConfig.maintenance.remIntervalMs }
           : {}),
+        // P0-1 REM 活动量累积阈值/防抖:0 是合法值(禁用/不防抖),必须 !== undefined 判空
+        ...(persistedConfig.maintenance?.remActivityThreshold !== undefined
+          ? {
+              remActivityThreshold:
+                persistedConfig.maintenance.remActivityThreshold,
+            }
+          : {}),
+        ...(persistedConfig.maintenance?.remMinIntervalMs !== undefined
+          ? { remMinIntervalMs: persistedConfig.maintenance.remMinIntervalMs }
+          : {}),
         ...(persistedConfig.maintenance?.learningRate
           ? { learningRate: persistedConfig.maintenance.learningRate }
           : {}),
@@ -501,7 +511,10 @@ async function main(): Promise<void> {
         ? collectSkillCatalog(ctx.skillRepository, dataRoot)
         : [];
       const sessionState = buildInstructionSessionState(topTags, skills);
-      const pathOverview = pathOverviewFromTree(ctx.repository.listPathTree(), 2);
+      const pathOverview = pathOverviewFromTree(
+        ctx.repository.listPathTree(),
+        2,
+      );
       const instructions = buildServerInstructions(
         lang,
         profileResult.profile,
