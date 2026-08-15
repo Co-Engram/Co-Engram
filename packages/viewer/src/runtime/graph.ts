@@ -189,6 +189,13 @@ async function renderGraphInner(container) {
   function nodeFontColor() {
     return state.night ? '#C6D0EC' : getComputedStyle(document.body).color;
   }
+  // 舞台底色(DEMO --sv-bg):节点描边圈与标签 halo 都取它,让节点从画布里"浮"出来
+  function stageBg() {
+    return state.night ? '#0A0D1C' : '#F7F4EC';
+  }
+  function nodeBorderColor() {
+    return state.night ? '#DFE6F5' : '#2D2A26';
+  }
   function buildNodes() {
     const contraSet = statusPassSet();
     return graph.nodes
@@ -210,12 +217,14 @@ async function renderGraphInner(container) {
           group: n.kind,
           color: {
             background: nodeColor,
-            border: nodeColor,
-            highlight: { background: nodeColor, border: '#000' },
-            hover: { background: nodeColor, border: '#fff' }
+            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离
+            border: stageBg(),
+            highlight: { background: nodeColor, border: nodeBorderColor() },
+            hover: { background: nodeColor, border: nodeBorderColor() }
           },
           size,
-          font: { color: nodeFontColor(), size: 11, face: 'sans-serif' },
+          // DEMO .nlabel:paint-order stroke 纸色 halo(vis 用 strokeWidth/strokeColor 等价实现)
+          font: { color: nodeFontColor(), size: 11, face: 'sans-serif', strokeWidth: 3, strokeColor: stageBg() },
           shape: n.kind === 'skill' ? 'diamond' : 'dot',
           _raw: n
         };
@@ -254,8 +263,12 @@ async function renderGraphInner(container) {
         to: e.to,
         label: '',
         title: tipText,
-        color: { color, highlight: color, hover: color, opacity: 0.85 },
-        width: 1 + (e.weight || 0.5) * 3,
+        // DEMO 边风格:普通边低不透明度暖灰调(quiet,不与节点抢注意力);
+        // contradicts 失效边虚线红 #F2708A 全不透明。悬停/高亮才亮起全色。
+        color: isContra
+          ? { color: '#F2708A', highlight: '#F2708A', hover: '#F2708A', opacity: 1 }
+          : { color, highlight: color, hover: color, opacity: 0.35 },
+        width: 1 + (e.weight || 0.5) * 2,
         dashes: isContra,
         arrows: e.direction === 'bidirectional' ? { to: { enabled: true }, from: { enabled: true } } : { to: { enabled: true, scaleFactor: 0.6 } },
         smooth: { enabled: true, type: 'continuous', roundness: 0.5 },
@@ -273,7 +286,8 @@ async function renderGraphInner(container) {
     autoResize: true,
     height: '100%',
     width: '100%',
-    nodes: { borderWidth: 2, shadow: { enabled: true, size: 6, x: 0, y: 1 } },
+    // DEMO 节点:纸色描边圈 2.5px,扁平无阴影(旧 shadow 是暗色主题残留)
+    nodes: { borderWidth: 2.5, shadow: { enabled: false } },
     edges: { smooth: { type: 'continuous' } },
     // 大规模图(1000+ 节点)物理引擎优化(2026-07):
     //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
@@ -514,11 +528,15 @@ async function renderGraphInner(container) {
     const allNodes = nodesDataset.get();
     const allEdges = edgesDataset.get();
     nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
-    edgesDataset.update(allEdges.map(e => ({ id: e.id, opacity: 1.0 })));
+    edgesDataset.update(allEdges.map(e => ({
+      id: e.id,
+      opacity: baseEdgeOpacity(e),
+      width: baseEdgeWidth(e)
+    })));
     queueRefreshOverlay();
   }
 
-  // 聚焦邻域(DEMO:非邻居淡出 0.13 + 邻接边流动):点击节点触发,Esc/点空白复位
+  // 聚焦邻域(DEMO:非邻居淡出 0.13 + 邻接边提亮加粗近似 .flow 流动):点击节点触发,Esc/点空白复位
   function focusNode(id) {
     state.focusedId = id;
     const connectedNodeIds = new Set([id]);
@@ -533,12 +551,27 @@ async function renderGraphInner(container) {
       id: n.id,
       opacity: connectedNodeIds.has(n.id) ? 1.0 : 0.13
     })));
-    edgesDataset.update(allEdges.map(e => ({
-      id: e.id,
-      opacity: connectedEdgeIds.has(e.id) ? 1.0 : 0.05
-    })));
+    edgesDataset.update(allEdges.map(e => {
+      const hit = connectedEdgeIds.has(e.id);
+      return {
+        id: e.id,
+        opacity: hit ? 1.0 : 0.05,
+        // 邻接边提亮 + 加粗(vis 无 dash 流动动画,用强调近似 DEMO .flow)
+        width: hit ? baseEdgeWidth(e) + 1.2 : baseEdgeWidth(e)
+      };
+    }));
     queueRefreshOverlay();
     renderInspector(id);
+  }
+
+  /** 边基础不透明度(与 buildEdges 口径一致:contradicts 1.0,其余 0.35) */
+  function baseEdgeOpacity(e) {
+    return e._raw && e._raw.kind === 'contradicts' ? 1.0 : 0.35;
+  }
+  /** 边基础宽度(1 + weight×2,与 buildEdges 口径一致) */
+  function baseEdgeWidth(e) {
+    const w = (e._raw && e._raw.weight != null) ? e._raw.weight : 0.5;
+    return 1 + w * 2;
   }
 
   // ============================================================
@@ -658,7 +691,11 @@ async function renderGraphInner(container) {
       ? '☀️ ' + T.t('viewer.graph.night.disable')
       : '🌙 ' + T.t('viewer.graph.night.enable');
     const fontColor = nodeFontColor();
-    nodesDataset.update(nodesDataset.get().map(n => ({ id: n.id, font: { color: fontColor, size: 11, face: 'sans-serif' } })));
+    nodesDataset.update(nodesDataset.get().map(n => ({
+      id: n.id,
+      font: { color: fontColor, size: 11, face: 'sans-serif', strokeWidth: 3, strokeColor: stageBg() },
+      color: { ...n.color, border: stageBg() }
+    })));
     queueRefreshOverlay();
   };
   CO_ENGRAM._graphState.resetFocus = function() { resetHighlight(); };
@@ -672,7 +709,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
       const c = raw ? nodeColorFor(raw) : n.color;
-      return { id: n.id, color: { background: c, border: c, highlight: { background: c, border: '#000' }, hover: { background: c, border: '#fff' } } };
+      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: nodeBorderColor() }, hover: { background: c, border: nodeBorderColor() } } };
     }));
     renderLegend();
     queueRefreshOverlay();
