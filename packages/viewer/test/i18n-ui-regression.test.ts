@@ -149,7 +149,7 @@ describe("Layer 1 / 静态骨架:所有按钮与显示在 zh/en 下全量渲染"
   it("扫描覆盖已知锚点按钮(tab / 搜索 / graph toolbar / more-menu)", () => {
     const anchors = [
       "viewer.tab.stats",
-      "viewer.tab.more",
+      "viewer.nav.governance",
       "viewer.search.button",
       "viewer.search.clear",
       "viewer.graph.toolbar.fit",

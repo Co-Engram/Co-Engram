@@ -886,6 +886,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 查看器 UI =====
   "viewer.title": "Co-Engram",
   "viewer.slogan": "自进化的团队记忆",
+  "viewer.nav.primary": "浏览",
+  "viewer.nav.governance": "治理",
   "viewer.tab.stats": "统计",
   "viewer.tab.engrams": "记忆印迹",
   "viewer.tab.skills": "技能记忆",

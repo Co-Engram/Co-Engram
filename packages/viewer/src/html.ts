@@ -79,95 +79,56 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     : "";
   const authPlaceholder = t(language, "viewer.auth.placeholder");
 
-  // 主导航:用户最高频使用,直接显示在 header 中部。
-  // proposals 带徽标:有待处理提案时显示数字,引导用户审批。
+  // 侧栏导航(2026-08 改版):按使用频率与治理语义分组。
+  // 主功能:高频浏览入口;治理:需要人裁决的入口;管理:低频工具(图标行,极度降权)。
+  // .tab 类与 data-tab 属性保持不变 —— app.ts 的 showTab 依赖这两个选择器。
   const primaryTabs = [
-    [
-      "stats",
-      t(language, "viewer.tab.stats"),
-      t(language, "viewer.tab.stats.tip"),
-    ],
-    [
-      "engrams",
-      t(language, "viewer.tab.engrams"),
-      t(language, "viewer.tab.engrams.tip"),
-    ],
-    [
-      "skills",
-      t(language, "viewer.tab.skills"),
-      t(language, "viewer.tab.skills.tip"),
-    ],
-    [
-      "graph",
-      t(language, "viewer.tab.graph"),
-      t(language, "viewer.tab.graph.tip"),
-    ],
-    [
-      "proposals",
-      t(language, "viewer.tab.proposals"),
-      t(language, "viewer.tab.proposals.tip"),
-    ],
-    [
-      "maintenance",
-      t(language, "viewer.tab.maintenance"),
-      t(language, "viewer.tab.maintenance.tip"),
-    ],
+    ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
+    ["engrams", t(language, "viewer.tab.engrams"), t(language, "viewer.tab.engrams.tip")],
+    ["graph", t(language, "viewer.tab.graph"), t(language, "viewer.tab.graph.tip")],
+    ["skills", t(language, "viewer.tab.skills"), t(language, "viewer.tab.skills.tip")],
   ] as const;
 
-  // 二级工具:低频但必要,折叠到右侧「更多」下拉,降低主页面心智负担。
-  const secondaryTabs = [
-    [
-      "merges",
-      t(language, "viewer.tab.merges"),
-      t(language, "viewer.tab.merges.tip"),
-    ],
-    [
-      "audit",
-      t(language, "viewer.tab.audit"),
-      t(language, "viewer.tab.audit.tip"),
-    ],
-    [
-      "trash",
-      t(language, "viewer.tab.trash"),
-      t(language, "viewer.tab.trash.tip"),
-    ],
-    [
-      "incubations",
-      t(language, "viewer.tab.incubations"),
-      t(language, "viewer.tab.incubations.tip"),
-    ],
-    [
-      "health",
-      t(language, "viewer.tab.health"),
-      t(language, "viewer.tab.health.tip"),
-    ],
-    [
-      "config",
-      t(language, "viewer.tab.config"),
-      t(language, "viewer.tab.config.tip"),
-    ],
-    [
-      "help",
-      t(language, "viewer.tab.help"),
-      t(language, "viewer.tab.help.tip"),
-    ],
+  const governanceTabs = [
+    ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip"), true],
+    ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
+    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), false],
+    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), false],
+    ["incubations", t(language, "viewer.tab.incubations"), t(language, "viewer.tab.incubations.tip"), false],
   ] as const;
 
-  const primaryTabButtons = primaryTabs
-    .map(([id, label, tip]) => {
-      if (id === "proposals") {
-        return `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}<span class="tab-badge" data-badge="proposals" hidden>0</span></button>`;
-      }
-      return `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}</button>`;
-    })
-    .join("\n      ");
+  // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)
+  const adminTabs = [
+    ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip"), "i-merge"],
+    ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip"), "i-pulse"],
+    ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip"), "i-gear"],
+    ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip"), "i-help"],
+  ] as const;
 
-  const secondaryTabButtons = secondaryTabs
+  const navButton = ([id, label, tip, badge]: readonly [string, string, string, boolean?]) => {
+    const badgeHtml = badge
+      ? `<span class="tab-badge" data-badge="proposals" hidden>0</span>`
+      : "";
+    return `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}${badgeHtml}</button>`;
+  };
+
+  const primaryTabButtons = primaryTabs.map(navButton).join("\n      ");
+  const governanceTabButtons = governanceTabs.map(navButton).join("\n      ");
+  const adminTabButtons = adminTabs
     .map(
-      ([id, label, tip]) =>
-        `<button data-tab="${id}" class="tab" title="${tip.replace(/"/g, "&quot;")}">${label}</button>`,
+      ([id, label, tip, icon]) =>
+        `<button data-tab="${id}" class="tab side-admin-btn" title="${tip.replace(/"/g, "&quot;")}"><svg class="side-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#${icon}"/></svg><span class="sr-only">${label}</span></button>`,
     )
     .join("\n        ");
+
+  // 侧栏图标集(内联 symbol,stroke 随 currentColor;替代 emoji,跨平台一致)
+  const SIDE_ICONS = `
+  <svg style="display:none" aria-hidden="true">
+    <symbol id="i-merge" viewBox="0 0 16 16"><circle cx="4" cy="3.5" r="1.8"/><circle cx="4" cy="12.5" r="1.8"/><circle cx="12" cy="8" r="1.8"/><path d="M4 5.3v5.4M5.7 4.3L10 7M5.7 11.7L10 9"/></symbol>
+    <symbol id="i-pulse" viewBox="0 0 16 16"><path d="M1.5 8h3L6.5 4l2.5 8 1.5-4h3"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M12.5 3.5l-1.4 1.4M4.9 11.1l-1.4 1.4"/></symbol>
+    <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.3 6.3A1.8 1.8 0 1 1 8 8.7v.8"/><circle cx="8" cy="11.4" r="0.4"/></symbol>
+  </svg>`;
 
   return `<!DOCTYPE html>
 <html lang="${language}">
@@ -183,7 +144,10 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   <script>${DOMPURIFY_SOURCE}</script>
 </head>
 <body>
-  <header class="app-header">
+<body>
+${SIDE_ICONS}
+<div class="app">
+  <aside class="side-nav">
     <div class="brand">
       <span class="brand-logo brand-logo-light" aria-hidden="true">${COENGRAMLOGO_SVG}</span>
       <span class="brand-logo brand-logo-dark" aria-hidden="true">${COENGRAMLOGODARK_SVG}</span>
@@ -192,26 +156,25 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
         <span class="brand-slogan">${slogan}</span>
       </div>
     </div>
-    <nav class="primary-nav">
+
+    <nav class="side-group" aria-label="${t(language, "viewer.nav.primary")}">
       ${primaryTabButtons}
     </nav>
-    <div class="header-tools">
-      <div class="more-menu" id="more-menu">
-        <button class="tab more-menu-trigger" id="more-menu-trigger" aria-haspopup="true" aria-expanded="false" title="${t(language, "viewer.tab.more.tip").replace(/"/g, "&quot;")}">
-          <span>${t(language, "viewer.tab.more")}</span>
-          <span class="more-menu-caret" aria-hidden="true">▾</span>
-        </button>
-        <div class="more-menu-dropdown" id="more-menu-dropdown" role="menu" hidden>
-          ${secondaryTabButtons}
-        </div>
-      </div>
-      ${
-        options.tokenRequired
-          ? `<div class="auth-bar">${authPrompt} <input id="token-input" type="password" placeholder="${authPlaceholder}"/></div>`
-          : ""
-      }
+
+    <div class="side-sec">${t(language, "viewer.nav.governance")}</div>
+    <nav class="side-group" aria-label="${t(language, "viewer.nav.governance")}">
+      ${governanceTabButtons}
+    </nav>
+
+    <div class="side-admin">
+      ${adminTabButtons}
     </div>
-  </header>
+    ${
+      options.tokenRequired
+        ? `<div class="auth-bar">${authPrompt} <input id="token-input" type="password" placeholder="${authPlaceholder}"/></div>`
+        : ""
+    }
+  </aside>
 
   <main>
     <!-- Stats -->
@@ -478,6 +441,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
       <div id="help-content"></div>
     </section>
   </main>
+</div>
 
   <!-- Detail drawer (right side) -->
   <aside id="detail-drawer" class="drawer">

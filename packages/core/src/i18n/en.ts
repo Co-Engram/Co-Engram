@@ -894,6 +894,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Viewer UI strings =====
   "viewer.title": "Co-Engram",
   "viewer.slogan": "Self-evolving team memory",
+  "viewer.nav.primary": "Browse",
+  "viewer.nav.governance": "Governance",
   "viewer.tab.stats": "Stats",
   "viewer.tab.engrams": "Engrams",
   "viewer.tab.skills": "Skills",
