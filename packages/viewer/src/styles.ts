@@ -537,7 +537,7 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
   -webkit-backdrop-filter: blur(12px) saturate(140%);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 1rem 1.1rem;
+  padding: 0.875rem 1rem; /* DEMO 精确值 14px 16px */
   box-shadow: var(--shadow);
   transition: all .2s;
   position: relative;
@@ -1542,7 +1542,7 @@ table.data-table tr:hover td { background: rgba(15, 118, 110, 0.03); }
   color: var(--accent-fg);
   border: none;
   padding: 0.4rem 0.95rem;
-  border-radius: 4px;
+  border-radius: 8px; /* DEMO .btn 圆角 */
   cursor: pointer;
   font-size: 0.76rem;
   font-weight: 600;
