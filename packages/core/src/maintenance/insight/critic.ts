@@ -1,0 +1,105 @@
+/**
+ * 独立 critic —— 提案生成时的第二次 LLM 调用(spec §五第一关)。
+ *
+ * 为什么独立调用而非同调用两段:审查确认「同调用 critic」是自我偏好换皮,
+ * 机械校验兜不住该偏差维度;按「token 不是重点」原则取质量优先,
+ * 单调用两段仅作降级选项(本模块不实现降级 —— 宁缺毋滥,fail-closed)。
+ *
+ * 评分是**机器主观初值而非客观真值**(spec §五第二关语义标注),
+ * 参与后续 metacognition 轮转时按普通 confidence 对待。
+ *
+ * @module @co-engram/core/maintenance/insight
+ */
+
+import type { LlmClient } from "../../observability/necessity-evaluator.js";
+import type { CriticScore, DeepThoughtMode, InsightDraft, InsightSubgraph } from "./types.js";
+import { serializeSubgraph } from "./modes.js";
+
+/** 模式专属 rubric 前缀(四维评分共用骨架) */
+const MODE_RUBRIC: Readonly<Record<DeepThoughtMode, string>> = {
+  integration:
+    "Mode rubric — INTEGRATION: does the theme generalize across >=2 distinct source contexts (cross-contextuality)? Is it a genuinely new structure, or a restatement of one memory?",
+  retrospective:
+    "Mode rubric — RETROSPECTIVE (AAR): is the causal chain complete (expected -> actual -> cause -> improvement) and actionable? An insight missing a link or without a concrete next change must score low.",
+  inspiration:
+    "Mode rubric — INSPIRATION: is the analogy structurally grounded (relational mapping, not surface vocabulary)? A far-fetched pairing must score low on consistency.",
+};
+
+function clamp01(x: unknown): number {
+  const n = typeof x === "number" ? x : Number(x);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(1, Math.max(0, n));
+}
+
+/** 剥离 ```json 围栏 / 提取首个 JSON 对象 */
+function extractJson(text: string): unknown {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fenced ? fenced[1]! : text;
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    return JSON.parse(body.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 独立第二次调用评审单条草稿。
+ *
+ * fail-closed:调用失败 / 不可解析 → null(不出提案),绝不放行。
+ */
+export async function critique(
+  llm: LlmClient,
+  draft: InsightDraft,
+  sub: InsightSubgraph,
+  mode: DeepThoughtMode,
+): Promise<CriticScore | null> {
+  const prompt = [
+    "You are an independent critic reviewing ONE candidate insight produced by another model.",
+    "Score it strictly; you did not produce it, and weak insights pollute a team memory system.",
+    MODE_RUBRIC[mode],
+    "",
+    "## Candidate insight",
+    `type: ${draft.type}`,
+    `title: ${draft.title}`,
+    `summary: ${draft.summary}`,
+    "--- content ---",
+    draft.content,
+    "--- end content ---",
+    `claimed sources: ${draft.sourceIds.join(", ")}`,
+    draft.aar ? `AAR: expected=${draft.aar.expected}; actual=${draft.aar.actual}; cause=${draft.aar.cause}; improvement=${draft.aar.improvement}` : "",
+    "",
+    "## Evidence available (memory slice the insight claims to derive from)",
+    serializeSubgraph(sub),
+    "",
+    "Score four dimensions in [0,1]:",
+    "- evidenceSufficiency: are the cited sources real, present above, and sufficient for the claim?",
+    "- novelty: is this an insight rather than a restatement of a single memory?",
+    "- actionability: can a team member act on it?",
+    "- consistency: is it internally consistent and consistent with the sources?",
+    "overall = your holistic judgment (do not just average; you may veto).",
+    "Return ONLY a JSON object: {\"evidenceSufficiency\":n,\"novelty\":n,\"actionability\":n,\"consistency\":n,\"overall\":n,\"rationale\":\"...\"}",
+  ]
+    .filter((l) => l !== "")
+    .join("\n");
+
+  let raw: string;
+  try {
+    raw = await llm.complete(prompt, { temperature: 0.2, maxTokens: 512 });
+  } catch {
+    return null; // fail-closed
+  }
+  const parsed = extractJson(raw) as Partial<CriticScore> | null;
+  if (!parsed || typeof parsed.overall !== "number") return null;
+  return {
+    overall: clamp01(parsed.overall),
+    evidenceSufficiency: clamp01(parsed.evidenceSufficiency),
+    novelty: clamp01(parsed.novelty),
+    actionability: clamp01(parsed.actionability),
+    consistency: clamp01(parsed.consistency),
+    rationale:
+      typeof parsed.rationale === "string" ? parsed.rationale.slice(0, 500) : "",
+  };
+}
