@@ -362,6 +362,11 @@ CO_ENGRAM.renderFeed = function(root, entries) {
   for (const e of sorted) {
     const meta = CO_ENGRAM.FEED_ACTIONS[e.action];
     if (!meta) continue;
+    // 2026-08 修复(用户报:没改内容却出现「更新」):REM 标签维护
+    // (tag-refresh)也写 action=update 的审计 —— 元数据刷新不是实质动态。
+    // 与记忆更新图(updatesLast30d)同口径:update 必须有 changes.content
+    // (真实内容变更)才展示;标签漂移/重要度等元数据更新全部过滤。
+    if (e.action === 'update' && !(e.metadata && e.metadata.changes && e.metadata.changes.content)) continue;
     const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.ts));
     const prev = dedup.get(key);
     if (prev) prev.n++;
@@ -2593,7 +2598,6 @@ window.CO_ENGRAM_PROPOSALS = {
         var riHasInc = !!(p.payload && p.payload.incubationId);
         var remInsightChips = isRemInsight
           ? '<span class="chip insight-chip">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
-            + (riMode ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.mode.' + riMode)) + '</span>' : '')
             + '<span class="chip critic-' + (riScore >= 0.7 ? 'hi' : (riScore >= 0.5 ? 'mid' : 'lo')) + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">critic ' + riScore.toFixed(2) + '</span>'
             + (riHasInc ? '<span class="chip moon-chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.incubationTip')) + '">🌙</span>' : '')
           : '';
