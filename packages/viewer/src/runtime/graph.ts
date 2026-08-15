@@ -50,15 +50,46 @@ async function renderGraphInner(container) {
   // === 状态:filter ===
   // showKinds: engram 类型(节点过滤);showSynapseKinds: synapse 类型(边过滤,与编辑器一致)
   // textFilter / pathFilter: 顶栏关键词 + 目录前缀过滤(2026-07 新增)
+  // minImportance / timeRatio: 重要度阈值 + 时间回放(2026-08 改版,DEMO g2-synapses)
+  // focusedId / night: 聚焦邻域(边流动 + 非邻居淡出)/ 夜览
   const ALL_SYNAPSE_KINDS = ['extends', 'part_of', 'similar_to', 'depends_on', 'causes', 'follows', 'derives_from', 'contradicts', 'exemplifies', 'supersedes', 'consolidates', 'contextualizes'];
   const state = {
     showKinds: { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true },
     showSynapseKinds: Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true])),
     physicsEnabled: true,
     textFilter: '',
-    pathFilter: ''
+    pathFilter: '',
+    minImportance: 0,
+    timeRatio: 1,
+    focusedId: null,
+    night: false,
+    timeRange: null
   };
   CO_ENGRAM._graphState = { initialized: false, network: null, data: graph, state };
+
+  // 时间回放:节点 createdAtMs 的时间跨度(无任何 createdAtMs 时为 null → 滑杆不生效)
+  (function computeTimeRange() {
+    let min = Infinity, max = -Infinity;
+    for (const n of graph.nodes) {
+      if (typeof n.createdAtMs === 'number' && n.createdAtMs > 0) {
+        if (n.createdAtMs < min) min = n.createdAtMs;
+        if (n.createdAtMs > max) max = n.createdAtMs;
+      }
+    }
+    state.timeRange = (min !== Infinity && max > min) ? { min, max } : null;
+  })();
+  function timeCutoffMs() {
+    if (!state.timeRange || state.timeRatio >= 1) return null;
+    return state.timeRange.min + (state.timeRange.max - state.timeRange.min) * state.timeRatio;
+  }
+  // 重要度 + 时间回放共同过滤(与 buildNodes / _refreshFilterCount 同一谓词)
+  function passesImpTime(n) {
+    const imp = n.importance != null ? n.importance : 0.5;
+    if (imp < state.minImportance) return false;
+    const cut = timeCutoffMs();
+    if (cut != null && !(typeof n.createdAtMs === 'number' && n.createdAtMs > 0 && n.createdAtMs <= cut)) return false;
+    return true;
+  }
 
   // === 节点匹配文本/路径过滤(顶栏) ===
   // textFilter: 标题/domainTags/id 包含关键词则保留
@@ -87,10 +118,14 @@ async function renderGraphInner(container) {
   }
 
   // === 节点 / 边构建 ===
+  function nodeFontColor() {
+    return state.night ? '#C6D0EC' : getComputedStyle(document.body).color;
+  }
   function buildNodes() {
     return graph.nodes
       .filter(n => state.showKinds[n.kind] !== false)
       .filter(n => matchesNodeFilters(n))
+      .filter(n => passesImpTime(n))
       .map(n => {
         const importance = (n.importance != null ? n.importance : 0.5);
         const size = 10 + importance * 18;
@@ -111,7 +146,7 @@ async function renderGraphInner(container) {
             hover: { background: nodeColor, border: '#fff' }
           },
           size,
-          font: { color: getComputedStyle(document.body).color, size: 11, face: 'sans-serif' },
+          font: { color: nodeFontColor(), size: 11, face: 'sans-serif' },
           shape: isSkillNode ? 'diamond' : 'dot',
           _raw: n
         };
@@ -210,6 +245,141 @@ async function renderGraphInner(container) {
     } catch (e) { /* 防御:某些 vis 版本 setOptions 在 frozen 状态抛错 */ }
   });
 
+  // ============================================================
+  // 2026-08 改版(DEMO g2-synapses):SVG 覆盖层演示效果
+  //   - Louvain 簇呼吸凸包 + 簇标签
+  //   - 高重要度(≥0.7)节点发光脉冲光环
+  //   - 聚焦邻域流动边
+  // 实现方式:vis-network canvas 不支持逐帧动效,全部动效画在
+  // pointer-events:none 的 SVG 覆盖层上 —— 呼吸/脉冲/流动用 CSS 动画
+  // (GPU 合成,零 canvas 重绘);位置在 afterDrawing(pan/zoom/drag/过滤)
+  // 时经 rAF 节流重算,canvasToDOM 把网络坐标映射到覆盖层坐标。
+  // ============================================================
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  function ensureOverlay() {
+    let svg = document.getElementById('graph-overlay-svg');
+    if (!svg) {
+      svg = document.createElementNS(SVGNS, 'svg');
+      svg.id = 'graph-overlay-svg';
+      svg.setAttribute('class', 'graph-overlay');
+      container.appendChild(svg);
+    }
+    return svg;
+  }
+
+  // Louvain 社区发现(过滤后当前图上运行;稀疏图 81~914 节点毫秒级)
+  function recomputeClusters() {
+    const nodes = nodesDataset.get();
+    const edges = edgesDataset.get();
+    if (nodes.length < 3 || !edges.length) { CO_ENGRAM._graphClusters = []; return; }
+    const assign = CO_ENGRAM_LOUVAIN(
+      nodes.map(n => n.id),
+      edges.map(e => ({ from: e.from, to: e.to, weight: (e._raw && e._raw.weight != null) ? e._raw.weight : 0.5 })),
+    );
+    const groups = new Map();
+    for (const n of nodes) {
+      const c = assign.get(n.id);
+      if (!groups.has(c)) groups.set(c, []);
+      groups.get(c).push(n);
+    }
+    CO_ENGRAM._graphClusters = Array.from(groups.values())
+      .filter(g => g.length >= 3) // ≥3 节点才画凸包;散点/两点对不画
+      .map(members => {
+        // 簇标签:成员最常见 domainTag + 节点数(DEMO:「方法论 · 9」)
+        const tagCount = new Map();
+        for (const m of members) {
+          for (const tg of (m._raw.domainTags || [])) tagCount.set(tg, (tagCount.get(tg) || 0) + 1);
+        }
+        let bestTag = '', bestN = 0;
+        for (const [tg, c2] of tagCount) { if (c2 > bestN) { bestN = c2; bestTag = tg; } }
+        return { members, label: (bestTag || (T.enumLabel('kind', members[0]._raw.kind) || members[0]._raw.kind)) + ' · ' + members.length };
+      });
+  }
+
+  function refreshOverlay() {
+    if (container.offsetParent === null && container.clientWidth === 0) return; // tab 隐藏时跳过
+    const svg = ensureOverlay();
+    const w = container.clientWidth, h = container.clientHeight;
+    if (!w || !h) return;
+    svg.setAttribute('width', w);
+    svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    let inner = '';
+    const positions = network.getPositions();
+    const domOf = id => {
+      const p = positions[id];
+      if (!p) return null;
+      const d = network.canvasToDOM({ x: p.x, y: p.y });
+      return { x: d.x, y: d.y };
+    };
+    const clusters = CO_ENGRAM._graphClusters || [];
+    // 1) Louvain 簇呼吸凸包
+    for (const cl of clusters) {
+      const pts = cl.members.map(m => domOf(m.id)).filter(Boolean);
+      if (pts.length < 3) continue;
+      const hull = CO_ENGRAM_CONVEX_HULL(pts);
+      if (hull.length < 3) continue;
+      inner += '<path class="hull" d="' + CO_ENGRAM_HULL_PATH(hull, 26) + '"></path>';
+    }
+    // 2) 高重要度(≥0.7)节点发光脉冲光环(DEMO .halo)
+    for (const n of nodesDataset.get()) {
+      const imp = (n._raw && n._raw.importance != null) ? n._raw.importance : 0.5;
+      if (imp < 0.7) continue;
+      const d = domOf(n.id);
+      if (!d) continue;
+      const r = (10 + imp * 18) * 0.9 + 4;
+      inner += '<circle class="halo" cx="' + d.x.toFixed(1) + '" cy="' + d.y.toFixed(1) + '" r="' + r.toFixed(1) + '" stroke="' + (state.night ? '#8CC8FF' : '#B8941D') + '"></circle>';
+    }
+    // 3) 聚焦邻域流动边(DEMO .flow:邻接边虚线流动)
+    if (state.focusedId) {
+      for (const e of edgesDataset.get()) {
+        if (e.from !== state.focusedId && e.to !== state.focusedId) continue;
+        const a = domOf(e.from), b = domOf(e.to);
+        if (!a || !b) continue;
+        const mx = (a.x + b.x) / 2 + (b.y - a.y) * 0.12;
+        const my = (a.y + b.y) / 2 - (b.x - a.x) * 0.12;
+        inner += '<path class="flow" stroke="#0F766E" d="M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1)
+          + ' Q ' + mx.toFixed(1) + ' ' + my.toFixed(1) + ' ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1) + '"></path>';
+      }
+    }
+    // 4) 簇标签(最上层)
+    for (const cl of clusters) {
+      const pts = cl.members.map(m => domOf(m.id)).filter(Boolean);
+      if (pts.length < 3) continue;
+      const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+      const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+      inner += '<text class="cluster-lab" x="' + cx.toFixed(0) + '" y="' + (cy - 8).toFixed(0) + '" text-anchor="middle">' + CO_ENGRAM.escapeHtml(cl.label) + '</text>';
+    }
+    svg.innerHTML = inner;
+  }
+  let _overlayQueued = false;
+  function queueRefreshOverlay() {
+    if (_overlayQueued) return;
+    _overlayQueued = true;
+    requestAnimationFrame(() => { _overlayQueued = false; refreshOverlay(); });
+  }
+  network.on('afterDrawing', queueRefreshOverlay);
+
+  // 滑杆 / 夜览标签刷新
+  function updateSliderLabels() {
+    const impVal = document.getElementById('graph-imp-val');
+    const visible = nodesDataset.length;
+    if (impVal) impVal.textContent = '≥ ' + state.minImportance.toFixed(2) + ' · ' + visible + ' ' + T.t('viewer.graph.filter.visibleUnit');
+    const tlVal = document.getElementById('graph-time-val');
+    if (tlVal) {
+      if (state.timeRatio >= 1) {
+        tlVal.textContent = T.t('viewer.graph.replay.full', { n: visible });
+      } else if (!state.timeRange) {
+        tlVal.textContent = T.t('viewer.graph.replay.noData');
+      } else {
+        tlVal.textContent = new Date(timeCutoffMs()).toISOString().slice(0, 10) + ' · ' + visible;
+      }
+    }
+  }
+  recomputeClusters();
+  updateSliderLabels();
+  queueRefreshOverlay();
+
   // 顶栏 chip + 计数初始显示
   CO_ENGRAM_GRAPH._refreshTextChip();
   CO_ENGRAM_GRAPH._refreshPathChip();
@@ -236,13 +406,17 @@ async function renderGraphInner(container) {
   });
 
   function resetHighlight() {
+    state.focusedId = null;
     const allNodes = nodesDataset.get();
     const allEdges = edgesDataset.get();
     nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
-    edgesDataset.update(allEdges.map(e => ({ id: e.id, color: e.color })));
+    edgesDataset.update(allEdges.map(e => ({ id: e.id, opacity: 1.0 })));
+    queueRefreshOverlay();
   }
 
+  // 聚焦邻域(DEMO:非邻居淡出 0.13 + 邻接边流动):点击节点触发,Esc/点空白复位
   function focusNode(id) {
+    state.focusedId = id;
     const connectedNodeIds = new Set([id]);
     const connectedEdgeIds = new Set();
     for (const e of graph.edges) {
@@ -253,12 +427,13 @@ async function renderGraphInner(container) {
     const allEdges = edgesDataset.get();
     nodesDataset.update(allNodes.map(n => ({
       id: n.id,
-      opacity: connectedNodeIds.has(n.id) ? 1.0 : 0.15
+      opacity: connectedNodeIds.has(n.id) ? 1.0 : 0.13
     })));
     edgesDataset.update(allEdges.map(e => ({
       id: e.id,
       opacity: connectedEdgeIds.has(e.id) ? 1.0 : 0.05
     })));
+    queueRefreshOverlay();
     showNodeDetail(id);
   }
 
@@ -355,20 +530,72 @@ async function renderGraphInner(container) {
     edgesDataset.clear();
     nodesDataset.add(buildNodes());
     edgesDataset.add(buildEdges());
+    // 焦点节点被过滤掉时清焦(防流动边指向不存在节点)
+    if (state.focusedId && !nodesDataset.get(state.focusedId)) state.focusedId = null;
+    recomputeClusters();
+    updateSliderLabels();
+    queueRefreshOverlay();
   };
   CO_ENGRAM._graphState.togglePhysics = function() {
     state.physicsEnabled = !state.physicsEnabled;
     network.setOptions({ physics: { enabled: state.physicsEnabled } });
   };
   CO_ENGRAM._graphState.fit = function() { network.fit({ animation: true }); };
+  // 重要度阈值滑杆(DEMO imp-slider):0~100 → [0,1],与时间回放 AND 生效。
+  // 防抖 120ms:oninput 拖动连续触发,直接 applyFilters 会每帧重建 DataSet +
+  // 重跑 Louvain,5000 节点规模拖动卡顿;停止拖动 120ms 后一次性应用。
+  let _sliderDebounce = null;
+  function debouncedApply() {
+    if (_sliderDebounce) clearTimeout(_sliderDebounce);
+    _sliderDebounce = setTimeout(() => {
+      _sliderDebounce = null;
+      CO_ENGRAM._graphState.applyFilters();
+      CO_ENGRAM_GRAPH._refreshFilterCount();
+    }, 120);
+  }
+  CO_ENGRAM._graphState.setImportance = function(v) {
+    state.minImportance = Math.max(0, Math.min(1, Number(v) / 100));
+    const impVal = document.getElementById('graph-imp-val');
+    if (impVal) impVal.textContent = '≥ ' + state.minImportance.toFixed(2) + ' …';
+    debouncedApply();
+  };
+  // 时间回放滑杆(DEMO tl):按 createdAt 让图生长;ratio<1 时晚于切点的节点淡出
+  CO_ENGRAM._graphState.setTimeReplay = function(v) {
+    state.timeRatio = Math.max(0, Math.min(1, Number(v) / 100));
+    const tlVal = document.getElementById('graph-time-val');
+    if (tlVal && state.timeRange && state.timeRatio < 1) {
+      tlVal.textContent = new Date(timeCutoffMs()).toISOString().slice(0, 10) + ' …';
+    }
+    debouncedApply();
+  };
+  // 夜览切换(DEMO stage.night):深底色 + 节点标签/光环配色跟随
+  CO_ENGRAM._graphState.toggleNight = function() {
+    state.night = !state.night;
+    container.classList.toggle('night', state.night);
+    const btn = document.getElementById('graph-night-btn');
+    if (btn) btn.textContent = state.night
+      ? '☀️ ' + T.t('viewer.graph.night.disable')
+      : '🌙 ' + T.t('viewer.graph.night.enable');
+    const fontColor = nodeFontColor();
+    nodesDataset.update(nodesDataset.get().map(n => ({ id: n.id, font: { color: fontColor, size: 11, face: 'sans-serif' } })));
+    queueRefreshOverlay();
+  };
+  CO_ENGRAM._graphState.resetFocus = function() { resetHighlight(); };
   CO_ENGRAM._graphState.resetView = function() {
     state.showKinds = { fact: true, observation: true, pattern: true, procedure: true, hypothesis: true, skill: true };
     state.showSynapseKinds = Object.fromEntries(ALL_SYNAPSE_KINDS.map(k => [k, true]));
     state.textFilter = '';
     state.pathFilter = '';
+    state.minImportance = 0;
+    state.timeRatio = 1;
+    state.focusedId = null;
     document.querySelectorAll('.graph-toolbar input[type=checkbox]').forEach(c => c.checked = true);
     const qInput = document.getElementById('graph-q');
     if (qInput) qInput.value = '';
+    const impRange = document.getElementById('graph-imp-range');
+    if (impRange) impRange.value = '0';
+    const tlRange = document.getElementById('graph-time-range');
+    if (tlRange) tlRange.value = '100';
     CO_ENGRAM_GRAPH._refreshTextChip();
     CO_ENGRAM_GRAPH._refreshPathChip();
     CO_ENGRAM._graphState.applyFilters();
@@ -376,6 +603,135 @@ async function renderGraphInner(container) {
     network.fit({ animation: true });
   };
 }
+
+// ============================================================
+// 纯函数工具(模块级,与实例状态无关)
+// ============================================================
+
+// Louvain 社区发现:局部移动(ΔQ = k_i,in − Σ_tot·k_i / 2m)+ 聚合,最多 3 层。
+// 返回 Map<nodeId, clusterId>(原始节点 → 顶层簇)。
+// 确定性:遍历顺序按 id 排序(无随机,同一图同一结果)。
+window.CO_ENGRAM_LOUVAIN = function(nodeIds, edgeList) {
+  const finalOf = new Map();
+  for (const id of nodeIds) finalOf.set(id, id);
+  let ids = nodeIds.slice();
+  let edges = edgeList.map(e => ({ from: e.from, to: e.to, w: (e.weight != null && e.weight > 0) ? e.weight : 0.5 }));
+  for (let level = 0; level < 3 && edges.length > 0; level++) {
+    const nodeSet = new Set(ids);
+    edges = edges.filter(e => nodeSet.has(e.from) && nodeSet.has(e.to));
+    if (!edges.length) break;
+    let m2 = 0; // 2m(总权重×2)
+    for (const e of edges) m2 += 2 * e.w;
+    if (m2 <= 0) break;
+    const adj = new Map();
+    const k = new Map();
+    for (const id of ids) adj.set(id, new Map());
+    for (const e of edges) {
+      adj.get(e.from).set(e.to, (adj.get(e.from).get(e.to) || 0) + e.w);
+      adj.get(e.to).set(e.from, (adj.get(e.to).get(e.from) || 0) + e.w);
+      k.set(e.from, (k.get(e.from) || 0) + e.w);
+      k.set(e.to, (k.get(e.to) || 0) + e.w);
+    }
+    const comm = new Map();
+    const commK = new Map(k);
+    for (const id of ids) comm.set(id, id);
+    const sortedIds = ids.slice().sort();
+    let improved = true, passes = 0;
+    while (improved && passes < 15) {
+      improved = false; passes++;
+      for (const id of sortedIds) {
+        const neighbors = adj.get(id);
+        if (!neighbors || !neighbors.size) continue;
+        const ki = k.get(id) || 0;
+        const oldC = comm.get(id);
+        commK.set(oldC, (commK.get(oldC) || 0) - ki);
+        const toComm = new Map();
+        for (const entry of neighbors) {
+          const c = comm.get(entry[0]);
+          toComm.set(c, (toComm.get(c) || 0) + entry[1]);
+        }
+        let bestC = oldC, bestGain = toComm.get(oldC) ? (toComm.get(oldC) - (commK.get(oldC) || 0) * ki / m2) : -Infinity;
+        for (const entry of toComm) {
+          const gain = entry[1] - (commK.get(entry[0]) || 0) * ki / m2;
+          if (gain > bestGain) { bestGain = gain; bestC = entry[0]; }
+        }
+        comm.set(id, bestC);
+        commK.set(bestC, (commK.get(bestC) || 0) + ki);
+        if (bestC !== oldC) improved = true;
+      }
+    }
+    // 按社区分组
+    const groups = new Map();
+    for (const id of ids) {
+      const c = comm.get(id);
+      if (!groups.has(c)) groups.set(c, []);
+      groups.get(c).push(id);
+    }
+    if (groups.size >= ids.length) break; // 已是全孤立社区,聚合无意义
+    const newIdOf = new Map();
+    let gi = 0;
+    for (const grp of groups.values()) {
+      const sid = 'c' + level + '_' + (gi++);
+      for (const m0 of grp) newIdOf.set(m0, sid);
+    }
+    for (const key of Array.from(finalOf.keys())) {
+      finalOf.set(key, newIdOf.get(finalOf.get(key)));
+    }
+    const edgeAgg = new Map();
+    for (const e of edges) {
+      const f = newIdOf.get(e.from), t = newIdOf.get(e.to);
+      if (f === t) continue;
+      const key = f < t ? f + '|' + t : t + '|' + f;
+      edgeAgg.set(key, (edgeAgg.get(key) || 0) + e.w);
+    }
+    ids = Array.from(new Set(Array.from(newIdOf.values())));
+    edges = [];
+    for (const entry of edgeAgg) {
+      const parts = entry[0].split('|');
+      edges.push({ from: parts[0], to: parts[1], w: entry[1] });
+    }
+  }
+  return finalOf;
+};
+
+// 凸包(Andrew 单调链),points: [{x,y}]
+window.CO_ENGRAM_CONVEX_HULL = function(points) {
+  if (points.length < 3) return points.slice();
+  const pts = points.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [], upper = [];
+  for (const p of pts) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  for (let i = pts.length - 1; i >= 0; i--) {
+    const p = pts[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop(); upper.pop();
+  return lower.concat(upper);
+};
+
+// 凸包外扩 pad 像素的闭合 path
+window.CO_ENGRAM_HULL_PATH = function(pts, pad) {
+  if (!pts.length) return '';
+  const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+  const out = pts.map(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    return (p.x + dx / len * pad).toFixed(1) + ' ' + (p.y + dy / len * pad).toFixed(1);
+  });
+  return 'M ' + out.join(' L ') + ' Z';
+};
+
+// Esc 复位聚焦邻域(DEMO「Esc 返回」;drawer 关闭逻辑在 app.ts,两者独立)
+document.addEventListener('keydown', function(e) {
+  if (e.key !== 'Escape') return;
+  const s = CO_ENGRAM._graphState;
+  if (s && s.state && s.state.focusedId && s.resetFocus) s.resetFocus();
+});
 
 // 工具栏点击处理(从 onclick 调用)
 window.CO_ENGRAM_GRAPH = {
@@ -396,6 +752,9 @@ window.CO_ENGRAM_GRAPH = {
   togglePhysics() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.togglePhysics(); },
   fit() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.fit(); },
   reset() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.resetView(); },
+  setImportance(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setImportance(v); },
+  setTimeReplay(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setTimeReplay(v); },
+  toggleNight() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleNight(); },
 
   // === 顶栏过滤(2026-07 新增)===
   // 关键词过滤:oninput 实时触发,空值清空
@@ -555,8 +914,14 @@ window.CO_ENGRAM_GRAPH = {
     if (!countEl) return;
     // 重新计算保留的节点 / 边数(与 buildNodes / buildEdges 一致)
     const T = CO_ENGRAM_T;
+    // 重要度阈值 + 时间回放(与 buildNodes 的 passesImpTime 同一谓词,内联复算)
+    const cut = (s.state.timeRange && s.state.timeRatio < 1)
+      ? s.state.timeRange.min + (s.state.timeRange.max - s.state.timeRange.min) * s.state.timeRatio
+      : null;
     const passNodes = s.data.nodes.filter(n =>
       s.state.showKinds[n.kind] !== false
+      && ((n.importance != null ? n.importance : 0.5) >= s.state.minImportance)
+      && (cut == null || (typeof n.createdAtMs === 'number' && n.createdAtMs > 0 && n.createdAtMs <= cut))
       && (function matchesNodeFilters(n) {
         if (s.state.pathFilter !== '') {
           const locMap = CO_ENGRAM._engramLocations;

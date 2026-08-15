@@ -2159,7 +2159,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.tabSkills":
     "<strong>Skills</strong> — procedural-memory cards: browse by acquisition stage (draft/compiled/tuned) and retention stage (active/aging/stale/forgotten); shows utility, invocation counts and compose links. Skill directories detected under dataRoot enter the proposals queue for approval first.",
   "viewer.help.tabGraph":
-    "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind. Opening an engram detail highlights its neighbors.",
+    "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind; narrow the view with the importance-threshold and time-replay sliders, spot high-value nodes via Louvain cluster hulls and glow halos, toggle the 🌙 night canvas; click a node to focus its neighborhood (edges flow, non-neighbors fade; Esc returns). See \"Reading the Synapses (graph) tab\" above.",
   "viewer.help.tabProposals":
     "<strong>Proposals</strong> — candidate-memory approval queue. Sources: conversation clustering (topics mentioned ≥3 times), Claude Code auto-memory files, and untracked .md detected under dataRoot (e.g., files copied in by the user). Humans/LLMs accept (engram_accept_proposal) or dismiss (engram_dismiss_proposal).",
   "viewer.help.tabAudit":

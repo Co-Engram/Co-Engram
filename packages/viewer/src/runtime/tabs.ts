@@ -4569,6 +4569,9 @@ window.CO_ENGRAM_HELP = {
       + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptLifecycleDesc') + '</dd>'
       + '</dl>'
 
+      + '<h3>' + T.t('viewer.help.graphTitle') + '</h3>'
+      + '<p>' + T.t('viewer.help.graphDesc') + '</p>'
+
       + '<h3>' + T.t('viewer.help.rulesTitle') + '</h3>'
       + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.rulesIntro') + '</p>'
       + '<ul style="padding-left:1.2rem;line-height:1.7">'

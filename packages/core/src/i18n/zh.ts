@@ -2097,7 +2097,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tabSkills":
     "<strong>技能</strong>—程序性记忆(skill)卡片:按习得深度(draft/compiled/tuned)与保留阶段(active/aging/stale/forgotten)浏览,展示 utility、调用次数与组合(composes)关系。dataRoot 下检测到的 skill 目录会先进提案队列审批。",
   "viewer.help.tabGraph":
-    "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点。打开 engram 详情时图谱会高亮其邻居。",
+    "<strong>记忆突触</strong>—知识图谱可视化。可按族/类型过滤边,按 engram 类型过滤节点;重要度阈值与时间回放滑杆收窄视野,Louvain 簇凸包与发光光环标注高价值节点,🌙 夜览切换明暗底色;点击节点聚焦邻域(邻边流动、非邻居淡出),Esc 返回。详见上文「记忆突触页阅读方式」。",
   "viewer.help.tabProposals":
     "<strong>记忆提案</strong>—候选记忆审批队列。来源:对话聚类(同一主题被提及≥3 次)、Claude Code auto-memory 文件、dataRoot 下检测到的未追踪 .md(例如用户拷贝进来的文件)。由人工/LLM 采纳(engram_accept_proposal)或忽略(engram_dismiss_proposal)。",
   "viewer.help.tabAudit":

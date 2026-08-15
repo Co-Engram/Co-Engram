@@ -223,6 +223,13 @@ ${SIDE_ICONS}
             <button class="mini" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">${t(language, "viewer.graph.toolbar.fit")}</button>
             <button class="mini" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">${t(language, "viewer.graph.toolbar.physics")}</button>
             <button class="mini" onclick="CO_ENGRAM_GRAPH.reset()" title="${t(language, "viewer.graph.toolbar.resetTitle")}">${t(language, "viewer.graph.toolbar.reset")}</button>
+            <button class="mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
+          </div>
+
+          <div class="group-title">${t(language, "viewer.graph.filter.impTitle")}</div>
+          <div class="graph-slider">
+            <span class="slider-val" id="graph-imp-val"></span>
+            <input type="range" id="graph-imp-range" min="0" max="100" value="0" aria-label="${t(language, "viewer.graph.filter.impTitle")}" oninput="CO_ENGRAM_GRAPH.setImportance(this.value)">
           </div>
 
           <div class="group-title">${t(language, "viewer.graph.synapseKindsTitle")}</div>
@@ -400,6 +407,11 @@ ${SIDE_ICONS}
         </div>
         <div id="graph-canvas">
           <div class="loading">${t(language, "viewer.loading.graph")}</div>
+        </div>
+        <div class="graph-bottombar">
+          <div class="tl-lab"><b>${t(language, "viewer.graph.replay.title")}</b><small>${t(language, "viewer.graph.replay.sub")}</small></div>
+          <input type="range" class="tl" id="graph-time-range" min="0" max="100" value="100" aria-label="${t(language, "viewer.graph.replay.title")}" oninput="CO_ENGRAM_GRAPH.setTimeReplay(this.value)">
+          <span class="tl-val" id="graph-time-val"></span>
         </div>
       </div>
     </section>

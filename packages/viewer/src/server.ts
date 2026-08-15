@@ -2599,6 +2599,12 @@ interface GraphResponse {
      * 下发;skill 节点与最终兜底路径不持有,前端兜底 0.5。
      */
     readonly importance?: number;
+    /**
+     * 节点创建时间(epoch ms),前端时间回放滑杆用(按 createdAt 让图生长)。
+     * GraphNode/graph.json 不含该字段 —— 服务端从 SQLite 一次查询补齐,
+     * 让存量 graph.json 缓存无需重建即可支持时间回放。
+     */
+    readonly createdAtMs?: number;
   }>;
   readonly edges: ReadonlyArray<{
     readonly id: string;
@@ -2635,6 +2641,9 @@ function buildGraph(ctx: ToolContext): GraphResponse {
       }
       if (cached) {
         const _skill = buildSkillGraph(ctx);
+        // 时间回放:graph.json 的 GraphNode 不含 createdAt,SQLite 一次查询
+        // 补齐(毫秒级),让存量缓存无需重建即可支持 createdAtMs 下发
+        const createdAtMsById = createdAtMsMap(ctx);
         return {
           nodes: [
             ...cached.nodes.map((n) => ({
@@ -2644,6 +2653,9 @@ function buildGraph(ctx: ToolContext): GraphResponse {
               ...(n.slug ? { slug: n.slug } : {}),
               kind: n.kind,
               domainTags: n.domainTags ?? [],
+              ...(createdAtMsById.has(n.id)
+                ? { createdAtMs: createdAtMsById.get(n.id) }
+                : {}),
             })),
             ..._skill.nodes,
           ],
@@ -2682,12 +2694,16 @@ function buildGraph(ctx: ToolContext): GraphResponse {
       // 索引不可用就降级(不影响 graph 主流程)
     }
   }
+  const createdAtMsById = createdAtMsMap(ctx);
   const nodes = entries.map((e) => ({
     id: e.id,
     title: e.title,
     ...(slugById.has(e.id) ? { slug: slugById.get(e.id)! } : {}),
     kind: e.kind,
     domainTags: e.domainTags,
+    ...(createdAtMsById.has(e.id)
+      ? { createdAtMs: createdAtMsById.get(e.id) }
+      : {}),
   }));
 
   const edges: GraphResponse["edges"][number][] = [];
@@ -2719,6 +2735,38 @@ function buildGraph(ctx: ToolContext): GraphResponse {
 }
 
 /** S6 B6:构建 skill 节点 + composes/relatedEngrams 边(叠加到 graph,与 engram/synapse 并存) */
+/**
+ * 时间回放辅助:engram id → createdAt(epoch ms)Map。
+ * SQLite 一次查询(毫秒级);engrams 表的 created_at 列即 epoch ms
+ * (见 getStatsFromSqlite 的 created_at >= ? 数值比较)。查询失败返回空 Map,
+ * 前端对缺 createdAtMs 的节点放行(不参与时间过滤)。
+ */
+function createdAtMsMap(ctx: ToolContext): Map<string, number> {
+  const out = new Map<string, number>();
+  const db = (
+    ctx.repository as {
+      indexDb?: {
+        prepare(q: string): { all(...a: unknown[]): unknown[] };
+      };
+    }
+  ).indexDb;
+  if (!db) return out;
+  try {
+    const rows = db.prepare("SELECT id, created_at FROM engrams").all() as {
+      id: string;
+      created_at: number | null;
+    }[];
+    for (const r of rows) {
+      if (typeof r.created_at === "number" && r.created_at > 0) {
+        out.set(r.id, r.created_at);
+      }
+    }
+  } catch {
+    // ignore:降级为不下发 createdAtMs
+  }
+  return out;
+}
+
 function buildSkillGraph(ctx: ToolContext): {
   nodes: GraphResponse["nodes"][number][];
   edges: GraphResponse["edges"][number][];
@@ -2728,6 +2776,7 @@ function buildSkillGraph(ctx: ToolContext): {
       skillRepository?: {
         listSkills(): ReadonlyArray<{
           skillId: string;
+          createdAt?: string;
           composes?: readonly string[];
           relatedEngrams?: readonly string[];
         }>;
@@ -2743,6 +2792,9 @@ function buildSkillGraph(ctx: ToolContext): {
       title: s.skillId,
       kind: "skill",
       domainTags: ["skill"],
+      ...(s.createdAt
+        ? { createdAtMs: Date.parse(s.createdAt) || undefined }
+        : {}),
     }));
     const edges: GraphResponse["edges"][number][] = [];
     for (const s of skills) {

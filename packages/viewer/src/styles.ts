@@ -814,6 +814,89 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 }
 .graph-toolbar::-webkit-scrollbar-thumb:hover { background: rgba(94, 234, 212, 0.4); }
 
+/* === 2026-08 图谱改版(DEMO g2-synapses)=== */
+/* 重要度阈值滑杆 */
+.graph-slider { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.2rem 0.15rem; }
+.graph-slider .slider-val { font-size: 0.68rem; color: var(--fg-dim); }
+.graph-slider input[type=range] { width: 100%; accent-color: var(--accent); }
+
+/* SVG 覆盖层:呼吸凸包 / 发光脉冲 / 流动边(pointer-events 穿透,画布交互不受影响) */
+.graph-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 4;
+  overflow: visible;
+}
+.hull {
+  fill: rgba(15, 118, 110, 0.04);
+  stroke: rgba(15, 118, 110, 0.35);
+  stroke-width: 1.5;
+  animation: hullbreathe 4s ease-in-out infinite;
+}
+@keyframes hullbreathe {
+  0%, 100% { stroke-opacity: 0.55; fill-opacity: 1; }
+  50% { stroke-opacity: 0.2; fill-opacity: 0.35; }
+}
+.halo {
+  fill: none;
+  stroke-width: 2;
+  animation: halopulse 3s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+@keyframes halopulse {
+  0%, 100% { stroke-opacity: 0.55; transform: scale(1); }
+  50% { stroke-opacity: 0.12; transform: scale(1.18); }
+}
+.flow {
+  fill: none;
+  stroke-width: 2;
+  stroke-dasharray: 5 9;
+  animation: flowdash 1.2s linear infinite;
+}
+@keyframes flowdash { to { stroke-dashoffset: -28; } }
+.cluster-lab { font-size: 11px; fill: #8B857B; letter-spacing: 0.12em; }
+@media (prefers-reduced-motion: reduce) {
+  .hull, .halo, .flow { animation: none !important; }
+}
+
+/* 夜览(DEMO stage.night):深蓝底 + 点阵弱化;节点标签色由 graph.ts 切换 */
+#graph-canvas { position: relative; transition: background-color 0.3s; }
+#graph-canvas.night {
+  background:
+    radial-gradient(rgba(140, 155, 205, 0.14) 1px, transparent 1px) 0 0 / 22px 22px,
+    #0A0D1C;
+}
+#graph-canvas.night ~ .graph-bottombar { background: linear-gradient(180deg, transparent, rgba(10, 13, 28, 0.92) 45%); }
+#graph-canvas.night ~ .graph-bottombar .tl-val, #graph-canvas.night ~ .graph-bottombar .tl-lab { color: #8A94B8; }
+#graph-canvas.night ~ .graph-bottombar .tl-lab b { color: #C6D0EC; }
+#graph-canvas.night + .graph-bottombar { background: linear-gradient(180deg, transparent, rgba(10, 13, 28, 0.92) 45%); }
+#graph-canvas.night + .graph-bottombar .tl-val, #graph-canvas.night + .graph-bottombar .tl-lab { color: #8A94B8; }
+#graph-canvas.night + .graph-bottombar .tl-lab b { color: #C6D0EC; }
+#graph-canvas.night ~ * .cluster-lab, #graph-canvas.night .cluster-lab { fill: #7580A8; }
+
+/* 底部时间回放栏(DEMO bottombar) */
+.graph-bottombar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 1rem;
+  background: linear-gradient(180deg, transparent, rgba(251, 250, 248, 0.92) 45%);
+}
+.graph-bottombar .tl-lab { font-size: 0.72rem; color: var(--fg-dim); white-space: nowrap; }
+.graph-bottombar .tl-lab b { color: var(--fg); font-size: 0.78rem; margin-right: 0.4rem; }
+.graph-bottombar .tl-lab small { font-size: 0.65rem; }
+.graph-bottombar .tl { flex: 1; accent-color: var(--accent); }
+.graph-bottombar .tl-val { font-size: 0.72rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; white-space: nowrap; min-width: 8.5rem; text-align: right; }
+
 /* 操作按钮行:横排 */
 .graph-toolbar .toolbar-actions {
   display: grid;
