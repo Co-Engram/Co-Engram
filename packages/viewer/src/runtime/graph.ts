@@ -480,19 +480,7 @@ async function renderGraphInner(container) {
     famsEl.innerHTML = fh;
   }
 
-  // 顶栏计数行(DEMO gt small):「N 条 · M 可见(重要度 ≥x)· K 个 Louvain 簇」
-  function updateCountLine() {
-    const T = CO_ENGRAM_T;
-    const el = document.getElementById('graph-count-line');
-    if (!el) return;
-    const visible = nodesDataset.length;
-    const clusters = (CO_ENGRAM._graphClusters || []).length;
-    el.textContent = graph.nodes.length + ' ' + T.t('viewer.graph.countLine.items') + ' · '
-      + visible + ' ' + T.t('viewer.graph.countLine.visible', { imp: state.minImportance.toFixed(2) })
-      + (clusters ? ' · ' + clusters + ' ' + T.t('viewer.graph.countLine.clusters') : '');
-  }
   renderLegend();
-  updateCountLine();
 
   // 顶栏 chip + 计数初始显示
   CO_ENGRAM_GRAPH._refreshTextChip();
@@ -625,7 +613,6 @@ async function renderGraphInner(container) {
     recomputeClusters();
     updateSliderLabels();
     renderLegend();
-    updateCountLine();
     queueRefreshOverlay();
   };
   CO_ENGRAM._graphState.togglePhysics = function() {

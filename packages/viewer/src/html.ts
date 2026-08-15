@@ -215,7 +215,7 @@ ${SIDE_ICONS}
         发光脉冲已删(心智负担);重置视图已删。
       -->
       <div class="graph-funcbar">
-        <div class="gt">${t(language, "viewer.tab.graph")} <small id="graph-count-line"></small></div>
+        <div class="gt">${t(language, "viewer.tab.graph")}</div>
         <input type="search" class="ftext" id="graph-q" placeholder="${t(language, "viewer.graph.filter.searchPlaceholder2")}" oninput="CO_ENGRAM_GRAPH.applyTextFilter(this.value)">
         <button class="pathbtn" onclick="CO_ENGRAM_GRAPH.openPathPicker()">📂 ${t(language, "viewer.graph.filter.pathBtn2")}</button>
         <span class="chip removable" id="graph-path-chip" style="display:none" onclick="CO_ENGRAM_GRAPH.clearPathFilter()"></span>
@@ -237,6 +237,9 @@ ${SIDE_ICONS}
         </div>
         <span class="chip" id="graph-filter-count"></span>
         <span class="spacer"></span>
+        <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
+        <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
+        <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
         <button class="btn secondary mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
       </div>
       <div class="graph-container" id="graph-stage">
@@ -256,11 +259,6 @@ ${SIDE_ICONS}
           <div class="tl-lab"><b>${t(language, "viewer.graph.replay.title")}</b>${t(language, "viewer.graph.replay.sub")}</div>
           <input type="range" class="tl" id="graph-time-range" min="0" max="100" value="100" aria-label="${t(language, "viewer.graph.replay.title")}" oninput="CO_ENGRAM_GRAPH.setTimeReplay(this.value)">
           <span class="tl-val" id="graph-time-val"></span>
-          <div class="tools">
-            <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
-            <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
-            <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
-          </div>
         </div>
       </div>
     </section>

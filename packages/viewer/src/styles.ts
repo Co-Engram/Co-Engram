@@ -538,7 +538,7 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
   color: var(--fg-bright);
   transition: color .15s;
 }
-.card-title:hover { color: var(--accent); text-shadow: 0 0 8px rgba(94, 234, 212, 0.4); }
+.card-title:hover { color: var(--accent); }
 .card-meta {
   font-size: 0.75rem;
   color: var(--fg-muted);
@@ -795,6 +795,9 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 .graph-funcbar .fselect { width: auto; margin-top: 0; }
 .graph-funcbar .graph-slider { flex-direction: row; align-items: center; gap: 0.4rem; padding: 0; min-width: 150px; }
 .graph-funcbar .graph-slider input[type=range] { width: 90px; margin: 0; }
+.graph-funcbar .tb { font: inherit; font-size: 0.76rem; padding: 0.3rem 0.7rem; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--fg-dim); cursor: pointer; white-space: nowrap; }
+.graph-funcbar .tb:hover { background: #F2EFEA; color: var(--fg); }
+.graph-funcbar .tb.on { background: var(--accent-soft); color: var(--accent); border-color: var(--border-glow); }
 
 /* === Graph stage(2026-08 DEMO g2-synapses 定稿:点阵纸面舞台 + 浮层)=== */
 main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
@@ -1296,7 +1299,7 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
   text-decoration-style: dotted;
   text-underline-offset: 2px;
 }
-.timeline-row .engram-link:hover { text-decoration-style: solid; text-shadow: 0 0 6px rgba(94, 234, 212, 0.5); }
+.timeline-row .engram-link:hover { text-decoration-style: solid; }
 .timeline-row .metadata {
   font-size: 0.7rem;
   color: var(--fg-muted);
@@ -2138,7 +2141,7 @@ footer.app-footer {
 
 /* === vis-network dark overrides === */
 div.vis-tooltip {
-  background: rgba(45, 42, 38, 0.95) !important;
+  background: rgba(255, 255, 255, 0.97) !important;
   color: var(--fg) !important;
   border: 1px solid var(--border-strong) !important;
   border-radius: 4px !important;
