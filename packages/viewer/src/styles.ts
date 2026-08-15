@@ -2497,6 +2497,28 @@ div.vis-tooltip {
 .inc-archived { margin-top: 0.9rem; }
 .inc-archived summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
 
+/* === 帮助页(DEMO g2-help:四卡快速上手 + 深入参考折叠) === */
+.help-card { margin-bottom: 0.65rem; padding: 0.95rem 1.15rem; }
+.help-card .h2 { font-size: 0.95rem; margin: 0 0 0.5rem; font-weight: 700; }
+.help-card p { font-size: 0.82rem; color: var(--fg-muted); line-height: 1.7; margin: 0 0 0.4rem; }
+.help-card p:last-child { margin-bottom: 0; }
+.help-card ul, .help-card ol { padding-left: 1.2rem; font-size: 0.82rem; color: var(--fg-muted); line-height: 1.7; }
+.help-card li { margin-bottom: 0.25rem; }
+.help-card code { font-family: ui-monospace, Consolas, monospace; font-size: 0.75rem; background: #F0EDE7; border-radius: 4px; padding: 0 5px; }
+.kbd { display: inline-block; border: 1px solid var(--border); border-radius: 4px; padding: 0 6px; font-size: 0.72rem; background: var(--panel-bg, #fff); font-family: inherit; color: var(--fg); }
+.help-ref { background: var(--panel-bg, #fff); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.5rem; }
+.help-ref > summary { cursor: pointer; padding: 0.7rem 1.05rem; font-size: 0.85rem; font-weight: 600; color: var(--fg); list-style: none; }
+.help-ref > summary::before { content: '▸'; margin-right: 0.5rem; color: var(--fg-dim); }
+.help-ref[open] > summary::before { content: '▾'; }
+.help-ref-body { padding: 0 1.05rem 0.9rem; font-size: 0.82rem; color: var(--fg-muted); line-height: 1.7; }
+.help-ref-body p { margin: 0 0 0.5rem; }
+.help-ref-body ul, .help-ref-body ol { padding-left: 1.2rem; }
+.help-ref-body li { margin-bottom: 0.3rem; }
+.help-dl dt { font-weight: 600; color: var(--fg); margin-top: 0.5rem; }
+.help-dl dd { margin: 0.1rem 0 0.3rem; }
+.help-ref-jump { color: var(--accent); cursor: pointer; }
+.help-ref-jump:hover { text-decoration: underline; }
+
 .page-h { font-size: 1.45rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
 .page-sub { font-size: 0.78rem; color: var(--fg-dim); margin-bottom: 1.1rem; }
 

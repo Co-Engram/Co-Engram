@@ -4889,101 +4889,82 @@ CO_ENGRAM.on('help', async function() {
 window.CO_ENGRAM_HELP = {
   render() {
     const T = CO_ENGRAM_T;
+    // 2026-08 重设计(DEMO g2-help):页头 + 快速上手四卡
+    // (是什么 / 各页签怎么用 / 快捷键 / 了解更多入口)+ 深入参考按节折叠
+    // (details)—— 原先是一整面长文,新手找不到入口,老手翻不动。
+    const kbd = (k) => '<span class="kbd">' + CO_ENGRAM.escapeHtml(k) + '</span>';
+    const refSection = (title, bodyHtml) => '<details class="help-ref"><summary>' + CO_ENGRAM.escapeHtml(title) + '</summary><div class="help-ref-body">' + bodyHtml + '</div></details>';
+    const li = (items) => '<ul>' + items.map(x => '<li>' + x + '</li>').join('') + '</ul>';
+    const dl = (pairs) => '<dl class="help-dl">' + pairs.map(([t2, d]) => '<dt>' + t2 + '</dt><dd>' + d + '</dd>').join('') + '</dl>';
+    const p = (x) => '<p>' + x + '</p>';
+
     return ''
-      + '<div class="panel" style="max-width:900px;margin:0 auto;padding:1.5rem;line-height:1.7">'
-      + '<h2 style="margin-top:0">' + T.t('viewer.help.title') + '</h2>'
-      + '<p>' + T.t('viewer.help.intro') + '</p>'
+      + '<h1 class="page-h">' + T.t('viewer.help.pageTitle') + '</h1>'
+      + '<div class="page-sub">' + T.t('viewer.help.pageSub') + '</div>'
 
-      + '<h3>' + T.t('viewer.help.conceptsTitle') + '</h3>'
-      + '<dl style="padding-left:0.5rem;border-left:3px solid var(--border)">'
-      + '<dt>' + T.t('viewer.help.conceptEngram') + '</dt>'
-      + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptEngramDesc') + '</dd>'
-      + '<dt>' + T.t('viewer.help.conceptSynapse') + '</dt>'
-      + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptSynapseDesc') + '</dd>'
-      + '<dt>' + T.t('viewer.help.conceptImportance') + '</dt>'
-      + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptImportanceDesc') + '</dd>'
-      + '<dt>' + T.t('viewer.help.conceptVector') + '</dt>'
-      + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptVectorDesc') + '</dd>'
-      + '<dt>' + T.t('viewer.help.conceptLifecycle') + '</dt>'
-      + '<dd style="margin-bottom:0.6rem">' + T.t('viewer.help.conceptLifecycleDesc') + '</dd>'
-      + '</dl>'
+      + '<div class="card help-card"><div class="h2">' + T.t('viewer.help.whatTitle') + '</div>' + p(T.t('viewer.help.intro')) + '</div>'
 
-      + '<h3>' + T.t('viewer.help.graphTitle') + '</h3>'
-      + '<p>' + T.t('viewer.help.graphDesc') + '</p>'
+      + '<div class="card help-card"><div class="h2">' + T.t('viewer.help.tabsTitle') + '</div>'
+      + li([
+        T.t('viewer.help.tabStats'), T.t('viewer.help.tabEngrams'), T.t('viewer.help.tabGraph'),
+        T.t('viewer.help.tabSkills'), T.t('viewer.help.tabProposals'), T.t('viewer.help.nightThinkingTitle') + ' — ' + T.t('viewer.help.tabDreams'),
+        T.t('viewer.help.tabAudit'), T.t('viewer.help.tabTrash'), T.t('viewer.help.tabConfig'),
+      ])
+      + '</div>'
 
-      + '<h3>' + T.t('viewer.help.rulesTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.rulesIntro') + '</p>'
-      + '<ul style="padding-left:1.2rem;line-height:1.7">'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.ruleLtp') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.ruleLtd') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.ruleHebbian') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.ruleWeights') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.ruleWindows') + '</li>'
-      + '</ul>'
+      + '<div class="card help-card"><div class="h2">' + T.t('viewer.help.kbdTitle') + '</div>'
+      + p(kbd('/') + ' ' + T.t('viewer.help.kbdSearch') + ' · ' + kbd('Esc') + ' ' + T.t('viewer.help.kbdEsc'))
+      + '</div>'
 
-      + '<h3>' + T.t('viewer.help.stateMachineTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.stateMachineIntro') + '</p>'
-      + '<ol style="padding-left:1.2rem;line-height:1.7">'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.stateUnverified') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.statePlausible') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.stateProbable') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.stateVerified') + '</li>'
-      + '<li style="margin-bottom:0.4rem">' + T.t('viewer.help.stateRefuted') + '</li>'
-      + '</ol>'
+      + '<div class="card help-card"><div class="h2">' + T.t('viewer.help.refTitle') + '</div>'
+      + p(T.t('viewer.help.refIntro'))
+      + li([
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(0)">' + T.t('viewer.help.conceptsTitle') + '</span>',
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(1)">' + T.t('viewer.help.graphTitle') + '</span>',
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(2)">' + T.t('viewer.help.rulesTitle') + '</span>',
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(3)">' + T.t('viewer.help.stateMachineTitle') + '</span>',
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(4)">' + T.t('viewer.help.nightThinkingTitle') + '</span>',
+        '<span class="help-ref-jump" onclick="CO_ENGRAM_HELP.openRef(5)">' + T.t('viewer.help.moreTitle') + '</span>',
+      ])
+      + '</div>'
 
-      + '<h3>' + T.t('viewer.help.tabsTitle') + '</h3>'
-      + '<ul style="padding-left:1.2rem">'
-      + '<li>' + T.t('viewer.help.tabStats') + '</li>'
-      + '<li>' + T.t('viewer.help.tabEngrams') + '</li>'
-      + '<li>' + T.t('viewer.help.tabSkills') + '</li>'
-      + '<li>' + T.t('viewer.help.tabGraph') + '</li>'
-      + '<li>' + T.t('viewer.help.tabProposals') + '</li>'
-      + '<li>' + T.t('viewer.help.tabAudit') + '</li>'
-      + '<li>' + T.t('viewer.help.tabTrash') + '</li>'
-      + '<li>' + T.t('viewer.help.tabConfig') + '</li>'
-      + '</ul>'
-
-      + '<h3>' + T.t('viewer.help.nightThinkingTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.nightThinkingDesc') + '</p>'
-
-      + '<h3>' + T.t('viewer.help.evolutionTitle') + '</h3>'
-      + '<ol style="padding-left:1.2rem">'
-      + '<li>' + T.t('viewer.help.evo1') + '</li>'
-      + '<li>' + T.t('viewer.help.evo2') + '</li>'
-      + '<li>' + T.t('viewer.help.evo3') + '</li>'
-      + '<li>' + T.t('viewer.help.evo4') + '</li>'
-      + '<li>' + T.t('viewer.help.evo5') + '</li>'
-      + '<li>' + T.t('viewer.help.evo6') + '</li>'
-      + '</ol>'
-
-      + '<h3>' + T.t('viewer.help.tipsTitle') + '</h3>'
-      + '<ul style="padding-left:1.2rem">'
-      + '<li>' + T.t('viewer.help.tip1') + '</li>'
-      + '<li>' + T.t('viewer.help.tip2') + '</li>'
-      + '<li>' + T.t('viewer.help.tip3') + '</li>'
-      + '<li>' + T.t('viewer.help.tip4') + '</li>'
-      + '<li>' + T.t('viewer.help.tip5') + '</li>'
-      + '<li>' + T.t('viewer.help.tip6') + '</li>'
-      + '<li>' + T.t('viewer.help.tip7') + '</li>'
-      + '</ul>'
-
-      + '<h3>' + T.t('viewer.help.visibilityTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.visibilityBody') + '</p>'
-
-      + '<h3>' + T.t('viewer.help.opsTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsPorts') + '</p>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.opsDataRoot') + '</p>'
-
-      + '<h3>' + T.t('viewer.help.profilesTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.profilesBody') + '</p>'
-
-      + '<h3>' + T.t('viewer.help.syncTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.syncBody') + '</p>'
-
-      + '<h3>' + T.t('viewer.help.obsidianTitle') + '</h3>'
-      + '<p style="margin-bottom:0.6rem">' + T.t('viewer.help.obsidianBody') + '</p>'
-
+      + '<div id="help-refs">'
+      + refSection(T.t('viewer.help.conceptsTitle'),
+        dl([
+          [T.t('viewer.help.conceptEngram'), T.t('viewer.help.conceptEngramDesc')],
+          [T.t('viewer.help.conceptSynapse'), T.t('viewer.help.conceptSynapseDesc')],
+          [T.t('viewer.help.conceptImportance'), T.t('viewer.help.conceptImportanceDesc')],
+          [T.t('viewer.help.conceptVector'), T.t('viewer.help.conceptVectorDesc')],
+          [T.t('viewer.help.conceptLifecycle'), T.t('viewer.help.conceptLifecycleDesc')],
+        ]))
+      + refSection(T.t('viewer.help.graphTitle'), p(T.t('viewer.help.graphDesc')))
+      + refSection(T.t('viewer.help.rulesTitle'),
+        p(T.t('viewer.help.rulesIntro'))
+        + li([T.t('viewer.help.ruleLtp'), T.t('viewer.help.ruleLtd'), T.t('viewer.help.ruleHebbian'), T.t('viewer.help.ruleWeights'), T.t('viewer.help.ruleWindows')]))
+      + refSection(T.t('viewer.help.stateMachineTitle'),
+        p(T.t('viewer.help.stateMachineIntro'))
+        + '<ol>' + [T.t('viewer.help.stateUnverified'), T.t('viewer.help.statePlausible'), T.t('viewer.help.stateProbable'), T.t('viewer.help.stateVerified'), T.t('viewer.help.stateRefuted')].map(x => '<li>' + x + '</li>').join('') + '</ol>')
+      + refSection(T.t('viewer.help.nightThinkingTitle'), p(T.t('viewer.help.nightThinkingDesc')))
+      + refSection(T.t('viewer.help.moreTitle'),
+        p(T.t('viewer.help.evolutionTitle'))
+        + '<ol>' + [T.t('viewer.help.evo1'), T.t('viewer.help.evo2'), T.t('viewer.help.evo3'), T.t('viewer.help.evo4'), T.t('viewer.help.evo5'), T.t('viewer.help.evo6')].map(x => '<li>' + x + '</li>').join('') + '</ol>'
+        + p(T.t('viewer.help.tipsTitle'))
+        + li([T.t('viewer.help.tip1'), T.t('viewer.help.tip2'), T.t('viewer.help.tip3'), T.t('viewer.help.tip4'), T.t('viewer.help.tip5'), T.t('viewer.help.tip6'), T.t('viewer.help.tip7')])
+        + p(T.t('viewer.help.visibilityTitle')) + p(T.t('viewer.help.visibilityBody'))
+        + p(T.t('viewer.help.opsTitle')) + p(T.t('viewer.help.opsPorts')) + p(T.t('viewer.help.opsDataRoot'))
+        + p(T.t('viewer.help.profilesTitle')) + p(T.t('viewer.help.profilesBody'))
+        + p(T.t('viewer.help.syncTitle')) + p(T.t('viewer.help.syncBody'))
+        + p(T.t('viewer.help.obsidianTitle')) + p(T.t('viewer.help.obsidianBody')))
       + '</div>';
+  },
+
+  /** 深入参考跳转:展开目标 details 并滚动到位 */
+  openRef(idx) {
+    const refs = document.querySelectorAll('#help-refs .help-ref');
+    const target = refs[idx];
+    if (!target) return;
+    target.open = true;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 };
 

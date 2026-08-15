@@ -539,5 +539,22 @@ document.addEventListener('DOMContentLoaded', function() {
   document.addEventListener('keydown', function(e) {
     if (e.key === 'Escape') CO_ENGRAM.closeDrawer();
   });
+  // "/" 聚焦检索(DEMO g2-help 快捷键卡):非输入态按下时切到概览并聚焦搜索框。
+  // stats 渲染是异步的(表单要等 /api/stats 返回后才从隐藏 dock 挂进页面),
+  // 用短轮询等输入框可见,最多 ~2s。
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (document.activeElement && document.activeElement.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    e.preventDefault();
+    CO_ENGRAM.showTab('stats');
+    var tries = 0;
+    var focusWhenReady = function() {
+      var input = document.getElementById('search-input');
+      if (input && input.offsetParent !== null) { input.focus(); return; }
+      if (++tries < 40) setTimeout(focusWhenReady, 50);
+    };
+    focusWhenReady();
+  });
 });
 `;

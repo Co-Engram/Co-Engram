@@ -2201,6 +2201,16 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Help panel (viewer.help.*) =====
   "viewer.help.title": "Co-Engram · Self-evolving team memory",
+  "viewer.help.pageTitle": "Help",
+  "viewer.help.pageSub": "Co-Engram Viewer guide",
+  "viewer.help.whatTitle": "What is this page",
+  "viewer.help.kbdTitle": "Keyboard shortcuts",
+  "viewer.help.kbdSearch": "focus search",
+  "viewer.help.kbdEsc": "back / close drawer / reset graph focus",
+  "viewer.help.refTitle": "Learn more",
+  "viewer.help.refIntro": "Deep reference (click to expand a section):",
+  "viewer.help.moreTitle": "Operations & collaboration",
+  "viewer.help.tabDreams": "Memory Dreams: nightly maintenance report",
   "viewer.help.intro":
     "Co-Engram distills team conversations, decisions and lessons into <em>engrams</em> and links them with <em>synapses</em> into an evolvable knowledge network. Models recall relevant memories via <code>memory_search</code>, reinforce effective ones with <code>engram_reinforce</code>, and weaken broken ones with <code>engram_report_failure</code> — this closed loop lets high-value memories surface and stale ones decay automatically.",
   "viewer.help.conceptsTitle": "Core concepts",

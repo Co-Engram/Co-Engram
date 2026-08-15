@@ -2138,6 +2138,16 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Help 面板(viewer.help.*) =====
   "viewer.help.title": "Co-Engram · 自进化的团队记忆",
+  "viewer.help.pageTitle": "帮助",
+  "viewer.help.pageSub": "Co-Engram Viewer 使用指南",
+  "viewer.help.whatTitle": "这个页面是什么",
+  "viewer.help.kbdTitle": "快捷键",
+  "viewer.help.kbdSearch": "聚焦检索",
+  "viewer.help.kbdEsc": "返回 / 关闭抽屉 / 复位图谱聚焦",
+  "viewer.help.refTitle": "了解更多",
+  "viewer.help.refIntro": "深入参考(点击展开对应章节):",
+  "viewer.help.moreTitle": "运行与协作",
+  "viewer.help.tabDreams": "记忆梦境:每夜维护报告(强化/衰减/验证升级/模式提炼)",
   "viewer.help.intro":
     "Co-Engram 把团队工作中的对话、决策、踩过的坑沉淀为<em>记忆印迹(engram)</em>,用<em>记忆突触(synapse)</em>把它们连成可演化的知识网络。模型在后续任务里通过 <code>memory_search</code> 召回相关记忆,引用有效时调 <code>engram_reinforce</code> 强化,出错时调 <code>engram_report_failure</code> 弱化——这套闭环让高价值记忆自动浮现、过时记忆自动衰减。",
   "viewer.help.conceptsTitle": "核心概念",
