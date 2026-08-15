@@ -591,6 +591,12 @@ export class IndexDb {
          e.updated_at as updatedAt,
          e.created_at as createdAt,
          e.content_size as contentSize,
+         (SELECT group_concat(d.domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domainTagsCsv,
+         e.created_by AS createdBy,
+         e.verification_status AS verificationStatus,
+         e.last_retrieved_at AS lastRetrievedAt,
+         (SELECT count(*) FROM synapses s WHERE s.from_id = e.id)
+           + (SELECT count(*) FROM synapses s WHERE s.to_id = e.id) AS synapseCount,
          e.visibility, e.status, e.summary,
          e.retrieval_count as retrievalCount
        FROM engrams e
@@ -1162,6 +1168,11 @@ export class IndexDb {
  *
  * 注意:row.importance / retrievalCount 是 number,row.updatedAt / createdAt 是 epoch ms
  * (number)。前端如需 ISO 字符串自行转换。
+ *
+ * 2026-08 改版(viewer 印迹卡片信息密度):补 domainTagsCsv / createdBy /
+ * verificationStatus / lastRetrievedAt / synapseCount,全部走既有索引
+ * (engram_domains.engram_id / synapses.from_id / to_id)的关联子查询,
+ * 单条 SELECT 内完成,无 N+1。
  */
 export interface EngramQueryRow {
   readonly id: string;
@@ -1172,6 +1183,13 @@ export interface EngramQueryRow {
   readonly updatedAt: number;
   readonly createdAt: number;
   readonly contentSize: number;
+  readonly domainTagsCsv: string | null;
+  readonly createdBy: string | null;
+  readonly verificationStatus: string | null;
+  /** 最近一次取用(epoch ms;null = 从未取用) */
+  readonly lastRetrievedAt: number | null;
+  /** 突触总数(出边 + 入边,synapses 表索引子查询) */
+  readonly synapseCount: number;
   readonly visibility: string;
   readonly status: string;
   readonly summary: string;

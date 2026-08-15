@@ -2210,6 +2210,11 @@ export class EngramRepository {
         status?: string;
         confidence?: number;
         contentSize?: number;
+        createdBy?: string;
+        verificationStatus?: string;
+        lastRetrievedAt?: string;
+        outgoingSynapseCount?: number;
+        incomingSynapseCount?: number;
       } | null = null;
       try {
         full = this.readEngram(entry.id);
@@ -2225,6 +2230,18 @@ export class EngramRepository {
         updatedAt: full?.updatedAt ? Date.parse(full.updatedAt) : 0,
         createdAt: full?.createdAt ? Date.parse(full.createdAt) : 0,
         contentSize: full?.contentSize ?? 0,
+        // 2026-08 改版字段(与 SQLite 路径 EngramQueryRow 对齐;小规模 memory
+        // 模式走 readEngram 投影,无性能红线)
+        domainTagsCsv: (entry.domainTags ?? []).length
+          ? entry.domainTags.join(",")
+          : null,
+        createdBy: full?.createdBy ?? null,
+        verificationStatus: full?.verificationStatus ?? null,
+        lastRetrievedAt: full?.lastRetrievedAt
+          ? Date.parse(full.lastRetrievedAt) || null
+          : null,
+        synapseCount:
+          (full?.outgoingSynapseCount ?? 0) + (full?.incomingSynapseCount ?? 0),
         visibility: full?.visibility ?? "public",
         status: full?.status ?? "active",
         summary: full?.summary ?? "",

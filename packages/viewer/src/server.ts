@@ -1895,7 +1895,51 @@ async function routeApi(
       .filter((e) => (e.status ?? "active") !== "forgotten");
     // ?files=1:增补 title/kind/domainTags/createdAt(取 index entry 已有字段,零额外读盘),
     // 供 viewer 目录树内联展开直属文件行。graph tab 不带 files=1 → payload 不变。
+    // 2026-08 改版:再加 importance/retrievalCount/lastRetrievedAt(树行「均重要度」
+    // 统计头 + leaf 行元数据用),SQLite 一次查询补齐,零逐条读盘。
     const withFiles = url.searchParams.get("files") === "1";
+    let liveStatsById: Map<
+      string,
+      { importance: number; retrievalCount: number; lastRetrievedAt: number | null }
+    > | null = null;
+    if (withFiles) {
+      const db = (
+        ctx.repository as {
+          indexDb?: {
+            prepare(q: string): { all(...a: unknown[]): unknown[] };
+          };
+        }
+      ).indexDb;
+      if (db) {
+        try {
+          const rows = db
+            .prepare(
+              "SELECT id, importance, retrieval_count AS retrievalCount, last_retrieved_at AS lastRetrievedAt FROM engrams",
+            )
+            .all() as {
+            id: string;
+            importance: number;
+            retrievalCount: number;
+            lastRetrievedAt: number | null;
+          }[];
+          liveStatsById = new Map(
+            rows.map((r) => [
+              r.id,
+              {
+                importance: r.importance,
+                retrievalCount: r.retrievalCount ?? 0,
+                lastRetrievedAt:
+                  typeof r.lastRetrievedAt === "number" && r.lastRetrievedAt > 0
+                    ? r.lastRetrievedAt
+                    : null,
+              },
+            ]),
+          );
+        } catch {
+          // SQLite 不可用 → 树行降级为无重要度/取用元数据
+        }
+      }
+    }
     const engramLocations = entries.map((e) => ({
       id: e.id,
       path: e.path,
@@ -1905,6 +1949,7 @@ async function routeApi(
             kind: e.kind,
             domainTags: e.domainTags,
             createdAt: e.createdAt,
+            ...(liveStatsById?.get(e.id) ?? {}),
           }
         : {}),
     }));

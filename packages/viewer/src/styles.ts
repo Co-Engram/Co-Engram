@@ -2142,6 +2142,67 @@ div.vis-tooltip {
   white-space: nowrap;
 }
 .tree-more { margin: 0.25rem 0.5rem; }
+
+/* === 2026-08 印迹卡片信息密度 + 整体目录树(DEMO g2-engrams)=== */
+/* 卡片解剖:.c-head 徽标行 / .c-sum 两行摘要 / .c-tags / .c-foot 五要素脚注 */
+.e-card { display: flex; flex-direction: column; gap: 0.45rem; }
+.c-head { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+.c-head .kd { font-size: 0.68rem; font-weight: 700; border-radius: 5px; padding: 1px 8px; }
+.c-state { margin-left: auto; font-size: 0.68rem; font-weight: 600; color: var(--fg-dim); }
+.c-state.ver-verified { color: #0F766E; }
+.c-state.ver-probable { color: #0E7490; }
+.c-state.ver-plausible { color: #B45309; }
+.c-state.ver-refuted { color: #DC2626; }
+.c-sum {
+  font-size: 0.78rem;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.c-tags { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.tg {
+  font-size: 0.68rem;
+  color: var(--fg-dim);
+  background: #F5F2EC;
+  border-radius: 5px;
+  padding: 0 7px;
+}
+.c-foot {
+  display: flex;
+  gap: 0.75rem;
+  font-size: 0.7rem;
+  color: var(--fg-dim);
+  align-items: center;
+  border-top: 1px dashed var(--border);
+  padding-top: 0.5rem;
+  margin-top: auto;
+  flex-wrap: wrap;
+}
+.c-foot .imp { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--fg-muted); cursor: help; }
+.syn-n { color: var(--fg-dim); }
+.t-up { color: var(--accent); }
+.t-flat { color: var(--fg-dim); }
+.t-down { color: #B45309; }
+
+/* 整体目录树:根节点行 + 组统计头 + leaf 元数据 */
+.tree-view summary { display: flex; align-items: center; gap: 0.3rem; }
+.tree-view summary .tmeta { margin-left: auto; display: flex; gap: 0.55rem; font-size: 0.68rem; color: var(--fg-dim); white-space: nowrap; }
+.tree-view summary .tmeta b { color: var(--fg-muted); }
+.tree-root > summary { font-size: 1rem; }
+.tree-root > summary .tree-dir-name.root { font-weight: 700; }
+.tree-avg { color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.tree-file .kd2 {
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.tree-file .leaf-m { display: flex; gap: 0.6rem; font-size: 0.68rem; color: var(--fg-dim); white-space: nowrap; }
+.tree-file .leaf-m .imp2 { font-variant-numeric: tabular-nums; color: var(--fg-muted); }
 .btn.mini {
   padding: 0.15rem 0.5rem;
   font-size: 0.7rem;

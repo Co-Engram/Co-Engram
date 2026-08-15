@@ -332,6 +332,13 @@ window.CO_ENGRAM_ENGRAMS = {
       + '<option value="team"' + CO_ENGRAM.tip('engram.gitIsolation.teamScope') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.team')) + '</option>'
       + '<option value="private"' + CO_ENGRAM.tip('engram.gitIsolation') + '>' + CO_ENGRAM.escapeHtml(T.t('viewer.engram.filter.private')) + '</option>'
       + '</select></label>'
+      // 新鲜度(DEMO trow2):全部/本周新建/本月新建/沉睡(30 天未取用)
+      + '<label>' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.freshness')) + ' <select id="engrams-freshness" onchange="CO_ENGRAM_ENGRAMS.applyFilter()">'
+      + '<option value="">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.freshnessAll')) + '</option>'
+      + '<option value="week">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.freshnessWeek')) + '</option>'
+      + '<option value="month">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.freshnessMonth')) + '</option>'
+      + '<option value="dormant">' + CO_ENGRAM.escapeHtml(T.t('engrams.filter.freshnessDormant')) + '</option>'
+      + '</select></label>'
       + '<span class="spacer"></span>'
       + '<div class="view-toggle" role="group" aria-label="' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card') + ' / ' + T.t('engrams.view.tree')) + '">'
       + '<button class="tab' + (CO_ENGRAM._engramsViewMode === 'card' ? ' active' : '') + '" onclick="CO_ENGRAM_ENGRAMS.setView(\\'card\\')">' + CO_ENGRAM.escapeHtml(T.t('engrams.view.card')) + '</button>'
@@ -368,6 +375,7 @@ window.CO_ENGRAM_ENGRAMS = {
     const q = qRaw.toLowerCase();
     const kind = (document.getElementById('engrams-kind') || {}).value || '';
     const visibility = (document.getElementById('engrams-visibility') || {}).value || '';
+    const freshness = (document.getElementById('engrams-freshness') || {}).value || '';
     const sort = ((document.getElementById('engrams-sort') || {}).value || 'createdAt-desc').split('-');
     const [sortKey, sortDir] = sort;
     const T = CO_ENGRAM_T;
@@ -392,7 +400,7 @@ window.CO_ENGRAM_ENGRAMS = {
     }
 
     // filter signature 变化时自动回第一页(用户改 filter 后,旧 viewStart 索引的页面内容不再相关)
-    const filterSig = qRaw + '|' + kind + '|' + visibility + '|' + sortKey + '-' + sortDir + '|' + (pathPrefix ?? '');
+    const filterSig = qRaw + '|' + kind + '|' + visibility + '|' + freshness + '|' + sortKey + '-' + sortDir + '|' + (pathPrefix ?? '');
     if (CO_ENGRAM._engramsLastFilterSig !== filterSig) {
       CO_ENGRAM._engramsLastFilterSig = filterSig;
       CO_ENGRAM._engramsViewStart = 0;
@@ -405,6 +413,17 @@ window.CO_ENGRAM_ENGRAMS = {
       // - 'private' → 仅显示 visibility === 'private'
       if (visibility === 'private' && e.visibility !== 'private') return false;
       if (visibility === 'team' && e.visibility === 'private') return false;
+      // 新鲜度(DEMO 新鲜度下拉):week/month 按新建时间;dormant = 超过 30 天未取用
+      if (freshness) {
+        const DAY = 86400000;
+        const now = Date.now();
+        if (freshness === 'week' && !(e.createdAt && now - e.createdAt <= 7 * DAY)) return false;
+        if (freshness === 'month' && !(e.createdAt && now - e.createdAt <= 30 * DAY)) return false;
+        if (freshness === 'dormant') {
+          const idle = e.lastRetrievedAt ? now - e.lastRetrievedAt : Infinity;
+          if (!(idle > 30 * DAY)) return false;
+        }
+      }
       // path 前缀过滤:用 id→path Map(2026-07 修复,ULID id 不再当作路径)
       // pathPrefix === '' 表示 root 直属:匹配 path 中无 '/' 的根级 engram
       // pathPrefix !== '' 匹配 path === pathPrefix 或 path 以 pathPrefix + '/' 开头
@@ -514,32 +533,61 @@ window.CO_ENGRAM_ENGRAMS = {
   },
 
   _renderCards(filtered, body) {
+    body.innerHTML = '<div class="grid cols-3">' + filtered.map(e => CO_ENGRAM_ENGRAMS._cardHtml(e)).join('') + '</div>';
+  },
+
+  // 单张印迹卡片(DEMO g2-engrams .e-card 解剖):
+  //   c-head:kind 徽标 + 可见性徽标 + 右侧验证状态
+  //   标题 / 摘要(2 行截断)/ tags
+  //   c-foot:创建者 · 时间 · 取用 N · 突触 N · 右侧重要度数值 + 趋势符 ▲▬▼
+  _cardHtml(e) {
     const T = CO_ENGRAM_T;
-    body.innerHTML = '<div class="grid cols-3">' + filtered.map(e => {
-      const tags = (e.domainTags || []).slice(0, 4)
-        .map(t => '<span class="chip">' + CO_ENGRAM.escapeHtml(t) + '</span>').join(' ');
-      const more = (e.domainTags || []).length > 4 ? '<span class="chip">+' + ((e.domainTags || []).length - 4) + '</span>' : '';
-      const kindTip = CO_ENGRAM.tip('kind.' + e.kind);
-      const createdCell = e.createdAt
-        ? '<span title="' + CO_ENGRAM.escapeHtml(e.createdAt) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(e.createdAt)) + '</span>'
-        : '';
-      // private engram 卡片显示 🔒 提示已隔离出团队 git
-      const privateIcon = e.visibility === 'private'
-        ? '<span class="lock-icon"' + CO_ENGRAM.tip('engram.gitIsolation') + '>🔒</span> '
-        : '';
-      return '<div class="card">'
-        + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + privateIcon + CO_ENGRAM.escapeHtml(e.title) + '</div>'
-        + '<div><span class="chip kind-' + e.kind + '"' + kindTip + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span> '
-        + CO_ENGRAM.renderVisibilityBadge(e.visibility)
-        + CO_ENGRAM.importanceBar(e.importance)
-        + CO_ENGRAM.renderImportanceChip(e.importance) + '</div>'
-        + '<div class="card-meta">'
-        + (e.retrievalCount != null ? '<span' + CO_ENGRAM.tip('retrievalCount') + '>' + CO_ENGRAM.escapeHtml(T.t('engrams.retrievalsCount', { n: e.retrievalCount })) + '</span>' : '')
-        + createdCell
-        + '</div>'
-        + (tags ? '<div class="card-meta">' + tags + more + '</div>' : '')
-        + '</div>';
-    }).join('') + '</div>';
+    const tagsArr = (e.domainTagsCsv || '').split(',').filter(Boolean);
+    const tags = tagsArr.slice(0, 4)
+      .map(t => '<span class="tg">' + CO_ENGRAM.escapeHtml(t) + '</span>').join('');
+    const tagMore = tagsArr.length > 4 ? '<span class="tg">+' + (tagsArr.length - 4) + '</span>' : '';
+    const kindTip = CO_ENGRAM.tip('kind.' + e.kind);
+    const createdCell = e.createdAt
+      ? '<span title="' + CO_ENGRAM.escapeHtml(new Date(e.createdAt).toISOString()) + '">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(e.createdAt)) + '</span>'
+      : '';
+    // private engram 卡片显示 🔒 提示已隔离出团队 git
+    const privateIcon = e.visibility === 'private'
+      ? '<span class="lock-icon"' + CO_ENGRAM.tip('engram.gitIsolation') + '>🔒</span> '
+      : '';
+    // 验证状态(右置,DEMO .c-state)
+    const verState = e.verificationStatus
+      ? '<span class="c-state ver-' + CO_ENGRAM.escapeHtml(e.verificationStatus) + '"' + CO_ENGRAM.tip('verification.' + e.verificationStatus) + '>'
+        + CO_ENGRAM.escapeHtml(T.enumLabel('verificationStatus', e.verificationStatus) || e.verificationStatus) + '</span>'
+      : '';
+    // 重要度趋势符(代理推导):近 14 天有取用 → ▲(强化方向);超 30 天沉睡 → ▼(衰减方向);其余 ▬
+    const trend = CO_ENGRAM_ENGRAMS._trend(e);
+    return '<div class="card e-card">'
+      + '<div class="c-head">'
+      + '<span class="chip kind-' + e.kind + ' kd"' + kindTip + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span>'
+      + CO_ENGRAM.renderVisibilityBadge(e.visibility)
+      + verState
+      + '</div>'
+      + '<div class="card-title" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + privateIcon + CO_ENGRAM.escapeHtml(e.title) + '</div>'
+      + (e.summary ? '<div class="c-sum">' + CO_ENGRAM.escapeHtml(e.summary) + '</div>' : '')
+      + (tags ? '<div class="c-tags">' + tags + tagMore + '</div>' : '')
+      + '<div class="c-foot">'
+      + (e.createdBy ? '<span>' + CO_ENGRAM.escapeHtml(e.createdBy) + '</span>' : '')
+      + createdCell
+      + (e.retrievalCount != null ? '<span' + CO_ENGRAM.tip('retrievalCount') + '>' + CO_ENGRAM.escapeHtml(T.t('engrams.retrievalsCount', { n: e.retrievalCount })) + '</span>' : '')
+      + (e.synapseCount != null ? '<span class="syn-n">' + CO_ENGRAM.escapeHtml(T.t('engrams.synapsesCount', { n: e.synapseCount })) + '</span>' : '')
+      + '<span class="imp" title="' + CO_ENGRAM.escapeHtml(T.t('engrams.trend.tip', { imp: (e.importance ?? 0).toFixed(2) })) + '">' + (e.importance ?? 0).toFixed(2)
+      + ' <span class="t-' + trend + '">' + (trend === 'up' ? '▲' : trend === 'down' ? '▼' : '▬') + '</span></span>'
+      + '</div>'
+      + '</div>';
+  },
+
+  // 重要度趋势符代理推导(无逐条历史,用取用新近度作方向信号)
+  _trend(e) {
+    const DAY = 86400000;
+    const now = Date.now();
+    if (e.lastRetrievedAt && now - e.lastRetrievedAt <= 14 * DAY) return 'up';
+    if (e.createdAt && now - e.createdAt > 30 * DAY && (!e.lastRetrievedAt || now - e.lastRetrievedAt > 30 * DAY)) return 'down';
+    return 'flat';
   },
 
   // 后台渐进加载剩余批次,让 totalPages 尽早准确
@@ -670,6 +718,37 @@ window.CO_ENGRAM_ENGRAMS = {
     // 故这里直接用 T.t() 内联生成 title(顺带修掉原先 tip('...cumulativeCount') 的空 title)。
     const cumTitle = ' title="' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.cumulativeCount')) + '"';
 
+    // 目录「均重要度」统计头(DEMO tmeta):对每个目录算全部后代的 importance 均值。
+    // 递归后序聚合(sum,count),O(节点数) 一次;location 缺 importance 时跳过该条。
+    const byDir = CO_ENGRAM._engramsByDir;
+    const avgMemo = new Map();
+    const avgOf = (node) => {
+      const path = node.path && node.path !== '/' ? node.path : '';
+      let sum = 0, cnt = 0;
+      for (const loc of (byDir ? byDir.get(path) || [] : [])) {
+        if (typeof loc.importance === 'number') { sum += loc.importance; cnt++; }
+      }
+      for (const c of (node.children || [])) {
+        const sub = avgOf(c);
+        if (sub) { sum += sub.sum; cnt += sub.cnt; }
+      }
+      const r = { sum, cnt };
+      avgMemo.set(path, r);
+      return r;
+    };
+    const avgLabel = (node) => {
+      const r = avgMemo.get(node.path && node.path !== '/' ? node.path : '') || avgOf(node);
+      return r.cnt > 0 ? '均 ' + (r.sum / r.cnt).toFixed(2) : '';
+    };
+    if (root) avgOf(root);
+
+    // 根节点行(DEMO:团队记忆库 · N 条 · M 个领域 · 最近 X)—— 单一整体树的根
+    const allLocs = CO_ENGRAM._engramsByDir ? Array.from(CO_ENGRAM._engramsByDir.values()).flat() : [];
+    const totalEngrams = (root.engramCount || 0);
+    const domainCount = (root.children || []).length;
+    const maxCreated = allLocs.reduce((m, l) => (l.createdAt && l.createdAt > m ? l.createdAt : m), '');
+    const recentLabel = maxCreated ? CO_ENGRAM.relativeTime(maxCreated) : '';
+
     // 2026-08 改版:目录树顶部提供 展开/折叠全部(一棵整体树的全局操作)
 body.innerHTML = ''
 var treeBar = document.createElement('div');
@@ -698,8 +777,9 @@ body = treeHost;
       const summary = '<summary>'
         + '<span class="tree-folder-icon">📁</span> '
         + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(basename) + '</span> '
-        + '<span class="tree-count"' + cumTitle + '>' + (node.engramCount || 0) + '</span>'
-        + (direct > 0 ? ' <span class="tree-direct">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.directHere', { n: direct })) + '</span>' : '')
+        + '<span class="tmeta"><span class="tree-count"' + cumTitle + '>' + (node.engramCount || 0) + '</span>'
+        + (avgLabel(node) ? '<span class="tree-avg">' + CO_ENGRAM.escapeHtml(avgLabel(node)) + '</span>' : '')
+        + (direct > 0 ? ' <span class="tree-direct">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.directHere', { n: direct })) + '</span>' : '') + '</span>'
         + '</summary>';
       // 直属文件占位(展开时懒填充)+ 子目录;直属在前,符合「点目录看本目录文件」心智
       const directFiles = '<div class="tree-direct-files" data-dir="' + CO_ENGRAM.escapeHtml(pathForFilter) + '"></div>';
@@ -719,8 +799,9 @@ body = treeHost;
     } else {
       // root 的直属散落 engram("路径为空")显示为顶部虚拟目录,data-dir="" 对应根散落
       const rootDirect = (root.engramCount || 0) - rootChildren.reduce((s, c) => s + (c.engramCount || 0), 0);
+      let inner = '';
       if (rootDirect > 0) {
-        html += '<details class="tree-group" open>'
+        inner += '<details class="tree-group" open>'
           + '<summary><span class="tree-folder-icon">🏠</span> '
           + '<span class="tree-dir-name">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootDirect')) + '</span> '
           + '<span class="tree-count"' + cumTitle + '>' + rootDirect + '</span>'
@@ -729,8 +810,19 @@ body = treeHost;
           + '</details>';
       }
       for (const child of rootChildren) {
-        html += renderNode(child, 0);
+        inner += renderNode(child, 0);
       }
+      // 单一整体树的根节点(DEMO「团队记忆库」):一行汇总 + 统一缩进连线容器
+      html += '<details class="tree-group tree-root" open>'
+        + '<summary><span class="tree-folder-icon">🗂</span> '
+        + '<span class="tree-dir-name root">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootName')) + '</span> '
+        + '<span class="tmeta">'
+        + '<span class="tree-count"><b>' + totalEngrams + '</b> ' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.itemsUnit')) + '</span>'
+        + '<span>' + domainCount + ' ' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.domainsUnit')) + '</span>'
+        + (recentLabel ? '<span>' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.recent', { t: recentLabel })) + '</span>' : '')
+        + '</span></summary>'
+        + '<div class="tree-group-body">' + inner + '</div>'
+        + '</details>';
     }
     html += '</div>';
     body.innerHTML = html;
@@ -768,7 +860,11 @@ body = treeHost;
       const dir = slash < 0 ? '' : loc.path.slice(0, slash);
       let bucket = byDir.get(dir);
       if (!bucket) { bucket = []; byDir.set(dir, bucket); }
-      bucket.push({ id: loc.id, title: loc.title, kind: loc.kind, domainTags: loc.domainTags, createdAt: loc.createdAt });
+      bucket.push({
+        id: loc.id, title: loc.title, kind: loc.kind, domainTags: loc.domainTags, createdAt: loc.createdAt,
+        // 2026-08:path-tree files=1 增补的实时统计(均重要度 + leaf 元数据)
+        importance: loc.importance, retrievalCount: loc.retrievalCount, lastRetrievedAt: loc.lastRetrievedAt,
+      });
     }
     for (const bucket of byDir.values()) {
       bucket.sort((a, b) => {
@@ -782,13 +878,18 @@ body = treeHost;
     return byDir;
   },
 
-  // 单条直属文件行(复用 _renderCards 的 chip 模式;onclick 复用 open(id) 打开同一详情抽屉)
+  // 单条直属文件行(DEMO .leaf:kind 色点 + 标题 + 重要度/趋势符 + 取用数)
   _treeEngramRow(e) {
     const T = CO_ENGRAM_T;
+    const trend = CO_ENGRAM_ENGRAMS._trend(e);
+    const trendGlyph = trend === 'up' ? '▲' : trend === 'down' ? '▼' : '▬';
     return '<div class="tree-file" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">'
-      + '<span class="chip kind-' + CO_ENGRAM.escapeHtml(e.kind) + '"' + CO_ENGRAM.tip('kind.' + e.kind) + '>' + CO_ENGRAM.escapeHtml(T.enumLabel('kind', e.kind)) + '</span>'
+      + '<span class="kd2 kind-dot-' + CO_ENGRAM.escapeHtml(e.kind) + '"' + CO_ENGRAM.tip('kind.' + e.kind) + '></span>'
       + '<span class="tree-file-name">' + CO_ENGRAM.escapeHtml(e.title) + '</span>'
-      + (e.createdAt ? '<span class="tree-file-meta">' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(e.createdAt)) + '</span>' : '')
+      + '<span class="leaf-m">'
+      + (typeof e.importance === 'number' ? '<span class="imp2">' + e.importance.toFixed(2) + ' <span class="t-' + trend + '">' + trendGlyph + '</span></span>' : '')
+      + (e.retrievalCount != null ? '<span>' + CO_ENGRAM.escapeHtml(T.t('engrams.retrievalsCount', { n: e.retrievalCount })) + '</span>' : '')
+      + '</span>'
       + '</div>';
   },
 

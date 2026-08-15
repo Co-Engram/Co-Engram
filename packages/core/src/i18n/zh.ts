@@ -1285,6 +1285,17 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "engrams.countFiltered": "显示 ${shown} / ${total} 条",
   "engrams.empty": "没有匹配的记忆",
   "engrams.retrievalsCount": "检索 ${n}",
+  "engrams.synapsesCount": "突触 ${n}",
+  "engrams.filter.freshness": "新鲜度",
+  "engrams.filter.freshnessAll": "全部",
+  "engrams.filter.freshnessWeek": "本周新建",
+  "engrams.filter.freshnessMonth": "本月新建",
+  "engrams.filter.freshnessDormant": "沉睡(30 天未取用)",
+  "engrams.trend.tip": "重要度 ${imp};趋势符按取用新近度推导",
+  "engrams.tree.rootName": "团队记忆库",
+  "engrams.tree.itemsUnit": "条",
+  "engrams.tree.domainsUnit": "个领域",
+  "engrams.tree.recent": "最近 ${t}",
   "engrams.untagged": "未分类",
   "engrams.viewInCards": "查看",
   "engrams.tree.cumulativeCount": "累积数量(本目录及所有子目录)",
@@ -2093,7 +2104,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.tabStats":
     "<strong>概览</strong>—核心 KPI(印迹/突触/技能/检索,含本周增量)+ 30 天记忆脉搏 + 记忆动态(审计事件时间线)+ 右侧 TOP 榜卡(领域热度/检索热点/冷却记忆/贡献者,点击卡片展开 TOP 20)。顶部搜索框做全文检索。导航在左侧栏:高频入口在上,治理入口居中,体检/合并/配置/帮助收进底部图标行。",
   "viewer.help.tabEngrams":
-    "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status 过滤,点击进入详情(可编辑/删除/查看突触)。目录视图下点击任一目录即可展开其<strong>直属记忆</strong>与下一级子目录(直属过多时可切卡片视图查看全部后代)。",
+    "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status/可见性/新鲜度(本周/本月/沉睡 30 天未取用)过滤。卡片含类型/可见性/验证状态徽标、摘要、创建者、取用与突触数、重要度趋势符(▲ 近期取用强化 · ▼ 沉睡衰减 · ▬ 平稳);点击进入详情(可编辑/删除/查看突触)。目录视图是一棵从「团队记忆库」根节点出发的整体树,目录行带累积数与平均重要度,点击行展开/折叠,顶部可展开/折叠全部。",
   "viewer.help.tabSkills":
     "<strong>技能</strong>—程序性记忆(skill)卡片:按习得深度(draft/compiled/tuned)与保留阶段(active/aging/stale/forgotten)浏览,展示 utility、调用次数与组合(composes)关系。dataRoot 下检测到的 skill 目录会先进提案队列审批。",
   "viewer.help.tabGraph":

@@ -1310,6 +1310,17 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.countFiltered": "Showing ${shown} / ${total}",
   "engrams.empty": "No matching memories",
   "engrams.retrievalsCount": "Retrievals ${n}",
+  "engrams.synapsesCount": "Synapses ${n}",
+  "engrams.filter.freshness": "Freshness",
+  "engrams.filter.freshnessAll": "All",
+  "engrams.filter.freshnessWeek": "New this week",
+  "engrams.filter.freshnessMonth": "New this month",
+  "engrams.filter.freshnessDormant": "Dormant (unused 30d)",
+  "engrams.trend.tip": "Importance ${imp}; trend glyph derived from retrieval recency",
+  "engrams.tree.rootName": "Team memory library",
+  "engrams.tree.itemsUnit": "items",
+  "engrams.tree.domainsUnit": "domains",
+  "engrams.tree.recent": "recent ${t}",
   "engrams.untagged": "Untagged",
   "engrams.viewInCards": "View in cards",
   "engrams.tree.cumulativeCount":
@@ -2155,7 +2166,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.tabStats":
     "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, governance in the middle, health/merge/config/help collapsed into the bottom icon row.",
   "viewer.help.tabEngrams":
-    "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status filters; click to open detail (edit/delete/show synapses). In tree view, click any folder to expand its <strong>direct memories</strong> and next-level subfolders inline (switch to card view to see all descendants when a folder holds many).",
+    "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status/visibility/freshness (this week / this month / dormant 30d-unused) filters. Cards carry kind/visibility/verification badges, a summary, creator, retrieval and synapse counts, and an importance trend glyph (▲ recently retrieved · ▼ dormant decay · ▬ steady); click to open detail (edit/delete/show synapses). Tree view is a single tree rooted at the library root, folder rows show cumulative counts and average importance; click a row to expand/collapse, with expand/collapse-all at the top.",
   "viewer.help.tabSkills":
     "<strong>Skills</strong> — procedural-memory cards: browse by acquisition stage (draft/compiled/tuned) and retention stage (active/aging/stale/forgotten); shows utility, invocation counts and compose links. Skill directories detected under dataRoot enter the proposals queue for approval first.",
   "viewer.help.tabGraph":
