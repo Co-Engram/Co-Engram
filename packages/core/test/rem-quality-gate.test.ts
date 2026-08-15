@@ -93,3 +93,46 @@ describe("rem-pattern 质量闸门:启发式产物不进提案", () => {
     expect(calls.pattern).toBeGreaterThan(0);
   });
 });
+
+// ============================================================
+// 占位标签判定(2026-08-15:真实库发现 domainTags=["...","..."] 存量)
+// ============================================================
+import { refreshDomainTagsOnDrift } from "../src/maintenance/tag-refresh.js";
+import { bootstrapRepositoryAndSearch } from "../src/storage/bootstrap.js";
+
+describe("占位标签(含纯点号)全量重提", () => {
+  it("domainTags=['...'] 的 engram 豁免 unchanged/below-threshold,走 LLM 重提(真实 LLM 太慢,用可记录调用的假 client 验证候选被选中)", async () => {
+    const { repository } = bootstrapRepositoryAndSearch({ dataRoot: tmpDir });
+    repository.createEngram({
+      title: "点号占位记忆",
+      content: "一些真实内容,涉及知识管理域",
+      kind: "observation",
+      domainTags: ["..."],
+      createdBy: "t",
+    });
+    const called: string[] = [];
+    const fakeLlm = {
+      complete: async (p: string) => {
+        called.push(p.slice(0, 40));
+        return JSON.stringify({
+          title: "知识管理", summary: "s", content: "c",
+          domainTags: ["知识管理"], kind: "observation", importance: 0.5,
+        });
+      },
+    } as never;
+    const proposals: Array<{ engramId: string; newTags: readonly string[] }> = [];
+    const sink = {
+      proposeTagRefresh: (i: { engramId: string; newTags: readonly string[] }) => {
+        proposals.push(i);
+        return true;
+      },
+      findProposalByEntityId: () => undefined,
+    } as never;
+    // 跑两轮:第二轮内容未变 —— 若占位判定失效,会被 unchanged 短路
+    await refreshDomainTagsOnDrift(repository, undefined, fakeLlm, sink);
+    await refreshDomainTagsOnDrift(repository, undefined, fakeLlm, sink);
+    expect(proposals.length).toBeGreaterThanOrEqual(1);
+    expect(proposals.some((p) => p.newTags.includes("知识管理"))).toBe(true);
+    expect(called.length).toBeGreaterThanOrEqual(2); // 两轮都触达 LLM(占位豁免)
+  });
+});

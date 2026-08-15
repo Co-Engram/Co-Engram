@@ -69,10 +69,20 @@ interface TagRefreshProposalSink {
 /** 占位标签:语义为「分类未完成」,豁免 L0/L1 反复重提直到刷出真实标签 */
 const PLACEHOLDER_TAGS = new Set(["imported", "uncategorized"]);
 
+/**
+ * 单个标签是否占位:笼统标签,或纯点号省略号("..." / "…" / 纯 "." 序列)——
+ * 后者是 LLM/agent 为过非空校验填的占位(2026-08-15 真实库发现 10 条
+ * domainTags=["...","..."] 的记忆),同样无分类意义。
+ */
+function isPlaceholderTag(t: string): boolean {
+  if (PLACEHOLDER_TAGS.has(t)) return true;
+  return t.trim().length > 0 && /^[.·]+$/.test(t) && t.includes(".");
+}
+
 /** oldTags 是否全为占位标签(空数组也视为占位——从未分类) */
 function isPlaceholderOnly(tags: readonly string[]): boolean {
   if (tags.length === 0) return true;
-  return tags.every((t) => PLACEHOLDER_TAGS.has(t));
+  return tags.every((t) => isPlaceholderTag(t));
 }
 
 /** 单条刷新结果(统计/审计用) */
@@ -208,27 +218,40 @@ export async function refreshDomainTagsOnDrift(
       `${contentRow.title} ${contentRow.summary} ${contentRow.content}`,
     );
 
-    // baseline 不存在 → 首次,视为 100% 变化,无条件触发(修正 imported/uncategorized 存量)
+    // baseline 不存在 = 首次评估。已分类(非占位)记忆首跑**只建 baseline 不调
+    // LLM** —— 标签没坏就不必重提(2026-08-15 修正:此前首跑全量 LLM,真实库
+    // 81 条中 60+ 条已分类记忆被无谓重提且因提取器预算全失败);占位标签
+    // (uncategorized/imported/纯点号)是标签质量债,首跑即走 L2 重提
     const drift =
       baseline === undefined
         ? 1
         : 1 - jaccardSimilarity(currentTokens, new Set(baseline.tokenSet));
 
-    // ── L1:已分类记忆 + drift < 阈值 → 小改,只更新 baseline 不调 LLM(占位符豁免)──
-    if (!placeholder && baseline !== undefined && drift < threshold) {
+    // ── L1:已分类记忆 + (首次 或 drift < 阈值)→ 只写 baseline 不调 LLM ──
+    if (!placeholder && (baseline === undefined || drift < threshold)) {
       indexDb.upsertTagRefreshBaseline({
         engramId: id,
         tokenSet: [...currentTokens],
         contentHash: currentHash,
         refreshedAt: runStartedAt,
       });
-      skippedBelowThreshold += 1;
-      outcomes.push({
-        engramId: id,
-        action: "skipped-below-threshold",
-        oldTags,
-        reason: `drift ${drift.toFixed(2)} < threshold ${threshold}`,
-      });
+      if (baseline === undefined) {
+        skippedUnchanged += 1;
+        outcomes.push({
+          engramId: id,
+          action: "skipped-unchanged",
+          oldTags,
+          reason: "first evaluation with valid tags — baseline established, no LLM needed",
+        });
+      } else {
+        skippedBelowThreshold += 1;
+        outcomes.push({
+          engramId: id,
+          action: "skipped-below-threshold",
+          oldTags,
+          reason: `drift ${drift.toFixed(2)} < threshold ${threshold}`,
+        });
+      }
       continue;
     }
 

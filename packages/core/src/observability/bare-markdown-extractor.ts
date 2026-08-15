@@ -23,10 +23,12 @@ import type { LlmClient } from "./necessity-evaluator.js";
 const LLM_INPUT_CHAR_BUDGET = 2000;
 
 /** LLM 调用超时(裸 .md 提取不应让用户等太久才看到 proposal) */
-const LLM_TIMEOUT_MS = 10_000;
+// 效果优先(2026-08-15 用户决策):思考型模型(GLM)thinking 块远超 500
+// token / 10s,曾导致真实库 tag-refresh 76/81 全失败
+const LLM_TIMEOUT_MS = 600_000;
 
 /** LLM 输出 token 上限(只需 4 个字段,500 够用) */
-const LLM_MAX_TOKENS = 500;
+const LLM_MAX_TOKENS = 16384; // 提取输出短,但思考长(与 critic 同理)
 
 /** LLM 提取温度(元数据提取要稳定不要发散) */
 const LLM_TEMPERATURE = 0.3;
@@ -185,7 +187,7 @@ An engram is a team memory entry with these fields:
     - "pattern": a pattern abstracted across situations
     - "procedure": a process / how-to statement
     - "hypothesis": a hypothesis awaiting verification
-- domainTags: 1-3 lowercase domain tags describing the area (e.g. "frontend", "testing", "architecture", "tooling")
+- domainTags: 1-3 domain tags describing the area, in the content's own language (中文内容如 "前端", "测试", "架构"; English e.g. "frontend", "testing")
 - summary: 30-100 char abstract
 
 Read the markdown content and output ONLY a JSON object (no prose, no markdown fences):
@@ -196,8 +198,11 @@ Rules for the title:
 - Ignore \`#\` lines that are shell/code comments inside fenced code blocks (\`\`\` or ~~~); they are not headings. A document with many \`#\` lines is likely leaked code comments (e.g. pasted shell steps) — do not pick one as the title.
 - If there is no single clear top-level heading, use the file name as the title${fileName ? ` (file name: \`${fileName}\`)` : ""}.${fileNameNote}
 
+LANGUAGE RULE (applies to title, summary and domainTags):
+- Match the DOMINANT LANGUAGE of the content. Chinese content → Chinese tags/title/summary (e.g. "测试", "架构", "工作流"); English content → English. Proper nouns / technical terms (e.g. "adb", "git", "co-engram") keep their original form regardless.
+
 Rules for domainTags:
-- They must describe the CONTENT domain / topic (e.g. "testing", "architecture", "adb", "git-workflow"), NEVER the source type.
+- They must describe the CONTENT domain / topic (e.g. "testing", "架构", "adb", "git-workflow"), NEVER the source type.
 - Do NOT use "imported" or any source/origin label as a domainTag — it carries no content semantics.
 - Always extract at least 1 content-derived tag. If the content is genuinely too short to infer any domain, use the single tag "uncategorized" (it marks the engram for a later REM refresh); whenever any topic word is present, prefer it over "uncategorized".
 

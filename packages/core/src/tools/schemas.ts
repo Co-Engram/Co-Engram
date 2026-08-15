@@ -95,7 +95,12 @@ export const EngramCreateInputSchema = z.object({
   kind: EngramKindSchema,
   kinds: z.array(EngramKindSchema).optional(),
   summary: z.string().max(300).optional(),
-  domainTags: z.array(z.string().min(1)).min(1),
+  domainTags: z
+    .array(z.string().min(1))
+    .min(1)
+    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
+      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+    }),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
   importance: z.coerce.number().min(0).max(1).optional(),
@@ -161,7 +166,12 @@ export const EngramUpdateInputSchema = z.object({
   content: z.string().min(1).optional(),
   summary: z.string().max(300).optional(),
   kinds: z.array(EngramKindSchema).optional(),
-  domainTags: z.array(z.string().min(1)).min(1).optional(),
+  domainTags: z
+    .array(z.string().min(1))
+    .min(1)
+    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
+      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+    }).optional(),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
   importance: z.coerce.number().min(0).max(1).optional(),
@@ -609,7 +619,12 @@ export const EngramAcceptProposalInputSchema = z.object({
    * conversation 来源 proposal 必填。
    * auto-memory 来源 proposal 可省略 —— 缺失时从 proposal.payload.domainTags 兜底。
    */
-  domainTags: z.array(z.string().min(1)).min(1).optional(),
+  domainTags: z
+    .array(z.string().min(1))
+    .min(1)
+    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
+      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+    }).optional(),
   /**
    * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
    * (user.name > user.email)解析,LLM 传入的值会被忽略(与 engram_create 对齐)。
@@ -699,7 +714,12 @@ export const EngramDismissProposalsByFilterInputSchema = z
      * 对 conversation 来源(无 payload),按 proposal 自带的 centroid 派生 tags
      * 匹配;若无可派生 tags,则不命中(避免误删)。
      */
-    domainTags: z.array(z.string().min(1)).min(1).optional(),
+    domainTags: z
+    .array(z.string().min(1))
+    .min(1)
+    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
+      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+    }).optional(),
     /**
      * 按 createdAt 过滤(可选,ISO8601 字符串)。
      *
@@ -857,7 +877,12 @@ const InsightDraftSchema = z.object({
   content: z.string().min(1),
   summary: z.string().min(1).max(300),
   sourceIds: z.array(z.string().min(1)).min(1),
-  domainTags: z.array(z.string().min(1)).min(1),
+  domainTags: z
+    .array(z.string().min(1))
+    .min(1)
+    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
+      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+    }),
   reason: z.string().min(1),
   aar: z
     .object({
