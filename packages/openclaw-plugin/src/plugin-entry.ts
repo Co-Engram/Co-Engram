@@ -71,6 +71,7 @@ import {
   IndexOrchestrator,
   defaultCachePath,
   SkillRepository,
+  Incubator,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -278,6 +279,19 @@ export function createCoEngramContext(
     // 动态解析器:每次读 git,改 user.name 无需重启即生效
     resolveCreatedBy: () => detectGitAuthor() ?? userSpecifiedCreatedBy,
     ...(llmClient ? { llmClient } : {}),
+    // 夜思孵化器(spec §四):openclaw 一期降级 L1(headless L2 执行器未接入,
+    // PoC 记录于降级矩阵);即时触发经 incubation_run 同步执行 + GUI 标注差异。
+    ...(proposalEngine
+      ? {
+          incubator: new Incubator({
+            repository,
+            proposalEngine,
+            dataRoot: fullConfig.dataRoot,
+            ...(auditLog ? { auditLog } : {}),
+            ...(llmClient ? { llmClient } : {}),
+          }),
+        }
+      : {}),
   };
   return ctx;
 }
@@ -619,6 +633,8 @@ export function registerCoEngramTools(
         ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
         // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
         ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
+        // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+        ...(ctx.incubator ? { incubator: ctx.incubator } : {}),
       },
       config.maintenanceConfig ?? {},
     );
@@ -703,6 +719,8 @@ export function registerCoEngramTools(
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
+          // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+          ...(ctx.incubator ? { incubator: ctx.incubator } : {}),
         },
         config.maintenanceConfig ?? {},
       );

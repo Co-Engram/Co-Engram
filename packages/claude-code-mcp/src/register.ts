@@ -43,7 +43,9 @@ import {
   SkillRepository,
   collectSkillCatalog,
   type SkillCatalogEntry,
+  Incubator,
 } from "@co-engram/core";
+import { createHeadlessExecutor } from "./night-thinking/headless-executor.js";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
@@ -333,6 +335,20 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         })
       : undefined;
 
+  // 夜思孵化器(spec §四):L2 headless 执行器(claude -p,PoC 已验证)+
+  // L1 降级由 Incubator 内部处理。提案引擎缺位(最小部署)时夜思不可用。
+  const incubator = proposalEngine
+    ? new Incubator({
+        repository,
+        proposalEngine,
+        dataRoot: config.dataRoot,
+        ...(auditLog ? { auditLog } : {}),
+        ...(config.llmClient ? { llmClient: config.llmClient } : {}),
+        executor: createHeadlessExecutor(),
+        processLock,
+      })
+    : undefined;
+
   const ctx: ToolContext = {
     repository,
     searchOrchestrator,
@@ -351,6 +367,7 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     // 动态解析器:每次读 git,改 user.name 无需重启即生效
     resolveCreatedBy: () => detectGitAuthor() ?? config.defaultCreatedBy,
     ...(config.llmClient ? { llmClient: config.llmClient } : {}),
+    ...(incubator ? { incubator } : {}),
   };
 
   const language = config.language ?? DEFAULT_LANGUAGE;
@@ -445,6 +462,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 2: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(skillRepository ? { skillRepository } : {}),
+          // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+          ...(incubator ? { incubator } : {}),
         },
         config.maintenanceConfig ?? {},
       );
