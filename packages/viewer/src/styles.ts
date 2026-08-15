@@ -2537,6 +2537,16 @@ div.vis-tooltip {
 .help-ref-jump { color: var(--accent); cursor: pointer; }
 .help-ref-jump:hover { text-decoration: underline; }
 
+/* 提案卡 REM 族徽标(2026-08 统一纸面风格,替换旧紫色 #a78bfa):
+   洞察=琥珀(夜思/梦境族语义,与 .inc-progress/.st-flight 同色系);
+   模式=青绿 soft;critic 三档=深色可读语义色(旧 #34d399/#fbbf24 是
+   暗底亮色,浅纸上刺眼) */
+.chip.insight-chip { background: #FDF3E3; color: #B45309; border-color: rgba(180, 83, 9, 0.25); }
+.chip.moon-chip { background: var(--accent-soft, #EDF7F5); color: var(--accent, #0F766E); border-color: rgba(15, 118, 110, 0.25); }
+.chip.critic-hi { background: rgba(14, 159, 110, 0.10); color: #0E9F6E; }
+.chip.critic-mid { background: rgba(180, 83, 9, 0.10); color: #B45309; }
+.chip.critic-lo { background: rgba(224, 36, 36, 0.08); color: #E02424; }
+
 /* 提案卡来源彩色小徽标(DEMO g2-proposals .src) */
 .proposal-source-line { font-size: 0.78rem; color: var(--fg-muted); margin: 0.2rem 0 0.35rem; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
 .src-badge { font-size: 10.5px; font-weight: 600; border-radius: 5px; padding: 1px 8px; }

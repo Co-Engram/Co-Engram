@@ -2575,11 +2575,10 @@ window.CO_ENGRAM_PROPOSALS = {
         var isRemPattern = p.source === 'rem-pattern';
         var rpConf = (p.payload && typeof p.payload.remConfidence === 'number') ? p.payload.remConfidence : 0;
         var rpBandKey = rpConf >= 0.85 ? 'veryHigh' : (rpConf >= 0.7 ? 'high' : (rpConf >= 0.5 ? 'medium' : (rpConf >= 0.3 ? 'low' : 'veryLow')));
-        var rpConfColor = rpConf >= 0.7 ? '#34d399' : (rpConf >= 0.5 ? '#fbbf24' : '#E02424');
         var rpSrcN = (p.payload && p.payload.remSourceIds) ? p.payload.remSourceIds.length : 0;
         var remPatternChips = isRemPattern
-          ? '<span class="chip" style="border-color:var(--accent,#5DECD9);color:var(--accent,#5DECD9)">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.pattern')) + '</span>'
-            + '<span class="chip" style="color:' + rpConfColor + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.bandTip', { score: rpConf.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.band.' + rpBandKey)) + '</span>'
+          ? '<span class="chip moon-chip">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.pattern')) + '</span>'
+            + '<span class="chip critic-' + (rpConf >= 0.7 ? 'hi' : (rpConf >= 0.5 ? 'mid' : 'lo')) + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.bandTip', { score: rpConf.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.band.' + rpBandKey)) + '</span>'
             + (rpSrcN ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceTip')) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.pattern.sourceCount', { n: rpSrcN })) + '</span>' : '')
           : '';
         // skill 专属标识(程序性记忆提案,区别于 engram/ext-md/REM):🛠️ 醒目 chip
@@ -2591,13 +2590,12 @@ window.CO_ENGRAM_PROPOSALS = {
         var isRemInsight = p.source === 'rem-insight';
         var riMode = (p.payload && p.payload.insightMode) ? p.payload.insightMode : '';
         var riScore = (p.payload && typeof p.payload.criticScore === 'number') ? p.payload.criticScore : 0;
-        var riColor = riScore >= 0.7 ? '#34d399' : (riScore >= 0.5 ? '#fbbf24' : '#E02424');
         var riHasInc = !!(p.payload && p.payload.incubationId);
         var remInsightChips = isRemInsight
-          ? '<span class="chip" style="border-color:#a78bfa;color:#a78bfa">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
+          ? '<span class="chip insight-chip">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
             + (riMode ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.mode.' + riMode)) + '</span>' : '')
-            + '<span class="chip" style="color:' + riColor + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">critic ' + riScore.toFixed(2) + '</span>'
-            + (riHasInc ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.incubationTip')) + '">🌙</span>' : '')
+            + '<span class="chip critic-' + (riScore >= 0.7 ? 'hi' : (riScore >= 0.5 ? 'mid' : 'lo')) + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">critic ' + riScore.toFixed(2) + '</span>'
+            + (riHasInc ? '<span class="chip moon-chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.incubationTip')) + '">🌙</span>' : '')
           : '';
         // payload.domainTags(若有)+ occurrences/sample chip
         const payloadTags = (p.payload && Array.isArray(p.payload.domainTags)) ? p.payload.domainTags.slice(0, 4) : [];
