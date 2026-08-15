@@ -2497,6 +2497,13 @@ div.vis-tooltip {
 .inc-st.st-dim { color: var(--fg-dim); background: var(--chip-bg); }
 .inc-hatched { font-size: 0.72rem; color: var(--fg-dim); }
 .inc-job { margin-bottom: 0.4rem; font-size: 0.8rem; }
+/* in-flight 过程信息:呼吸点 + 开始时间 + 阶段说明 */
+.inc-progress { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.45rem; padding: 0.5rem 0.7rem; background: #FDF3E3; border: 1px solid rgba(180, 83, 9, 0.2); border-radius: 8px; font-size: 0.78rem; color: #B45309; }
+.inc-progress-dot { width: 8px; height: 8px; border-radius: 50%; background: #B45309; align-self: center; animation: inc-breath 1.6s ease-in-out infinite; }
+@keyframes inc-breath { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .inc-progress-dot { animation: none; } }
+.inc-progress-hint { flex-basis: 100%; color: #8B857B; font-size: 0.72rem; line-height: 1.5; }
+.btn.mini.disabled, .btn.disabled { opacity: 0.45; cursor: not-allowed; }
 .inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 .inc-timeline { margin-top: 0.6rem; }
 .inc-timeline summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }

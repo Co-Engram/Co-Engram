@@ -4757,6 +4757,7 @@ CO_ENGRAM.on('incubations', async function() {
 
 window.CO_ENGRAM_INCUBATIONS = {
   _polling: {},
+  _incPollTimer: null,
 
   async render(root) {
     const T = CO_ENGRAM_T;
@@ -4808,6 +4809,24 @@ window.CO_ENGRAM_INCUBATIONS = {
       }
     }
     root.innerHTML = html;
+    // in-flight 自动刷新(30s):完成后状态/时间线自行流转,用户无需手点刷新。
+    // 保护:用户正在播种输入框打字(inc-q 有值)或已切走 tab 时跳过/停止,
+    // 避免清掉未提交的问题文本。
+    if (CO_ENGRAM_INCUBATIONS._incPollTimer) { clearInterval(CO_ENGRAM_INCUBATIONS._incPollTimer); CO_ENGRAM_INCUBATIONS._incPollTimer = null; }
+    if ((payload.items || []).some(x => x.status === 'in-flight')) {
+      CO_ENGRAM_INCUBATIONS._incPollTimer = setInterval(function() {
+        const root = document.getElementById('incubations-content');
+        const panel = root ? root.closest('.tab-panel') : null;
+        const typing = document.getElementById('inc-q') && document.getElementById('inc-q').value.trim();
+        if (!root || (panel && panel.hidden)) {
+          clearInterval(CO_ENGRAM_INCUBATIONS._incPollTimer);
+          CO_ENGRAM_INCUBATIONS._incPollTimer = null;
+          return;
+        }
+        if (typing) return; // 输入中:本轮跳过,不清用户的草稿
+        CO_ENGRAM_INCUBATIONS.render(root);
+      }, 30000);
+    }
   },
 
   renderCard(e) {
@@ -4826,9 +4845,22 @@ window.CO_ENGRAM_INCUBATIONS = {
       + (e.webResearchOptIn ? '<span class="chip" title="web research">🌐</span>' : '')
       + (e.lastHatchedAt ? '<span class="inc-hatched" title="' + CO_ENGRAM.escapeHtml(e.lastHatchedAt) + '">' + CO_ENGRAM.relativeTime(e.lastHatchedAt) + '</span>' : '')
       + '</div>'
+      // in-flight 过程信息(消除信息焦虑):开始时间 + 会话阶段说明 + 已完成轮数;
+      // 页面级 30s 轮询让状态自行流转(见 render 尾部 _incPollTimer)
+      + (e.status === 'in-flight'
+        ? '<div class="inc-progress">'
+          + '<span class="inc-progress-dot"></span>'
+          + '<span>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.inFlightSince', { t: CO_ENGRAM.relativeTime(e.inFlightAt || e.updatedAt || '') })) + '</span>'
+          + '<span class="inc-progress-hint">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.inFlightHint')) + '</span>'
+          + '</div>'
+        : '')
       + '<div id="inc-job-' + CO_ENGRAM.escapeHtml(e.id) + '" class="inc-job"></div>'
       + '<div class="inc-card-acts">'
-      + ((e.status === 'active' || e.status === 'in-flight') ? '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.runNow(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.runNow')) + '</button>' : '')
+      // in-flight(正在夜思):按钮置灰不可点,防止并发重复起任务
+      + ((e.status === 'active' || e.status === 'in-flight') ? '<button class="btn mini' + (e.status === 'in-flight' ? ' disabled' : '') + '"'
+        + (e.status === 'in-flight' ? ' disabled title="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.inFlightTip')) + '"' : '')
+        + (e.status === 'in-flight' ? '' : ' onclick="CO_ENGRAM_INCUBATIONS.runNow(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')"')
+        + '>🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.runNow')) + '</button>' : '')
       + (e.status === 'suggested-resolve'
         ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolvePrompt')) + '</span>'
           + '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', true)">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveYes')) + '</button>'
