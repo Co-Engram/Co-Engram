@@ -186,7 +186,11 @@ export function clusterSimilarEngrams(
   repo: EngramRepository,
   options: ClusteringOptions = {},
 ): readonly Cluster[] {
-  const similarityThreshold = options.similarityThreshold ?? 0.4;
+  // 阈值 0.3(2026-08-15 从 0.4 下调):0.4 与 deep dedup(≥0.65 判 DUPLICATE
+  // 合并)之间的记忆带基本为空,导致 REM 聚类结构性饿死(实测 84 engram 仓库
+  // sim≥0.4 最大簇仅 2 人,永远够不到 minClusterSize=3,rem-pattern 提案零产出)。
+  // 0.3 时同仓库有 3 个 ≥3 人簇;两值都可经 options 显式覆盖。
+  const similarityThreshold = options.similarityThreshold ?? 0.3;
   const maxClusterSize = options.maxClusterSize ?? 10;
 
   const entries = [...repo.listEngrams()].sort((a, b) =>
