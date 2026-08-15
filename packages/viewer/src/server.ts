@@ -2497,6 +2497,10 @@ function getUpdatesForDay(
             title: row.title,
             kind: row.kind || it.kind,
           };
+        } else {
+          // 已删除/悬空(purge 后 audit 仍留 create/update 记录):从明细剔除
+          // —— 裸 ID + 详情 404 的根因(2026-08-15 用户反馈)
+          items.splice(i, 1);
         }
       }
     } catch {
@@ -2558,6 +2562,19 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
     //   技能:skill_create / skill_update
     const byDay = new Map<string, Set<string>>();
     const weekSynapses = new Set<string>();
+    // 现存 engram id 集合:更新统计只反映当前库(被 purge/delete 的实体
+    // 不计入 —— 与 /api/updates 明细同口径;裸 ID/404 修复的一部分)
+    const aliveEngrams = new Set<string>();
+    if (ctx.repository.indexDb) {
+      try {
+        const rows = ctx.repository.indexDb.prepare("SELECT id FROM engrams").all() as {
+          id: string;
+        }[];
+        for (const r of rows) aliveEngrams.add(r.id);
+      } catch {
+        // SQLite 不可用 → 不过滤(宁多勿漏)
+      }
+    }
     for (const e of entries) {
       const m = (e.metadata ?? {}) as Record<string, unknown>;
       let type: "engram" | "synapse" | "skill" | null = null;
@@ -2578,14 +2595,19 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
         // engram create / accept / update
         if (
           e.action === "update" &&
+          m.source !== "external-edit" &&
           !(m.changes && typeof m.changes === "object" && "content" in (m.changes as object))
         ) {
-          continue; // 元数据-only 更新不计
+          continue; // 元数据-only 更新不计(external-edit 例外:hash 已判内容级)
         }
         type = "engram";
         id = String(e.engramId ?? "");
       }
       if (!type || !id) continue;
+      // 已删 engram 的历史动态不计入(存活集合为空时跳过过滤,向后兼容)
+      if (type === "engram" && aliveEngrams.size > 0 && !aliveEngrams.has(id)) {
+        continue;
+      }
       const day = e.ts.slice(0, 10);
       const key = `${type}:${id}`;
       let set = byDay.get(day);

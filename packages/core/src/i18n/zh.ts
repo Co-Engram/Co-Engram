@@ -1395,6 +1395,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.itemSynapse": "突触",
   "viewer.stats.itemSkill": "技能",
   "viewer.stats.itemCreated": "新增",
+  "viewer.stats.itemDeleted": "已删除记忆",
   "viewer.stats.itemUpdated": "更新",
   "viewer.stats.weeklyRetrievals": "本周检索 ↑${n}",
   "viewer.stats.weeklyInvocations": "本周调用 ↑${n}",

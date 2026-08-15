@@ -464,12 +464,12 @@ CO_ENGRAM.showDayPopup = async function(date) {
     for (const it of items) {
       const actionLabel = T.t(it.action === 'created' ? 'viewer.stats.itemCreated' : 'viewer.stats.itemUpdated');
       const kindLabel = it.kind && it.type === 'engram' ? (T.enumLabel('kind', it.kind) || it.kind) : it.kind;
-      const openAttr = it.type === 'engram' && it.id
+const openAttr = it.type === 'engram' && it.id && it.title
         ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(it.id) + '\\')"'
         : '';
       html += '<div class="day-pop-item' + (openAttr ? ' clickable' : '') + '"' + openAttr + '>'
         + '<span class="day-pop-type t-' + CO_ENGRAM.escapeHtml(it.type) + '">' + CO_ENGRAM.escapeHtml(T.t(typeKey[it.type] || 'viewer.stats.itemEngram')) + '</span>'
-        + '<span class="day-pop-title">' + CO_ENGRAM.escapeHtml(it.title || it.id) + '</span>'
+        + '<span class="day-pop-title">' + CO_ENGRAM.escapeHtml(it.title || T.t('viewer.stats.itemDeleted')) + '</span>'
         + (kindLabel ? '<span class="chip kind-' + CO_ENGRAM.escapeHtml(it.kind) + ' kd-mini">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>' : '')
         + '<span class="day-pop-act">' + CO_ENGRAM.escapeHtml(actionLabel) + '</span>'
         + '</div>';
