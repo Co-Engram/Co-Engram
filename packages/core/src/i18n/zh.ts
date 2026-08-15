@@ -1717,6 +1717,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.trash.colTrashedAt": "回收时间",
   "viewer.trash.previewBtn": "查看",
   "viewer.trash.restoreBtn": "恢复",
+  "viewer.trash.daysLeftUnit": " 天后彻底清除",
   "viewer.trash.previewTitle": "回收站预览",
   "viewer.trash.previewHint":
     "此记忆已被移出主索引,需先「恢复」才能再次编辑或召回。",

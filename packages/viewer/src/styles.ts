@@ -2391,6 +2391,30 @@ div.vis-tooltip {
 .ex code { font-size: 0.65rem; background: none; }
 
 /* === 2026-08 治理页页头(DEMO 各 tab h1 + sub)=== */
+/* 回收站行卡片(DEMO g2-trash .t-row) */
+.t-row {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.t-row:last-child { border-bottom: none; }
+.t-row:hover { background: rgba(15, 118, 110, 0.03); }
+.t-row .t-body { flex: 1; min-width: 0; }
+.t-row .t-t { font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.t-row .t-s { font-size: 0.72rem; color: var(--fg-dim); margin-top: 2px; }
+.t-row .days { font-size: 0.72rem; color: var(--fg-dim); white-space: nowrap; }
+.t-row .days b { display: inline; font-size: 0.95rem; color: var(--accent-warm); font-variant-numeric: tabular-nums; }
+.tag {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 5px;
+  padding: 1px 8px;
+}
+
+/* === 治理页页头 === */
 .page-h { font-size: 1.45rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
 .page-sub { font-size: 0.78rem; color: var(--fg-dim); margin-bottom: 1.1rem; }
 

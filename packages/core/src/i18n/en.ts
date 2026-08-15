@@ -1752,6 +1752,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.trash.colTrashedAt": "Trashed at",
   "viewer.trash.previewBtn": "Preview",
   "viewer.trash.restoreBtn": "Restore",
+  "viewer.trash.daysLeftUnit": " days until purge",
   "viewer.trash.previewTitle": "Trash preview",
   "viewer.trash.previewHint":
     'This memory has been removed from the main index. "Restore" it first to edit or recall it again.',

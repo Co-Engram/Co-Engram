@@ -3728,37 +3728,35 @@ window.CO_ENGRAM_TRASH = {
     html += '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.purgeAll(false)">' + T.t('viewer.trash.purgeAllBtn') + '</button>'
       + '</div>';
 
-    html += '<table class="data-table" id="trash-table"><thead><tr>'
-      + '<th>' + T.t('viewer.trash.colId') + '</th>'
-      + '<th>' + T.t('viewer.trash.colTitle') + '</th>'
-      + '<th>' + T.t('viewer.trash.colPartition') + '</th>'
-      + '<th>' + T.t('viewer.trash.colTrashedAt') + '</th><th></th>'
-      + '</tr></thead><tbody>';
+    // 2026-08(DEMO g2-trash):行卡片代替 data-table —— 标题 + 来源/时间副行
+    // + 30 天保留期倒计时 + 恢复主操作。单条「彻底清除」需新增 core purge API,
+    // 暂列为已知差距(整分区清空仍走上方按钮)。
+    html += '<div class="card" style="padding:0">';
     for (const t of items) {
       const part = t.partition || '';
       const sourceBadge = t.source === 'soft'
-        ? '<span class="chip" style="background:rgba(251,191,36,0.12);color:#fbbf24;border-color:rgba(251,191,36,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span> '
-        : '<span class="chip" style="background:rgba(94,234,212,0.12);color:#0F766E;border-color:rgba(94,234,212,0.25)">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span> ';
+        ? '<span class="tag" style="background:rgba(251,191,36,0.12);color:#B45309">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSoft')) + '</span>'
+        : '<span class="tag" style="background:rgba(15,118,110,0.10);color:#0F766E">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.sourceSwept')) + '</span>';
       const titleCell = t.title
-        ? CO_ENGRAM.escapeHtml(t.title).slice(0, 60) + (t.title.length > 60 ? '…' : '')
-        : '<span style="color:var(--fg-dim)">—</span>';
+        ? CO_ENGRAM.escapeHtml(t.title)
+        : '<span style="color:var(--fg-dim)">' + CO_ENGRAM.escapeHtml(t.id.slice(-8)) + '</span>';
       const trashedAt = t.trashedAt
         ? new Date(t.trashedAt).toLocaleString()
         : '—';
       const partTip = formatPartitionTip(part, t.source);
       const partTipAttr = ' title="' + CO_ENGRAM.escapeHtml(partTip).replaceAll('"', '&quot;') + '"';
-      html += '<tr data-partition="' + CO_ENGRAM.escapeHtml(part) + '">'
-        + '<td><code>' + CO_ENGRAM.escapeHtml(t.id) + '</code></td>'
-        + '<td>' + sourceBadge + titleCell + '</td>'
-        + '<td' + partTipAttr + '>' + CO_ENGRAM.escapeHtml(formatPartitionLabel(part)) + '</td>'
-        + '<td style="font-size:0.8rem;color:var(--fg-muted)">' + CO_ENGRAM.escapeHtml(trashedAt) + '</td>'
-        + '<td>'
+      const daysLeft = t.trashedAt
+        ? Math.max(0, 30 - Math.floor((Date.now() - new Date(t.trashedAt).getTime()) / 86400000))
+        : null;
+      html += '<div class="t-row" data-partition="' + CO_ENGRAM.escapeHtml(part) + '">'
+        + '<div class="t-body"><div class="t-t">' + titleCell + '</div>'
+        + '<div class="t-s">' + sourceBadge + ' ' + CO_ENGRAM.escapeHtml(trashedAt) + ' · <span' + partTipAttr + '>' + CO_ENGRAM.escapeHtml(formatPartitionLabel(part)) + '</span></div></div>'
+        + (daysLeft != null ? '<div class="days"><b>' + daysLeft + '</b>' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.daysLeftUnit')) + '</div>' : '')
         + '<button class="btn-link" onclick="CO_ENGRAM_TRASH.preview(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.previewBtn') + '</button> '
-        + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.restore(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.restoreBtn') + '</button>'
-        + '</td>'
-        + '</tr>';
+        + '<button class="btn" onclick="CO_ENGRAM_TRASH.restore(\\'' + CO_ENGRAM.escapeHtml(t.id) + '\\')">' + T.t('viewer.trash.restoreBtn') + '</button>'
+        + '</div>';
     }
-    html += '</tbody></table>';
+    html += '</div>';
     if (this._hasMore) {
       html += '<div style="margin-top:1rem;text-align:center">'
         + '<button class="btn secondary" onclick="CO_ENGRAM_TRASH.loadMore()">' + CO_ENGRAM.escapeHtml(T.t('viewer.trash.loadMore', { loaded: items.length, total: this._total })) + '</button>'
@@ -3785,11 +3783,11 @@ window.CO_ENGRAM_TRASH = {
     this._renderList(document.getElementById('trash-content'));
   },
 
-  // 分区筛选:隐藏不匹配的行
+  // 分区筛选:隐藏不匹配的行(2026-08 行卡片化后选择器同步)
   applyFilter() {
     const sel = document.getElementById('trash-partition-filter');
     const v = sel ? sel.value : '';
-    document.querySelectorAll('#trash-table tbody tr').forEach((tr) => {
+    document.querySelectorAll('.t-row[data-partition]').forEach((tr) => {
       const p = tr.getAttribute('data-partition') || '';
       tr.style.display = (!v || p === v) ? '' : 'none';
     });
