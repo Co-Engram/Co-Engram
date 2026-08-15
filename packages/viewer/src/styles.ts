@@ -793,8 +793,16 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 .graph-funcbar .ftext { width: 200px; margin-top: 0; }
 .graph-funcbar .pathbtn { width: auto; margin-top: 0; }
 .graph-funcbar .fselect { width: auto; margin-top: 0; }
-.graph-funcbar .graph-slider { flex-direction: row; align-items: center; gap: 0.4rem; padding: 0; min-width: 150px; }
-.graph-funcbar .graph-slider input[type=range] { width: 90px; margin: 0; }
+.graph-funcbar .graph-slider { flex-direction: row; align-items: center; gap: 0.45rem; padding: 0; }
+.graph-funcbar .graph-slider input[type=range] { width: 96px; margin: 0; flex: 0 0 96px; }
+/* 数值在滑杆右侧 + 固定宽度:拖动时文本宽度变化不再挤压滑杆(此前左置
+   变宽文本会让滑杆整体位移,拇指看似「扭动」难操作) */
+.graph-funcbar .graph-slider .slider-val {
+  flex: 0 0 auto;
+  min-width: 8.5rem;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 .graph-funcbar .tb { font: inherit; font-size: 0.76rem; padding: 0.3rem 0.7rem; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--fg-dim); cursor: pointer; white-space: nowrap; }
 .graph-funcbar .tb:hover { background: #F2EFEA; color: var(--fg); }
 .graph-funcbar .tb.on { background: var(--accent-soft); color: var(--accent); border-color: var(--border-glow); }

@@ -232,8 +232,8 @@ ${SIDE_ICONS}
           <option value="heat">${t(language, "viewer.graph.modes.heat")}</option>
         </select>
         <div class="graph-slider">
-          <span class="slider-val" id="graph-imp-val"></span>
           <input type="range" id="graph-imp-range" min="0" max="100" value="0" aria-label="${t(language, "viewer.graph.filter.impTitle")}" oninput="CO_ENGRAM_GRAPH.setImportance(this.value)">
+          <span class="slider-val" id="graph-imp-val"></span>
         </div>
         <span class="chip" id="graph-filter-count"></span>
         <span class="spacer"></span>
