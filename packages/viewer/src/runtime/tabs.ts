@@ -4733,34 +4733,42 @@ window.CO_ENGRAM_INCUBATIONS = {
       root.innerHTML = '<div class="empty">' + T.t('viewer.incubations.unavailable') + '</div>';
       return;
     }
-    let html = '<div class="panel" style="max-width:980px;margin:0 auto;padding:1.2rem 1.5rem">';
-    html += '<h2 style="margin-top:0">' + T.t('viewer.incubations.title') + '</h2>';
-    html += '<p style="color:var(--fg-muted)">' + T.t('viewer.incubations.intro') + '</p>';
-    html += '<div style="border:1px dashed var(--border);border-radius:.5rem;padding:.8rem;margin-bottom:1rem;font-size:.85rem">' + T.t('viewer.incubations.l2BudgetNotice') + '</div>';
+    // 2026-08 重设计(用户反馈:整体布局难看,特别是输入栏):
+    // 与治理组各 tab 同构 —— page-h 页头 + 播种卡(纸面输入框 / switch / 主按钮)
+    // + 条目卡片列表;去内联样式,样式收进 styles.ts .inc-*。
+    let html = '<h1 class="page-h">' + T.t('viewer.incubations.title') + '</h1>'
+      + '<div class="page-sub">' + T.t('viewer.incubations.intro') + '</div>'
+      + '<div class="info-banner inc-notice">' + T.t('viewer.incubations.l2BudgetNotice') + '</div>';
 
-    // 播种表单
-    html += '<h3>' + T.t('viewer.incubations.createTitle') + '</h3>'
-      + '<div style="display:flex;flex-direction:column;gap:.5rem;max-width:640px;margin-bottom:1.5rem">'
-      + '<textarea id="inc-q" rows="2" style="width:100%" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.questionPlaceholder')) + '"></textarea>'
-      + '<input id="inc-seeds" type="text" style="width:100%" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.seedPlaceholder')) + '"/>'
-      + '<label style="font-size:.85rem"><input type="checkbox" id="inc-web"/> ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptIn')) + ' <span style="color:var(--fg-muted)">— ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptInHint')) + '</span></label>'
-      + '<div><button class="btn" onclick="CO_ENGRAM_INCUBATIONS.create()">🌱 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.createBtn')) + '</button></div>'
-      + '</div>';
+    // 播种卡:问题(大输入)→ 种子 + 联网 switch 一行 → 播种按钮 + 说明
+    html += '<div class="card inc-sow-card">'
+      + '<h3 class="inc-sow-title">' + T.t('viewer.incubations.createTitle') + '</h3>'
+      + '<div class="inc-form">'
+      + '<textarea id="inc-q" rows="3" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.questionPlaceholder')) + '"></textarea>'
+      + '<div class="inc-form-row">'
+      + '<input id="inc-seeds" type="text" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.seedPlaceholder')) + '"/>'
+      + '<div class="inc-web-toggle"><label class="toggle-switch"><input type="checkbox" id="inc-web"/><span class="toggle-slider"></span></label>'
+      + '<span>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptIn')) + '</span></div>'
+      + '</div>'
+      + '<div class="inc-form-actions">'
+      + '<button class="btn" onclick="CO_ENGRAM_INCUBATIONS.create()">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.createBtn')) + '</button>'
+      + '<span class="hint">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptInHint')) + '</span>'
+      + '</div>'
+      + '</div></div>';
 
     const items = payload.items || [];
     if (!items.length) {
-      html += '<div class="empty">' + T.t('viewer.incubations.empty') + '</div>';
+      html += '<div class="inc-empty"><div class="icon">🌙</div>' + T.t('viewer.incubations.empty') + '</div>';
     } else {
       // resolved/paused 折叠为荣誉记录(spec §六)
       const active = items.filter(e => e.status !== 'resolved' && e.status !== 'paused');
       const archived = items.filter(e => e.status === 'resolved' || e.status === 'paused');
       html += active.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('');
       if (archived.length) {
-        html += '<details style="margin-top:1rem"><summary style="cursor:pointer;color:var(--fg-muted)">🏛️ ' + archived.length + ' × ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.resolved')) + '/' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.paused')) + '</summary>'
+        html += '<details class="inc-archived"><summary>🏛️ ' + archived.length + ' × ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.resolved')) + '/' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.paused')) + '</summary>'
           + archived.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('') + '</details>';
       }
     }
-    html += '</div>';
     root.innerHTML = html;
   },
 
@@ -4768,17 +4776,20 @@ window.CO_ENGRAM_INCUBATIONS = {
     const T = CO_ENGRAM_T;
     const statusKey = 'viewer.incubations.status.' + e.status;
     const statusLabel = T.t(statusKey) !== statusKey ? T.t(statusKey) : e.status;
-    const color = e.status === 'active' ? '#34d399' : (e.status === 'in-flight' ? '#fbbf24' : (e.status === 'suggested-resolve' ? '#a78bfa' : 'var(--fg-muted)'));
-    let html = '<div class="card" id="inc-card-' + CO_ENGRAM.escapeHtml(e.id) + '" style="margin-bottom:1rem;padding:1rem">'
+    // 纸面主题状态色:active=青绿 / in-flight=琥珀 / suggested-resolve=紫 / 其余灰
+    const stClass = e.status === 'active' ? 'st-active' : (e.status === 'in-flight' ? 'st-flight' : (e.status === 'suggested-resolve' ? 'st-resolve' : 'st-dim'));
+    let html = '<div class="card inc-card" id="inc-card-' + CO_ENGRAM.escapeHtml(e.id) + '">'
+      + '<div class="inc-card-head">'
       + '<div class="card-title">' + CO_ENGRAM.escapeHtml(e.question) + '</div>'
-      + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;margin-bottom:.5rem">'
-      + '<span class="chip" style="color:' + color + '">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span>'
-      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.rounds', { n: e.rounds })) + '</span>'
-      + (e.webResearchOptIn ? '<span class="chip">🌐</span>' : '')
-      + (e.lastHatchedAt ? '<span title="' + CO_ENGRAM.escapeHtml(e.lastHatchedAt) + '">' + CO_ENGRAM.relativeTime(e.lastHatchedAt) + '</span>' : '')
+      + '<span class="chip inc-st ' + stClass + '">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span>'
       + '</div>'
-      + '<div id="inc-job-' + CO_ENGRAM.escapeHtml(e.id) + '" style="margin-bottom:.5rem"></div>'
-      + '<div style="display:flex;gap:.4rem;flex-wrap:wrap">'
+      + '<div class="card-meta">'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.rounds', { n: e.rounds })) + '</span>'
+      + (e.webResearchOptIn ? '<span class="chip" title="web research">🌐</span>' : '')
+      + (e.lastHatchedAt ? '<span class="inc-hatched" title="' + CO_ENGRAM.escapeHtml(e.lastHatchedAt) + '">' + CO_ENGRAM.relativeTime(e.lastHatchedAt) + '</span>' : '')
+      + '</div>'
+      + '<div id="inc-job-' + CO_ENGRAM.escapeHtml(e.id) + '" class="inc-job"></div>'
+      + '<div class="inc-card-acts">'
       + ((e.status === 'active' || e.status === 'in-flight') ? '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.runNow(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.runNow')) + '</button>' : '')
       + (e.status === 'suggested-resolve'
         ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolvePrompt')) + '</span>'
@@ -4789,7 +4800,7 @@ window.CO_ENGRAM_INCUBATIONS = {
     // 梦境时间线(过程透明是信任来源,spec §六)
     const tl = e.timeline || [];
     if (tl.length) {
-      html += '<details style="margin-top:.6rem"><summary style="cursor:pointer;font-size:.9rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.timeline')) + ' (' + tl.length + ')</summary><ul style="padding-left:1.1rem;font-size:.88rem;line-height:1.6">';
+      html += '<details class="inc-timeline"><summary>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.timeline')) + ' (' + tl.length + ')</summary><ul>';
       for (const t of tl) {
         const triggerKey = 'viewer.incubations.trigger.' + t.trigger;
         const trigger = T.t(triggerKey) !== triggerKey ? T.t(triggerKey) : t.trigger;

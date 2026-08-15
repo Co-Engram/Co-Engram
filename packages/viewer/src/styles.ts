@@ -2458,6 +2458,45 @@ div.vis-tooltip {
 }
 
 /* === 治理页页头 === */
+/* === 夜思实验室(incubations,2026-08 重设计:纸面主题,去内联样式) === */
+.inc-notice { margin-bottom: 0.9rem; }
+.inc-sow-card { margin-bottom: 1.1rem; padding: 1rem 1.2rem; }
+.inc-sow-title { margin: 0 0 0.7rem; font-size: 0.92rem; color: var(--accent); font-weight: 700; }
+.inc-form { display: flex; flex-direction: column; gap: 0.6rem; }
+.inc-form textarea {
+  font: inherit; font-size: 0.88rem; width: 100%; resize: vertical;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem;
+  background: var(--panel-bg, #fff); color: var(--fg); line-height: 1.6;
+}
+.inc-form textarea:focus { outline: none; border-color: var(--accent); }
+.inc-form-row { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; }
+.inc-form-row input[type=text] {
+  flex: 1; min-width: 240px; font: inherit; font-size: 0.82rem;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.38rem 0.62rem;
+  background: var(--panel-bg, #fff); color: var(--fg);
+}
+.inc-form-row input[type=text]:focus { outline: none; border-color: var(--accent); }
+.inc-web-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--fg-muted); white-space: nowrap; }
+.inc-form-actions { display: flex; align-items: center; gap: 0.75rem; }
+.inc-form-actions .hint { font-size: 0.72rem; color: var(--fg-dim); }
+.inc-empty { text-align: center; padding: 2.4rem 0; color: var(--fg-dim); font-size: 0.85rem; }
+.inc-empty .icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+.inc-card { margin-bottom: 0.8rem; padding: 0.95rem 1.1rem; }
+.inc-card-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.45rem; }
+.inc-card-head .card-title { flex: 1; min-width: 0; margin: 0; }
+.inc-st.st-active { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
+.inc-st.st-flight { color: #B45309; background: #FDF3E3; }
+.inc-st.st-resolve { color: #7C3AED; background: #F3EEFB; }
+.inc-st.st-dim { color: var(--fg-dim); background: var(--chip-bg); }
+.inc-hatched { font-size: 0.72rem; color: var(--fg-dim); }
+.inc-job { margin-bottom: 0.4rem; font-size: 0.8rem; }
+.inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.inc-timeline { margin-top: 0.6rem; }
+.inc-timeline summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }
+.inc-timeline ul { padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0 0; }
+.inc-archived { margin-top: 0.9rem; }
+.inc-archived summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
+
 .page-h { font-size: 1.45rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
 .page-sub { font-size: 0.78rem; color: var(--fg-dim); margin-bottom: 1.1rem; }
 
