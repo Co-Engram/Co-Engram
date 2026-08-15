@@ -132,7 +132,7 @@ body {
 }
 /* 品牌徽标(2026-08 用户反馈):当前为浅色纸面主题,只显示 light 变体;
    dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。尺寸放大一倍(40→80)。 */
-.brand-logo { width: 80px; height: 80px; flex-shrink: 0; }
+.brand-logo { width: 120px; height: 120px; flex-shrink: 0; }
 .brand-logo svg { width: 100%; height: 100%; }
 .brand-logo-dark { display: none; }
 
