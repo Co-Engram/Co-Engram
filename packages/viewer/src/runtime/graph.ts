@@ -614,7 +614,9 @@ async function renderGraphInner(container) {
         + '<span class="ek">' + CO_ENGRAM.escapeHtml(e.kind) + '</span></div>';
     }
 
-    insp.innerHTML = '<span class="kind">' + CO_ENGRAM.escapeHtml((T.enumLabel('kind', node ? node.kind : '') || '').toUpperCase() + ' · ' + (T.enumLabel('kind', node ? node.kind : '') || node.kind)) + '</span>'
+    // 2026-08 修复:旧写法把同一份译文 toUpperCase 后再拼一次(zh 下「模式 · 模式」重复)。
+    // 徽标 = 英文枚举值(大写)+ 本地化标签,如 PATTERN · 模式 / SKILL · 技能
+    insp.innerHTML = '<span class="kind">' + CO_ENGRAM.escapeHtml(String(node ? node.kind : '').toUpperCase() + ' · ' + (T.enumLabel('kind', node ? node.kind : '') || node.kind)) + '</span>'
       + '<h3>' + CO_ENGRAM.escapeHtml(detail ? detail.title : (node ? node.title : id)) + '</h3>'
       + '<div class="irow"><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.graph.importanceShort')) + '</span><b>' + imp.toFixed(2)
         + (detail && detail.verificationStatus ? ' · ' + CO_ENGRAM.escapeHtml(T.enumLabel('verificationStatus', detail.verificationStatus) || detail.verificationStatus) : '') + '</b></div>'

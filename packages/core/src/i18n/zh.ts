@@ -945,9 +945,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.incubations.questionPlaceholder": "你想让 Agent 夜里深想的问题……",
   "viewer.incubations.seedPlaceholder": "种子记忆 id(可选,逗号分隔)",
   "viewer.incubations.webOptIn": "允许联网调研",
-  "viewer.incubations.webOptInHint": "勾选后,问题摘要将发送至搜索引擎;不勾选则完全离线思考",
+  "viewer.incubations.webOptInHint": "允许夜思联网查资料:问题摘要将发送至搜索引擎;关闭则完全离线思考",
   "viewer.incubations.createBtn": "播种",
-  "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM(可能消耗较多 token)。L2 会话过程(计划/轨迹)全部透明可查;联网默认关闭。",
+  "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM(可能消耗较多 token)。L2 会话过程(计划/轨迹)全部透明可查;联网调研默认开启,可按条目关闭。",
   "viewer.incubations.empty": "还没有孵化条目。播种第一个问题,今晚开始夜思。",
   "viewer.incubations.loadFailed": "加载失败:${err}",
   "viewer.incubations.unavailable": "当前部署未启用夜思(需注入孵化器)。",
@@ -1190,6 +1190,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "enum.kind.pattern": "模式",
   "enum.kind.procedure": "流程",
   "enum.kind.hypothesis": "假设",
+  "enum.kind.skill": "技能",
   // S6.x: enum.policyKind 已移除(co-engram 不执行 skill,执行载体无区分)
 
   "enum.freshness.fresh": "鲜活",
@@ -1350,6 +1351,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Stats 面板(viewer.stats.*) =====
   "viewer.stats.feedEmpty": "暂无动态",
+  "viewer.stats.feedView": "查看 →",
+  "viewer.stats.feedChangedFields": "变更字段:${fields}",
+  "viewer.stats.effectiveRateTip": "有效 = 取用后在观察期内收到强化反馈的次数。agent 未回报反馈的取用计为未闭环,会拉低该比例 —— 它衡量「反馈闭环率」,不代表取用质量。",
+  "viewer.stats.updatesBarTip": "柱高 = 当日新增或内容有更新的记忆数(印迹/突触/技能合计);点击柱子查看当日明细。",
   "viewer.stats.expandTip": "点击展开 TOP 20",
   "viewer.stats.weeklyNew": "本周 ↑${n}",
   "viewer.stats.pulseTitle": "记忆更新",
@@ -1944,7 +1949,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.status.all": "状态:含归档 / 已取代",
   "viewer.graph.status.contradictionsOnly": "状态:仅矛盾待裁决",
   "viewer.graph.reading.title": "阅读方式",
-  "viewer.graph.reading.hint": "节点大小 = 重要度 · 虚线红边 = 失效边<br>悬停高亮邻边 · 点击节点看邻域 · Esc 返回",
+  "viewer.graph.reading.hint": "节点大小 = 重要度<br>红色虚线 = 两条记忆相互矛盾",
   "viewer.graph.countLine.items": "条",
   "viewer.graph.countLine.visible": "可见(重要度 ≥${imp})",
   "viewer.graph.countLine.clusters": "个 Louvain 簇",

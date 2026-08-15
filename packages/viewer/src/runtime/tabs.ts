@@ -81,7 +81,7 @@ CO_ENGRAM.on('stats', async function() {
         (data.weeklyNewSynapses || 0) > 0 ? T.t('viewer.stats.weeklyNew', { n: data.weeklyNewSynapses }) : '')
     + kpi(T.t('viewer.stats.totalSkills'), String(data.totalSkills || 0), '', 'skills', T.t('viewer.stats.totalSkillsTip'),
         (data.weeklyNewSkills || 0) > 0 ? T.t('viewer.stats.weeklyNew', { n: data.weeklyNewSkills }) : '')
-    + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', null,
+    + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', T.t('viewer.stats.effectiveRateTip'),
         (data.weeklyRetrievals || 0) > 0 ? T.t('viewer.stats.weeklyRetrievals', { n: data.weeklyRetrievals }) : '')
     // 第五框:技能调用(与印迹检索分开统计,DEMO g2-overview 五格 KPI)
     + kpi(T.t('viewer.stats.skillInvocations'), String(data.totalSkillInvocations || 0),
@@ -94,12 +94,12 @@ CO_ENGRAM.on('stats', async function() {
   const pulse = data.updatesLast30d || data.createdLast30d || [];
   if (pulse.length) {
     const maxCount = Math.max(1, ...pulse.map(d => d.count || 0));
-    html += '<div class="ov-pulse-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle'))
+    html += '<div class="ov-pulse-h" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.updatesBarTip')).replaceAll('"', '&quot;') + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle'))
       + '<small>' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseSub')) + '</small></div>'
       + '<div class="ov-pulse ov-pulse-clickable" role="listbox" aria-label="' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.pulseTitle')) + '">';
     pulse.forEach((d) => {
       const h = Math.max(3, Math.round(((d.count || 0) / maxCount) * 100));
-      html += '<i style="height:' + h + '"' + (d.count ? ' title="' + d.date + ' · ' + d.count + '"' : '')
+      html += '<i style="height:' + h + '%"' + (d.count ? ' title="' + d.date + ' · ' + d.count + '"' : '')
         + (d.count ? ' role="option" tabindex="0" onclick="CO_ENGRAM.showDayPopup(\\'' + d.date + '\\')"' : '') + '></i>';
     });
     html += '</div><div class="ov-pulse-axis"><span>' + pulse[0].date.slice(5) + '</span>'
@@ -264,6 +264,8 @@ CO_ENGRAM.openEngramDetail = function(id) {
 
 // 记忆动态渲染:按天分组 + 动作色点。只展示用户关心的动作子集,
 // 其余(retrieve_hit 高频噪声等)折叠在「其余 N 条」内,防淹没。
+// 动作族样式(DEMO g2-overview .eico:彩色图标方 + 动作名加粗):
+// cls 决定图标方底色族,icon 为字符;label 走 i18n 动作名(CO_ENGRAM_AUDIT._actionLabel)
 CO_ENGRAM.FEED_ACTIONS = {
   create: { cls: 'feed-create', icon: '＋' },
   update: { cls: 'feed-update', icon: '✎' },
@@ -280,7 +282,21 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     root.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedEmpty')) + '</div>';
     return;
   }
-  // 稳健性:倒序(最新在前),按本地日期分组
+  // 2026-08 对齐 DEMO .evt 结构:彩色图标方 | 动作名加粗 + 操作者 · 时间 |
+  // 事件标题(后端回填 engramTitle)| 变更摘要(.eb)| kind 徽标 + 查看 →
+  const actionLabel = (a) => (typeof CO_ENGRAM_AUDIT !== 'undefined' && CO_ENGRAM_AUDIT._actionLabel)
+    ? CO_ENGRAM_AUDIT._actionLabel(a) : a;
+  // 变更摘要:update → 变更字段列表;reinforce → 分数;accept/create → payload 摘要
+  const excerptFor = (e) => {
+    const m = e.metadata || {};
+    if (e.action === 'update' && m.changes && typeof m.changes === 'object') {
+      const fields = Object.keys(m.changes);
+      if (fields.length) return T.t('viewer.stats.feedChangedFields', { fields: fields.slice(0, 4).join('、') + (fields.length > 4 ? '…' : '') });
+    }
+    if (typeof m.reason === 'string' && m.reason) return m.reason;
+    if (typeof m.note === 'string' && m.note) return m.note;
+    return '';
+  };
   const sorted = entries.slice().sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
   let html = '';
   let lastDay = '';
@@ -296,11 +312,23 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       dayCount++;
       if (dayCount > 3) break; // 概览只渲染最近 3 天,更早去审计 tab 看
     }
+    const title = e.engramTitle || (e.metadata && e.metadata.title) || e.engramId || actionLabel(e.action);
+    const excerpt = excerptFor(e);
+    const kind = e.engramKind || (e.metadata && e.metadata.kind) || '';
+    const kindLabel = kind ? (T.enumLabel('kind', kind) || kind) : '';
+    const canOpen = !!e.engramId && !!e.engramTitle;
     html += '<div class="ov-feed-item ' + meta.cls + '">'
       + '<span class="ov-feed-ico">' + meta.icon + '</span>'
-      + '<div class="ov-feed-body"><div class="ov-feed-title">'
-      + CO_ENGRAM.escapeHtml(e.metadata?.title || e.engramId || e.action)
-      + '</div><div class="ov-feed-meta">' + CO_ENGRAM.escapeHtml(e.action) + ' · ' + CO_ENGRAM.escapeHtml(e.actor || '') + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div></div></div>';
+      + '<div class="ov-feed-body">'
+      + '<div class="ov-feed-meta"><b>' + CO_ENGRAM.escapeHtml(actionLabel(e.action)) + '</b>'
+      + ' ' + CO_ENGRAM.escapeHtml(e.actor || '') + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
+      + '<div class="ov-feed-title"' + (canOpen ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : '') + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
+      + (excerpt ? '<div class="ov-feed-excerpt">' + CO_ENGRAM.escapeHtml(excerpt) + '</div>' : '')
+      + '<div class="ov-feed-chips">'
+      + (kindLabel ? '<span class="chip kind-' + CO_ENGRAM.escapeHtml(kind) + ' kd-mini">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>' : '')
+      + (canOpen ? '<span class="ov-feed-link" onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedView')) + '</span>' : '')
+      + '</div>'
+      + '</div></div>';
   }
   if (lastDay !== '') html += '</div>';
   // 客户端仍可能全被过滤掉(服务端动作集合内的条目缺 metadata 等):
@@ -4757,7 +4785,7 @@ window.CO_ENGRAM_INCUBATIONS = {
       + '<textarea id="inc-q" rows="3" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.questionPlaceholder')) + '"></textarea>'
       + '<div class="inc-form-row">'
       + '<input id="inc-seeds" type="text" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.seedPlaceholder')) + '"/>'
-      + '<div class="inc-web-toggle"><label class="toggle-switch"><input type="checkbox" id="inc-web"/><span class="toggle-slider"></span></label>'
+      + '<div class="inc-web-toggle"><label class="toggle-switch"><input type="checkbox" id="inc-web" checked/><span class="toggle-slider"></span></label>'
       + '<span>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.webOptIn')) + '</span></div>'
       + '</div>'
       + '<div class="inc-form-actions">'
@@ -5012,10 +5040,11 @@ window.CO_ENGRAM_MAINTENANCE = {
     // 数据源 = 同一维护窗口的 audit 动作(noise_filtered/necessity_rejected/
     // contradicted)—— 单独拉取,失败静默(报告其余部分不依赖)。
     const dreamAudit = await CO_ENGRAM_MAINTENANCE.fetchDreamAudit(payload);
-    // 2026-08 改版(DEMO g2-dream):睡眠报告整页(五格汇总 + 五节逐条可点)+
-    //   原维护节奏(各 stage 健康度/进度)沉底保留
-    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderSleepReport(payload.state, payload.intervals, dreamAudit)
-      + insightHtml + CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals);
+    // 2026-08 用户反馈:梦境状态(rem/deep/light 健康度/下次运行)上移到页首,
+    // 睡眠报告(五格 + 五节)随后,洞察质量度量沉底
+    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals)
+      + CO_ENGRAM_MAINTENANCE.renderSleepReport(payload.state, payload.intervals, dreamAudit)
+      + insightHtml;
   },
 
   /**

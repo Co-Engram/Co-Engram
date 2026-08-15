@@ -388,7 +388,14 @@ body {
 .ov-feed-item { display: grid; grid-template-columns: 28px 1fr; gap: 0.65rem; padding: 0.55rem 0.75rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.4rem; }
 .ov-feed-ico { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; background: var(--chip-bg); color: var(--fg-muted); }
 .ov-feed-title { font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-feed-title[onclick] { cursor: pointer; }
+.ov-feed-title[onclick]:hover { color: var(--accent); }
 .ov-feed-meta { font-size: 0.7rem; color: var(--fg-dim); }
+.ov-feed-meta b { font-weight: 600; color: var(--fg-muted); }
+.ov-feed-excerpt { font-size: 0.74rem; color: var(--fg-dim); line-height: 1.5; margin-top: 0.15rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-feed-chips { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.25rem; }
+.ov-feed-link { font-size: 0.7rem; color: var(--accent); cursor: pointer; }
+.ov-feed-link:hover { text-decoration: underline; }
 .feed-create .ov-feed-ico { background: rgba(14, 159, 110, 0.12); color: #0E9F6E; }
 .feed-reinforce .ov-feed-ico { background: rgba(124, 58, 237, 0.12); color: #7C3AED; }
 .feed-contradicted .ov-feed-ico { background: rgba(224, 36, 36, 0.10); color: #E02424; }
