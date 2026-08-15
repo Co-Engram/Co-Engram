@@ -164,16 +164,31 @@ export function inspirationSeedFilter(
   return (id: string) => tagged.has(id);
 }
 
+/**
+ * 节点短别名:LLM 抄写 26 位 ULID 极易出错导致引用闭合拒绝(2026-08-15
+ * 真实 LLM 场景验证发现),prompt 用 S1..Sn 别名,解析后经 aliasMap 映射回真实 id。
+ */
+export function nodeAlias(index: number): string {
+  return `S${index + 1}`;
+}
+
+/** 别名 → 真实 id 映射(与 serializeSubgraph 的编号一致) */
+export function buildAliasMap(sub: InsightSubgraph): Map<string, string> {
+  const m = new Map<string, string>();
+  sub.nodes.forEach((n, i) => m.set(nodeAlias(i), n.id));
+  return m;
+}
+
 /** 子图序列化(LLM 输入:节点 digest + 活动 + 边 + 全局统计,spec §三「输入」) */
 export function serializeSubgraph(sub: InsightSubgraph): string {
   const nodes = sub.nodes
     .map(
-      (n) =>
-        `- [${n.id}] ${n.title} | kind=${n.kind} | tags=${n.domainTags.join("/")} | imp=${n.importance.toFixed(2)} | ver=${n.verificationStatus ?? "unverified"} | retrieves=${n.retrievalCount} failedUses=${n.failedUses} | seed=${n.isSeed}`,
+      (n, i) =>
+        `- [${nodeAlias(i)}] ${n.title} (id=${n.id}) | kind=${n.kind} | tags=${n.domainTags.join("/")} | imp=${n.importance.toFixed(2)} | ver=${n.verificationStatus ?? "unverified"} | retrieves=${n.retrievalCount} failedUses=${n.failedUses} | seed=${n.isSeed}`,
     )
     .join("\n");
   const summaries = sub.nodes
-    .map((n) => `- [${n.id}] ${n.summary}`)
+    .map((n, i) => `- [${nodeAlias(i)}] ${n.summary}`)
     .join("\n");
   const edges = sub.edges
     .map(
@@ -219,12 +234,12 @@ const OUTPUT_CONTRACT = `Return ONLY a JSON array (possibly empty) of insight dr
   "title": string,
   "summary": string,
   "content": string (markdown, cites [id] of sources inline),
-  "sourceIds": string[] (subset of node ids above),
+  "sourceIds": string[] (cite nodes by their [S1]-style alias or the full id),
   "domainTags": string[],
   "reason": string (why this is an insight, not a restatement),
   "aar": { "expected": string, "actual": string, "cause": string, "improvement": string }  // required for type=lesson only
 }
-No prose outside the JSON array.`;
+Type selection: use "theme" for cross-context syntheses of shared structure; use "lesson" only with the four AAR fields; use "analogy" only across disjoint domains; use "hypothesis" only for causal explanations WITH explicit "if true observe X / if false observe Y" predictions (otherwise it will be discarded). No prose outside the JSON array.`;
 
 /**
  * 模式 prompt。孵化条目存在时(Dormio 锚定):首行重复问题,携带完整梦境史,

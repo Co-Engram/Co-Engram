@@ -56,19 +56,30 @@ export function createL1Executor(
 ): { execute(task: NightThinkingTask): Promise<NightThinkingReport> } {
   return {
     async execute(task) {
+      // 种子用 S 别名(与 run.ts 同因:LLM 抄写 26 位 ULID 极易出错)
+      const alias = new Map<string, string>();
       const seedText = task.seedDigests
-        .map((s) => `- [${s.id}] ${s.title} | tags=${s.domainTags.join("/")} | ${s.summary}`)
+        .map((s, i) => {
+          const a = `S${i + 1}`;
+          alias.set(a, s.id);
+          return `- [${a}] ${s.title} (id=${s.id}) | tags=${s.domainTags.join("/")} | ${s.summary}`;
+        })
         .join("\n");
       const prompt = buildNightThinkingL1Prompt(
         task.question,
         seedText || "(no seeds)",
         task.dreamHistory,
       );
-      const raw = await llm.complete(prompt, { temperature: 0.5, maxTokens: 4096 });
-      const insights = parseDrafts(raw, "inspiration").map((d) => ({
-        ...d,
-        mode: "inspiration" as const,
-      }));
+      const raw = await llm.complete(prompt, { temperature: 0.5, maxTokens: 8192 });
+      const insights = parseDrafts(raw, "inspiration")
+        .map((d) => ({
+          ...d,
+          sourceIds: d.sourceIds.map((x) => alias.get(x) ?? x),
+        }))
+        .map((d) => ({
+          ...d,
+          mode: "inspiration" as const,
+        }));
       return {
         insights,
         plan: [{ step: "L1 single-pass distant analogy", capability: "llm" }],

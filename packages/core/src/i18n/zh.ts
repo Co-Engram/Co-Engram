@@ -1853,6 +1853,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Graph 顶栏过滤(2026-07 新增)=====
   "viewer.graph.filter.searchPlaceholder": "按标题/标签/ID 搜索节点…",
+  "viewer.graph.filter.impTitle": "重要度阈值",
+  "viewer.graph.filter.visibleUnit": "可见",
+  "viewer.graph.replay.title": "时间回放",
+  "viewer.graph.replay.sub": "按创建时间生长 · 与重要度阈值同时生效",
+  "viewer.graph.replay.full": "全部 · ${n} 可见",
+  "viewer.graph.replay.noData": "无创建时间数据",
+  "viewer.graph.night.title": "切换明暗底色",
+  "viewer.graph.night.enable": "夜览",
+  "viewer.graph.night.disable": "日览",
   "viewer.graph.filter.pathBtn": "📁 目录过滤",
   "viewer.graph.filter.pathBtnTitle": "按记忆印迹所在目录过滤图谱",
   "viewer.graph.filter.pathPickerTitle":
@@ -2035,6 +2044,9 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.intro":
     "Co-Engram 把团队工作中的对话、决策、踩过的坑沉淀为<em>记忆印迹(engram)</em>,用<em>记忆突触(synapse)</em>把它们连成可演化的知识网络。模型在后续任务里通过 <code>memory_search</code> 召回相关记忆,引用有效时调 <code>engram_reinforce</code> 强化,出错时调 <code>engram_report_failure</code> 弱化——这套闭环让高价值记忆自动浮现、过时记忆自动衰减。",
   "viewer.help.conceptsTitle": "核心概念",
+  "viewer.help.graphTitle": "记忆突触页(图谱)阅读方式",
+  "viewer.help.graphDesc":
+    "节点大小 = 重要度,颜色 = 类型;重要度 ≥ 0.7 的节点带发光脉冲光环,Louvain 社区检测自动圈出呼吸状簇凸包。左上角滑杆设重要度阈值,底部滑杆按创建时间回放图的生长(两者同时生效);🌙 夜览切换明暗底色。点击节点聚焦其邻域:邻接边流动、非邻居淡出,按 Esc 返回。",
   "viewer.help.conceptEngram": "<strong>记忆印迹(engram)</strong>",
   "viewer.help.conceptEngramDesc":
     "一条结构化的记忆条目,含标题/内容/类型/标签/重要性/置信度等字段。类型分 5 种:<code>fact(事实)</code> <code>observation(观察)</code> <code>pattern(模式)</code> <code>procedure(流程)</code> <code>hypothesis(假设)</code>。鼠标悬停字段可以看到该字段的解释。",

@@ -18,6 +18,7 @@ import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { critique } from "./critic.js";
 import {
+  buildAliasMap,
   buildModePrompt,
   computeModeSignals,
   inspirationSeedFilter,
@@ -70,6 +71,8 @@ export interface DeepThoughtReport {
   readonly draftsGenerated: number;
   readonly criticRejected: number;
   readonly mechanicalRejected: number;
+  /** 拒绝原因明细(机械+critic;运维诊断/盲评校准用) */
+  readonly rejectReasons?: readonly string[];
   /** 消融对照(spec §九):主路径 vs baseline 子图重叠节点数(有模式执行时才统计) */
   readonly ablation?: { readonly subgraphNodes: number; readonly baselineNodes: number; readonly overlapNodes: number };
 }
@@ -131,6 +134,7 @@ export async function runDeepThought(deps: {
   let criticRejected = 0;
   let mechanicalRejected = 0;
   const modesRun: DeepThoughtMode[] = [];
+  const rejectReasons: string[] = [];
   const accepted: Array<{ draft: InsightDraft; score: CriticScore }> = [];
   let ablation: DeepThoughtReport["ablation"];
 
@@ -187,9 +191,15 @@ export async function runDeepThought(deps: {
       );
       const raw = await deps.llmClient.complete(prompt, {
         temperature: 0.4,
-        maxTokens: 4096,
+        // 思考型模型先输出 thinking 块,预算不足会导致 text 为空(见 critic 注释)
+        maxTokens: 8192,
       });
-      const drafts = parseDrafts(raw, mode);
+      // 别名(S1..Sn)→ 真实 id:LLM 抄写 ULID 易错,prompt 用短别名
+      const aliasMap = buildAliasMap(subgraph);
+      const drafts = parseDrafts(raw, mode).map((d) => ({
+        ...d,
+        sourceIds: d.sourceIds.map((x) => aliasMap.get(x) ?? x),
+      }));
       draftsGenerated += drafts.length;
 
       const existing = deps.proposalEngine.listAll();
@@ -197,11 +207,13 @@ export async function runDeepThought(deps: {
         const v = validateInsightDraft(draft, subgraph, deps.repository, existing);
         if (!v.ok) {
           mechanicalRejected += 1;
+          rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: ${v.reason}`);
           continue;
         }
         const score = await critique(deps.llmClient, draft, subgraph, mode);
         if (!score || score.overall < config.criticThreshold) {
           criticRejected += 1;
+          rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: critic=${score ? score.overall.toFixed(2) : "null"} < ${config.criticThreshold}`);
           continue;
         }
         accepted.push({ draft, score });
@@ -238,6 +250,7 @@ export async function runDeepThought(deps: {
     draftsGenerated,
     criticRejected,
     mechanicalRejected,
+    ...(rejectReasons.length ? { rejectReasons } : {}),
     ...(ablation ? { ablation } : {}),
   };
 }

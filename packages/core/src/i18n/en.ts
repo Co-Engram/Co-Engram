@@ -1905,6 +1905,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Graph top filter bar (2026-07) =====
   "viewer.graph.filter.searchPlaceholder": "Search nodes by title/tag/id…",
+  "viewer.graph.filter.impTitle": "Importance threshold",
+  "viewer.graph.filter.visibleUnit": "visible",
+  "viewer.graph.replay.title": "Time replay",
+  "viewer.graph.replay.sub": "Grow by creation time · combines with importance threshold",
+  "viewer.graph.replay.full": "All · ${n} visible",
+  "viewer.graph.replay.noData": "No createdAt data",
+  "viewer.graph.night.title": "Toggle light/dark canvas",
+  "viewer.graph.night.enable": "Night",
+  "viewer.graph.night.disable": "Day",
   "viewer.graph.filter.pathBtn": "📁 Filter by directory",
   "viewer.graph.filter.pathBtnTitle": "Filter graph by engram directory",
   "viewer.graph.filter.pathPickerTitle":
@@ -2098,6 +2107,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.intro":
     "Co-Engram distills team conversations, decisions and lessons into <em>engrams</em> and links them with <em>synapses</em> into an evolvable knowledge network. Models recall relevant memories via <code>memory_search</code>, reinforce effective ones with <code>engram_reinforce</code>, and weaken broken ones with <code>engram_report_failure</code> — this closed loop lets high-value memories surface and stale ones decay automatically.",
   "viewer.help.conceptsTitle": "Core concepts",
+  "viewer.help.graphTitle": "Reading the Synapses (graph) tab",
+  "viewer.help.graphDesc":
+    "Node size = importance, color = kind; nodes with importance ≥ 0.7 carry a pulsing glow halo, and Louvain community detection draws breathing cluster hulls. The top-left slider sets the importance threshold and the bottom slider replays the graph growing over creation time (both combine); 🌙 toggles the night canvas. Click a node to focus its neighborhood: connected edges flow, non-neighbors fade out — press Esc to return.",
   "viewer.help.conceptEngram": "<strong>Engram</strong>",
   "viewer.help.conceptEngramDesc":
     "A structured memory entry with fields like title/content/kind/tags/importance/confidence. 5 kinds: <code>fact</code> <code>observation</code> <code>pattern</code> <code>procedure</code> <code>hypothesis</code>. Hover a field to see its description.",

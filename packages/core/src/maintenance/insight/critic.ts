@@ -87,7 +87,12 @@ export async function critique(
 
   let raw: string;
   try {
-    raw = await llm.complete(prompt, { temperature: 0.2, maxTokens: 512 });
+    raw = await llm.complete(prompt, {
+      temperature: 0.2,
+      // 2048:思考型模型(GLM 等)会先输出 thinking 块,512 会被思考耗尽
+      // 导致 text 为空 → fail-closed 全拒(2026-08-15 真实场景验证发现)
+      maxTokens: 2048,
+    });
   } catch {
     return null; // fail-closed
   }
