@@ -193,13 +193,18 @@ async function main() {
       `R1 proposals=${r1.proposals} cycleVetoed=${r1.cycleVetoed}; R2 proposals=${r2.proposals} cycleVetoed=${r2.cycleVetoed}; rounds=${e2.rounds} status=${e2.status}; R1 提案=[${p1.map((x) => x.payload!.title).join(" | ") || "(critic 未放行 — fail-closed)"}]`);
   }
 
-  // ============ 场景 6:兜底 REM 跳过(零 LLM) ============
+  // ============ 场景 6:兜底 REM 跳过(零 LLM;独立仓库,避免场景 5 的
+  // active 孵化条目让灵感信号合法触发 —— incubation 合并执行是预期行为) ============
   {
+    const t6 = mkdtempSync(join(tmpdir(), "co-engram-verify-skip-"));
+    const repo6 = new EngramRepository({ rootPath: t6 });
+    repo6.createEngram({ title: "既有记忆", content: "内容", kind: "fact", domainTags: ["x"], createdBy: "v" });
     const future = new Date(Date.now() + 3600_000).toISOString();
     const r = await runDeepThought({
-      repository: repo, proposalEngine: engine, llmClient: llm,
+      repository: repo6, proposalEngine: engine, llmClient: llm,
       lastRemAt: future, config: { enabled: true },
     });
+    rmSync(t6, { recursive: true, force: true });
     report("一期兜底 REM:无事件信号 → 深度思考整体跳过(零 LLM 调用)",
       r.skipped && r.reason === "no-mode-signals",
       `skipped=${r.skipped} reason=${r.reason}`);

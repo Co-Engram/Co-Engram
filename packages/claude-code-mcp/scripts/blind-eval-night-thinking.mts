@@ -8,6 +8,7 @@
  * 运行(需 ANTHROPIC_API_KEY):
  *   npx tsx scripts/blind-eval-night-thinking.mts <realDataRoot>
  */
+import { execFile } from "node:child_process";
 import { cpSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -88,6 +89,14 @@ const runs: Array<{ label: string; lastRemAt: string | null }> = [
 
 async function main() {
   const totalEngrams = repo.listEngramIndex().length;
+  // 直连探针:任何 llm 错误第一时间暴露(不被 runDeepThought 的 per-mode catch 吞掉)
+  try {
+    const probe = await llm.complete('Return ONLY this JSON array: [{"type":"theme","title":"t","content":"c","summary":"s","sourceIds":["x"],"domainTags":["d"],"reason":"r"}]', { maxTokens: 3000 });
+    console.log("[blind-eval] probe reply head:", JSON.stringify(probe.slice(0, 120)));
+  } catch (e) {
+    console.log("[blind-eval] probe FAILED:", e instanceof Error ? e.message : e);
+  }
+
   console.log(`[blind-eval] cloned repo: ${totalEngrams} engrams`);
   for (const r of runs) {
     const out = await runDeepThought({

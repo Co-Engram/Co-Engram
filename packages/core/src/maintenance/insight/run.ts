@@ -191,8 +191,9 @@ export async function runDeepThought(deps: {
       );
       const raw = await deps.llmClient.complete(prompt, {
         temperature: 0.4,
-        // 思考型模型先输出 thinking 块,预算不足会导致 text 为空(见 critic 注释)
-        maxTokens: 8192,
+        // 思考型模型先输出 thinking 块(真实库 30 节点 prompt 实测思考即可耗
+        // 8k+),预算不足导致 text 为空或 JSON 截断(截断由 parseDrafts 抢救兜底)
+        maxTokens: 32768,
       });
       // 别名(S1..Sn)→ 真实 id:LLM 抄写 ULID 易错,prompt 用短别名
       const aliasMap = buildAliasMap(subgraph);
@@ -255,18 +256,30 @@ export async function runDeepThought(deps: {
   };
 }
 
-/** 解析 LLM 输出的 drafts JSON 数组(剥围栏;垃圾 → []) */
+/**
+ * 解析 LLM 输出的 drafts JSON 数组。
+ *
+ * 剥围栏;数组整体可解析则用之;**截断容错**(思考型模型超长输出常被
+ * max_tokens 切断,尾部数组不完整)—— 退化为逐对象抢救:按括号配平提取
+ * 截断前已完整的 {...} 对象解析,半截对象丢弃。
+ */
 export function parseDrafts(raw: string, mode: DeepThoughtMode): InsightDraft[] {
   const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  // 截断时围栏不会闭合,fenced 匹配不到 —— 这正是要走抢救路径的信号之一
   const body = fenced ? fenced[1]! : raw;
   const start = body.indexOf("[");
+  if (start === -1) return [];
   const end = body.lastIndexOf("]");
-  if (start === -1 || end <= start) return [];
   let arr: unknown;
-  try {
-    arr = JSON.parse(body.slice(start, end + 1));
-  } catch {
-    return [];
+  if (end > start) {
+    try {
+      arr = JSON.parse(body.slice(start, end + 1));
+    } catch {
+      arr = undefined;
+    }
+  }
+  if (!Array.isArray(arr)) {
+    arr = salvageObjects(body.slice(start));
   }
   if (!Array.isArray(arr)) return [];
   const out: InsightDraft[] = [];
@@ -287,6 +300,37 @@ export function parseDrafts(raw: string, mode: DeepThoughtMode): InsightDraft[] 
       reason: String(d.reason ?? ""),
       ...(d.aar && typeof d.aar === "object" ? { aar: d.aar as InsightDraft["aar"] } : {}),
     });
+  }
+  return out;
+}
+
+/** 从截断的 JSON 数组文本中抢救完整顶层对象(括号配平,跳过字符串内的括号) */
+function salvageObjects(text: string): unknown[] {
+  const out: unknown[] = [];
+  let depth = 0;
+  let objStart = -1;
+  let inStr = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i]!;
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { if (inStr) escape = true; continue; }
+    if (c === '"') { inStr = !inStr; continue; }
+    if (inStr) continue;
+    if (c === "{") {
+      if (depth === 0) objStart = i;
+      depth += 1;
+    } else if (c === "}") {
+      depth -= 1;
+      if (depth === 0 && objStart >= 0) {
+        try {
+          out.push(JSON.parse(text.slice(objStart, i + 1)));
+        } catch {
+          // 单个对象损坏跳过
+        }
+        objStart = -1;
+      }
+    }
   }
   return out;
 }
