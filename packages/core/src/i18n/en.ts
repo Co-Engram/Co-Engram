@@ -2136,7 +2136,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>refuted</strong>: marked as the losing side by contradiction_resolve; excluded from retrieval by default.",
   "viewer.help.tabsTitle": "Tabs",
   "viewer.help.tabStats":
-    "<strong>Stats</strong> — overview dashboard: distribution by kind/status/family, contributors and top tags. Top search box does full-text retrieval.",
+    "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, governance in the middle, health/merge/config/help collapsed into the bottom icon row.",
   "viewer.help.tabEngrams":
     "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status filters; click to open detail (edit/delete/show synapses). In tree view, click any folder to expand its <strong>direct memories</strong> and next-level subfolders inline (switch to card view to see all descendants when a folder holds many).",
   "viewer.help.tabSkills":

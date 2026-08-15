@@ -2074,7 +2074,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>已反驳</strong>:被 contradiction_resolve 标记为失败方;默认从检索结果中排除。",
   "viewer.help.tabsTitle": "各 tab 用途",
   "viewer.help.tabStats":
-    "<strong>统计</strong>—总览仪表盘:按类型/状态/族分布,显示团队贡献者和 top 标签。顶部搜索框做全文检索。",
+    "<strong>概览</strong>—核心 KPI(印迹/突触/技能/检索,含本周增量)+ 30 天记忆脉搏 + 记忆动态(审计事件时间线)+ 右侧 TOP 榜卡(领域热度/检索热点/冷却记忆/贡献者,点击卡片展开 TOP 20)。顶部搜索框做全文检索。导航在左侧栏:高频入口在上,治理入口居中,体检/合并/配置/帮助收进底部图标行。",
   "viewer.help.tabEngrams":
     "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status 过滤,点击进入详情(可编辑/删除/查看突触)。目录视图下点击任一目录即可展开其<strong>直属记忆</strong>与下一级子目录(直属过多时可切卡片视图查看全部后代)。",
   "viewer.help.tabSkills":
