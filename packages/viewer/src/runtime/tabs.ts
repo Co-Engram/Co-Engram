@@ -4995,17 +4995,57 @@ window.CO_ENGRAM_MAINTENANCE = {
       return;
     }
     const insightHtml = CO_ENGRAM_MAINTENANCE.renderInsightStats(insightStats);
+    // 睡眠报告五格中的「噪声驳回/矛盾送审」(2026-08 补齐,DEMO g2-dream):
+    // 数据源 = 同一维护窗口的 audit 动作(noise_filtered/necessity_rejected/
+    // contradicted)—— 单独拉取,失败静默(报告其余部分不依赖)。
+    const dreamAudit = await CO_ENGRAM_MAINTENANCE.fetchDreamAudit(payload);
     // 2026-08 改版(DEMO g2-dream):睡眠报告整页(五格汇总 + 五节逐条可点)+
     //   原维护节奏(各 stage 健康度/进度)沉底保留
-    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderSleepReport(payload.state, payload.intervals)
+    root.innerHTML = CO_ENGRAM_MAINTENANCE.renderSleepReport(payload.state, payload.intervals, dreamAudit)
       + insightHtml + CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals);
+  },
+
+  /**
+   * 拉取睡眠报告「噪声驳回/矛盾送审」两节的审计数据。
+   *
+   * 窗口 = 上一轮 REM:since = lastRem - remInterval,fallback 最近 24h。
+   * contradicted 在 synapse 建立时双方各写一条 → 按 synapseId 去重为一项。
+   * 任一请求失败返回空(两节隐藏,不影响报告其余部分)。
+   */
+  async fetchDreamAudit(payload) {
+    const empty = { noise: [], contradicted: [], sinceIso: '' };
+    try {
+      const rem = ((payload.state || {}).stages || {}).rem || {};
+      const iv = (payload.intervals || {}).rem || 0;
+      const last = rem.lastRunAt ? new Date(rem.lastRunAt).getTime() : 0;
+      const until = last || Date.now();
+      const sinceMs = until - (iv > 0 ? iv : 24 * 3600 * 1000);
+      const sinceIso = new Date(sinceMs).toISOString();
+      const untilIso = new Date(until).toISOString();
+      const q = 'since=' + encodeURIComponent(sinceIso) + '&until=' + encodeURIComponent(untilIso) + '&limit=100';
+      const [noiseRes, contraRes] = await Promise.all([
+        CO_ENGRAM.apiGet('/api/audit?action=noise_filtered,necessity_rejected&' + q),
+        CO_ENGRAM.apiGet('/api/audit?action=contradicted&' + q),
+      ]);
+      // 双写去重:同一条 contradicts 突触只保留一条(取 from 侧)
+      const seenSynapse = new Set();
+      const contradicted = [];
+      for (const e of (contraRes && contraRes.results) || []) {
+        const sid = e.metadata && e.metadata.synapseId;
+        if (sid && seenSynapse.has(sid)) continue;
+        if (sid) seenSynapse.add(sid);
+        contradicted.push(e);
+      }
+      return { noise: (noiseRes && noiseRes.results) || [], contradicted, sinceIso };
+    } catch (_) { return empty; }
   },
 
   // 睡眠报告(DEMO g2-dream):deep(衰减整合)+ rem(元认知)两阶段说明、
   // 五格汇总、验证升级/强化/衰减/模式提炼逐节卡片(点击开修改介绍卡片)、
   // 下次维护时间 + 软降权规则说明。数据缺失的节显示空提示,不伪造计数。
-  renderSleepReport(state, intervals) {
+  renderSleepReport(state, intervals, dreamAudit) {
     const T = CO_ENGRAM_T;
+    dreamAudit = dreamAudit || { noise: [], contradicted: [] };
     const stages = state.stages || {};
     const ds = (s) => ((stages[s] && stages[s].lastResult && stages[s].lastResult.downstreamSummary) || {});
     const remDs = ds('rem'), lightDs = ds('light'), deepDs = ds('deep');
@@ -5078,20 +5118,56 @@ window.CO_ENGRAM_MAINTENANCE = {
       + '<div class="nm"><b class="c-ac">+' + reinforces.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.reinforce')) + '</span></div>'
       + '<div class="nm"><b class="c-rd">−' + (decays.length + archivedN) + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.decay')) + '</span></div>'
       + '<div class="nm"><b class="c-ac">' + upgrades.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.upgrade')) + '</span></div>'
-      + '<div class="nm"><b class="c-pu">' + patterns.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.pattern')) + '</span></div>'
-      + '<div class="nm"><b class="c-am">' + archivedN + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.archive')) + '</span></div>'
+      + '<div class="nm"><b class="c-am">' + dreamAudit.noise.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.noise')) + '</span></div>'
+      + '<div class="nm"><b class="c-rd">' + dreamAudit.contradicted.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradict')) + '</span></div>'
       + '</div></div>'
       + section(T.t('viewer.maintenance.sleep.upgrade'), T.t('viewer.maintenance.sleep.upgradeSub'), upgradesHtml, upgrades.length)
       + section(T.t('viewer.maintenance.sleep.reinforce'), T.t('viewer.maintenance.sleep.reinforceSub'), reinforcesHtml, reinforces.length)
       + section(T.t('viewer.maintenance.sleep.decay'), T.t('viewer.maintenance.sleep.decaySub'), decaysHtml, decays.length + archivedN)
+      + CO_ENGRAM_MAINTENANCE._renderNoiseSection(dreamAudit.noise)
+      + CO_ENGRAM_MAINTENANCE._renderContradictSection(dreamAudit.contradicted)
+      // 模式提炼是本引擎真实产物(REM patternProposals),DEMO 五节之外保留
       + section(T.t('viewer.maintenance.sleep.pattern'), T.t('viewer.maintenance.sleep.patternSub'), patternsHtml, patterns.length)
-      + ((upgrades.length + reinforces.length + decays.length + patterns.length) === 0
+      + ((upgrades.length + reinforces.length + decays.length + dreamAudit.noise.length + dreamAudit.contradicted.length + patterns.length) === 0
         ? '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.empty')) + '</div>' : '')
       + '<div class="slp-foot" style="margin-top:1.1rem;padding-top:0.8rem;border-top:1px dashed var(--border);font-size:0.8rem;color:var(--fg-dim)">'
       + (nextLine ? '<b>' + CO_ENGRAM.escapeHtml(nextLine) + '</b><br>' : '')
       + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.softening'))
       + '</div>'
       + '</div>';
+  },
+
+  /** 睡眠报告「噪声驳回」节:noise_filtered / necessity_rejected 审计行 */
+  _renderNoiseSection(items) {
+    const T = CO_ENGRAM_T;
+    if (!items || !items.length) return '';
+    const cards = items.slice(0, 10).map(e => {
+      const m = e.metadata || {};
+      const reason = m.reason || m.rule || '';
+      const path = m.sourcePath || m.entityId || '';
+      return '<div class="card slp-card"><div class="ct">'
+        + '<span style="font-weight:600">🔇 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.noiseItem', { reason: reason || '—', path: path || '—' })) + '</span>'
+        + '</div></div>';
+    }).join('');
+    return '<h2 class="slp-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.noise')) + ' <small>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.noiseSub')) + '</small></h2>' + cards;
+  },
+
+  /** 睡眠报告「矛盾送审」节:contradicted 审计行,点击进印迹详情 */
+  _renderContradictSection(items) {
+    const T = CO_ENGRAM_T;
+    if (!items || !items.length) return '';
+    const cards = items.slice(0, 10).map(e => {
+      const m = e.metadata || {};
+      const by = (m.contradictedBy || '').slice(-8);
+      const id = e.engramId || '';
+      const open = id ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(id) + '\\')"' : '';
+      return '<div class="card slp-card"><div class="ct">'
+        + '<span style="font-weight:600;cursor:pointer' + (open ? '' : ';cursor:default') + '"' + open + '>⚖ '
+        + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contraItem', { by: by || '?' }))
+        + ' <code style="font-size:.72rem">' + CO_ENGRAM.escapeHtml(id.slice(-8)) + '</code></span>'
+        + '</div></div>';
+    }).join('');
+    return '<h2 class="slp-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradict')) + ' <small>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradictSub')) + '</small></h2>' + cards;
   },
 
   renderInsightStats(st) {

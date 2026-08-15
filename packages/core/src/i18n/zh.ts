@@ -1799,6 +1799,12 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.sleep.reinforceSub": "RPE · 取用后正向反馈",
   "viewer.maintenance.sleep.decaySub": "deep · 30 天未取用自动降权(软降权,不删除)",
   "viewer.maintenance.sleep.patternSub": "梦境提炼 · 以提案呈现,审批后成为记忆",
+  "viewer.maintenance.sleep.noise": "噪声驳回",
+  "viewer.maintenance.sleep.noiseSub": "提案引擎 Layer 1/2 噪声过滤 · 同窗口审计计数",
+  "viewer.maintenance.sleep.contradict": "矛盾送审",
+  "viewer.maintenance.sleep.contradictSub": "contradicts 突触建立 · 等待人工裁决",
+  "viewer.maintenance.sleep.noiseItem": "原因:${reason} · ${path}",
+  "viewer.maintenance.sleep.contraItem": "与 ${by} 矛盾 · 点击查看",
   "viewer.maintenance.sleep.empty": "最近一轮维护没有产生记忆变更",
   "viewer.maintenance.sleep.next": "下次维护:${stage},约 ${h} 小时后",
   "viewer.maintenance.sleep.softening":
