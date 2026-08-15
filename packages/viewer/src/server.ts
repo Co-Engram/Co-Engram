@@ -2312,6 +2312,8 @@ interface StatsBaseResponse {
   readonly totalRetrievals: number;
   /** 有效检索数(SUM(effective_retrievals),用于取用有效率) */
   readonly effectiveRetrievals: number;
+  /** 至少被检索过一次的印迹数(被检索率 = retrievedEngramCount / totalEngrams) */
+  readonly retrievedEngramCount: number;
   /** 检索次数 TOP(本月热点,热点榜) */
   readonly topRetrieved: ReadonlyArray<{
     readonly id: string;
@@ -2875,6 +2877,16 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
     createdLast30d,
     totalRetrievals: retrievalAgg.total,
     effectiveRetrievals: retrievalAgg.effective,
+    // 被检索率数据源:至少被检索过一次的印迹数(真实含义的「被检索率」=
+    // 该值 / totalEngrams,衡量记忆库实际被用起来的覆盖率)
+    retrievedEngramCount:
+      (
+        db
+          .prepare(
+            `SELECT count(*) AS n FROM engrams WHERE retrieval_count > 0`,
+          )
+          .get() as { n: number }
+      )?.n ?? 0,
     topRetrieved,
     topCooling,
     auditEnabled: !!ctx.auditLog,
@@ -3014,6 +3026,10 @@ function getStatsLegacy(ctx: ToolContext): StatsBaseResponse {
     createdLast30d: [],
     totalRetrievals: 0,
     effectiveRetrievals: 0,
+    // legacy 路径:digest 批量读计数(无 SQLite 时的等价口径)
+    retrievedEngramCount: ctx.repository
+      .readDigestBatch(entries.map((e) => e.id))
+      .filter((d) => (d.retrievalCount ?? 0) > 0).length,
     topRetrieved: [],
     topCooling: [],
     auditEnabled: !!ctx.auditLog,

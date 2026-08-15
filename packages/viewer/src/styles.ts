@@ -385,7 +385,11 @@ body {
 .ov-feed-h small { font-weight: 400; color: var(--fg-dim); font-size: 0.72rem; }
 .ov-feed-day { font-size: 0.72rem; font-weight: 700; color: var(--fg-dim); margin: 0.9rem 0 0.4rem; display: flex; gap: 0.6rem; align-items: center; }
 .ov-feed-day::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.ov-feed-item { display: grid; grid-template-columns: 28px 1fr; gap: 0.65rem; padding: 0.55rem 0.75rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.4rem; }
+.ov-feed-item { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 0.65rem; padding: 0.55rem 0.75rem; background: var(--panel-bg); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 0.4rem; }
+.ov-feed-body { min-width: 0; }
+.ov-feed-times { font-size: 0.68rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+.ov-feed-sentinel { text-align: center; color: var(--fg-dim); font-size: 0.72rem; padding: 0.6rem 0; }
+.ov-feed-more { text-align: center; padding: 0.5rem 0 0.2rem; font-size: 0.74rem; }
 .ov-feed-ico { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.8rem; background: var(--chip-bg); color: var(--fg-muted); }
 .ov-feed-title { font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ov-feed-title[onclick] { cursor: pointer; }
@@ -2572,11 +2576,13 @@ div.vis-tooltip {
 .slp-card .delta { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.78rem; }
 
 /* === 2026-08 提案勾选批量 + 5 秒撤销 toast(DEMO g2-proposals)=== */
-.prop-selectable { position: relative; }
+/* 勾选框置于左上角并为卡片内容让位(2026-08-15 修复:原右上角与标题/状态
+   chip 重合)。padding-left 只在可勾选卡片上生效。 */
+.prop-selectable { position: relative; padding-left: 2.1rem; }
 .prop-check {
   position: absolute;
   top: 0.7rem;
-  right: 0.7rem;
+  left: 0.55rem;
   z-index: 2;
   width: 1rem;
   height: 1rem;

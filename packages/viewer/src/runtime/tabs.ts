@@ -58,8 +58,10 @@ CO_ENGRAM.on('stats', async function() {
   const archivedCount = (data.byStatus?.frozen || 0) + (data.byStatus?.archived || 0) + (data.byStatus?.forgotten || 0);
   const weekly = data.weeklyNewEngrams || 0;
   const totalRetrievals = data.totalRetrievals || 0;
-  const effective = data.effectiveRetrievals || 0;
-  const effPct = totalRetrievals > 0 ? Math.round((effective / totalRetrievals) * 100) : 0;
+  // 被检索率(实际含义):至少被检索过一次的印迹 / 全部印迹。
+  // 旧口径 effective/total(反馈闭环率)语义误导,已弃用于此处展示。
+  const retrievedEngrams = data.retrievedEngramCount || 0;
+  const effPct = totalEngrams > 0 ? Math.round((retrievedEngrams / totalEngrams) * 100) : 0;
   const skillInvocations = data.totalSkillInvocations || 0;
   const skillPct = skillInvocations > 0 ? Math.round(((data.skillSuccessCount || 0) / skillInvocations) * 100) : 0;
 
@@ -230,17 +232,42 @@ CO_ENGRAM.on('stats', async function() {
   }
 
   // ---- 记忆动态:audit 事件流(服务端按动作过滤,防止高频噪声
-  // (noise_filtered 等)占满 limit=50 把有效事件挤光 —— 2026-08 修复
-  // 「记忆动态为空」:此前客户端过滤,50 条全噪声时渲染结果为空串) ----
+  // (noise_filtered 等)占满 limit 把有效事件挤光)。
+  // 加载策略(2026-08 定稿):滚动自动加载 + 双重上限 ——
+  //   单页 100 条游标分页,最多追加 3 页;去重后渲染 ≥150 条或跨 7 天即止,
+  //   底部给「去审计 tab 看全部」入口(完整过滤/检索在审计 tab)。
+  //   时间流用滚动加载而非翻页:翻页控件打断浏览节奏,DEMO 亦为无翻页流。
   try {
     const feedActions = Object.keys(CO_ENGRAM.FEED_ACTIONS).join(',');
-    const auditData = await CO_ENGRAM.apiGet('/api/audit?action=' + encodeURIComponent(feedActions) + '&limit=50');
-    CO_ENGRAM.renderFeed(document.getElementById('ov-feed'), (auditData && auditData.results) || []);
+    CO_ENGRAM._feedState = { items: [], cursor: null, pages: 0, seen: {} };
+    const auditData = await CO_ENGRAM.apiGet('/api/audit?action=' + encodeURIComponent(feedActions) + '&limit=100');
+    if (auditData) {
+      CO_ENGRAM._feedState.items = auditData.results || [];
+      CO_ENGRAM._feedState.cursor = auditData.nextCursor;
+      CO_ENGRAM._feedState.pages = 1;
+    }
+    CO_ENGRAM.renderFeed(document.getElementById('ov-feed'), CO_ENGRAM._feedState.items);
   } catch (e) {
     const feedEl = document.getElementById('ov-feed');
     if (feedEl) feedEl.innerHTML = '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.common.loadFailed', { err: e.message })) + '</div>';
   }
 });
+
+// 记忆动态滚动加载:拉下一页游标,累计后整段重渲染(向下生长不打断滚动)
+CO_ENGRAM.loadFeedMore = async function() {
+  var st = CO_ENGRAM._feedState;
+  var sentinel = document.getElementById('feed-sentinel');
+  if (sentinel) sentinel.remove();
+  if (!st || !st.cursor || st.pages >= 3) return;
+  try {
+    var feedActions = Object.keys(CO_ENGRAM.FEED_ACTIONS).join(',');
+    var page = await CO_ENGRAM.apiGet('/api/audit?action=' + encodeURIComponent(feedActions) + '&limit=100&cursor=' + encodeURIComponent(st.cursor));
+    st.items = st.items.concat((page && page.results) || []);
+    st.cursor = page ? page.nextCursor : null;
+    st.pages++;
+    CO_ENGRAM.renderFeed(document.getElementById('ov-feed'), st.items);
+  } catch (_) { /* 加载失败:保留现有内容 */ }
+};
 
 // 榜单卡展开/收起(点击整卡;h3 箭头 ▾/▴ 由 CSS ::after 呈现)
 CO_ENGRAM.toggleTopCard = function(id) {
@@ -326,21 +353,40 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     if (isoDay === yest) return T.t('viewer.stats.feedYesterday') + ' · ' + md;
     return md;
   };
+  // 去重(2026-08 用户反馈:同一记忆被批量 update / 创建+更新 刷屏):
+  // 按记忆(engramId)合并 —— 保留最新一条事件,标题旁加 ×N 徽标。
+  // 用户关心「这条记忆有动静」,不关心每个动作各一条。
+  const st = CO_ENGRAM._feedState || (CO_ENGRAM._feedState = { items: entries, cursor: null, pages: 1, seen: {} });
   const sorted = entries.slice().sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+  const dedup = new Map(); // key → { entry, n }
+  for (const e of sorted) {
+    const meta = CO_ENGRAM.FEED_ACTIONS[e.action];
+    if (!meta) continue;
+    const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.ts));
+    const prev = dedup.get(key);
+    if (prev) prev.n++;
+    else dedup.set(key, { entry: e, n: 1 });
+  }
+  // 上限:去重后最多渲染 150 条;天数 > 7 停(与 3 页×100 事件的上限共同兜底)
+  const MAX_ITEMS = 150, MAX_DAYS = 7;
   let html = '';
   let lastDay = '';
   let dayCount = 0;
-  for (const e of sorted) {
+  let rendered = 0;
+  let truncated = false;
+  for (const { entry: e, n } of dedup.values()) {
     const meta = CO_ENGRAM.FEED_ACTIONS[e.action];
     if (!meta) continue;
     const day = (e.ts || '').slice(0, 10);
     if (day !== lastDay) {
       if (lastDay !== '') html += '</div>';
+      if (dayCount >= MAX_DAYS || rendered >= MAX_ITEMS) { truncated = true; break; }
       html += '<div class="ov-feed-day">' + CO_ENGRAM.escapeHtml(dayLabel(day)) + '</div><div class="ov-feed-group">';
       lastDay = day;
       dayCount++;
-      if (dayCount > 3) break; // 概览只渲染最近 3 天,更早去审计 tab 看
     }
+    if (rendered >= MAX_ITEMS) { truncated = true; break; }
+    rendered++;
     const title = e.engramTitle || (e.metadata && e.metadata.title) || e.engramId || actionLabel(e.action);
     const excerpt = excerptFor(e);
     const kind = e.engramKind || (e.metadata && e.metadata.kind) || '';
@@ -350,6 +396,7 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       + '<span class="ov-feed-ico">' + meta.icon + '</span>'
       + '<div class="ov-feed-body">'
       + '<div class="ov-feed-meta"><b>' + CO_ENGRAM.escapeHtml(actionLabel(e.action)) + '</b>'
+      + (n > 1 ? ' <span class="ov-feed-times">×' + n + '</span>' : '')
       + ' ' + CO_ENGRAM.escapeHtml(authorFor(e)) + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
       + '<div class="ov-feed-title"' + (canOpen ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : '') + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
       + (excerpt ? '<div class="ov-feed-excerpt">' + CO_ENGRAM.escapeHtml(excerpt) + '</div>' : '')
@@ -360,9 +407,26 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       + '</div></div>';
   }
   if (lastDay !== '') html += '</div>';
+  // 触底哨兵:还有游标且未达上限 → IntersectionObserver 触发加载下一页
+  if (st.cursor && st.pages < 3 && rendered < MAX_ITEMS && !truncated) {
+    html += '<div id="feed-sentinel" class="ov-feed-sentinel">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedLoading')) + '</div>';
+  } else if (rendered >= MAX_ITEMS || truncated || !st.cursor) {
+    html += '<div class="ov-feed-more"><span class="ov-feed-link" onclick="CO_ENGRAM.showTab(\\'audit\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedGoAudit')) + '</span></div>';
+  }
   // 客户端仍可能全被过滤掉(服务端动作集合内的条目缺 metadata 等):
   // 显示空态而非空串(2026-08 修复「记忆动态为空」另一半)
   root.innerHTML = html || '<div class="empty">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedEmpty')) + '</div>';
+  // 哨兵可见时自动加载下一页(观察器一次性,加载后由重渲染重建)
+  const sentinel = document.getElementById('feed-sentinel');
+  if (sentinel && 'IntersectionObserver' in window) {
+    const io = new IntersectionObserver(function(entries2) {
+      if (entries2.some(function(x) { return x.isIntersecting; })) {
+        io.disconnect();
+        CO_ENGRAM.loadFeedMore();
+      }
+    }, { rootMargin: '200px' });
+    io.observe(sentinel);
+  }
 };
 
 // 当日记忆弹卡(记忆更新图点击某天):拉 /api/updates?date=,浮层列出当日
