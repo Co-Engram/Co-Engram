@@ -2519,6 +2519,24 @@ div.vis-tooltip {
 .help-ref-jump { color: var(--accent); cursor: pointer; }
 .help-ref-jump:hover { text-decoration: underline; }
 
+/* 提案卡来源彩色小徽标(DEMO g2-proposals .src) */
+.proposal-source-line { font-size: 0.78rem; color: var(--fg-muted); margin: 0.2rem 0 0.35rem; display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; }
+.src-badge { font-size: 10.5px; font-weight: 600; border-radius: 5px; padding: 1px 8px; }
+.src-badge.src-ext { background: #EEF3FE; color: #2563EB; }
+.src-badge.src-conv { background: #F3EEFB; color: #7C3AED; }
+.src-badge.src-auto { background: #F0EDE7; color: #6A655D; }
+.src-badge.src-skill { background: #FDF3E3; color: #B45309; }
+
+/* 合并 tab(DEMO g2-merges:摘要行 + .mg 冲突行卡) */
+.mg-summary { font-size: 0.82rem; color: var(--fg-muted); margin: 0 0 0.8rem; }
+.mg-summary b { color: var(--accent); font-weight: 600; }
+.mg-card { margin-bottom: 0.7rem; padding: 0.9rem 1.1rem; }
+.mg-card h3 { margin: 0 0 0.6rem; font-size: 0.85rem; font-weight: 700; }
+.mg { padding: 0.6rem 0; border-bottom: 1px solid var(--border); }
+.mg:last-child { border-bottom: none; }
+.mg-t { font-size: 0.82rem; font-weight: 600; font-family: ui-monospace, Consolas, monospace; word-break: break-all; }
+.mg-s { font-size: 0.72rem; color: var(--fg-dim); margin: 0.15rem 0 0.35rem; }
+
 .page-h { font-size: 1.45rem; margin: 0 0 0.2rem; letter-spacing: -0.01em; }
 .page-sub { font-size: 0.78rem; color: var(--fg-dim); margin-bottom: 1.1rem; }
 

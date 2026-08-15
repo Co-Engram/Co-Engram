@@ -2023,29 +2023,32 @@ window.CO_ENGRAM_PROPOSALS = {
     const src = p.source || 'conversation';
     const occ = p.occurrences || 0;
     const times = T.t('viewer.proposals.sourceLine.times');
+    // DEMO g2-proposals .src:来源彩色小徽标(ext=蓝/conv=紫/auto=中性/skill=琥珀),
+    // 后接来源明细(路径/时间窗/次数),不再用 emoji 前缀。
+    const badge = (cls) => '<span class="src-badge ' + cls + '">' + CO_ENGRAM.escapeHtml(src) + '</span>';
     if (src === 'external-markdown') {
       const base = (p.sourcePath || '').split('/').pop();
-      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">📄 '
+      return '<div class="proposal-source-line">' + badge('src-ext') + ' '
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.external'))
         + (base ? ' · ' + CO_ENGRAM.escapeHtml(base) : '') + '</div>';
     }
     if (src === 'auto-memory') {
-      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">🧠 '
+      return '<div class="proposal-source-line">' + badge('src-auto') + ' '
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.autoMemory'))
         + (p.slug ? ' · ' + CO_ENGRAM.escapeHtml(p.slug) : '') + '</div>';
     }
     if (src === 'skill') {
       const pl = p.payload || {};
       const sp = p.sourcePath || pl.skillSourcePath || '';
-      return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">📁 '
+      return '<div class="proposal-source-line">' + badge('src-skill') + ' '
         + (sp ? '<code>' + CO_ENGRAM.escapeHtml(sp) + '</code>' : CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.skill'))) + '</div>';
     }
     // conversation(含 undefined 向前兼容)
     const range = this.formatWindow(p.firstSeenAt, p.lastSeenAt, occ, { compact: true });
-    const parts = ['💬 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.conversation'))];
+    const parts = [badge('src-conv') + ' ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.conversation'))];
     if (range) parts.push(CO_ENGRAM.escapeHtml(range));
     if (occ) parts.push(occ + ' ' + CO_ENGRAM.escapeHtml(times));
-    return '<div class="proposal-source-line" style="font-size:.78rem;color:var(--fg-muted);margin:.2rem 0 .35rem">' + parts.join(' · ') + '</div>';
+    return '<div class="proposal-source-line">' + parts.join(' · ') + '</div>';
   },
 
   /**
@@ -3657,13 +3660,9 @@ window.CO_ENGRAM_MERGES = {
     const T = CO_ENGRAM_T;
     const pct = (r) => (r * 100).toFixed(1) + '%';
 
-    const kpi = (label, value, sub) =>
-      '<div class="kpi">' +
-      '<div class="kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
-      '<div class="kpi-value">' + CO_ENGRAM.escapeHtml(String(value)) + '</div>' +
-      (sub ? '<div class="kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '') +
-      '</div>';
-
+    // 2026-08 重设计(DEMO g2-merges):摘要行 + 冲突热点 .mg 行卡 + 分节卡,
+    // 替换旧 KPI 网格堆叠。数据仍是 /api/merge-stats 聚合(无 ours/theirs
+    // 原文,不伪造 DEMO 的 diff 双栏;每行给冲突次数与占比条)。
     const bar = (label, count, max, color) =>
       '<div class="bar-row">' +
       '<div class="bar-label">' + CO_ENGRAM.escapeHtml(label) + '</div>' +
@@ -3671,45 +3670,34 @@ window.CO_ENGRAM_MERGES = {
       '<div class="bar-value">' + count + '</div>' +
       '</div>';
 
-    let html = '<div class="panel">';
-    html += '<div class="panel-header"><h2>' + T.t('viewer.merges.title', { days: windowDays }) + '</h2></div>';
-    html += '<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:1.5rem">';
-    html += kpi(T.t('viewer.merges.kpi.totalMerges'), s.totalMerges);
-    html += kpi(T.t('viewer.merges.kpi.autoResolved'), s.autoResolved, pct(s.autoResolveRate));
-    html += kpi(T.t('viewer.merges.kpi.escalatedToMarkers'), s.escalatedToMarkers);
-    html += kpi(T.t('viewer.merges.kpi.backupFailures'), s.backupFailures);
-    html += '</div>';
+    let html = '<div class="mg-summary">' + T.t('viewer.merges.summaryLine', {
+      days: windowDays, total: s.totalMerges, auto: s.autoResolved, esc: s.escalatedToMarkers, rate: pct(s.autoResolveRate),
+    }) + '</div>';
 
-    // LLM 段
-    html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.llmSection') + '</h3>';
-    html += '<div class="kpi-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-bottom:1rem">';
-    html += kpi(T.t('viewer.merges.llm.totalInvocations'), s.llm.totalInvocations);
-    html += kpi(T.t('viewer.merges.llm.arbitrated'), s.llm.arbitrated);
-    html += kpi(T.t('viewer.merges.llm.escalated'), s.llm.escalated);
-    html += kpi(T.t('viewer.merges.llm.failed'), s.llm.failed);
-    html += kpi(T.t('viewer.merges.llm.successRate'), pct(s.llm.successRate));
-    html += '</div>';
+    // 冲突热点路径(DEMO .mg 行:mono 路径 + 冲突字段说明行)
+    const paths = Object.entries(s.byPath || {}).sort((a, b) => b[1] - a[1]);
+    if (paths.length > 0) {
+      const max = paths[0][1];
+      html += '<div class="card mg-card"><h3>' + T.t('viewer.merges.hotPaths') + '</h3>';
+      for (const [p, count] of paths.slice(0, 8)) {
+        html += '<div class="mg">'
+          + '<div class="mg-t">' + CO_ENGRAM.escapeHtml(p) + '</div>'
+          + '<div class="mg-s">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.mgConflicts', { n: count })) + '</div>'
+          + '<div class="bar-row"><div class="bar-label">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.mgShare')) + '</div>'
+          + '<div class="bar-track"><div class="bar-fill" style="width:' + (count / max * 100).toFixed(1) + '%;background:#B45309"></div></div>'
+          + '<div class="bar-value">' + count + '</div></div>'
+          + '</div>';
+      }
+      html += '</div>';
+    }
 
     // 按策略
     const strategies = Object.entries(s.byStrategy || {}).sort((a, b) => b[1] - a[1]);
     if (strategies.length > 0) {
       const max = strategies[0][1];
-      html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byStrategy') + '</h3>';
-      html += '<div style="margin-bottom:1rem">';
+      html += '<div class="card mg-card"><h3>' + T.t('viewer.merges.byStrategy') + '</h3>';
       for (const [name, count] of strategies.slice(0, 8)) {
         html += bar(name, count, max, '#0F766E');
-      }
-      html += '</div>';
-    }
-
-    // Hot paths
-    const paths = Object.entries(s.byPath || {}).sort((a, b) => b[1] - a[1]);
-    if (paths.length > 0) {
-      const max = paths[0][1];
-      html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.hotPaths') + '</h3>';
-      html += '<div style="margin-bottom:1rem">';
-      for (const [p, count] of paths.slice(0, 8)) {
-        html += bar(p, count, max, '#fbbf24');
       }
       html += '</div>';
     }
@@ -3718,15 +3706,24 @@ window.CO_ENGRAM_MERGES = {
     const days = Object.entries(s.byDay || {}).sort((a, b) => a[0].localeCompare(b[0]));
     if (days.length > 0) {
       const max = Math.max(...days.map((d) => d[1]));
-      html += '<h3 style="margin-top:1.5rem">' + T.t('viewer.merges.byDay') + '</h3>';
-      html += '<div style="margin-bottom:1rem">';
+      html += '<div class="card mg-card"><h3>' + T.t('viewer.merges.byDay') + '</h3>';
       for (const [day, count] of days) {
-        html += bar(day, count, max, '#60a5fa');
+        html += bar(day, count, max, '#2563EB');
       }
       html += '</div>';
     }
 
-    html += '</div>';
+    // LLM 仲裁(DEMO 操作按钮区的信息位;本库聚合无逐条待裁项,展示统计 chips)
+    html += '<div class="card mg-card"><h3>' + T.t('viewer.merges.llmSection') + '</h3>'
+      + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.4rem">'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.llm.totalInvocations')) + ' ' + s.llm.totalInvocations + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.llm.arbitrated')) + ' ' + s.llm.arbitrated + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.llm.escalated')) + ' ' + s.llm.escalated + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.llm.failed')) + ' ' + s.llm.failed + '</span>'
+      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.llm.successRate')) + ' ' + pct(s.llm.successRate) + '</span>'
+      + (s.backupFailures ? '<span class="chip" style="color:#BE3B3B">' + CO_ENGRAM.escapeHtml(T.t('viewer.merges.kpi.backupFailures')) + ' ' + s.backupFailures + '</span>' : '')
+      + '</div></div>';
+
     return html;
   }
 };
