@@ -98,6 +98,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_related_engram_add",
     "skill_related_engram_remove",
     "skill_related_engram_list",
+    // 夜思(incubation_*,spec §四)
+    "incubation_create",
+    "incubation_run",
+    "incubation_list",
+    "incubation_resolve",
+    "incubation_report",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -149,6 +155,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_audit_query",
     // 手动 pull/commit/push
     "engram_sync",
+    // 夜思(incubation_*,spec §四)
+    "incubation_create",
+    "incubation_run",
+    "incubation_list",
+    "incubation_resolve",
+    "incubation_report",
   ]),
 };
 

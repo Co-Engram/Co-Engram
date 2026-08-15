@@ -814,3 +814,86 @@ export type EngramDismissProposalToolInput = z.infer<
 export type EngramSynthesizeToolInput = z.infer<
   typeof EngramSynthesizeInputSchema
 >;
+
+// ============================================================
+// incubation_*(夜思,spec §四)
+// ============================================================
+
+export const IncubationCreateInputSchema = z
+  .object({
+    /** 夜思问题(自由文本,可以比记忆更丰富) */
+    question: z.string().min(4).max(2000),
+    /** 可选种子记忆 id */
+    seedEngramIds: z.array(z.string().min(1)).max(20).optional(),
+    /** 联网调研 opt-in(默认 false;开启后问题摘要将发送至搜索引擎) */
+    webResearchOptIn: z.boolean().optional(),
+  })
+  .strict();
+
+export const IncubationRunInputSchema = z
+  .object({
+    id: z.string().min(1),
+    /**
+     * agent(默认,对话入口):返回固化协议任务包,当前会话现场执行;
+     * auto(viewer/CLI 异步任务):直接跑 L2 headless / L1 降级,同步返回。
+     */
+    mode: z.enum(["agent", "auto"]).optional(),
+  })
+  .strict();
+
+export const IncubationListInputSchema = z.object({}).strict();
+
+export const IncubationResolveInputSchema = z
+  .object({
+    id: z.string().min(1),
+    /** 是否回答了用户的问题:true → resolved;false → 继续 active */
+    answered: z.boolean(),
+  })
+  .strict();
+
+const InsightDraftSchema = z.object({
+  type: z.enum(["theme", "lesson", "analogy", "hypothesis"]),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1),
+  summary: z.string().min(1).max(300),
+  sourceIds: z.array(z.string().min(1)).min(1),
+  domainTags: z.array(z.string().min(1)).min(1),
+  reason: z.string().min(1),
+  aar: z
+    .object({
+      expected: z.string().min(1),
+      actual: z.string().min(1),
+      cause: z.string().min(1),
+      improvement: z.string().min(1),
+    })
+    .optional(),
+});
+
+export const IncubationReportInputSchema = z
+  .object({
+    incubationId: z.string().min(1),
+    report: z.object({
+      insights: z.array(InsightDraftSchema),
+      plan: z.array(
+        z.object({ step: z.string().min(1), capability: z.string().min(1) }),
+      ),
+      trace: z.array(
+        z.object({
+          step: z.string().min(1),
+          action: z.string().min(1),
+          detail: z.string(),
+        }),
+      ),
+      externalCalls: z.array(
+        z.object({
+          tool: z.string().min(1),
+          purpose: z.string().min(1),
+          at: z.string().min(1),
+        }),
+      ),
+    }),
+  })
+  .strict();
+
+export type IncubationCreateToolInput = z.infer<typeof IncubationCreateInputSchema>;
+export type IncubationReportToolInput = z.infer<typeof IncubationReportInputSchema>;

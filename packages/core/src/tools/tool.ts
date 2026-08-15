@@ -125,6 +125,12 @@ export interface ToolContext {
    * (向后兼容:旧调用路径不强制要求)。
    */
   readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
+  /**
+   * 夜思孵化器(可选,spec §四)。incubation_* 工具用它执行夜思;
+   * 宿主在 bootstrap 时注入(与 maintenance deps 共用同一实例)。
+   * 未注入时 incubation_* 工具抛 CONFIG 错误(fail-loud)。
+   */
+  readonly incubator?: import("../maintenance/insight/incubator.js").Incubator;
 }
 
 /**

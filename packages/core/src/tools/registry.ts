@@ -16,6 +16,7 @@ import { ALL_PROPOSAL_TOOLS } from "./proposal-tools.js";
 import { ALL_DOCTOR_TOOLS } from "./doctor-tools.js";
 import { ALL_SYNTHESIZE_TOOLS } from "./synthesize-tools.js";
 import { ALL_SYNC_TOOLS } from "./sync-tools.js";
+import { ALL_INCUBATION_TOOLS } from "./incubation-tools.js";
 import { engramAuditQueryTool } from "./audit-query-tool.js";
 
 /**
@@ -44,6 +45,7 @@ export function createToolRegistry(): ToolRegistry {
     ...ALL_DOCTOR_TOOLS,
     ...ALL_SYNTHESIZE_TOOLS,
     ...ALL_SYNC_TOOLS,
+    ...ALL_INCUBATION_TOOLS,
     engramAuditQueryTool,
   ];
   const map = new Map<string, Tool>(all.map((t) => [t.name, t]));

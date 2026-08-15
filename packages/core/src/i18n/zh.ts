@@ -325,6 +325,20 @@ export const zh = {
 何时不调用:无不一致;看具体 engram 用 engram_get。
 
 返回:时间戳、计数、自动修复数、待审核数、issues[](kind/path/message/autoFixed)。`,
+  "tool.incubation_create.agent": `创建夜思孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。
+自由文本问题(可比记忆更丰富);可选 seedEngramIds 种子。webResearchOptIn 默认 false——
+联网需按条目显式开启,开启后问题摘要会发送至搜索引擎(创建前应向用户确认)。`,
+  "tool.incubation_run.agent": `立即执行一轮夜思。mode=agent(默认,对话入口):标记 in-flight 并返回固化协议
+任务包——按「能力盘点→PLAN→只读执行→incubation_report 回写」现场执行,协议已固化在
+返回指令中。mode=auto(viewer/CLI/日调度):直接跑 L2 headless,不可用降级 L1 单次远距
+类比,同步返回。已 in-flight 时报错(30 分钟过期自动回收)。`,
+  "tool.incubation_list.agent": `列出夜思孵化条目(含 resolved/paused 荣誉记录):id/问题/状态
+(active|in-flight|suggested-resolve|resolved|paused)/轮数/联网 opt-in/最近孵化时间。`,
+  "tool.incubation_resolve.agent": `夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve;问用户
+「是否回答了你的问题」——是则 resolved(梦境时间线归档保留),否则继续 active。`,
+  "tool.incubation_report.agent": `夜思回写(L2 agent 唯一写回路径):写回一轮夜思的结构化产出
+(洞察/计划/轨迹/外部调用)。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案
+(用户 accept 才落盘);轮次+1、写入时间线;重复洞察本轮作废,连续 2 轮全撞自动 paused。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
