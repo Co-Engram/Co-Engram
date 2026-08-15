@@ -1380,6 +1380,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Stats panel (viewer.stats.*) =====
   "viewer.stats.feedEmpty": "No activity yet",
+  "viewer.stats.feedToday": "Today",
+  "viewer.stats.feedYesterday": "Yesterday",
   "viewer.stats.feedView": "Open →",
   "viewer.stats.feedChangedFields": "changed fields: ${fields}",
   "viewer.stats.effectiveRateTip": "Retrieved rate = share of retrievals followed by reinforcement feedback within the observation window. Retrieves the agent never reported feedback for count as unclosed and lower the ratio — it measures feedback-loop closure, not retrieval quality.",

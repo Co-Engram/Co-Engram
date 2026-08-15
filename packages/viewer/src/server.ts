@@ -1407,8 +1407,55 @@ async function routeApi(
       cursor,
     });
 
+    // 概览「记忆动态」需要可读标题(DEMO g2-overview .et):audit 条目多数只带
+    // engramId(尤其 update/reinforce)。对当前页(≤limit,50)做一次 SQLite
+    // IN 批量回填 engramTitle/engramKind/engramSummary/engramCreatedBy ——
+    // 单查询,无 N+1;失败静默降级(前端回退显示 id)。
+    // summary/created_by 供「实质性内容摘要」与「人类作者名」显示
+    // (DEMO .ew 作者 + .eb 摘要;audit 的 actor 只有 user/llm/system)。
+    const page = result.results.map((x) => ({ ...x.entry }));
+    if (ctx.repository.indexDb && page.length > 0) {
+      try {
+        const ids = [
+          ...new Set(
+            page
+              .map((e) => e.engramId)
+              .filter((id): id is string => typeof id === "string"),
+          ),
+        ].slice(0, 100);
+        if (ids.length > 0) {
+          const placeholders = ids.map(() => "?").join(",");
+          const rows = ctx.repository.indexDb
+            .prepare(
+              `SELECT id, title, kind, summary, created_by FROM engrams WHERE id IN (${placeholders})`,
+            )
+            .all(...ids) as {
+            id: string;
+            title: string;
+            kind: string;
+            summary: string;
+            created_by: string;
+          }[];
+          const byId = new Map(rows.map((r) => [r.id, r]));
+          for (const e of page) {
+            if (typeof e.engramId !== "string") continue;
+            const row = byId.get(e.engramId);
+            if (row) {
+              (e as { engramTitle?: string }).engramTitle = row.title;
+              (e as { engramKind?: string }).engramKind = row.kind;
+              (e as { engramSummary?: string }).engramSummary = row.summary;
+              (e as { engramCreatedBy?: string }).engramCreatedBy =
+                row.created_by;
+            }
+          }
+        }
+      } catch {
+        // 回填失败:保持原样(标题回退 id)
+      }
+    }
+
     respondJson(res, 200, {
-      results: result.results.map((x) => x.entry),
+      results: page,
       total: result.total,
       nextCursor: result.nextCursor,
       enabled: true,

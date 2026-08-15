@@ -1354,6 +1354,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== Stats 面板(viewer.stats.*) =====
   "viewer.stats.feedEmpty": "暂无动态",
+  "viewer.stats.feedToday": "今天",
+  "viewer.stats.feedYesterday": "昨天",
   "viewer.stats.feedView": "查看 →",
   "viewer.stats.feedChangedFields": "变更字段:${fields}",
   "viewer.stats.effectiveRateTip": "被检索率 = 取用后在观察期内收到强化反馈的次数占比。agent 未回报反馈的取用计为未闭环,会拉低该比例 —— 它衡量「反馈闭环率」,不代表取用质量。",

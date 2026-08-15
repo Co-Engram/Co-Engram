@@ -286,16 +286,45 @@ CO_ENGRAM.renderFeed = function(root, entries) {
   // 事件标题(后端回填 engramTitle)| 变更摘要(.eb)| kind 徽标 + 查看 →
   const actionLabel = (a) => (typeof CO_ENGRAM_AUDIT !== 'undefined' && CO_ENGRAM_AUDIT._actionLabel)
     ? CO_ENGRAM_AUDIT._actionLabel(a) : a;
-  // 变更摘要:update → 变更字段列表;reinforce → 分数;accept/create → payload 摘要
+  // 变更摘要(DEMO .eb 实质性内容,≤80 字):update → 新内容片段;
+  // 其余 → 记忆 summary;兜底 reason/note/字段清单
   const excerptFor = (e) => {
     const m = e.metadata || {};
+    const clip = (s) => { const t = String(s).trim().replace(/\s+/g, ' '); return t.length > 80 ? t.slice(0, 78) + '…' : t; };
+    if (e.action === 'update' && m.changes && typeof m.changes === 'object') {
+      const c = m.changes;
+      if (c.content && c.content.to) return clip(c.content.to);
+    }
+    if (e.engramSummary) return clip(e.engramSummary);
+    if (typeof m.reason === 'string' && m.reason) return clip(m.reason);
+    if (typeof m.note === 'string' && m.note) return clip(m.note);
     if (e.action === 'update' && m.changes && typeof m.changes === 'object') {
       const fields = Object.keys(m.changes);
       if (fields.length) return T.t('viewer.stats.feedChangedFields', { fields: fields.slice(0, 4).join('、') + (fields.length > 4 ? '…' : '') });
     }
-    if (typeof m.reason === 'string' && m.reason) return m.reason;
-    if (typeof m.note === 'string' && m.note) return m.note;
     return '';
+  };
+  // 人类作者名(DEMO .ew):metadata 里的 updatedBy/createdBy 优先,
+  // 其次回填的 engramCreatedBy;都没有才显示机器 actor(user/llm/system)
+  const authorFor = (e) => {
+    const m = e.metadata || {};
+    if (typeof m.updatedBy === 'string' && m.updatedBy) return m.updatedBy;
+    if (typeof m.createdBy === 'string' && m.createdBy) return m.createdBy;
+    if (e.engramCreatedBy) return e.engramCreatedBy;
+    return e.actor || '';
+  };
+  // 日标题(DEMO:「今天 · 8月15日」):Intl 按界面语言本地化月日
+  const dayLabel = (isoDay) => {
+    const d = new Date();
+    const today = d.toISOString().slice(0, 10);
+    const yest = new Date(d.getTime() - 86400000).toISOString().slice(0, 10);
+    const md = new Date(isoDay + 'T00:00:00Z').toLocaleDateString(
+      (window.CO_ENGRAM_LANG === 'zh') ? 'zh-CN' : 'en-US',
+      { month: 'long', day: 'numeric' },
+    );
+    if (isoDay === today) return T.t('viewer.stats.feedToday') + ' · ' + md;
+    if (isoDay === yest) return T.t('viewer.stats.feedYesterday') + ' · ' + md;
+    return md;
   };
   const sorted = entries.slice().sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
   let html = '';
@@ -307,7 +336,7 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     const day = (e.ts || '').slice(0, 10);
     if (day !== lastDay) {
       if (lastDay !== '') html += '</div>';
-      html += '<div class="ov-feed-day">' + CO_ENGRAM.escapeHtml(day) + '</div><div class="ov-feed-group">';
+      html += '<div class="ov-feed-day">' + CO_ENGRAM.escapeHtml(dayLabel(day)) + '</div><div class="ov-feed-group">';
       lastDay = day;
       dayCount++;
       if (dayCount > 3) break; // 概览只渲染最近 3 天,更早去审计 tab 看
@@ -321,7 +350,7 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       + '<span class="ov-feed-ico">' + meta.icon + '</span>'
       + '<div class="ov-feed-body">'
       + '<div class="ov-feed-meta"><b>' + CO_ENGRAM.escapeHtml(actionLabel(e.action)) + '</b>'
-      + ' ' + CO_ENGRAM.escapeHtml(e.actor || '') + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
+      + ' ' + CO_ENGRAM.escapeHtml(authorFor(e)) + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
       + '<div class="ov-feed-title"' + (canOpen ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : '') + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
       + (excerpt ? '<div class="ov-feed-excerpt">' + CO_ENGRAM.escapeHtml(excerpt) + '</div>' : '')
       + '<div class="ov-feed-chips">'
