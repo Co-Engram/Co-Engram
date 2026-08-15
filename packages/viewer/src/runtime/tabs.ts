@@ -60,6 +60,8 @@ CO_ENGRAM.on('stats', async function() {
   const totalRetrievals = data.totalRetrievals || 0;
   const effective = data.effectiveRetrievals || 0;
   const effPct = totalRetrievals > 0 ? Math.round((effective / totalRetrievals) * 100) : 0;
+  const skillInvocations = data.totalSkillInvocations || 0;
+  const skillPct = skillInvocations > 0 ? Math.round(((data.skillSuccessCount || 0) / skillInvocations) * 100) : 0;
 
   const kpi = (label, value, sub, tab, tipText, upText) => '<div class="ov-kpi"'
     + (tipText ? ' title="' + CO_ENGRAM.escapeHtml(tipText).replaceAll('"', '&quot;') + '"' : '')
@@ -78,6 +80,10 @@ CO_ENGRAM.on('stats', async function() {
     + kpi(T.t('viewer.stats.totalSynapses'), String(data.totalSynapses || 0), '', 'graph', null, '')
     + kpi(T.t('viewer.stats.totalSkills'), String(data.totalSkills || 0), '', 'skills', T.t('viewer.stats.totalSkillsTip'), '')
     + kpi(T.t('viewer.stats.retrievalTotal'), String(totalRetrievals), T.t('viewer.stats.effectiveRate', { pct: effPct }), 'engrams', null, '')
+    // 第五框:技能调用(与印迹检索分开统计,DEMO g2-overview 五格 KPI)
+    + kpi(T.t('viewer.stats.skillInvocations'), String(data.totalSkillInvocations || 0),
+        (data.totalSkillInvocations || 0) > 0 ? T.t('viewer.stats.skillSuccessRate', { pct: skillPct }) : '', 'skills',
+        T.t('viewer.stats.skillInvocationsTip'), '')
     + '</div>';
 
   // ---- 记忆脉搏(30 天柱状,峰值高亮;服务端已补零,直接等宽渲染) ----

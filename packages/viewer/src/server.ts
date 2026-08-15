@@ -2193,6 +2193,10 @@ interface StatsResponse {
   readonly totalSkills: number;
   readonly skillsByAcquisitionStage: Record<AcquisitionStage, number>;
   readonly skillsByRetentionStage: Record<RetentionStage, number>;
+  /** 累计技能调用次数(SUM(successCount + failureCount),概览 KPI「技能调用」框) */
+  readonly totalSkillInvocations: number;
+  /** 技能调用成功数(成功率副行:skillSuccessCount / totalSkillInvocations) */
+  readonly skillSuccessCount: number;
 }
 
 function getStats(ctx: ToolContext): StatsResponse {
@@ -2389,8 +2393,10 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     .sort((a, b) => b.total - a.total)
     .slice(0, 10);
 
-  // S6 Task 1: skill 统计
+  // S6 Task 1: skill 统计(+ 2026-08 概览「技能调用」KPI 聚合)
   let totalSkills = 0;
+  let totalSkillInvocations = 0;
+  let skillSuccessCount = 0;
   const skillsByAcquisitionStage: Record<AcquisitionStage, number> = {
     draft: 0,
     compiled: 0,
@@ -2408,6 +2414,8 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     for (const skill of skills) {
       skillsByAcquisitionStage[skill.acquisitionStage]++;
       skillsByRetentionStage[skill.retentionStage]++;
+      totalSkillInvocations += skill.successCount + skill.failureCount;
+      skillSuccessCount += skill.successCount;
     }
   }
 
@@ -2434,6 +2442,8 @@ function getStatsFromSqlite(ctx: ToolContext): StatsResponse {
     totalSkills,
     skillsByAcquisitionStage,
     skillsByRetentionStage,
+    totalSkillInvocations,
+    skillSuccessCount,
   };
 }
 
@@ -2522,8 +2532,10 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     .sort((a, b) => b.total - a.total || b.engramCount - a.engramCount)
     .slice(0, 10);
 
-  // S6 Task 1: skill 统计
+  // S6 Task 1: skill 统计(+ 2026-08 概览「技能调用」KPI 聚合)
   let totalSkills = 0;
+  let totalSkillInvocations = 0;
+  let skillSuccessCount = 0;
   const skillsByAcquisitionStage: Record<AcquisitionStage, number> = {
     draft: 0,
     compiled: 0,
@@ -2541,6 +2553,8 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     for (const skill of skills) {
       skillsByAcquisitionStage[skill.acquisitionStage]++;
       skillsByRetentionStage[skill.retentionStage]++;
+      totalSkillInvocations += skill.successCount + skill.failureCount;
+      skillSuccessCount += skill.successCount;
     }
   }
 
@@ -2567,6 +2581,8 @@ function getStatsLegacy(ctx: ToolContext): StatsResponse {
     totalSkills,
     skillsByAcquisitionStage,
     skillsByRetentionStage,
+    totalSkillInvocations,
+    skillSuccessCount,
   };
 }
 
