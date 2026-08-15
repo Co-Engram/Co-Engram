@@ -111,6 +111,22 @@ async function main() {
     );
   }
 
+  // 第二轮:threshold=0(critic 放行全部)生成盲评材料 —— 人工判断
+  // critic 拒绝是否过严正是校准的核心数据(spec §九)
+  if (engine.listAll().filter((p) => p.source === "rem-insight" && p.status === "pending").length < 20) {
+    console.log("[blind-eval] 正常阈值下提案不足 20,追加 threshold=0 校准轮……");
+    for (const r of runs) {
+      const out = await runDeepThought({
+        repository: repo,
+        proposalEngine: engine,
+        llmClient: llm,
+        lastRemAt: r.lastRemAt,
+        config: { enabled: true, modesPerRun: 3, criticThreshold: 0, maxSubgraphNodes: 30 },
+      });
+      console.log(`[blind-eval][calibration] ${r.label}: drafts=${out.draftsGenerated} mechanicalRejected=${out.mechanicalRejected} criticRejected=${out.criticRejected} proposals=${out.proposals}`);
+    }
+  }
+
   const insights = engine
     .listAll()
     .filter((p) => p.source === "rem-insight" && p.status === "pending");
