@@ -1,5 +1,6 @@
 // incubation_* 工具:注册/profile/fail-loud/agent 协议返回/report 回写 +
-// T6(conclude/update 工具、create/list 的 schedule/nextRunAt/timeline/finalAnswer 面)
+// T6(conclude/update 工具、create/list 的 schedule/nextRunAt/timeline/finalAnswer 面)+
+// T16(pause/delete 工具:暂停排程与条目删除,失败路径转译)
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,15 +57,17 @@ const NAMES = [
   "incubation_list",
   "incubation_resolve",
   "incubation_report",
+  "incubation_pause",
+  "incubation_delete",
 ] as const;
 
 describe("注册与 profile", () => {
-  it("5 工具注册进 registry", () => {
+  it("7 工具注册进 registry", () => {
     const registry = createToolRegistry();
     for (const n of NAMES) expect(registry.get(n)).toBeDefined();
   });
 
-  it("standard 与 full profile 含 5 工具,minimal 不含", () => {
+  it("standard 与 full profile 含 7 工具,minimal 不含", () => {
     for (const n of NAMES) {
       expect(PROFILE_TOOL_SETS.standard.has(n)).toBe(true);
       expect(PROFILE_TOOL_SETS.full.has(n)).toBe(true);
@@ -469,5 +472,190 @@ describe("T6:conclude / update 工具与 schedule 面", () => {
     expect(e.code).toBe("NOT_FOUND");
     expect(e.message).toContain("inc-none");
     expect(e.resourceId).toBe("inc-none");
+  });
+});
+
+// ============================================================
+// T16:incubation_pause / incubation_delete
+// (用真 Incubator 直跑:覆盖域层真实文案(not found / in-flight)
+//  与落盘效果;失败路径断言转译后的 code/resourceId/retryable)
+// ============================================================
+
+describe("T16:pause / delete 工具", () => {
+  /** 捕获同步/异步抛错为值(T6 同款,便于断言错误字段) */
+  async function captureErr(fn: () => unknown | Promise<unknown>): Promise<unknown> {
+    try {
+      await fn();
+    } catch (e) {
+      return e;
+    }
+    return undefined;
+  }
+
+  it("pause:创建条目 → pause → 返回 status=paused、nextRunAt=null;域层条目置 paused", () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 暂停这个问题" },
+      ctx,
+    ) as { id: string };
+    const r = registry.get("incubation_pause")!.execute({ id: created.id }, ctx) as {
+      id: string;
+      status: string;
+      nextRunAt: string | null;
+    };
+    expect(r.id).toBe(created.id);
+    expect(r.status).toBe("paused");
+    // paused 不再排程:computeNextRunAt 只认 active
+    expect(r.nextRunAt).toBeNull();
+    expect(incubator.get(created.id)!.status).toBe("paused");
+  });
+
+  it("pause:id 不存在 → 转译为 NOT_FOUND(保留 id 提示)", async () => {
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_pause")!.execute({ id: "inc-none" }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; resourceId?: string };
+    expect(e.code).toBe("NOT_FOUND");
+    expect(e.message).toContain("inc-none");
+    expect(e.resourceId).toBe("inc-none");
+  });
+
+  it("delete:创建条目 → delete → 返回 { id };条目从 list 消失", () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 删除这个问题" },
+      ctx,
+    ) as { id: string };
+    const r = registry.get("incubation_delete")!.execute({ id: created.id }, ctx) as {
+      id: string;
+    };
+    expect(r).toEqual({ id: created.id });
+    expect(incubator.get(created.id)).toBeUndefined();
+    expect(incubator.list()).toHaveLength(0);
+  });
+
+  it("delete:id 不存在 → 转译为 NOT_FOUND(保留 id 提示)", async () => {
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_delete")!.execute({ id: "inc-none" }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; resourceId?: string };
+    expect(e.code).toBe("NOT_FOUND");
+    expect(e.message).toContain("inc-none");
+    expect(e.resourceId).toBe("inc-none");
+  });
+
+  it("delete:in-flight 条目 → 转译为 LOCK_BUSY 且 retryable(域层文案含 in-flight)", async () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 删除进行中的条目" },
+      ctx,
+    ) as { id: string };
+    expect(incubator.acquireInFlight(created.id, "test")).toBe(true);
+    const err = await captureErr(() =>
+      registry.get("incubation_delete")!.execute({ id: created.id }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; retryable: boolean; message: string };
+    expect(e.code).toBe("LOCK_BUSY");
+    expect(e.retryable).toBe(true);
+    expect(e.message).toContain("TTL 30min");
+    // in-flight 拒删:条目本体保留
+    expect(incubator.get(created.id)).toBeDefined();
+  });
+});
+
+// ============================================================
+// T16 补充:incubation_run 状态门禁与 pause 的 in-flight 语义
+// (评审修复:paused/resolved 的 run 报错指向真因而非误导性的
+//   「已在执行中」;not-found 经转译层补齐 NOT_FOUND 契约;
+//   轮中 pause 合法,轮结束 releaseInFlight 不复活自动排程)
+// ============================================================
+
+describe("T16:incubation_run 状态门禁与 pause 的 in-flight 语义", () => {
+  /** 捕获同步/异步抛错为值(T6/T16 同款,便于断言错误字段) */
+  async function captureErr(fn: () => unknown | Promise<unknown>): Promise<unknown> {
+    try {
+      await fn();
+    } catch (e) {
+      return e;
+    }
+    return undefined;
+  }
+
+  it("run(agent):paused 条目 → VALIDATION,message 含「已暂停」,suggestion 指引 resolve 恢复", async () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 paused 条目不可立即 run" },
+      ctx,
+    ) as { id: string };
+    incubator.pause(created.id);
+    const err = await captureErr(() =>
+      registry.get("incubation_run")!.execute({ id: created.id }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as {
+      code: string;
+      message: string;
+      resourceId?: string;
+      suggestion?: string;
+    };
+    expect(e.code).toBe("VALIDATION");
+    // 真因是 paused 生命周期,而非误导性的 in-flight 文案
+    expect(e.message).toContain("已暂停");
+    expect(e.message).not.toContain("in-flight");
+    expect(e.suggestion).toContain("incubation_resolve");
+    expect(e.resourceId).toBe(created.id);
+  });
+
+  it("run(agent):resolved 条目 → VALIDATION,message 含「已归档」", async () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 resolved 条目不可再跑" },
+      ctx,
+    ) as { id: string };
+    incubator.resolve(created.id, true);
+    const err = await captureErr(() =>
+      registry.get("incubation_run")!.execute({ id: created.id }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; suggestion?: string };
+    expect(e.code).toBe("VALIDATION");
+    expect(e.message).toContain("已归档");
+    expect(e.message).not.toContain("in-flight");
+    expect(e.suggestion).toContain("重新播种");
+  });
+
+  it("run(agent):id 不存在 → 转译为 NOT_FOUND(错误契约对齐其余 incubation 工具)", async () => {
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_run")!.execute({ id: "inc-none" }, ctx),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; resourceId?: string };
+    expect(e.code).toBe("NOT_FOUND");
+    expect(e.message).toContain("inc-none");
+    expect(e.resourceId).toBe("inc-none");
+  });
+
+  it("pause:in-flight 轮中暂停合法;轮结束 releaseInFlight 不复活自动排程", () => {
+    const registry = createToolRegistry();
+    const created = registry.get("incubation_create")!.execute(
+      { question: "T16 轮中暂停守护" },
+      ctx,
+    ) as { id: string };
+    // 拿锁 → 条目置 in-flight(模拟一轮夜思进行中)
+    expect(incubator.acquireInFlight(created.id, "test")).toBe(true);
+    // 轮中暂停合法:pause 不查 in-flight(进行中的夜思轮不受影响)
+    const r = registry.get("incubation_pause")!.execute({ id: created.id }, ctx) as {
+      status: string;
+    };
+    expect(r.status).toBe("paused");
+    // 模拟轮次结束回收:releaseInFlight 只翻 in-flight 态,不覆盖用户 paused 裁决
+    incubator.releaseInFlight(created.id);
+    expect(incubator.get(created.id)!.status).toBe("paused");
   });
 });

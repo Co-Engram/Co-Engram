@@ -8,7 +8,7 @@
  *         config:
  *           language: en        # 或 zh
  *
- * 注册:standard profile 裸名记忆工具(当前 40 个)到 ctx.tools;
+ * 注册:standard profile 裸名记忆工具(当前 42 个)到 ctx.tools;
  * 注入:memory:co-engram system prompt 段(prompt-signals 每次组装动态求值);
  * 协调:与 claude-code-mcp / openclaw-plugin 共享 dataRoot,ProcessLock 选 holder。
  *

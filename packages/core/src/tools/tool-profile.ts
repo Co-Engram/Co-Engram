@@ -30,14 +30,14 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 40 个 = minimal 12 + 学习回路/contradiction/数据管理 +
+ * standard: 42 个 = minimal 12 + 学习回路/contradiction/数据管理 +
  *   自愈/路径树 + engram_synthesize + engram_audit_query + 批量 proposal(2) +
  *   S1 skill CRUD(5) + S3 skill_invoke(报告使用) + S5 skill compose(6) +
- *   夜思 incubation_*(7)
+ *   夜思 incubation_*(9)
  *
- * full: 48 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ * full: 50 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
  *   含 skill_invoke(S3 已实现,用于报告 skill 使用结果) +
- *   S5 skill compose(6) + 夜思 incubation_*(7)
+ *   S5 skill compose(6) + 夜思 incubation_*(9)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
@@ -107,6 +107,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "incubation_report",
     "incubation_conclude",
     "incubation_update",
+    "incubation_pause",
+    "incubation_delete",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -166,6 +168,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "incubation_report",
     "incubation_conclude",
     "incubation_update",
+    "incubation_pause",
+    "incubation_delete",
   ]),
 };
 

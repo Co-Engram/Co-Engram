@@ -342,7 +342,7 @@ WHEN NOT TO CALL:
 - User wants an immediate answer (answer directly or use engram_search)
 - One-off trivial questions
 
-RETURNS: { id, status, question, rounds, schedule, nextRunAt }. schedule is the daily run time (HH:mm local, default 00:00); nextRunAt is the projected time of the next round. webResearchOptIn defaults to false — confirm with the user before enabling (the question summary will be sent to search engines).`,
+RETURNS: { id, status, question, rounds, schedule, nextRunAt }. schedule is the daily run time (HH:mm local, default 00:00); nextRunAt is non-null only for active entries (next anchor), else null. webResearchOptIn defaults to false — confirm before enabling (question summary goes to search engines).`,
   "tool.incubation_run.agent": `Run one night-thinking round immediately.
 
 WHEN TO CALL:
@@ -358,13 +358,13 @@ RETURNS: mode=agent returns the fixed-protocol task package (question / seed dig
 WHEN TO CALL:
 - User asks "my night-thinking entries", "which night are we on", "any paused entries"
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused. timeline is a dream-timeline summary (lightweight fields kept in full; answerDraft full text only for the most recent 2 rounds); finalAnswer is the concluded answer, absent for unconcluded entries.`,
+RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused. nextRunAt is non-null only for active entries (the next anchor) — null in any other status. timeline is a dream-timeline summary (lightweight fields kept in full; answerDraft full text only for the most recent 2 rounds); finalAnswer is the concluded answer, absent for unconcluded entries.`,
   "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after an insight is accepted the entry becomes suggested-resolve; ask the user "did it answer your question?".
 
 WHEN TO CALL:
 - Entry status=suggested-resolve and the user has given a verdict
 
-RETURNS: { id, status } — answered=true → resolved (dream timeline archived); false → stays active.`,
+RETURNS: { id, status } — answered=true → resolved (dream timeline archived); false → the entry returns to active and the next scheduled anchor runs another round, which again awaits your verdict.`,
   "tool.incubation_report.agent": `Night-thinking write-back (the ONLY write path for the L2 agent).
 
 WHEN TO CALL:
@@ -373,7 +373,7 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - Before executing the protocol; or when the round was already reported
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round; 2 fully-duplicate rounds auto-pause the entry.`,
+RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round (veto counts remain a diagnostic signal).`,
   "tool.incubation_conclude.agent": `Conclude a night-thinking entry: synthesize the full dream timeline into a final answer (finalAnswer) and set the entry to suggested-resolve.
 
 WHEN TO CALL:
@@ -392,7 +392,28 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - Entry is currently in-flight (schedule can only be rewritten outside a running round; the lock releases when the round ends or after the 30-min TTL recovery)
 
-RETURNS: { id, schedule, nextRunAt }. schedule is HH:mm local time (default 00:00); nextRunAt is the projected time of the next round.`,
+RETURNS: { id, schedule, nextRunAt }. schedule is HH:mm local time (default 00:00); nextRunAt is non-null only for active entries (the next anchor) — null in any other status (including suggested-resolve/paused/resolved).`,
+  "tool.incubation_pause.agent": `Pause the automatic schedule of a night-thinking entry (sets paused; no more automatic runs when the anchor is due).
+
+WHEN TO CALL:
+- User says "stop running this for now" / "pause this entry"
+
+WHEN NOT TO CALL:
+- To resume (use incubation_resolve(id, false) to set the entry back to active)
+- Resolved (archived) entries need no pause — they never run again
+
+RETURNS: { id, status, nextRunAt }. nextRunAt is always null while paused (no longer scheduled); an in-flight round and concluding are unaffected; manual immediate night thinking is rejected while paused — resume first.`,
+  "tool.incubation_delete.agent": `Delete a night-thinking entry itself (end of lifecycle).
+
+WHEN TO CALL:
+- User explicitly says "delete this night-thinking entry"
+- The question is outdated and no longer needed
+
+WHEN NOT TO CALL:
+- Entry is currently in-flight (delete after the round ends or the 30-min TTL recovers)
+- Just wants it to stop running (use incubation_pause, which keeps history)
+
+RETURNS: { id }. Already-produced rem-insight proposals and audit records are kept (proposals go through their own accept/dismiss verdict flow); the dream timeline is removed together with the entry, unrecoverable. Confirm with the user before deleting.`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
@@ -2073,8 +2094,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.insp.degrees": "In / out edges",
   "viewer.graph.insp.neighborhood": "1-hop · ${n} (flowing edges)",
   "viewer.graph.insp.noNeighbors": "No neighbors",
-  "viewer.graph.tools.hoverHl": "Neighbors",
-  "viewer.graph.tools.hoverHlTitle": "Highlight connected edges on hover",
   "viewer.graph.filter.impTitle": "Importance threshold",
   "viewer.graph.filter.visibleUnit": "visible",
   "viewer.graph.replay.title": "Time replay",

@@ -900,6 +900,20 @@ export const IncubationUpdateInputSchema = z
   })
   .strict();
 
+/** incubation_pause:暂停条目的自动排程(置 paused) */
+export const IncubationPauseInputSchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .strict();
+
+/** incubation_delete:删除条目本体(已产出的提案与审计保留) */
+export const IncubationDeleteInputSchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .strict();
+
 const InsightDraftSchema = z.object({
   type: z.enum(["theme", "lesson", "analogy", "hypothesis"]),
   title: z.string().min(1).max(200),

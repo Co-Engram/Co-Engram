@@ -335,7 +335,7 @@ WHEN NOT TO CALL:
 - 用户要即时答案(直接回答或用 engram_search)
 - 一次性琐碎问题
 
-RETURNS: { id, status, question, rounds, schedule, nextRunAt }。schedule 为每日排程时刻(HH:mm 本地时间,默认 00:00),nextRunAt 为下一轮预计时间;webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
+RETURNS: { id, status, question, rounds, schedule, nextRunAt }。schedule 为每日排程时刻(HH:mm 本地时间,默认 00:00);nextRunAt 仅 active 态非空(下一锚点),其余状态(含 suggested-resolve/paused/resolved)为 null;webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
   "tool.incubation_run.agent": `立即执行一轮夜思。
 
 WHEN TO CALL:
@@ -351,13 +351,13 @@ RETURNS: mode=agent 时返回固化协议任务包(问题/种子摘要/梦境史
 WHEN TO CALL:
 - 用户问"我的夜思条目""孵化到第几夜了""有没有暂停的条目"
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。timeline 为梦境时间线摘要(轻量字段全保留,answerDraft 仅最近 2 轮全文);finalAnswer 为收束产物,未收束条目无此字段。`,
+RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。nextRunAt 仅 active 态非空(下一锚点),其余状态(含 suggested-resolve/paused/resolved)为 null。timeline 为梦境时间线摘要(轻量字段全保留,answerDraft 仅最近 2 轮全文);finalAnswer 为收束产物,未收束条目无此字段。`,
   "tool.incubation_resolve.agent": `夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve,由你问用户「是否回答了你的问题」。
 
 WHEN TO CALL:
 - 条目 status=suggested-resolve 且用户已表态
 
-RETURNS: { id, status } —— answered=true → resolved(梦境时间线归档保留);false → 继续 active 孵化。`,
+RETURNS: { id, status } —— answered=true → resolved(梦境时间线归档保留);false → 条目回 active,下个排程锚点会自动再跑一轮,跑完再次待裁决。`,
   "tool.incubation_report.agent": `夜思回写(L2 agent 的唯一写回路径)。
 
 WHEN TO CALL:
@@ -366,7 +366,7 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - 未执行协议就调用;或已回写过本轮
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察本轮作废,连续 2 轮全撞自动 paused。`,
+RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察本轮作废(veto 计数保留为诊断信号)。`,
   "tool.incubation_conclude.agent": `收束夜思条目：综合全部梦境时间线，由 LLM 生成最终回答（finalAnswer），条目进入 suggested-resolve。
 
 WHEN TO CALL:
@@ -385,7 +385,28 @@ WHEN TO CALL:
 WHEN NOT TO CALL:
 - 条目本轮 in-flight（仅非 in-flight 态可改；锁随轮次结束或 TTL 30 分钟回收后释放）
 
-RETURNS: { id, schedule, nextRunAt }。schedule 为 HH:mm 本地时间（默认 00:00），nextRunAt 为下一轮预计时间。`,
+RETURNS: { id, schedule, nextRunAt }。schedule 为 HH:mm 本地时间（默认 00:00）；nextRunAt 仅 active 态非空（下一锚点），其余状态（含 suggested-resolve/paused/resolved）为 null。`,
+  "tool.incubation_pause.agent": `暂停夜思条目的自动排程（置 paused，到点不再自动执行）。
+
+WHEN TO CALL:
+- 用户说「这段先别跑了」「暂停这个条目」等暂停意图
+
+WHEN NOT TO CALL:
+- 想恢复时（用 incubation_resolve(id, false) 置回 active）
+- 已 resolve 的归档条目无需暂停（荣誉记录，不参与排程）
+
+RETURNS: { id, status, nextRunAt }。paused 态 nextRunAt 恒为 null（不再排程）；进行中的夜思轮与收束不受影响；paused 态手动立即夜思会被拒绝，需先恢复。`,
+  "tool.incubation_delete.agent": `删除夜思条目本体（生命周期终点）。
+
+WHEN TO CALL:
+- 用户明确说「删掉这个夜思条目」
+- 条目问题已过时、不再需要
+
+WHEN NOT TO CALL:
+- 条目本轮 in-flight（等轮次结束或 TTL 30 分钟回收后再删）
+- 只是不想让它再跑（用 incubation_pause 暂停，保留历史）
+
+RETURNS: { id }。已产出的 rem-insight 提案与审计记录保留（提案走各自 accept/dismiss 裁决流）；梦境时间线随条目一并移除，不可恢复。删除前应向用户确认。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
@@ -2021,8 +2042,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.insp.degrees": "入边 / 出边",
   "viewer.graph.insp.neighborhood": "一跳邻域 · ${n}(流动边)",
   "viewer.graph.insp.noNeighbors": "无邻接",
-  "viewer.graph.tools.hoverHl": "邻居高亮",
-  "viewer.graph.tools.hoverHlTitle": "悬停时高亮邻接边",
   "viewer.graph.filter.impTitle": "重要度阈值",
   "viewer.graph.filter.visibleUnit": "可见",
   "viewer.graph.replay.title": "时间回放",

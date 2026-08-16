@@ -3,7 +3,7 @@
  *
  * 契约一致性不可降级(降级矩阵只降 L2 执行级,不降契约):
  * - 两端 ToolContext 均注入 incubator(注入与否是能力,注入后行为必须同构)
- * - 7 个 incubation_* 工具双端 profile 可见
+ * - 9 个 incubation_* 工具双端 profile 可见
  * - insightEntityId 确定性:同输入两端同 hash(纯 core 函数,双端引用同源)
  * - 夜思协议文本(NIGHT_THINKING_PROTOCOL)双端同源导出
  */
@@ -22,6 +22,8 @@ const INCUBATION_TOOLS = [
   "incubation_report",
   "incubation_conclude",
   "incubation_update",
+  "incubation_pause",
+  "incubation_delete",
 ] as const;
 
 describe("night-thinking contract: claude-code-mcp ≡ openclaw-plugin", () => {
@@ -32,7 +34,7 @@ describe("night-thinking contract: claude-code-mcp ≡ openclaw-plugin", () => {
     }
   });
 
-  it("7 工具双端 standard/full profile 可见、minimal 不可见", () => {
+  it("9 工具双端 standard/full profile 可见、minimal 不可见", () => {
     // PROFILE_TOOL_SETS 是 core 单一源,两宿主 re-export 同一引用(profile-contract 已覆盖)
     for (const n of INCUBATION_TOOLS) {
       expect(PROFILE_TOOL_SETS.standard.has(n)).toBe(true);

@@ -55,7 +55,9 @@
       "incubation_resolve",
       "incubation_report",
       "incubation_conclude",
-      "incubation_update"
+      "incubation_update",
+      "incubation_pause",
+      "incubation_delete"
     ]
   },
   "name": "Co-Engram",
