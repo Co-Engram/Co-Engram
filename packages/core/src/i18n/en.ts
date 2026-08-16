@@ -1034,7 +1034,12 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.insightStats.acceptance": "Acceptance ${v}",
   "viewer.maintenance.insightStats.laterUse": "Later-use ${v}",
   "viewer.help.nightThinkingTitle": "Night Thinking (Overnight Thinking)",
-  "viewer.help.nightThinkingDesc": "<strong>Night thinking</strong>: seed a question in More → Night Lab; the agent thinks one round every night (or run immediately). Insights appear as proposals and only become memories after approval. Web research is off by default (per-entry opt-in); plans and traces are fully transparent.",
+  "viewer.help.nightThinkingDesc": "<strong>Night thinking</strong>: seed a question in More → Night Lab; the agent thinks it through night after night, insights appear as proposals and only become memories after approval; plans and traces are fully transparent.",
+  "viewer.help.incubations.pace": "One round per entry per day, at 00:00 local by default; change it from the card's Schedule control.",
+  "viewer.help.incubations.catchUp": "Missed rounds (no process running) catch up on the next session or daemon start; the header shows live scheduler status.",
+  "viewer.help.incubations.draft": "Each round auto-drafts an interim answer (click the card to read it); Conclude produces the final answer anytime.",
+  "viewer.help.incubations.runNow": "Run now triggers a round manually at any time (without consuming that night's scheduled round).",
+  "viewer.help.incubations.resources": "Round resources: the full memory graph + activity logs + your skill library (web research is opt-in per entry).",
   "viewer.tab.health.tip":
     "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
   "viewer.tab.config.tip":

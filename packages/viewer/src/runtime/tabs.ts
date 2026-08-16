@@ -5267,7 +5267,9 @@ window.CO_ENGRAM_HELP = {
       + refSection(T.t('viewer.help.stateMachineTitle'),
         p(T.t('viewer.help.stateMachineIntro'))
         + '<ol>' + [T.t('viewer.help.stateUnverified'), T.t('viewer.help.statePlausible'), T.t('viewer.help.stateProbable'), T.t('viewer.help.stateVerified'), T.t('viewer.help.stateRefuted')].map(x => '<li>' + x + '</li>').join('') + '</ol>')
-      + refSection(T.t('viewer.help.nightThinkingTitle'), p(T.t('viewer.help.nightThinkingDesc')))
+      + refSection(T.t('viewer.help.nightThinkingTitle'),
+        p(T.t('viewer.help.nightThinkingDesc'))
+        + li([T.t('viewer.help.incubations.pace'), T.t('viewer.help.incubations.catchUp'), T.t('viewer.help.incubations.draft'), T.t('viewer.help.incubations.runNow'), T.t('viewer.help.incubations.resources')]))
       + refSection(T.t('viewer.help.moreTitle'),
         p(T.t('viewer.help.evolutionTitle'))
         + '<ol>' + [T.t('viewer.help.evo1'), T.t('viewer.help.evo2'), T.t('viewer.help.evo3'), T.t('viewer.help.evo4'), T.t('viewer.help.evo5'), T.t('viewer.help.evo6')].map(x => '<li>' + x + '</li>').join('') + '</ol>'
