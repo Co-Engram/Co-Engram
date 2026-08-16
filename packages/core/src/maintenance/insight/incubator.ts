@@ -64,6 +64,8 @@ export interface IncubationEntry {
   readonly rounds: number;
   /** 联网调研 opt-in(默认 false;GUI 明示) */
   readonly webResearchOptIn: boolean;
+  /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00" */
+  readonly schedule?: string;
   readonly createdAt: string;
   readonly lastHatchedAt: string | null;
   readonly timeline: readonly IncubationTimelineEvent[];
@@ -175,6 +177,7 @@ export class Incubator {
   private normalize(e: IncubationEntry, nowMs: number): IncubationEntry | null {
     if (!e || typeof e.id !== "string" || typeof e.question !== "string") return null;
     let out = e;
+    out = { ...out, schedule: out.schedule ?? "00:00" };
     if (out.status === "in-flight") {
       const at = out.inFlightAt ? parseAt(out.inFlightAt) : 0;
       if (nowMs - at > INSIGHT_LIMITS.inFlightTtlMs) {
@@ -201,6 +204,7 @@ export class Incubator {
     readonly question: string;
     readonly seedEngramIds?: readonly string[];
     readonly webResearchOptIn?: boolean;
+    readonly schedule?: string;
   }): IncubationEntry {
     const entry: IncubationEntry = {
       id: `inc-${randomUUID().slice(0, 12)}`,
@@ -209,6 +213,7 @@ export class Incubator {
       status: "active",
       rounds: 0,
       webResearchOptIn: input.webResearchOptIn ?? false,
+      schedule: input.schedule ?? "00:00",
       createdAt: this.now(),
       lastHatchedAt: null,
       timeline: [],

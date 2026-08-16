@@ -847,6 +847,8 @@ export const IncubationCreateInputSchema = z
     seedEngramIds: z.array(z.string().min(1)).max(20).optional(),
     /** 联网调研 opt-in(默认 false;开启后问题摘要将发送至搜索引擎) */
     webResearchOptIn: z.boolean().optional(),
+    /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00" */
+    schedule: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(),
   })
   .strict();
 
