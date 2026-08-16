@@ -238,7 +238,6 @@ ${SIDE_ICONS}
         <span class="chip" id="graph-filter-count"></span>
         <span class="spacer"></span>
         <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
-        <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
         <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
         <button class="btn secondary mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
       </div>

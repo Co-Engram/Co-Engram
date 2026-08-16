@@ -73,10 +73,9 @@ async function renderGraphInner(container) {
     focusedId: null,
     night: false,
     timeRange: null,
-    // 2026-08 DEMO 校准:着色模式(结构/活力/冲突/热力)+ 状态筛选 + 悬停邻边高亮
+    // 2026-08 DEMO 校准:着色模式(结构/活力/冲突/热力)+ 状态筛选
     colorMode: 'structure',
-    statusFilter: 'active',
-    hoverHl: true
+    statusFilter: 'active'
   };
   CO_ENGRAM._graphState = { initialized: false, network: null, data: graph, state };
 
@@ -312,8 +311,9 @@ async function renderGraphInner(container) {
     // 2026-08 用户两轮反馈「点击画布后变带外圈的颜色」—— 两个来源一并根治:
     //   1. vis 默认 borderWidthSelected=6:选中时描边 2.5→6 加粗成环 → 与普通态同宽
     //   2. highlight 色(batches 前已与普通态对齐)
-    // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观
-    nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false } },
+    // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观。
+    // hover:true 后此开关同时冻结「悬停节点换 hover 色 + label 加粗」的 vis 默认增量
+    nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false }, chosen: false },
     edges: { smooth: { type: 'continuous' }, selectionWidth: 1 },
     // 大规模图(1000+ 节点)物理引擎优化(2026-07):
     //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
@@ -338,7 +338,11 @@ async function renderGraphInner(container) {
         fit: true
       }
     },
-    interaction: { hover: false, selectable: false, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: state.hoverHl }
+    // hover:true 是悬停邻边高亮的必要条件 —— vis 只在 interaction.hover 开启时才派发
+    // hoverNode/blurNode 事件(2026-08「邻居高亮失效」根因:此前 hover:false 让下方
+    // handler 一直是死代码)。hoverConnectedEdges:false —— 邻边强调由自定义 handler
+    // 全权负责:原生只把邻边换成 hover 色(=普通色,无对比)且会叠加 hoverWidth 双重加粗。
+    interaction: { hover: true, selectable: false, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: false }
   };
 
   const network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, options);
@@ -528,12 +532,10 @@ async function renderGraphInner(container) {
   CO_ENGRAM_GRAPH._refreshFilterCount();
 
   // === 交互 ===
-  // 悬停邻边高亮(2026-08 用户反馈「好像没有用」→ 做成可见实效):
-  // 悬停节点 → 其邻接边全亮加粗,其余边淡出到 0.08;移开恢复。
-  // 受功能栏「邻居高亮」开关(state.hoverHl)控制,聚焦邻域时让位(已有更强的淡出)。
-  network.on('hoverNode', (params) => {
-    if (!state.hoverHl || state.focusedId) return;
-    const nid = params.node;
+  // 悬停邻边高亮(常开,2026-08 修复:根因 interaction.hover:false 导致事件从未触发,
+  // 修复后移除功能栏开关,不再暴露给用户选择):悬停节点 → 邻接边全亮加粗,其余边淡出
+  // 到 0.08;移开恢复。聚焦邻域时让位(已有更强的淡出)。
+  function applyHoverEmphasis(nid) {
     const conn = new Set();
     for (const e of graph.edges) {
       if (e.from === nid || e.to === nid) conn.add(e.id);
@@ -543,9 +545,13 @@ async function renderGraphInner(container) {
       opacity: conn.has(e2.id) ? 1 : 0.08,
       width: conn.has(e2.id) ? baseEdgeWidth(e2) + 1 : baseEdgeWidth(e2),
     })));
+  }
+  network.on('hoverNode', (params) => {
+    if (state.focusedId) return;
+    applyHoverEmphasis(params.node);
   });
   network.on('blurNode', () => {
-    if (!state.hoverHl || state.focusedId) return;
+    if (state.focusedId) return;
     edgesDataset.update(edgesDataset.get().map(e2 => ({
       id: e2.id,
       opacity: baseEdgeOpacity(e2),
@@ -619,6 +625,12 @@ async function renderGraphInner(container) {
     })));
     restoreAllNodeColors();
     network.redraw();
+    // 复位重写了全部边状态;若鼠标仍停在节点上(vis 不会重发 hoverNode),此处复放悬停强调。
+    // hoverObj 是 vis 10.1.0 实例属性(vendor 版本锁定),若未来升级 vis 需复查此访问。
+    const stillHovered = network.selectionHandler && network.selectionHandler.hoverObj
+      ? Object.keys(network.selectionHandler.hoverObj.nodes)[0]
+      : undefined;
+    if (stillHovered) applyHoverEmphasis(stillHovered);
   }
 
   function focusNode(id) {
@@ -802,13 +814,6 @@ async function renderGraphInner(container) {
     CO_ENGRAM._graphState.applyFilters();
     CO_ENGRAM_GRAPH._refreshFilterCount();
   };
-  // 悬停邻边高亮(DEMO ✨邻居高亮 toggle;vis 原生 hoverConnectedEdges)
-  CO_ENGRAM._graphState.toggleHoverHl = function() {
-    state.hoverHl = !state.hoverHl;
-    network.setOptions({ interaction: { hoverConnectedEdges: state.hoverHl } });
-    const btn = document.getElementById('graph-hover-hl');
-    if (btn) btn.classList.toggle('on', state.hoverHl);
-  };
 }
 
 // ============================================================
@@ -963,7 +968,6 @@ window.CO_ENGRAM_GRAPH = {
   toggleNight() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleNight(); },
   setColorMode(m) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setColorMode(m); },
   setStatusFilter(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setStatusFilter(v); },
-  toggleHoverHl() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleHoverHl(); },
   // 图例族行:toggle 该族全部 kinds(on = 该族所有 kind 开)
   toggleFamily(fam, on) {
     const s = CO_ENGRAM._graphState;
