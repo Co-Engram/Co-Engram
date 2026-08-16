@@ -319,7 +319,7 @@ CO_ENGRAM.renderFeed = function(root, entries) {
   // 其余 → 记忆 summary;兜底 reason/note/字段清单
   const excerptFor = (e) => {
     const m = e.metadata || {};
-    const clip = (s) => { const t = String(s).trim().replace(/\s+/g, ' '); return t.length > 80 ? t.slice(0, 78) + '…' : t; };
+    const clip = (s) => { const t = String(s).trim().replace(/\\s+/g, ' '); return t.length > 80 ? t.slice(0, 78) + '…' : t; };
     if (e.action === 'update' && m.changes && typeof m.changes === 'object') {
       const c = m.changes;
       if (c.content && c.content.to) return clip(c.content.to);
@@ -4861,6 +4861,9 @@ CO_ENGRAM.on('incubations', async function() {
 window.CO_ENGRAM_INCUBATIONS = {
   _polling: {},
   _incPollTimer: null,
+  // 草案区展开态(T10 评审):30s 轮询 render 会整卡重建 DOM,把已展开的草案区
+  // 打回 hidden。用 Set 记住展开的条目 id,renderCard 据此恢复展开态。
+  _expandedDrafts: new Set(),
 
   async render(root) {
     const T = CO_ENGRAM_T;
@@ -5003,7 +5006,7 @@ window.CO_ENGRAM_INCUBATIONS = {
       const last = tl[tl.length - 1];
       const triggerKey2 = 'viewer.incubations.trigger.' + last.trigger;
       const triggerLabel = T.t(triggerKey2) !== triggerKey2 ? T.t(triggerKey2) : last.trigger;
-      const clip2 = (x) => { const t2 = String(x || '').trim().replace(/\s+/g, ' '); return t2.length > 110 ? t2.slice(0, 108) + '…' : t2; };
+      const clip2 = (x) => { const t2 = String(x || '').trim().replace(/\\s+/g, ' '); return t2.length > 110 ? t2.slice(0, 108) + '…' : t2; };
       // 点击整块展开/收起各轮 answerDraft 草案区(T4;explainer.gain 已提示「点击卡片查看」)
       html += '<div class="inc-last-round" style="cursor:pointer" onclick="CO_ENGRAM_INCUBATIONS.toggleDraft(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">'
         + '<div class="ilr-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.lastRound', { round: last.round, trigger: triggerLabel })) + '</div>'
@@ -5011,8 +5014,10 @@ window.CO_ENGRAM_INCUBATIONS = {
           ? last.summaries.slice(0, 2).map(x2 => '<div class="ilr-s">· ' + CO_ENGRAM.escapeHtml(clip2(x2)) + '</div>').join('')
           : '<div class="ilr-s ilr-none">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.lastRoundNone')) + '</div>')
         + '</div>';
-      // 草案区(默认收起):最新一轮置顶;每轮 answerDraft 或跳过/失败原因;finalAnswer 垫底
-      html += '<div class="inc-drafts" id="inc-drafts-' + CO_ENGRAM.escapeHtml(e.id) + '" hidden>'
+      // 草案区(默认收起,展开态记入 _expandedDrafts 跨轮询保留):最新一轮置顶;
+      // 每轮 answerDraft 或跳过/失败原因;finalAnswer 垫底
+      html += '<div class="inc-drafts" id="inc-drafts-' + CO_ENGRAM.escapeHtml(e.id) + '"'
+        + (CO_ENGRAM_INCUBATIONS._expandedDrafts.has(e.id) ? '' : ' hidden') + '>'
         + tl.slice().reverse().map(t => {
             if (t.answerDraft) return '<div class="inc-draft"><div class="ilr-h">R' + t.round + '</div><div class="ilr-s">' + CO_ENGRAM.escapeHtml(t.answerDraft) + '</div></div>';
             if (t.answerDraftError) return '<div class="inc-draft ilr-none">R' + t.round + ' · ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_INCUBATIONS.draftErrorText(t)) + '</div>';
@@ -5055,8 +5060,10 @@ window.CO_ENGRAM_INCUBATIONS = {
     return isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   },
 
-  /** 点击最近一轮区块 → 展开/收起草案区 */
+  /** 点击最近一轮区块 → 展开/收起草案区(展开态入 Set,30s 轮询 re-render 后仍保持) */
   toggleDraft(id) {
+    const set = CO_ENGRAM_INCUBATIONS._expandedDrafts;
+    if (set.has(id)) set.delete(id); else set.add(id);
     const el = document.getElementById('inc-drafts-' + id);
     if (el) el.hidden = !el.hidden;
   },
@@ -5153,8 +5160,10 @@ window.CO_ENGRAM_INCUBATIONS = {
 
   /**
    * 收束出结论(T5 conclude):confirm 明示时长;分钟级单次 LLM 调用,同步等待。
-   * T9 评审三硬约束:fetch 失败(超时/断连)只提示「后台可能仍在跑」,
-   * 不判死、不自动重试 —— 重复 conclude 会重复烧 LLM。
+   * 错误分流(T10 评审):apiJson throw 的 message 形如「POST …/conclude → 409」,
+   * 命中 4xx(409 in-flight / 400 参数等)= 服务端确定性失败 → 明确报错(否则用户
+   * 被「后台进行中」误导,守着一个不可能出结果的请求);网络失败 / 5xx / 超时
+   * → 保留 pendingHint,不判死、不自动重试 —— 重复 conclude 会重复烧 LLM(T9 评审)。
    */
   async conclude(id) {
     const T = CO_ENGRAM_T;
@@ -5165,8 +5174,15 @@ window.CO_ENGRAM_INCUBATIONS = {
       await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/conclude', 'POST', {});
       const root = document.getElementById('incubations-content');
       if (root) await CO_ENGRAM_INCUBATIONS.render(root);
-    } catch (_) {
-      alert(T.t('viewer.incubations.concludePendingHint'));
+    } catch (err) {
+      // 正则里的反斜杠必须双写:TABS_RUNTIME 是 template literal,单写 \\b/\\d 会被
+      // 转义成退格/'d',浏览器拿到的是坏正则(runtime-inline-script 测试的历史坑)
+      const msg = String((err && err.message) || '');
+      if (/\\b(4\\d\\d)\\b/.test(msg)) {
+        alert(T.t('viewer.incubations.concludeFailed', { msg: msg.length > 120 ? msg.slice(0, 120) + '…' : msg }));
+      } else {
+        alert(T.t('viewer.incubations.concludePendingHint'));
+      }
     } finally { if (btn) btn.disabled = false; }
   },
 
