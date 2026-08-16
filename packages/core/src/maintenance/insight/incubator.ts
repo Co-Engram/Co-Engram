@@ -53,6 +53,14 @@ export interface IncubationTimelineEvent {
   readonly proposalEntityIds: readonly string[];
   /** 本夜外部调用数(审计留痕计数) */
   readonly externalCallCount: number;
+  /** 空转诊断:各关计数(spec §三) */
+  readonly diagnosis?: {
+    readonly drafts: number;
+    readonly dupVetoed: number;
+    readonly validateRejected: number;
+    readonly criticRejected: number;
+    readonly llmClientMissing: boolean;
+  };
   readonly note?: string;
 }
 
@@ -491,6 +499,8 @@ export class Incubator {
     const summaries: string[] = [];
     const entityIds: string[] = [];
     const threshold = DEFAULT_REM_INSIGHT.criticThreshold;
+    let validateRejected = 0;
+    let criticRejected = 0;
     for (const d of survived) {
       const sub = this.subgraphFor(d);
       const v = validateInsightDraft(
@@ -499,11 +509,18 @@ export class Incubator {
         this.deps.repository,
         this.deps.proposalEngine.listAll(),
       );
-      if (!v.ok) continue;
+      if (!v.ok) {
+        validateRejected += 1;
+        continue;
+      }
       // fail-closed:无 llmClient 即无独立 critic → 不出提案
+      // (静默 continue:llmClientMissing 已由 diagnosis 字段表达)
       if (!this.deps.llmClient) continue;
       const score = await critique(this.deps.llmClient, d, sub, d.mode);
-      if (!score || score.overall < threshold) continue;
+      if (!score || score.overall < threshold) {
+        criticRejected += 1;
+        continue;
+      }
       const entityId = insightEntityId(d.mode, entry.id, nextRound, d.sourceIds);
       const ok = this.deps.proposalEngine.proposeInsight({
         mode: d.mode,
@@ -550,6 +567,13 @@ export class Incubator {
         summaries,
         proposalEntityIds: entityIds,
         externalCallCount: input.report.externalCalls.length,
+        diagnosis: {
+          drafts: input.report.insights.length,
+          dupVetoed: vetoed,
+          validateRejected,
+          criticRejected,
+          llmClientMissing: !this.deps.llmClient,
+        },
         ...(note ? { note } : {}),
       },
     ];
