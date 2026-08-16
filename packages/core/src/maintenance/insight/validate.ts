@@ -18,7 +18,16 @@ export type ValidateResult = { ok: true } | { ok: false; reason: string };
 /** 已有提案的最小结构(validate 查重用,避免循环依赖 ProposalEngine) */
 export interface ProposalLike {
   readonly source?: string;
-  readonly payload?: { readonly content?: string };
+  readonly payload?: {
+    readonly content?: string;
+    readonly title?: string;
+    readonly remSourceIds?: readonly string[];
+  };
+  readonly status?: string;
+  readonly dismissReason?: string;
+  readonly centroidExcerpt?: string;
+  readonly createdAt?: string;
+  readonly lastSeenAt?: string;
 }
 
 /** 内容 Jaccard(token 集合;title+content 参与查重) */

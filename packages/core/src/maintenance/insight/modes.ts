@@ -56,11 +56,20 @@ function specificDomains(tags: readonly string[]): Set<string> {
  *
  * 一期兜底 REM(无任何事件信号)→ 三个强度全 0,深度思考整体跳过。
  */
+/** 被拒洞察快照(REM 审批反馈信号,2026-08-16 用户灵感) */
+export interface DismissedInsight {
+  readonly title: string;
+  readonly reason: string | undefined;
+  readonly sourceIds: readonly string[];
+}
+
 export function computeModeSignals(
   repo: EngramRepository,
   opts: {
     readonly lastRemAt: string | null;
     readonly hasActiveIncubation: boolean;
+    /** 自 lastRemAt 起被 dismiss 的 rem-insight 提案(系统复盘自己的产出) */
+    readonly dismissedInsights?: readonly DismissedInsight[];
   },
 ): ModeSignal[] {
   const digests = activeDigests(repo);
@@ -103,12 +112,16 @@ export function computeModeSignals(
       : digests.filter(
           (d) => d.verificationStatus === "refuted" && d.updatedAt > since,
         ).length;
+  // 审批反馈(2026-08-16):洞察被 dismiss = 最直接的人工质量否决 ——
+  // 比失败使用更早到达的负信号,纳入复盘强度(系统复盘自己的产出)
+  const dismissed = opts.dismissedInsights ?? [];
   const retrospective: ModeSignal = {
     mode: "retrospective",
-    strength: saturate(failing.length + newlyRefuted),
+    strength: saturate(failing.length + newlyRefuted + dismissed.length),
     detail: {
       failingEngrams: failing.length,
       newlyRefuted,
+      dismissedInsights: dismissed.length,
     },
   };
 
@@ -143,12 +156,17 @@ export function computeModeSignals(
  */
 export function retrospectiveSeedFilter(
   repo: EngramRepository,
+  dismissedInsights?: readonly DismissedInsight[],
 ): (id: string) => boolean {
   const failing = new Set(
     activeDigests(repo)
       .filter((d) => d.failedUses >= 3)
       .map((d) => d.id),
   );
+  // 被拒洞察的来源记忆:产出被否决的"原料"同入复盘视野
+  for (const d of dismissedInsights ?? []) {
+    for (const id of d.sourceIds) failing.add(id);
+  }
   return (id: string) => failing.has(id);
 }
 
@@ -253,6 +271,8 @@ export function buildModePrompt(
       readonly question: string;
       readonly dreamHistory: string;
     } | null;
+    /** 复盘模式:近期被拒洞察(审批反馈闭环) */
+    readonly dismissedInsights?: readonly DismissedInsight[];
   } = {},
 ): string {
   const parts: string[] = [];
@@ -266,6 +286,18 @@ export function buildModePrompt(
       );
     }
     parts.push("");
+  }
+  if (mode === "retrospective" && (opts.dismissedInsights ?? []).length > 0) {
+    const lines = opts.dismissedInsights!
+      .map((d) => `- "${d.title}" — dismissed reason: ${d.reason ?? "(未填)"}`)
+      .join("\n");
+    parts.push(
+      "## Recently dismissed insights (human feedback on YOUR previous outputs)",
+      lines,
+      "Retrospect on WHY they were rejected (insufficient evidence? restatement? far-fetched?)",
+      "and produce a lesson on how insight generation should improve.",
+      "",
+    );
   }
   parts.push(MODE_INSTRUCTIONS[mode]);
   parts.push("");

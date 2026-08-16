@@ -110,9 +110,26 @@ export async function runDeepThought(deps: {
   if (!deps.proposalEngine) return empty("no-proposal-engine");
 
   const active = deps.incubator?.activeEntries() ?? [];
+  // 审批反馈输入(2026-08-16 用户灵感):被 dismiss 的 rem-insight 提案
+  // → 复盘模式信号 + prompt 背景(系统从自己被拒的产出中学习)
+  const since = deps.lastRemAt ?? "";
+  const dismissedInsights = deps.proposalEngine
+    .listAll()
+    .filter(
+      (p) =>
+        p.source === "rem-insight" &&
+        p.status === "dismissed" &&
+        (p.lastSeenAt ?? p.createdAt ?? "") > since,
+    )
+    .map((p) => ({
+      title: p.payload?.title ?? p.centroidExcerpt ?? "(untitled)",
+      reason: p.dismissReason,
+      sourceIds: p.payload?.remSourceIds ?? [],
+    }));
   const signals = computeModeSignals(deps.repository, {
     lastRemAt: deps.lastRemAt,
     hasActiveIncubation: active.length > 0,
+    dismissedInsights,
   });
   // 一期兜底 REM(无事件信号)→ 深度思考整体跳过,零 LLM 调用(spec §三)
   if (signals.every((s) => s.strength <= 0)) return empty("no-mode-signals");
@@ -142,7 +159,7 @@ export async function runDeepThought(deps: {
     try {
       const seedFilter =
         mode === "retrospective"
-          ? retrospectiveSeedFilter(deps.repository)
+          ? retrospectiveSeedFilter(deps.repository, dismissedInsights)
           : mode === "inspiration"
             ? inspirationSeedFilter(deps.repository)
             : undefined;
@@ -177,18 +194,19 @@ export async function runDeepThought(deps: {
         };
       }
 
-      const prompt = buildModePrompt(
-        mode,
-        subgraph,
-        incubation
+      const prompt = buildModePrompt(mode, subgraph, {
+        ...(incubation
           ? {
               incubation: {
                 question: incubation.question,
                 dreamHistory: incubation.dreamHistory,
               },
             }
-          : undefined,
-      );
+          : {}),
+        ...(mode === "retrospective" && dismissedInsights.length > 0
+          ? { dismissedInsights }
+          : {}),
+      });
       const raw = await deps.llmClient.complete(prompt, {
         temperature: 0.4,
         // GLM 等思考型模型单次 126-263s;默认 15s 会砍掉所有调用

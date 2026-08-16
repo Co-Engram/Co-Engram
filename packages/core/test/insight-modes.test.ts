@@ -233,3 +233,38 @@ describe("buildModePrompt", () => {
     expect(p).toContain("across domains");
   });
 });
+
+// ============================================================
+// 审批反馈闭环(2026-08-16 用户灵感):被拒洞察 → 复盘信号/种子/prompt
+// ============================================================
+import { type DismissedInsight } from "../src/maintenance/insight/modes.js";
+
+describe("审批反馈:被拒洞察进复盘", () => {
+  const dismissed: readonly DismissedInsight[] = [
+    { title: "被拒洞察甲", reason: "证据不足", sourceIds: [] },
+    { title: "被拒洞察乙", reason: undefined, sourceIds: [] },
+  ];
+
+  it("dismissed 计数加权复盘强度", () => {
+    const withD = computeModeSignals(repo, { lastRemAt: PAST, hasActiveIncubation: false, dismissedInsights: dismissed });
+    const noD = computeModeSignals(repo, { lastRemAt: PAST, hasActiveIncubation: false });
+    expect(withD.find((s) => s.mode === "retrospective")!.strength).toBeGreaterThan(noD.find((s) => s.mode === "retrospective")!.strength);
+    expect(withD.find((s) => s.mode === "retrospective")!.detail.dismissedInsights).toBe(2);
+  });
+
+  it("被拒洞察来源纳入复盘种子", () => {
+    const src = make("洞察来源", ["t"]);
+    const ok = retrospectiveSeedFilter(repo, [{ title: "x", reason: "r", sourceIds: [src.id] }]);
+    expect(ok(src.id)).toBe(true);
+  });
+
+  it("复盘 prompt 含被拒标题/理由/反思指令;无被拒或非复盘不含", () => {
+    const p = buildModePrompt("retrospective", EMPTY_SUB, { dismissedInsights: dismissed });
+    expect(p).toContain("被拒洞察甲");
+    expect(p).toContain("证据不足");
+    expect(p).toContain("dismissed reason: (未填)");
+    expect(p).toContain("Retrospect on WHY");
+    expect(buildModePrompt("retrospective", EMPTY_SUB)).not.toContain("dismissed reason");
+    expect(buildModePrompt("integration", EMPTY_SUB, { dismissedInsights: dismissed })).not.toContain("dismissed reason");
+  });
+});
