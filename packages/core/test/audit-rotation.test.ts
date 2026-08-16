@@ -161,6 +161,91 @@ describe("AuditLog.rotate", () => {
     }
   });
 
+  it("maxSizeMb 分级截断:低价值洪流超限时优先丢低价值,高价值保留(2026-08-16)", () => {
+    // 复现真实事故结构:头部过期 propose(时间维度删)+ 老create(高价值)+
+    // 海量 noise_filtered(低价值)。旧无差别头部截断会把老 create 一起丢掉;
+    // 分级后 noise_filtered 先丢,create 全保留。
+    const expired = new Date(NOW - 100 * DAY_MS).toISOString();
+    const oldHigh = new Date(NOW - 80 * DAY_MS).toISOString();
+    const recent = new Date(NOW - 1 * DAY_MS).toISOString();
+    const lines: string[] = [
+      line("propose", expired), // 过期低价值 → 时间维度删除
+    ];
+    for (let i = 0; i < 3; i++) {
+      lines.push(line("create", oldHigh, `precious-${i}`));
+    }
+    const noise = JSON.stringify({
+      ts: recent,
+      actor: "system" as const,
+      action: "noise_filtered" as const,
+      metadata: { pad: "n".repeat(150) },
+    });
+    for (let i = 0; i < 30; i++) lines.push(noise);
+    writeRawAudit(lines.join("\n") + "\n");
+
+    const realNow = Date.now;
+    Date.now = () => NOW;
+    try {
+      // 0.003MB ≈ 3146B;总 ~6.4KB 超限 → 只丢 noise_filtered 就能压回限内
+      const result = audit.rotate({
+        retentionDays: 90,
+        highValueRetentionDays: 365,
+        maxSizeMb: 0.003,
+      });
+      expect(result.droppedCount).toBeGreaterThan(0);
+      const kept = readLines();
+      // 头部 3 条老 create(高价值)全部保留
+      for (let i = 0; i < 3; i++) {
+        expect(kept.some((l) => l.includes(`"engramId":"precious-${i}"`))).toBe(true);
+      }
+      // 过期 propose 被时间维度删除
+      expect(kept.some((l) => l.includes('"action":"propose"'))).toBe(false);
+      // 部分低价值噪声被丢,文件压回限内
+      expect(kept.filter((l) => l.includes("noise_filtered")).length).toBeLessThan(30);
+      expect(statSync(audit.path).size).toBeLessThanOrEqual(0.003 * 1024 * 1024);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  it("maxSizeMb 分级截断:低价值丢光仍超限 → 从最老丢高价值兜底(保尾部最新)", () => {
+    // 高价值自身总量超限:最老 noise(轮1先丢)→ 仍超 → 最老 create 兜底丢,
+    // 尾部最新 create 保留 —— 退化到分级前的「保尾部」语义。
+    const t1 = new Date(NOW - 3 * DAY_MS).toISOString();
+    const t2 = new Date(NOW - 2 * DAY_MS).toISOString();
+    const t3 = new Date(NOW - 1 * DAY_MS).toISOString();
+    const big = (ts: string, action: "create" | "noise_filtered", id: string) =>
+      JSON.stringify({
+        ts,
+        actor: "user" as const,
+        action: action as never,
+        engramId: id,
+        metadata: { pad: "x".repeat(150) },
+      });
+    writeRawAudit(
+      [big(t1, "noise_filtered", "old-noise"), big(t2, "create", "old-create"), big(t3, "create", "new-create")].join("\n") + "\n",
+    );
+
+    const realNow = Date.now;
+    Date.now = () => NOW;
+    try {
+      // 每行 ~260B,3 行 ~790B;0.0003MB ≈ 314B 只装得下 1 行(离行边界留余量,
+      // 避免浮点边界把唯一保留行也挤掉)
+      const result = audit.rotate({
+        retentionDays: 90,
+        highValueRetentionDays: 365,
+        maxSizeMb: 0.0003,
+      });
+      expect(result.droppedCount).toBe(2);
+      const kept = readLines();
+      expect(kept.length).toBe(1);
+      // 轮1丢最老低价值,轮2丢最老高价值,保尾部最新
+      expect(kept[0]!.includes('"engramId":"new-create"')).toBe(true);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
   it("损坏行保留(JSON parse 失败不擅自删除)", () => {
     const recent = new Date(NOW - 1 * DAY_MS).toISOString();
     const corrupt = "{ this is not valid json";

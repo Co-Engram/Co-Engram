@@ -336,6 +336,11 @@ export class AuditLog {
   /**
    * 轮转清理(按时间窗 + action 价值分层 + 文件大小硬上限)
    *
+   * 大小硬上限按价值分级(2026-08-16):超限时优先丢最老的低价值行,
+   * 高价值行只在低价值丢光仍超限时才被动兜底 —— 时间维度承诺高价值保留
+   * highValueRetentionDays,大小维度必须同向,否则低价值洪流会把高价值
+   * 审计挤出大小窗口。
+   *
    * 与 maintenance 引擎完全解耦:作为独立后台任务运行(见 startAutoRotation),
    * 维护引擎只动 engram 数据,日志管理自成体系。
    *
@@ -363,58 +368,90 @@ export class AuditLog {
       const highValueMs = opts.highValueRetentionDays * 24 * 60 * 60 * 1000;
       const maxBytes = Math.max(0, opts.maxSizeMb * 1024 * 1024);
 
-      // 时间维度决策(两遍共用,确定性一致)
-      const keepByTime = (trimmed: string): boolean => {
+      // 单行分类(两遍共用,确定性一致):时间维度保留决策 + 价值等级。
+      // parse 失败 / 无 ts 的行 → keep=true(损坏行不擅自删除)、high=true
+      // (保守:不知道内容价值时宁可占着大小预算也不先丢)。
+      const classifyLine = (trimmed: string): { keep: boolean; high: boolean } => {
         let entry: AuditEntry;
         try {
           entry = JSON.parse(trimmed) as AuditEntry;
         } catch {
-          return true; // 损坏行保留(交给人工/audit-query 处理,不擅自删除)
+          return { keep: true, high: true }; // 损坏行保留(交给人工/audit-query 处理)
         }
         const tsMs = Date.parse(entry.ts ?? "");
-        if (Number.isNaN(tsMs)) return true;
-        const ageMs = now - tsMs;
+        if (Number.isNaN(tsMs)) return { keep: true, high: true };
         const isHighValue = HIGH_VALUE_ACTIONS.has(entry.action);
         const threshold = isHighValue ? highValueMs : retentionMs;
-        return ageMs <= threshold;
+        return { keep: now - tsMs <= threshold, high: isHighValue };
       };
 
-      // Pass 1(流式,内存 = keep 行数 × 8B 的字节数组):时间决策 + 输出字节统计。
-      // 2026-08-16 流式化:旧实现 readFileSync 全文 + split,内存峰值 = 整个
-      // 文件(真实库曾 106MB),与 query 的 2026-07 修复同款问题。
+      // Pass 1(流式,内存 ≈ keep 行数 × 16B 的两个 number[]):时间决策 +
+      // 字节/价值统计。2026-08-16 流式化:旧实现 readFileSync 全文 + split,
+      // 内存峰值 = 整个文件(真实库曾 106MB),与 query 的 2026-07 修复同款问题。
       const keepLineBytes: number[] = [];
+      const keepLineHigh: number[] = []; // 1=高价值(大小截断最后才动)
       let droppedByTime = 0;
       this.forEachLine((trimmed) => {
-        if (keepByTime(trimmed)) keepLineBytes.push(trimmed.length + 1);
-        else droppedByTime += 1;
+        const c = classifyLine(trimmed);
+        if (c.keep) {
+          // 字节数用 Buffer.byteLength(UTF-8),与 statSize/背压判定同口径。
+          // 2026-08-16 修复:曾用 trimmed.length(code-unit 数),非 ASCII 行
+          // (中文路径等)被低估 ~⅔ —— 真实库 56.4MB 按代码单元只算 ~50MB,
+          // 背压按真实字节触发 rotate、rotate 按低估值判「未超限」noop,
+          // 死循环:文件永远涨、永不截断。
+          keepLineBytes.push(Buffer.byteLength(trimmed, "utf8") + 1);
+          keepLineHigh.push(c.high ? 1 : 0);
+        } else {
+          droppedByTime += 1;
+        }
       });
 
-      // 大小硬上限:即使按时间窗未到,也强制截断头部(保留最新 maxSizeMb)
-      // 按行边界切,避免半行残留;从尾部向前累加输出字节直到达到上限。
-      let keepFrom = 0; // keep 序号 < keepFrom 的行被大小截断丢弃
-      let keptBytes = 0;
-      for (let i = keepLineBytes.length - 1; i >= 0; i--) {
-        if (keptBytes + keepLineBytes[i]! > maxBytes) {
-          keepFrom = i + 1;
-          break;
+      // 大小硬上限:即使按时间窗未到也强制截到 maxSizeMb 内,按行边界切,
+      // 避免半行残留。2026-08-16 分级截断:超限时**优先丢最老的低价值行**
+      // (noise_filtered / propose 等),低价值丢光仍超才从最老的高价值行兜底。
+      // 动机:真实库 99% 体积是同一空文件反复上报的 noise_filtered,无差别
+      // 头部截断让 50MB 上限实际只给 create/update/accept 留了 ~8 天,时间
+      // 维度的「高价值保留 365 天」承诺被大小维度单方面撕毁。
+      const sizeDropped = new Uint8Array(keepLineBytes.length); // 1=被大小截断丢弃
+      let totalBytes = 0;
+      for (const b of keepLineBytes) totalBytes += b;
+      let need = totalBytes - maxBytes;
+      if (need > 0) {
+        // 轮 1:从最老开始丢低价值
+        for (let i = 0; i < keepLineBytes.length && need > 0; i++) {
+          if (keepLineHigh[i] === 0) {
+            sizeDropped[i] = 1;
+            need -= keepLineBytes[i]!;
+          }
         }
-        keptBytes += keepLineBytes[i]!;
+        // 轮 2:兜底 —— 低价值丢光仍超限,从最老开始丢高价值
+        //(保留尾部最新,与分级前的旧语义一致)
+        for (let i = 0; i < keepLineBytes.length && need > 0; i++) {
+          if (!sizeDropped[i]) {
+            sizeDropped[i] = 1;
+            need -= keepLineBytes[i]!;
+          }
+        }
       }
-      if (keepFrom === 0 && droppedByTime === 0) {
+      let sizeDroppedCount = 0;
+      for (const d of sizeDropped) sizeDroppedCount += d;
+      if (sizeDroppedCount === 0 && droppedByTime === 0) {
         return { droppedCount: 0, originalSize, newSize: originalSize };
       }
 
-      // Pass 2(流式):写出 时间 keep 且序号 ≥ keepFrom 的行,原子 rename
+      // Pass 2(流式):写出 时间 keep 且未被大小截断标记的行,原子 rename。
+      // writeIdx 与 Pass 1 的 keep 序号对齐;两 pass 之间新 append 的行落在
+      // sizeDropped 越界处(undefined → falsy → 保留),不会误删。
       const tmpPath = `${this.filePath}.rotate-${process.pid}-${Date.now()}`;
       const fd = openSync(tmpPath, "w");
       let writeIdx = 0;
       let newSize = 0;
       try {
         this.forEachLine((trimmed) => {
-          if (!keepByTime(trimmed)) return;
-          if (writeIdx >= keepFrom) {
+          if (!classifyLine(trimmed).keep) return;
+          if (!sizeDropped[writeIdx]) {
             writeSync(fd, trimmed + "\n");
-            newSize += trimmed.length + 1;
+            newSize += Buffer.byteLength(trimmed, "utf8") + 1;
           }
           writeIdx++;
         });
@@ -422,7 +459,7 @@ export class AuditLog {
         closeSync(fd);
       }
       renameSync(tmpPath, this.filePath);
-      const droppedCount = droppedByTime + keepFrom;
+      const droppedCount = droppedByTime + sizeDroppedCount;
       return { droppedCount, originalSize, newSize };
     } catch {
       return { droppedCount: 0, originalSize, newSize: originalSize };
