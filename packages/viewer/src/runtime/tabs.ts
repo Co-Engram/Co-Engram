@@ -4972,6 +4972,21 @@ window.CO_ENGRAM_INCUBATIONS = {
       + '</div>';
     // 梦境时间线(过程透明是信任来源,spec §六)
     const tl = e.timeline || [];
+    // 2026-08 用户反馈(信息焦虑):非 in-flight 条目也看不到内容与进展 ——
+    // 把「最近一轮」的摘要直接平铺在卡片上(≤2 条,截断),全部轮次仍在折叠里;
+    // 配合状态徽标 + 轮数 chip + 最近孵化时间,卡片自身即完整状态面板。
+    if (tl.length) {
+      const last = tl[tl.length - 1];
+      const triggerKey2 = 'viewer.incubations.trigger.' + last.trigger;
+      const triggerLabel = T.t(triggerKey2) !== triggerKey2 ? T.t(triggerKey2) : last.trigger;
+      const clip2 = (x) => { const t2 = String(x || '').trim().replace(/\s+/g, ' '); return t2.length > 110 ? t2.slice(0, 108) + '…' : t2; };
+      html += '<div class="inc-last-round">'
+        + '<div class="ilr-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.lastRound', { round: last.round, trigger: triggerLabel })) + '</div>'
+        + (last.summaries && last.summaries.length
+          ? last.summaries.slice(0, 2).map(x2 => '<div class="ilr-s">· ' + CO_ENGRAM.escapeHtml(clip2(x2)) + '</div>').join('')
+          : '<div class="ilr-s ilr-none">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.lastRoundNone')) + '</div>')
+        + '</div>';
+    }
     if (tl.length) {
       html += '<details class="inc-timeline"><summary>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.timeline')) + ' (' + tl.length + ')</summary><ul>';
       for (const t of tl) {

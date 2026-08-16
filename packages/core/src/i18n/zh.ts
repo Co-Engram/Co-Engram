@@ -949,6 +949,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.incubations.createBtn": "播种",
   "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM(可能消耗较多 token)。L2 会话过程(计划/轨迹)全部透明可查;联网调研默认开启,可按条目关闭。",
   "viewer.incubations.inFlightTip": "该条目正在夜思中,完成后可再次运行",
+  "viewer.incubations.lastRound": "最近一轮(R${round} · ${trigger})",
+  "viewer.incubations.lastRoundNone": "本轮无文字摘要,过程见下方时间线",
   "viewer.incubations.inFlightSince": "夜思进行中 · ${t}",
   "viewer.incubations.inFlightHint": "L2 会话阶段:计划 → 检索阅读 → 批判评审 → 洞察提炼。完成后此处更新梦境时间线,洞察以提案呈现;通常需要几分钟,本页每 30 秒自动刷新。",
   "viewer.incubations.empty": "还没有孵化条目。播种第一个问题,今晚开始夜思。",
