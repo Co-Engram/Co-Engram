@@ -1622,6 +1622,36 @@ export class ProposalEngine {
           "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).",
         );
       }
+      // 幂等 accept(2026-08-16 修复):印迹已注册时 createSkill 会抛
+      // "Skill already exists" 挡住审批 —— 场景:purgeAccepted 清掉 accepted 行后
+      // 提案复活为 pending,或用户曾 skill_create 过同名技能。改为直接采纳现有
+      // 印迹:proposal 置 accepted、返回现有 skillId,不重复创建(与 proposeSkill
+      // 的印迹级幂等对称)。
+      if (this.skillRepository.exists(p.skillId!)) {
+        const updated = proposals.map((pp) =>
+          pp.entityId === entityId
+            ? {
+                ...pp,
+                status: "accepted" as const,
+                acceptedEngramId: p.skillId!,
+              }
+            : pp,
+        );
+        this.writeProposals(updated);
+        this.clustersCache = null;
+        this.appendAcceptAudit({
+          entityId,
+          engramId: p.skillId!,
+          via: input.via,
+          metadata: { source: "skill", skillId: p.skillId, idempotent: true },
+        });
+        safeEmit({
+          type: "proposal_accepted",
+          engramId: p.skillId!,
+          at: new Date().toISOString(),
+        });
+        return p.skillId!;
+      }
       const skill = this.skillRepository.createSkill({
         skillId: p.skillId!, // nonEmpty 已确保非空
         sourcePath: p.skillSourcePath!, // nonEmpty 已确保非空
@@ -2224,8 +2254,9 @@ export class ProposalEngine {
 
   /**
    * 把 watcher 检测到的 skill 目录转成 pending 提案（source="skill"）。
-   * 幂等：同 entityId 的 accepted/dismissed/tombstone → no-change；
-   * pending 且 payload 变 → updated；无 existing → proposed。
+   * 幂等：印迹已注册（skillRepository.exists）→ no-change（顺带自愈存量
+   * pending 复活行为 accepted）；同 entityId 的 accepted/dismissed/tombstone
+   * → no-change；pending 且 payload 变 → updated；无 existing → proposed。
    */
   proposeSkill(input: {
     readonly sourcePath: string;
@@ -2265,6 +2296,45 @@ export class ProposalEngine {
     // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
+
+    // —— 印迹级幂等(2026-08-16 修复 purge-复活 bug) ——
+    // skillId 已注册(skill-imprints/ 有印迹)说明「是否纳入记忆库」这个提案问题
+    // 已有答案 —— 比同 entityId proposal 行存在性更强的幂等键。此前只查后者:
+    // purgeAccepted 物理删除 accepted 行且不留 tombstone,watcher 重扫 `.claude/skills/`
+    // 时 9 个已注册技能被当新发现重新提议。印迹存在时:
+    //   - 无 proposal 行 → 不新建(直接 no-change)
+    //   - 存量 pending 复活行 → 自愈对齐为 accepted(acceptedEngramId=现有 skillId),
+    //     免去用户逐条清理;自愈写盘留 audit 痕迹
+    //   - accepted/dismissed 行 → 维持原分支语义(下方)
+    // 未注入 skillRepository 的宿主降级为旧行为(仅查 proposal 行)。
+    // skill_delete 删掉印迹后同 sourcePath 重扫会重新提议 —— 合理复活。
+    if (this.skillRepository?.exists(input.skillId)) {
+      if (existing?.status === "pending") {
+        this.writeProposals(
+          proposals.map((p) =>
+            p.entityId === entityId
+              ? {
+                  ...p,
+                  status: "accepted" as const,
+                  acceptedEngramId: input.skillId,
+                }
+              : p,
+          ),
+        );
+        this.auditLog.append({
+          actor: "system",
+          action: "propose",
+          metadata: {
+            entityId,
+            source: "skill",
+            sourcePath: input.sourcePath,
+            skillId: input.skillId,
+            selfHealed: "imprint-exists",
+          },
+        });
+      }
+      return "no-change";
+    }
 
     if (existing?.status === "accepted") {
       return "no-change";
