@@ -574,9 +574,15 @@ async function renderGraphInner(container) {
   });
 
   function resetHighlight() {
+    // 2026-08 用户三轮反馈「点画布空白出现外圈」根因:无聚焦时也做全量
+    // nodesDataset.update({opacity:1.0}) → vis 重绘走显式 opacity 路径,
+    // 纸色描边变得可见(初始渲染不带 opacity 时 border 不可见)。
+    // 修法:仅在聚焦态才需要复位;无聚焦时直接 return(no-op),不触发重绘。
+    const wasFocused = state.focusedId !== null;
     state.focusedId = null;
     const insp = document.getElementById('graph-insp');
     if (insp) insp.hidden = true;
+    if (!wasFocused) return; // 无聚焦:不做任何节点/边更新
     const allNodes = nodesDataset.get();
     const allEdges = edgesDataset.get();
     nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
