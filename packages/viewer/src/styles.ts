@@ -2643,6 +2643,31 @@ div.vis-tooltip {
 .prop-st.st-accepted { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
 .prop-st.st-dismissed { color: var(--fg-dim); background: var(--chip-bg); }
 
+/* === 主区分段/过滤按钮(2026-08-16,对齐图谱 .tb 带框控件)== =
+ * 主内容区此前无全局 .tab 样式 —— 印迹「卡片/目录」切换与提案状态过滤
+ * 一直是浏览器原生按钮(无设计边框),与图谱功能栏(白底+边框+圆角+
+ * 选中主色高亮)割裂(2026-08-16 用户反馈)。统一为带框分段按钮。
+ */
+.seg-tab {
+  font: inherit;
+  font-size: 0.8rem;
+  padding: 0.32rem 0.75rem;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+  background: var(--panel-bg, #fff);
+  color: var(--fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.seg-tab:hover { color: var(--fg); border-color: var(--border-strong); }
+.seg-tab.active {
+  background: var(--accent-soft, #EDF7F5);
+  color: var(--accent);
+  border-color: rgba(15, 118, 110, 0.35);
+  font-weight: 600;
+}
+
 /* === 2026-08 提案勾选批量 + 5 秒撤销 toast(DEMO g2-proposals)=== */
 /* 勾选框置于左上角并为卡片内容让位(2026-08-15 修复:原右上角与标题/状态
    chip 重合)。padding-left 只在可勾选卡片上生效。 */

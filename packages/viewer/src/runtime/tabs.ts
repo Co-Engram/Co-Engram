@@ -2346,7 +2346,7 @@ window.CO_ENGRAM_PROPOSALS = {
     };
 
     const buttons = ['pending', 'accepted', 'dismissed', 'all'].map(s =>
-      '<button class="tab ' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
+      '<button class="seg-tab ' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
       + CO_ENGRAM.escapeHtml(statusLabel(s) + countFor(s)) + '</button>'
     ).join('');
 
@@ -2985,7 +2985,8 @@ window.CO_ENGRAM_PROPOSALS = {
       try {
         // 不传任何字段 → accept() 走 payload 兜底(auto-memory/external-markdown 自带)
         // conversation 来源缺字段时会抛错,记入 fail 继续下一条
-        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', {});
+        // batch:true → 后端 audit 记 via=viewer-batch(与单卡点击区分,H7 归因)
+        await CO_ENGRAM.apiJson('/api/proposals/' + encodeURIComponent(p.entityId) + '/accept', 'POST', { batch: true });
         ok++;
       } catch (e) {
         fail++;
