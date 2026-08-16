@@ -432,17 +432,34 @@ export async function runRemDreaming(
           [...repSynapses.outgoing, ...repSynapses.incoming]
             .map((s) => (s.to === rep ? s.from : s.to)),
         );
+        // confidence 修复(2026-08-18):原用 output.confidence——那是 pattern 抽象
+        // 的置信度(衡量"抽象质量"),非两记忆相似度,语义错位(曾产出 0.95 的
+        // 聚类 add 提案,而簇内实际相似度仅 ≥0.3),误导审批者。改为 rep↔member
+        // 实际 token Jaccard,与 refiner 提案(相似度即 confidence)对齐。
+        const repEngram = engrams.find((e) => e.id === rep);
+        const repTokens = repEngram
+          ? tokenizeForDedup(
+              `${repEngram.title} ${repEngram.summary} ${repEngram.content}`,
+            )
+          : new Set<string>();
         for (const memberId of cluster.memberIds) {
           if (memberId === rep) continue;
           if (existingTargets.has(memberId)) continue;
           const memberTitle = memberDigestById.get(memberId)?.title ?? memberId;
+          const memberEngram = engrams.find((e) => e.id === memberId);
+          const memberTokens = memberEngram
+            ? tokenizeForDedup(
+                `${memberEngram.title} ${memberEngram.summary} ${memberEngram.content}`,
+              )
+            : new Set<string>();
+          const sim = jaccardSimilarity(repTokens, memberTokens);
           options.proposalEngine.proposeSynapseOp({
             op: "add",
             from: rep,
             to: memberId,
             kind: "similar_to",
-            reason: `REM 聚类:两记忆高度相似,建议建立 similar_to 连接(置信度 ${output.confidence.toFixed(2)})`,
-            confidence: output.confidence,
+            reason: `REM 聚类:两记忆 token 相似度 ${sim.toFixed(2)}(≥0.3 入簇),建议建立 similar_to 连接`,
+            confidence: sim,
             fromTitle: repTitle,
             toTitle: memberTitle,
           });

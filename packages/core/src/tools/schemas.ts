@@ -661,11 +661,23 @@ export const EngramDismissProposalInputSchema = z.object({
 // batch 工具让 LLM 一次工具调用清空一批,避免 N 次往返。
 // ============================================================
 
-/** proposal source enum 复用 */
+/**
+ * proposal source 枚举(与 ProposalSource TS 类型对齐)。
+ *
+ * 2026-08-18 补齐 REM 来源:此前只枚举 4 值,rem-synapse/rem-pattern 等 REM 提案
+ * 无法通过 engram_dismiss_proposals_by_filter 按 source 批量清理(95 条积压只能
+ * 逐条 dismiss)。accept batch(EngramAcceptProposalsBySourceInputSchema)用独立
+ * 窄 enum(仅 auto-memory/external-markdown/skill),不受本枚举扩展影响。
+ */
 const ProposalSourceSchema = z.enum([
   "conversation",
   "auto-memory",
   "external-markdown",
+  "rem-verification",
+  "rem-pattern",
+  "rem-synapse",
+  "rem-tag-refresh",
+  "rem-insight",
   "skill",
 ]);
 

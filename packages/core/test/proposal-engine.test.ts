@@ -2016,6 +2016,50 @@ describe("ProposalEngine.dismissBatch (AI-8)", () => {
     expect(r2.dismissedIds.length).toBe(2);
   });
 
+  it("source='rem-synapse' 可按 schema 与实现层批量 dismiss(2026-08-18 扩 enum)", async () => {
+    const { EngramDismissProposalsByFilterInputSchema } = await import(
+      "../src/tools/schemas.js"
+    );
+    // schema 层:REM 来源合法(此前 enum 只含 4 值,zod 校验直接拒绝)
+    const parsed = EngramDismissProposalsByFilterInputSchema.parse({
+      source: "rem-synapse",
+      reason: "REM 提案积压清理",
+      dismissDays: 30,
+    });
+    expect(parsed.source).toBe("rem-synapse");
+    expect(parsed.dismissDays).toBe(30);
+
+    // 实现层:dismissBatch 按 rem-synapse 过滤只命中 REM 提案,不误伤其他来源
+    engine.proposeAutoMemory({
+      slug: "am-mixed",
+      title: "AM mixed",
+      content: "content",
+      domainTags: ["claude-code-auto-memory"],
+      kind: "fact",
+    });
+    engine.proposeSynapseOp({
+      op: "add",
+      from: "eng-a",
+      to: "eng-b",
+      kind: "similar_to",
+      reason: "REM 突触候选(测试)",
+      confidence: 0.3,
+      fromTitle: "A",
+      toTitle: "B",
+    });
+    const result = engine.dismissBatch(
+      { source: "rem-synapse" },
+      "REM 提案积压清理",
+      30,
+    );
+    expect(result.dismissedIds).toHaveLength(1);
+    expect(result.dismissedIds[0]).toMatch(/^rem-synapse:add:/);
+    // auto-memory 不受影响
+    const remaining = engine.listPending();
+    expect(remaining.length).toBe(1);
+    expect(remaining[0]!.source).toBe("auto-memory");
+  });
+
   it("limit 截断:超过 limit 的 pending 留在 listPending 里", () => {
     for (let i = 0; i < 5; i++) {
       engine.proposeAutoMemory({

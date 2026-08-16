@@ -447,7 +447,7 @@ export const engramDismissProposalsByFilterTool: Tool<
 > = {
   name: "engram_dismiss_proposals_by_filter",
   description:
-    "AI-8 批量拒绝候选提案(按 source/domainTags/时间窗组合 filter)。典型用法:`{source:'conversation', reason:'load-test 噪声'}` 一次清空对话流聚类的 load-test 污染;或 `{domainTags:['load-test'], reason:'clear load-test'}` 按 tag 清空。默认永久驳回(dismissDays 不传或 0);显式传 dismissDays > 0 时 N 天后可被新事件重新激活。limit 默认 1000(最大 5000)。reason 必填(审计留存)。",
+    "AI-8 批量拒绝候选提案(按 source/domainTags/时间窗组合 filter)。典型用法:`{source:'conversation', reason:'load-test 噪声'}` 一次清空对话流聚类的 load-test 污染;或 `{source:'rem-synapse', reason:'REM 突触占位提案积压清理', dismissDays:30}` 清理 REM 突触提案积压(30 天后高值对可被新规则重新 propose);或 `{domainTags:['load-test'], reason:'clear load-test'}` 按 tag 清空。默认永久驳回(dismissDays 不传或 0);显式传 dismissDays > 0 时 N 天后可被新事件重新激活。limit 默认 1000(最大 5000)。reason 必填(审计留存)。",
   inputSchema: EngramDismissProposalsByFilterInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<

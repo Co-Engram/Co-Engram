@@ -104,4 +104,77 @@ describe("refineSynapsesOnActiveGraph", () => {
     expect(result.candidatePairs).toHaveLength(0);
     expect(result.proposed).toBe(0);
   });
+
+  it("三层节流:Jaccard < 0.25 的对不 propose(阈值上调 2026-08-18)", async () => {
+    // 两记忆只共享 1 个低频词,Jaccard 远低于 0.25
+    repo.createEngram({
+      title: "X1", content: "alpha one two three four", kind: "fact",
+      domainTags: ["t"], createdBy: "test",
+    });
+    repo.createEngram({
+      title: "Y1", content: "alpha five six seven eight", kind: "fact",
+      domainTags: ["t"], createdBy: "test",
+    });
+    const proposed: string[] = [];
+    const proposalEngine = {
+      proposeSynapseOp: (input: { from: string }): boolean => {
+        proposed.push(input.from);
+        return true;
+      },
+    };
+    // 冷启动:全部活跃
+    const result = await refineSynapsesOnActiveGraph(repo, proposalEngine, {});
+    expect(result.candidatePairs).toHaveLength(0); // 低于阈值连候选对都不进
+    expect(proposed).toHaveLength(0);
+    expect(result.proposed).toBe(0);
+  });
+
+  it("三层节流:hub 单节点候选 ≤ 5(相似度降序保留 top)", async () => {
+    // 8 节点共享核心词池 → 两两高相似(Jaccard ≈ 0.7+),全对过筛。
+    // HUB 无配额时会出现 7 条边;配额 5 下恰好截断。
+    const hub = repo.createEngram({
+      title: "HUB", content: "shared core topic words pool", kind: "fact",
+      domainTags: ["t"], createdBy: "test",
+    });
+    for (let i = 0; i < 7; i++) {
+      repo.createEngram({
+        title: `M${i}`, content: `shared core topic words pool u${i}`, kind: "fact",
+        domainTags: ["t"], createdBy: "test",
+      });
+    }
+    const proposedEdges: Array<{ from: string; to: string }> = [];
+    const proposalEngine = {
+      proposeSynapseOp: (input: { from: string; to: string }): boolean => {
+        proposedEdges.push({ from: input.from, to: input.to });
+        return true;
+      },
+    };
+    await refineSynapsesOnActiveGraph(repo, proposalEngine, {});
+    const hubEdges = proposedEdges.filter(
+      (e) => e.from === hub.id || e.to === hub.id,
+    );
+    expect(hubEdges.length).toBe(5);
+  });
+
+  it("三层节流:单轮总量 ≤ 30(保险丝)", async () => {
+    // 13 节点两两高相似 → 78 对过筛;hub≤5 约束后可达 ~32 条,触发总量 ≤30 截断。
+    const words = Array.from({ length: 10 }, (_, i) => `w${i}`).join(" ");
+    for (let i = 0; i < 13; i++) {
+      repo.createEngram({
+        title: `N${i}`, content: `${words} e${i}`, kind: "fact",
+        domainTags: ["t"], createdBy: "test",
+      });
+    }
+    const proposed: string[] = [];
+    const proposalEngine = {
+      proposeSynapseOp: (input: { from: string }): boolean => {
+        proposed.push(input.from);
+        return true;
+      },
+    };
+    const result = await refineSynapsesOnActiveGraph(repo, proposalEngine, {});
+    expect(result.candidatePairs.length).toBe(78); // 过筛本身不节流(供 agent review)
+    expect(proposed.length).toBe(30);
+    expect(result.proposed).toBe(30);
+  });
 });

@@ -313,6 +313,50 @@ describe("runRemDreaming rem-synapse add 发现", () => {
     expect(adds.every((p) => p.kind === "similar_to")).toBe(true);
   });
 
+  it("聚类 add 的 confidence = rep↔member 实际 token Jaccard(2026-08-18 修复语义错位)", async () => {
+    const a = makeEngram("Test A", "fact");
+    const b = makeEngram("Test B", "fact");
+    makeEngram("Test C", "fact");
+
+    const proposed: Array<{ op: string; from: string; to: string; confidence: number; reason: string }> = [];
+    const stubEngine = {
+      proposePattern: () => true,
+      proposeSynapseOp: (input: { op: string; from: string; to: string; confidence: number; reason: string }) => {
+        proposed.push(input);
+        return true;
+      },
+    };
+    await runRemDreaming(repo, { proposalEngine: stubEngine as never, minClusterSize: 3 });
+
+    const add = proposed.find((p) => p.op === "add");
+    expect(add).toBeDefined();
+    // 与 refiner 提案对齐:confidence 即相似度,reason 带实测值
+    expect(add!.reason).toContain("token 相似度");
+    // 期望值:直接用同一 tokenizer 计算 rep↔member 相似度
+    const { tokenizeForDedup, jaccardSimilarity } = await import("../src/dedup/similar.js");
+    const ea = repo.readEngram(a.id);
+    const eb = repo.readEngram(b.id);
+    const sim = jaccardSimilarity(
+      tokenizeForDedup(`${ea.title} ${ea.summary} ${ea.content}`),
+      tokenizeForDedup(`${eb.title} ${eb.summary} ${eb.content}`),
+    );
+    const pair = proposed.find(
+      (p) => p.op === "add" &&
+        ((p.from === a.id && p.to === b.id) || (p.from === b.id && p.to === a.id)),
+    );
+    if (pair) {
+      expect(pair.confidence).toBeCloseTo(sim, 5);
+    } else {
+      // a-b 可能因 representative 选择只出现 a-c / b-c;验证任一 add 的
+      // confidence 均为 [0,1] 的实测 Jaccard(而非抽象 confidence 如 0.6/1.0 整列相同)
+      const confs = proposed.filter((p) => p.op === "add").map((p) => p.confidence);
+      expect(confs.length).toBeGreaterThan(0);
+      expect(confs.every((c) => c > 0 && c <= 1)).toBe(true);
+      expect(new Set(confs.map((c) => c.toFixed(4))).size).toBeGreaterThan(1);
+    }
+    void add;
+  });
+
   it("已存在 member→rep 的 directional similar_to 时,不重复提议 rep→member", async () => {
     const a = makeEngram("Test A", "fact");
     const b = makeEngram("Test B", "fact");

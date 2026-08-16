@@ -20,8 +20,34 @@ import type { EngramRepository } from "../storage/repository.js";
 import type { SynapseKind } from "../types/synapse.js";
 import { tokenizeForDedup, jaccardSimilarity } from "../dedup/similar.js";
 
-/** 候选对 Jaccard 预筛阈值(范围内,低于此值的 A×A 对不给 agent) */
-export const SYNAPSE_REFINE_JACCARD_THRESHOLD = 0.15;
+/**
+ * 候选对 Jaccard 预筛阈值(范围内,低于此值的 A×A 对不给 agent)。
+ *
+ * 0.25(2026-08-18 从 0.15 上调):0.15 为未校准初值,实测(162 engram 生产仓库
+ * dry-run)单轮 propose 85 条、confidence 中位数 0.20,审批队列倾泻(2026-08-17
+ * 一轮 REM 产生 95 条 pending)。实测阈值-提案量分布:0.15→85 / 0.20→40 /
+ * 0.25→24 / 0.30→7。取 0.25:成对候选比成簇(聚类阈值 0.3)宽松一档合理,
+ * 配合 hub 抑制与每轮总量上限后实际 ~19 条,人工可审;0.30 召回损失过大。
+ */
+export const SYNAPSE_REFINE_JACCARD_THRESHOLD = 0.25;
+
+/**
+ * 单节点(engram 端点)单轮无 edge 候选 propose 上限(hub 抑制)。
+ *
+ * 归档/元层 engram(loop round 归档、方法论元条目)content 引用大量其他记忆
+ * 标题,token 重叠天然高,实测 top hub 单轮被 propose 13-14 条(占总量 ~40%)。
+ * 候选按相似度降序接纳,任一端点达上限即跳过该对——hub 保留其最相似的 5 条,
+ * 余量让给长尾对。0 即禁用。
+ */
+export const SYNAPSE_REFINE_MAX_PER_NODE = 5;
+
+/**
+ * 单轮 REM propose 总量上限(保险丝)。
+ *
+ * 正常轮次达不到(实测 0.25 阈值 + hub≤5 后 ~19 条);防活跃集异常大
+ * (批量导入后冷启动/高频检索周)时倾泻。0 即禁用。
+ */
+export const SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN = 30;
 
 /** proposalEngine 接口(复用 proposeSynapseOp,结构类型避免循环 import) */
 interface ProposalEngineLike {
@@ -191,9 +217,30 @@ export async function refineSynapsesOnActiveGraph(
   // accept 落盘 similar_to;想改 kind→dismiss+synapse_create;不建→dismiss。
   // 有 edge 的候选(现有突触)不 propose——agent 用 synapse 工具评估 retype/delete。
   // proposeSynapseOp 幂等(entityId=hash(from+to+op+kind)),与 rem.ts 聚类 add 同对同 kind 去重。
+  //
+  // 三层节流(2026-08-18,修复 95 条提案倾泻;实测 85 → 19 条,-78%):
+  //   1. Jaccard ≥ 0.25(上方常量,校准依据见注释)
+  //   2. 单节点 ≤ 5:相似度降序接纳,任一端点达上限跳过——抑制归档 hub
+  //   3. 每轮总量 ≤ 30:保险丝
+  const noEdgeCandidates = candidatePairs
+    .filter((p) => !p.hasEdge)
+    .sort((x, y) => y.similarity - x.similarity);
+  const nodeProposeCount = new Map<string, number>();
   let proposed = 0;
-  for (const p of candidatePairs) {
-    if (p.hasEdge) continue;
+  for (const p of noEdgeCandidates) {
+    if (
+      SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN > 0 &&
+      proposed >= SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN
+    ) {
+      break;
+    }
+    if (
+      SYNAPSE_REFINE_MAX_PER_NODE > 0 &&
+      ((nodeProposeCount.get(p.a) ?? 0) >= SYNAPSE_REFINE_MAX_PER_NODE ||
+        (nodeProposeCount.get(p.b) ?? 0) >= SYNAPSE_REFINE_MAX_PER_NODE)
+    ) {
+      continue;
+    }
     try {
       proposalEngine?.proposeSynapseOp?.({
         op: "add",
@@ -206,8 +253,10 @@ export async function refineSynapsesOnActiveGraph(
         toTitle: p.bTitle,
       });
       proposed += 1;
+      nodeProposeCount.set(p.a, (nodeProposeCount.get(p.a) ?? 0) + 1);
+      nodeProposeCount.set(p.b, (nodeProposeCount.get(p.b) ?? 0) + 1);
     } catch {
-      // 单条 propose 失败不阻塞
+      // 单条 propose 失败不阻塞(不计入节点配额,后续对仍可尝试)
     }
   }
 

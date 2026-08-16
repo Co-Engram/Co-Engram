@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **REM 突触提案三层节流(`@co-engram/core` synapse-refiner)**:2026-08-17 一轮 REM 产生 95 条 pending 提案(confidence 中位数 0.20),审批队列被原始候选淹没。根因:REM 二期落地时省略了设计中的 LLM 语义判断层,Jaccard≥0.15 的原始候选全部以 `similar_to` 占位直接进审批队列;且 0.15 阈值未经校准、归档/元层 engram 天然高词重叠形成 hub(实测 top hub 单轮 13-14 条)。现按实测校准(162 engram 仓库:0.15→85 / 0.25→24 / 0.30→7)三层节流:①阈值 0.15→0.25;②单节点候选上限 5(hub 抑制,相似度降序保留 top);③每轮总量上限 30(保险丝)。实测单轮 propose 85→19 条(-78%),高置信对语义合理性显著提升。
+- **REM 聚类 add 提案 confidence 语义错位修复(`@co-engram/core` rem.ts)**:聚类驱动的 add similar_to 提案此前复用 pattern 抽象的置信度(衡量"抽象质量",曾产出 0.95)而非两记忆实际相似度(簇内门槛仅 0.3),误导审批者。现改为 rep↔member 实测 token Jaccard,reason 同步带实测值。
+- **`engram_dismiss_proposals_by_filter` source 枚举补齐 REM 来源**:此前 schema 只枚举 conversation/auto-memory/external-markdown/skill 四值(实现层 `ProposalSource` 实有九值),rem-synapse 等 REM 提案积压无法按 source 批量清理。现与 TS 类型对齐,支持 `{source:'rem-synapse', dismissDays:30}` 清理 REM 提案积压;accept batch 的独立窄 enum 不受影响。
+
 ### Added
 
 - **新宿主:DeepSeek Harness(`@co-engram/dsh` v0.1.0)**: 原生 Cordis 插件——38 个记忆工具以裸名（`engram_*`）注册到 dsh `ctx.tools`（经官方 `defineTool` 工厂,含参数 schema 校验）;注入 `memory:co-engram` system prompt 段（order 120）,topTags／技能清单／目录概览／待审候选数在每次 prompt 组装时重新求值,写入记忆下一条消息即生效;`dsh.bundle` patch 声明使 `dsh plugin add` 安装即激活,零手动配置;ProcessLock 与 claude-code-mcp／openclaw-plugin 共享 dataRoot 协调后台任务与 viewer。与 MCP 桥接路径的差别:dsh 不透传 MCP server instructions（原生段补齐）、MCP 入口会向用户机器 auto-install Claude Code hooks（原生路径无此副作用）。有意不包含（v0.1）:necessityLlm／LLM 客户端、启动期 git pull 与语言迁移。新增包 `packages/dsh-plugin`（18 测试用例,含真实 Cordis 宿主 e2e 往返与真实 dsh boot 冒烟）;文档 `docs/host-dsh{,.zh-CN}.md`＋根 README 中英文同步。
