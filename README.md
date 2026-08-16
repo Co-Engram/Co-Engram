@@ -15,7 +15,7 @@
 
 Co-Engram is a self-evolving memory system for AI agents and teams. Unlike traditional vector stores that only retrieve, Co-Engram models memory after the brain: engrams strengthen with use, weaken when they fail, consolidate during sleep, and verify themselves through metacognition.
 
-Works with **Claude Code** (via MCP) and **OpenClaw** (via plugin SDK), with a host-agnostic TypeScript core you can embed anywhere.
+Works with **Claude Code** (via MCP), **OpenClaw** (via plugin SDK), and **DeepSeek Harness** (via native Cordis plugin), with a host-agnostic TypeScript core you can embed anywhere.
 
 ## Why Co-Engram
 
@@ -25,7 +25,7 @@ Works with **Claude Code** (via MCP) and **OpenClaw** (via plugin SDK), with a h
 | **Per-edge synapses**               | Connections between memories live as independent files keyed by a deterministic hash of `(from, to, kind)`. No duplicate edges, trivial dedupe, and pruning a stale edge is a single file delete.                                                         |
 | **Self-maintaining**                | A maintenance engine runs `light` (RPE-based reinforcement), `deep` (consolidation + decay), and `rem` (metacognition upgrade/refute) stages automatically — no manual tagging required.                                                                  |
 | **Two-layer proposal filter**       | Implicit memory proposals pass through a rule-based prefilter (Layer 1, zero-cost) plus a necessity evaluator (Layer 2 — rule-based by default, optional LLM) — mechanical repetition gets rejected, only genuinely reusable decisions become candidates. |
-| **Host-agnostic core**              | `@co-engram/core` has zero host dependencies. Same memory, same tools, whether you use Claude Code, OpenClaw, or your own agent.                                                                                                                          |
+| **Host-agnostic core**              | `@co-engram/core` has zero host dependencies. Same memory, same tools, whether you use Claude Code, OpenClaw, DeepSeek Harness, or your own agent.                                                                                                                          |
 
 ## Quickstart
 
@@ -68,6 +68,17 @@ openclaw gateway restart
 
 For detailed configuration, see [docs/host-openclaw.md](./docs/host-openclaw.md).
 
+### DeepSeek Harness
+
+```bash
+# 1. Install the native Cordis plugin into a dsh profile
+dsh plugin --profile <name> add @co-engram/dsh
+```
+
+That's all — the package ships a `dsh.bundle` patch, so the plugin activates as a profile layer with zero manual config. All 38 tools register under bare names (`engram_search`, …) and a `memory:co-engram` prompt section injects live signals (top tags / skills / path overview) at every prompt assembly. Shares the same data repo as the Claude Code and OpenClaw hosts via a process lock.
+
+For detailed configuration, see [docs/host-dsh.md](./docs/host-dsh.md).
+
 ## Using Co-Engram
 
 Co-Engram works **through conversation** — you talk to your AI agent, and it decides when to capture, search, or update memories. Every interaction below happens in natural language; the tool calls shown are what the agent executes transparently under the hood.
@@ -78,7 +89,7 @@ For new projects you don't need to leave the chat. Ask the agent:
 
 > "Globally install co-engram from npm and set up the memory store under my home directory."
 
-Agent responds by running: `npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`. For OpenClaw: `openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`. Everything is done in one conversation — no manual steps. See [Quickstart](#quickstart) for the explicit commands.
+Agent responds by running: `npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`. For OpenClaw: `openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`. For DeepSeek Harness: `dsh plugin --profile <name> add @co-engram/dsh`. Everything is done in one conversation — no manual steps. See [Quickstart](#quickstart) for the explicit commands.
 
 ### Dedup prevents knowledge noise
 

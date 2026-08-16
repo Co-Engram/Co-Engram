@@ -15,7 +15,7 @@
 
 Co-Engram 是一个面向 AI agent 和团队的**自进化记忆系统**。与传统只做检索的向量库不同,Co-Engram 仿照大脑建模记忆:engram 在使用中被强化、在失效时被削弱、在"睡眠"中自动巩固、并通过元认知自我验证。
 
-已接入 **Claude Code**(通过 MCP)和 **OpenClaw**(通过插件 SDK),并提供 host-agnostic 的 TypeScript 核心,可嵌入任何环境。
+已接入 **Claude Code**(通过 MCP)、**OpenClaw**(通过插件 SDK)与 **DeepSeek Harness**(原生 Cordis 插件),并提供 host-agnostic 的 TypeScript 核心,可嵌入任何环境。
 
 ## 为什么用 Co-Engram
 
@@ -25,7 +25,7 @@ Co-Engram 是一个面向 AI agent 和团队的**自进化记忆系统**。与�
 | **Per-edge synapse**     | 记忆之间的连接是独立文件,以 `(from, to, kind)` 的确定性哈希为键。无重复边、去重 trivial、清理陈旧连接只需删一个文件。                            |
 | **自维护**               | 维护引擎自动运行 `light`(RPE 强化)、`deep`(巩固)、`rem`(元认知升级/反驳)三阶段,无需人工标注。                                                    |
 | **双层提案过滤**         | 隐式记忆提案经过规则预过滤(Layer 1,零成本)+ 必要性评估(Layer 2 — 默认规则版,可选 LLM)—— 机械重复被拒,只有真正可复用的决策才成为候选。            |
-| **核心 host-agnostic**   | `@co-engram/core` 零宿主依赖。无论用 Claude Code、OpenClaw 还是自己的 agent,记忆和工具完全一致。                                                 |
+| **核心 host-agnostic**   | `@co-engram/core` 零宿主依赖。无论用 Claude Code、OpenClaw、DeepSeek Harness 还是自己的 agent,记忆和工具完全一致。                                                 |
 
 ## 快速开始
 
@@ -68,6 +68,17 @@ openclaw gateway restart
 
 详细配置参见 [docs/host-openclaw.md](./docs/host-openclaw.md)。
 
+### DeepSeek Harness
+
+```bash
+# 1. 把原生 Cordis 插件装进 dsh profile
+dsh plugin --profile <name> add @co-engram/dsh
+```
+
+仅此一步——包内自带 `dsh.bundle` patch,插件自动激活为 profile 层,零手动配置。38 个工具以裸名注册（`engram_search`……）,并注入 `memory:co-engram` prompt 段,每次组装实时注入 signals（topTags／技能／目录概览）。通过进程锁与 Claude Code／OpenClaw 宿主共享同一数据仓。
+
+详细配置参见 [docs/host-dsh.zh-CN.md](./docs/host-dsh.zh-CN.md)。
+
 ## 使用 Co-Engram
 
 Co-Engram**通过对话工作**——你和 AI agent 自然交流,agent 自行判断何时捕获、搜索或更新记忆。以下所有交互都是自然语言;标注的工具调用是 agent 在底层透明执行的。
@@ -78,7 +89,7 @@ Co-Engram**通过对话工作**——你和 AI agent 自然交流,agent 自行�
 
 > "帮我在 home 目录下全局安装 co-engram，数据仓库放 ~/team-memory。"
 
-agent 依次执行:`npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`。OpenClaw 用户:`openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`。全部在一次对话中完成,无需手动操作。显式命令见[快速开始](#快速开始)。
+agent 依次执行:`npm install -g @co-engram/claude-code` → `mkdir -p ~/team-memory && cd ~/team-memory && git init` → `co-engram config data-root $HOME/team-memory` → `claude mcp add co-engram --scope user -- co-engram-mcp`。OpenClaw 用户:`openclaw plugins install @co-engram/openclaw --dangerously-force-unsafe-install` → `openclaw config set plugins.slots.memory co-engram` → `openclaw gateway restart`。DeepSeek Harness 用户:`dsh plugin --profile <name> add @co-engram/dsh`。全部在一次对话中完成,无需手动操作。显式命令见[快速开始](#快速开始)。
 
 ### dedup 防止知识噪音
 

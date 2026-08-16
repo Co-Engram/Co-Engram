@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **新宿主:DeepSeek Harness(`@co-engram/dsh` v0.1.0)**: 原生 Cordis 插件——38 个记忆工具以裸名（`engram_*`）注册到 dsh `ctx.tools`（经官方 `defineTool` 工厂,含参数 schema 校验）;注入 `memory:co-engram` system prompt 段（order 120）,topTags／技能清单／目录概览／待审候选数在每次 prompt 组装时重新求值,写入记忆下一条消息即生效;`dsh.bundle` patch 声明使 `dsh plugin add` 安装即激活,零手动配置;ProcessLock 与 claude-code-mcp／openclaw-plugin 共享 dataRoot 协调后台任务与 viewer。与 MCP 桥接路径的差别:dsh 不透传 MCP server instructions（原生段补齐）、MCP 入口会向用户机器 auto-install Claude Code hooks（原生路径无此副作用）。有意不包含（v0.1）:necessityLlm／LLM 客户端、启动期 git pull 与语言迁移。新增包 `packages/dsh-plugin`（18 测试用例,含真实 Cordis 宿主 e2e 往返与真实 dsh boot 冒烟）;文档 `docs/host-dsh{,.zh-CN}.md`＋根 README 中英文同步。
+
 ## [0.4.1] - 2026-08-16
 
 ### Added
