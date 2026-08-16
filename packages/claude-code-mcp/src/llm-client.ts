@@ -27,8 +27,13 @@ export interface AnthropicLlmConfig {
   readonly apiKey: string;
   /** 模型名(默认 'claude-haiku-4-5-20251001',便宜快) */
   readonly model: string;
-  /** 可选自定义 endpoint(默认 https://api.anthropic.com) */
+  /** 可选自定义 endpoint(默认读宿主 ANTHROPIC_BASE_URL,再退 api.anthropic.com) */
   readonly endpoint?: string;
+  /**
+   * 可选 Bearer token(网关型宿主用 ANTHROPIC_AUTH_TOKEN 而非 x-api-key;
+   * 2026-08-16 宿主复用支持:与 Claude Code 自身鉴权方式对齐)
+   */
+  readonly authToken?: string;
   /** 可选额外 headers */
   readonly headers?: Record<string, string>;
 }
@@ -50,13 +55,37 @@ const ANTHROPIC_VERSION = "2023-06-01";
 export function loadClaudeCodeFallbackLlmConfig(
   explicit?: Partial<AnthropicLlmConfig>,
 ): AnthropicLlmConfig | undefined {
+  // 宿主复用(2026-08-16):MCP server 是 Claude Code 子进程,自带全套
+  // ANTHROPIC_* env —— 未显式配置时自动跟随宿主模型/端点/鉴权,而非
+  // 硬编码默认模型。通用性:宿主切模型,记忆维护(标签刷新/洞察/夜思
+  // critic 等)零配置跟随。
   const apiKey = explicit?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey.trim().length === 0) return undefined;
+  const authToken =
+    explicit?.authToken ?? process.env.ANTHROPIC_AUTH_TOKEN;
+  if (
+    (!apiKey || apiKey.trim().length === 0) &&
+    (!authToken || authToken.trim().length === 0)
+  ) {
+    return undefined;
+  }
+
+  const envModel =
+    process.env.ANTHROPIC_MODEL ??
+    process.env.ANTHROPIC_DEFAULT_HAIKU_MODEL ??
+    DEFAULT_ANTHROPIC_MODEL;
+  const envEndpoint = process.env.ANTHROPIC_BASE_URL;
 
   return {
-    apiKey: apiKey.trim(),
-    model: explicit?.model ?? DEFAULT_ANTHROPIC_MODEL,
-    ...(explicit?.endpoint ? { endpoint: explicit.endpoint } : {}),
+    apiKey: (apiKey ?? "").trim(),
+    ...(authToken && authToken.trim().length > 0
+      ? { authToken: authToken.trim() }
+      : {}),
+    model: explicit?.model ?? envModel,
+    ...(explicit?.endpoint
+      ? { endpoint: explicit.endpoint }
+      : envEndpoint && envEndpoint.trim().length > 0
+        ? { endpoint: envEndpoint.trim() }
+        : {}),
     ...(explicit?.headers ? { headers: explicit.headers } : {}),
   };
 }
@@ -77,7 +106,10 @@ export function createAnthropicLlmClient(cfg: AnthropicLlmConfig): LlmClient {
     async complete(prompt, opts = {}): Promise<string> {
       const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-api-key": cfg.apiKey,
+        ...(cfg.apiKey ? { "x-api-key": cfg.apiKey } : {}),
+        ...(cfg.authToken
+          ? { authorization: `Bearer ${cfg.authToken}` }
+          : {}),
         "anthropic-version": ANTHROPIC_VERSION,
         ...(cfg.headers ?? {}),
       };
