@@ -140,6 +140,7 @@ async function main() {
         const drafts = parseDrafts(raw, mode).map((d) => ({ ...d, sourceIds: d.sourceIds.map((x) => aliasMap.get(x) ?? x) }));
         for (const d of drafts) {
           const v = validateInsightDraft(d, sub, repo, engine.listAll());
+          const mechanical = v.ok ? null : (v as { reason: string }).reason;
           let criticScore: number | null = null;
           if (v.ok && criticCalls < 40) {
             criticCalls += 1;
@@ -149,7 +150,7 @@ async function main() {
             });
             criticScore = sc ? sc.overall : null;
           }
-          sheet.push({ draft: d, critic: criticScore, mechanical: v.ok ? null : v.reason, window: r.label });
+          sheet.push({ draft: d, critic: criticScore, mechanical, window: r.label });
         }
         console.log(`[blind-eval][drafts] ${r.label}/${mode}: ${drafts.length} drafts (cum ${sheet.length})`);
       } catch (e) {
@@ -159,57 +160,100 @@ async function main() {
   }
   console.log(`[blind-eval] sheet items: ${sheet.length}`);
 
-  // 打乱顺序(盲评:不暴露模式/批次;critic=null = 解析失败/未评)
-  const shuffled = [...sheet];
-  for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [shuffled[i], shuffled[j]] = [shuffled[j]!, shuffled[i]!];
+  // 结构化(2026-08-16 用户定稿):按 REM 思维模式分章 —— 按模式聚合正是
+  // 校准目标(哪模式产真洞察/复述);章内乱序防相邻同批干扰。窗口/批次
+  // 仍不标(避免跨批次锚定)。原始数据落 sidecar json,重组清单不再重跑 LLM。
+  const MODE_TITLES: Record<string, { name: string; what: string; criteria: string }> = {
+    integration: { name: "整合模式", what: "跨记忆的共性结构与主题", criteria: "是否 ≥2 来源的共享**结构**(非共同词汇);你事先没意识到" },
+    retrospective: { name: "复盘模式", what: "失败/反驳记忆的 AAR 因果链", criteria: "预期→实际→原因→改进 四环是否完整且**可行动**" },
+    inspiration: { name: "灵感模式", what: "跨域远距结构映射", criteria: "映射站得住(关系结构对应)还是牵强类比" },
+  };
+  const byMode = new Map<string, SheetItem[]>();
+  for (const it of sheet) {
+    const list = byMode.get(it.draft.mode) ?? [];
+    list.push(it);
+    byMode.set(it.draft.mode, list);
+  }
+  for (const list of Array.from(byMode.values())) {
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [list[i], list[j]] = [list[j]!, list[i]!];
+    }
   }
 
   const lines: string[] = [];
-  lines.push("# 夜思/深度思考 洞察盲评清单(2026-08-15)");
+  let seq = 0;
+  lines.push("# 夜思/深度思考 洞察盲评清单(2026-08-16 结构化版)");
   lines.push("");
-  lines.push(`- 来源:真实记忆库克隆(${repo.listEngramIndex().length} engrams),3 个时间窗口 × 3 模式,草稿级采集(critic 分逐条附注;机械校验结果一并标注)`);
-  lines.push(`- 洞察数:${sheet.length}(已打乱顺序,不标注模式/批次)`);
-  lines.push("- 评分口径(每条三选一):");
-  lines.push("  - **真洞察**:跨记忆的共性结构 / 可行动因果链 / 有依据的远域映射 —— 你事先没意识到");
-  lines.push("  - **复述**:单条记忆的内容换个说法,没有新信息");
-  lines.push("  - **牵强**:形式像洞察但映射/因果站不住");
-  lines.push("- 附加(可选):critic 分是否与你的判断同向(null = critic 调用失败/未评,本身是校准数据)");
+  lines.push(`- 来源:真实记忆库克隆(${repo.listEngramIndex().length} engrams),3 时间窗口 × 3 模式,草稿级采集;按模式分章,章内乱序`);
+  lines.push(`- 总数:${sheet.length}(带 critic 分 ${sheet.filter((x) => x.critic !== null).length} / 机械拒 ${sheet.filter((x) => x.mechanical).length})`);
+  lines.push("- 每条三选一:**真洞察** / **复述**(单条记忆换说法) / **牵强**(形式像洞察但站不住);critic=null=独立评审解析失败(本身是校准数据)");
   lines.push("");
-  shuffled.forEach((it, i) => {
-    const d = it.draft;
-    const sources = d.sourceIds.map((id) => {
-      try {
-        const e = repo.readEngram(id);
-        return `${e.title}(摘要:${(e.summary ?? "").slice(0, 50)}…)`;
-      } catch {
-        return `${id}(不在库)`;
-      }
-    });
-    lines.push(`## #${i + 1}  [critic ${it.critic === null ? "null" : it.critic.toFixed(2)}]${it.mechanical ? ` [机械拒:${it.mechanical.slice(0, 40)}]` : ""}`);
+  for (const mode of ["integration", "retrospective", "inspiration"] as const) {
+    const list = byMode.get(mode) ?? [];
+    if (!list.length) continue;
+    const meta = MODE_TITLES[mode]!;
+    lines.push(`---`);
+    lines.push(`## ${meta.name}(${list.length} 条)`);
     lines.push("");
-    lines.push(`**${d.title}**`);
+    lines.push(`> **该模式想什么**:${meta.what}`);
+    lines.push(`> **评分要点**:${meta.criteria}`);
     lines.push("");
-    lines.push((d.content ?? "").slice(0, 600));
-    lines.push("");
-    lines.push(`> 来源:${sources.join(" / ")}`);
-    lines.push("");
-    lines.push("- [ ] 真洞察  - [ ] 复述  - [ ] 牵强  评语:________");
-    lines.push("");
-  });
-  lines.push("## 汇总");
+    for (const it of list) {
+      seq += 1;
+      const d = it.draft;
+      const sources = d.sourceIds.map((id) => {
+        try {
+          const e = repo.readEngram(id);
+          return `${e.title}(摘要:${(e.summary ?? "").slice(0, 50)}…)`;
+        } catch {
+          return `${id}(不在库)`;
+        }
+      });
+      lines.push(`### #${seq}  [critic ${it.critic === null ? "null" : it.critic.toFixed(2)}]${it.mechanical ? ` [机械拒:${it.mechanical.slice(0, 40)}]` : ""} [${d.type}]`);
+      lines.push("");
+      lines.push(`**${d.title}**`);
+      lines.push("");
+      lines.push((d.content ?? "").slice(0, 600));
+      lines.push("");
+      lines.push(`> 来源:${sources.join(" / ")}`);
+      lines.push("");
+      lines.push("- [ ] 真洞察  - [ ] 复述  - [ ] 牵强  评语:________");
+      lines.push("");
+    }
+  }
+  lines.push(`---`);
+  lines.push(`## 机械拒条目复核(${sheet.filter((x) => x.mechanical).length} 条)`);
   lines.push("");
-  lines.push(`- 真洞察:___ / ${shuffled.length}`);
-  lines.push(`- 复述:___ / ${shuffled.length}`);
-  lines.push(`- 牵强:___ / ${shuffled.length}`);
-  lines.push(`- critic 一致性(高分=真洞察、低分=复述/牵强;null 率:___):________`);
-  lines.push(`- 机械拒绝被人工推翻数(误拒):___ / ${sheet.filter((x) => x.mechanical).length}`);
-  lines.push("- 校准建议(critic 阈值 / prompt / 机械规则调整):________");
+  lines.push("> 这些被机械校验拦下未进 critic。请判断拦截是否正确(误拒=应放行):");
   lines.push("");
-  const out = join(homedir(), "superpowers", "night-thinking-blind-eval-2026-08-15.md");
+  for (const it of sheet.filter((x) => x.mechanical)) {
+    seq += 1;
+    lines.push(`### #${seq} [拒因:${it.mechanical}]`);
+    lines.push("");
+    lines.push(`**${it.draft.title}**`);
+    lines.push("");
+    lines.push((it.draft.content ?? "").slice(0, 400));
+    lines.push("");
+    lines.push("- [ ] 拒得对  - [ ] 误拒应放行  评语:________");
+    lines.push("");
+  }
+  lines.push(`---`);
+  lines.push("## 汇总(评完填写)");
+  lines.push("");
+  for (const mode of ["integration", "retrospective", "inspiration"] as const) {
+    const n = (byMode.get(mode) ?? []).length;
+    lines.push(`- ${MODE_TITLES[mode]!.name}:真洞察 ___/${n} · 复述 ___/${n} · 牵强 ___/${n} · critic 同向率 ___`);
+  }
+  lines.push(`- 机械拒误判率:___/${sheet.filter((x) => x.mechanical).length}`);
+  lines.push("- 校准建议(critic 阈值 / prompt / 机械规则):________");
+  lines.push("");
+  const out = join(homedir(), "superpowers", "night-thinking-blind-eval-2026-08-16.md");
   writeFileSync(out, lines.join("\n"), "utf8");
-  console.log(`[blind-eval] sheet written: ${out} (${sheet.length} items)`);
+  const sidecar = join(homedir(), "superpowers", "night-thinking-blind-eval-2026-08-16.data.json");
+  writeFileSync(sidecar, JSON.stringify(sheet.map((it) => ({ mode: it.draft.mode, type: it.draft.type, title: it.draft.title, content: (it.draft.content ?? "").slice(0, 800), sourceIds: it.draft.sourceIds, critic: it.critic, mechanical: it.mechanical, window: it.window })), null, 2), "utf8");
+  console.log(`[blind-eval] structured sheet written: ${out} (${seq} items)`);
+  console.log(`[blind-eval] sidecar data: ${sidecar}`);
 
   // 消融数据留档(写入同目录)
   try {
