@@ -570,73 +570,57 @@ async function renderGraphInner(container) {
     }
     if (nodeId) {
       focusNode(nodeId);
-      // vis bug:内部选中逻辑会重置节点颜色为默认值(dataset 不变但 options 变)
-      // → 强制恢复 vis 内部节点的颜色
-      const raw = graph.nodes.find(n => n.id === nodeId);
-      if (raw) {
-        const c = nodeColorFor(raw);
-        const vn = network.body.nodes[nodeId];
-        if (vn && vn.options && vn.options.color) {
-          vn.options.color.background = c;
-          vn.options.color.border = stageBg();
-          if (typeof vn.options.color.highlight === 'object') {
-            vn.options.color.highlight.background = c;
-            vn.options.color.highlight.border = stageBg();
-          }
-          if (typeof vn.options.color.hover === 'object') {
-            vn.options.color.hover.background = c;
-            vn.options.color.hover.border = stageBg();
-          }
-        }
-      }
+      // vis bug:内部选中/悬停逻辑会重置节点颜色(不只被点节点,邻近节点也会)
+      // → 延迟恢复全图颜色,盖过 vis 内部异步处理
+      restoreAllNodeColors();
       return;
     }
-    // 点空白:关闭检查器 + 恢复可能被 vis 重置的节点颜色
+    // 点空白:关闭检查器 + 恢复全图颜色
     resetHighlight();
+    restoreAllNodeColors();
+  });
+
+  // 2026-08 用户定稿设计:点击节点 → 其他节点淡化(0.13),被点节点保持全亮
+  // → 自然突出。但 vis 内部 update({opacity}) 会重置节点颜色为默认浅蓝
+  // → 每次更新后必须立即恢复正确颜色(restoreAllNodeColors)。
+  function restoreAllNodeColors() {
+    // 同步恢复(盖过 nodesDataset.update 触发的 vis 内部颜色重置)
     for (const nid of Object.keys(network.body.nodes)) {
       const vn = network.body.nodes[nid];
       const rawN = graph.nodes.find(n => n.id === nid);
-      if (vn && vn.options && vn.options.color && rawN) {
-        const c = nodeColorFor(rawN);
-        if (vn.options.color.background !== c) {
-          vn.options.color.background = c;
-          vn.options.color.border = stageBg();
-          if (typeof vn.options.color.highlight === 'object') {
-            vn.options.color.highlight.background = c;
-            vn.options.color.highlight.border = stageBg();
-          }
-          if (typeof vn.options.color.hover === 'object') {
-            vn.options.color.hover.background = c;
-            vn.options.color.hover.border = stageBg();
-          }
-        }
+      if (!vn || !vn.options || !vn.options.color || !rawN) continue;
+      const c = nodeColorFor(rawN);
+      vn.options.color.background = c;
+      vn.options.color.border = stageBg();
+      if (typeof vn.options.color.highlight === 'object') {
+        vn.options.color.highlight.background = c;
+        vn.options.color.highlight.border = stageBg();
+      } else {
+        vn.options.color.highlight = c;
+      }
+      if (typeof vn.options.color.hover === 'object') {
+        vn.options.color.hover.background = c;
+        vn.options.color.hover.border = stageBg();
+      } else {
+        vn.options.color.hover = c;
       }
     }
-    network.redraw();
-  });
+  }
 
   function resetHighlight() {
-    // 2026-08 用户三轮反馈「点画布空白出现外圈」根因:无聚焦时也做全量
-    // nodesDataset.update({opacity:1.0}) → vis 重绘走显式 opacity 路径,
-    // 纸色描边变得可见(初始渲染不带 opacity 时 border 不可见)。
-    // 修法:仅在聚焦态才需要复位;无聚焦时直接 return(no-op),不触发重绘。
     const wasFocused = state.focusedId !== null;
     state.focusedId = null;
     const insp = document.getElementById('graph-insp');
     if (insp) insp.hidden = true;
-    if (!wasFocused) return; // 无聚焦:不做任何节点/边更新
-    const allNodes = nodesDataset.get();
-    const allEdges = edgesDataset.get();
-    nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
-    edgesDataset.update(allEdges.map(e => ({
-      id: e.id,
-      opacity: baseEdgeOpacity(e),
-      width: baseEdgeWidth(e)
+    if (!wasFocused) return;
+    nodesDataset.update(nodesDataset.get().map(n => ({ id: n.id, opacity: 1.0 })));
+    edgesDataset.update(edgesDataset.get().map(e => ({
+      id: e.id, opacity: baseEdgeOpacity(e), width: baseEdgeWidth(e)
     })));
-    queueRefreshOverlay();
+    restoreAllNodeColors();
+    network.redraw();
   }
 
-  // 聚焦邻域(DEMO:非邻居淡出 0.13 + 邻接边提亮加粗近似 .flow 流动):点击节点触发,Esc/点空白复位
   function focusNode(id) {
     state.focusedId = id;
     const connectedNodeIds = new Set([id]);
@@ -645,22 +629,18 @@ async function renderGraphInner(container) {
       if (e.from === id) { connectedNodeIds.add(e.to); connectedEdgeIds.add(e.id); }
       if (e.to === id) { connectedNodeIds.add(e.from); connectedEdgeIds.add(e.id); }
     }
-    const allNodes = nodesDataset.get();
-    const allEdges = edgesDataset.get();
-    nodesDataset.update(allNodes.map(n => ({
+    // 淡化非邻居(0.13)+ 邻居保持全亮 → 被点节点自然突出
+    nodesDataset.update(nodesDataset.get().map(n => ({
       id: n.id,
       opacity: connectedNodeIds.has(n.id) ? 1.0 : 0.13
     })));
-    edgesDataset.update(allEdges.map(e => {
+    edgesDataset.update(edgesDataset.get().map(e => {
       const hit = connectedEdgeIds.has(e.id);
-      return {
-        id: e.id,
-        opacity: hit ? 1.0 : 0.05,
-        // 邻接边提亮 + 加粗(vis 无 dash 流动动画,用强调近似 DEMO .flow)
-        width: hit ? baseEdgeWidth(e) + 1.2 : baseEdgeWidth(e)
-      };
+      return { id: e.id, opacity: hit ? 1.0 : 0.05, width: hit ? baseEdgeWidth(e) + 1.2 : baseEdgeWidth(e) };
     }));
-    queueRefreshOverlay();
+    // vis update 会重置颜色 → 立即恢复
+    restoreAllNodeColors();
+    network.redraw();
     renderInspector(id);
   }
 
