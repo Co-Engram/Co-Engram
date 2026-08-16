@@ -145,7 +145,8 @@ body {
 /* 品牌徽标(2026-08 用户反馈):当前为浅色纸面主题,只显示 light 变体;
    dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。尺寸放大一倍(40→80)。 */
 /* viewBox 裁剪到图形紧界(66 148 268 104):高度随宽度自适应,消除 400×400 画布的垂直空白 */
-.brand-logo { width: 120px; height: auto; aspect-ratio: 268 / 104; flex-shrink: 0; display: flex; }
+/* 2026-08-16 用户反馈:logo 缩到 70%(120 → 84px) */
+.brand-logo { width: 84px; height: auto; aspect-ratio: 268 / 104; flex-shrink: 0; display: flex; }
 .brand-logo svg { width: 100%; height: 100%; }
 .brand-logo-dark { display: none; }
 
