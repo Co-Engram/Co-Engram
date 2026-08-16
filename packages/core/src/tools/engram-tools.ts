@@ -97,6 +97,32 @@ export interface EngramCreateResult {
    * 在 viewer 中受限或被 sanitize 后展示。
    */
   readonly warnings?: readonly string[];
+  /**
+   * 可选:因果/替代语义建链提示(2026-08-16 突触类型失衡修复)。
+   *
+   * 因果/时间族突触(causes/depends_on/supersedes)通常隐含在单条记忆的
+   * 内容里,很少在捕获时被表达为「两条记忆之间的关系」—— 团队库因果/时间
+   * 族突触因此恒 0。verdict=NEW 且内容命中启发式时提示 agent 评估建链。
+   */
+  readonly hints?: readonly string[];
+}
+
+/**
+ * 因果/替代语义启发式(中英模式词,纯字符串匹配零成本)。
+ * 命中 → 返回建链 hint;未命中 → 空对象(不产生 hints 字段)。
+ * 刻意宽匹配 + 只提示不自动建:误报代价 = agent 多评估一次,漏报代价 =
+ * 关系继续隐含在正文里 —— 宽松是正确方向。
+ */
+const CAUSAL_PATTERN =
+  /因为|由于|导致|造成|取决于|依赖于|取代|替代|不再使用|改用|改用|弃用|instead of|replace[ds]?|supersede[ds]?|because of|lead to|leads to|caused by|causes|depends on|deprecat/i;
+
+function causalLinkageHints(content: string): { hints?: readonly string[] } {
+  if (!CAUSAL_PATTERN.test(content)) return {};
+  return {
+    hints: [
+      "本条内容含因果/依赖/替代语义:若与既有记忆存在 causes / depends_on / supersedes 关系,建议调用 synapse_create 建链(12 种 kind 见工具说明),让关系进入图检索而非只留在正文里",
+    ],
+  };
 }
 
 /**
@@ -250,6 +276,7 @@ export const engramCreateTool: Tool<EngramCreateToolInput, EngramCreateResult> =
         verdict: "NEW",
         candidatesConsidered: 0,
         ...(warnings.length > 0 ? { warnings } : {}),
+        ...causalLinkageHints(parsed.content),
       };
     },
   };
@@ -1066,8 +1093,9 @@ export const contradictionResolveTool: Tool<
         rationale: parsed.rationale,
         resolvedBy: parsed.resolvedBy,
       },
-      // P0-5 修复:透传 auditLog + host,让 merge_resolved audit 写入
-      { auditLog: ctx.auditLog, host: ctx.host },
+      // P0-5 修复:透传 auditLog + host,让 merge_resolved audit 写入;
+      // 2026-08-16 透传 proposalEngine:裁决确认的替代关系自动提议 supersedes
+      { auditLog: ctx.auditLog, host: ctx.host, ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}) },
     );
     return {
       fromId: parsed.fromId,

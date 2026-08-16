@@ -120,6 +120,36 @@ describe("engram_create", () => {
     expect(repo.exists(result.id)).toBe(true);
   });
 
+  it("内容含因果/替代语义 → 返回建链 hints(2026-08-16 因果族冷启动修复)", () => {
+    const result = engramCreateTool.execute(
+      {
+        title: "构建提速决策",
+        content: "因为远程缓存命中率过低,导致构建时间翻倍,现已改用本地缓存方案",
+        kind: "fact",
+        domainTags: ["ci"],
+        createdBy: "yang",
+      },
+      ctx,
+    );
+    expect(result.hints).toBeDefined();
+    expect(result.hints!.length).toBeGreaterThan(0);
+    expect(result.hints![0]).toContain("synapse_create");
+  });
+
+  it("无因果语义 → 不产生 hints 字段", () => {
+    const result = engramCreateTool.execute(
+      {
+        title: "普通事实",
+        content: "今天天气晴朗,适合户外活动。",
+        kind: "fact",
+        domainTags: ["life"],
+        createdBy: "yang",
+      },
+      ctx,
+    );
+    expect(result.hints).toBeUndefined();
+  });
+
   it("无效 kind 被拒绝", () => {
     expect(() =>
       engramCreateTool.execute(
