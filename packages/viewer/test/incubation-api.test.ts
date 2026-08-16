@@ -139,4 +139,48 @@ describe("夜思 API", () => {
     expect(r.status).toBe(503);
     expect(r.json.enabled).toBe(false);
   });
+
+  // ============================================================
+  // 暂停/删除端点(2026-08 单次执行改版:paused 不再排程,删除是生命周期终点)
+  // ============================================================
+  it("POST pause:200 + status=paused + nextRunAt=null;not found → 404", async () => {
+    const j = await start(makeCtx());
+    const created = await j("/api/incubations", "POST", { question: "暂停语义验证问题?" });
+    expect(created.status).toBe(201);
+    const id = (created.json.entry as { id: string }).id;
+    const paused = await j(`/api/incubations/${id}/pause`, "POST");
+    expect(paused.status).toBe(200);
+    const entry = paused.json.entry as { status: string; nextRunAt: string | null };
+    expect(entry.status).toBe("paused");
+    // paused 不再排程:computeNextRunAt 仅 active 返回非 null
+    expect(entry.nextRunAt).toBeNull();
+    const missing = await j("/api/incubations/inc-nonexistent/pause", "POST");
+    expect(missing.status).toBe(404);
+    expect((missing.json as { error?: string }).error).toContain("not found");
+  });
+
+  it("POST delete:200 {id} 且条目从 GET 列表消失;in-flight → 409;not found → 409", async () => {
+    const ctx = makeCtx();
+    const j = await start(ctx);
+    const created = await j("/api/incubations", "POST", { question: "删除语义验证问题?" });
+    const id = (created.json.entry as { id: string }).id;
+    const del = await j(`/api/incubations/${id}/delete`, "POST");
+    expect(del.status).toBe(200);
+    expect(del.json.id).toBe(id);
+    const list = await j("/api/incubations");
+    expect((list.json.items as unknown[]).length).toBe(0);
+
+    // in-flight 拒绝(409):acquireInFlight 是域层公开的跨进程互斥入口,
+    // 直接置锁比跑整轮 incubateOnce 更精准(无需 llmClient/executor)
+    const created2 = await j("/api/incubations", "POST", { question: "删除冲突验证问题?" });
+    const id2 = (created2.json.entry as { id: string }).id;
+    expect(ctx.incubator.acquireInFlight(id2, "api-test")).toBe(true);
+    const conflict = await j(`/api/incubations/${id2}/delete`, "POST");
+    expect(conflict.status).toBe(409);
+    expect((conflict.json as { error?: string }).error).toContain("in-flight");
+
+    // not found 与 conclude 端点同款正则,映射 409(冲突类)而非 404
+    const missing = await j("/api/incubations/inc-nonexistent/delete", "POST");
+    expect(missing.status).toBe(409);
+  });
 });

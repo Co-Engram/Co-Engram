@@ -214,3 +214,279 @@ describe("草案展开态跨 30s 轮询保留(T10 评审)", () => {
     expect(draftsOpenTag(sandbox, b)).toBe('id="inc-drafts-inc-b" hidden>');
   });
 });
+
+// ============================================================
+// T17(2026-08-17 第二批):暂停/恢复/删除按钮、待裁决引导、过滤与折叠、
+// trace 展示、排程 chip 悬停、提案页已删条目守护
+// ============================================================
+const PAUSE_BTN = zh["viewer.incubations.pauseBtn"];
+const RESUME_BTN = zh["viewer.incubations.resumeBtn"];
+const GUIDANCE = zh["viewer.incubations.resolveGuidance"];
+
+/** 挂 fetch(返回指定 items)→ 跑一次 render → 返回 incubations-content 的 innerHTML */
+async function renderList(
+  sandbox: Record<string, any>,
+  items: unknown[],
+): Promise<string> {
+  sandbox.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ enabled: true, scheduler: { alive: false }, items }),
+  });
+  const root = sandbox.document.getElementById("incubations-content");
+  await sandbox.CO_ENGRAM_INCUBATIONS.render(root);
+  return String(root.innerHTML);
+}
+
+/** 指定状态的条目(makeEntry 轻量扩展,不动共用 fixture) */
+function entryAs(status: string, id = `inc-${status}`): ReturnType<typeof makeEntry> {
+  return { ...makeEntry(id), status };
+}
+
+describe("T17:卡片动作按钮(暂停/恢复/删除 + 待裁决引导)", () => {
+  it("active 条目:暂停与删除可点,无恢复按钮", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(makeEntry("inc-btn-a")) as string;
+    expect(html).toContain("CO_ENGRAM_INCUBATIONS.pause('inc-btn-a')");
+    expect(html).toContain("CO_ENGRAM_INCUBATIONS.remove('inc-btn-a')");
+    expect(html).toContain("⏸ " + PAUSE_BTN);
+    expect(html).not.toContain(RESUME_BTN);
+  });
+
+  it("paused 条目:恢复走 resolve(id,false);无暂停按钮;删除仍可用", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(entryAs("paused", "inc-btn-p")) as string;
+    expect(html).toContain("CO_ENGRAM_INCUBATIONS.resolve('inc-btn-p', false)");
+    expect(html).toContain("▶ " + RESUME_BTN);
+    expect(html).not.toContain("CO_ENGRAM_INCUBATIONS.pause(");
+    expect(html).toContain("CO_ENGRAM_INCUBATIONS.remove('inc-btn-p')");
+  });
+
+  it("suggested-resolve 条目:待裁决引导 chip + 暂停可用", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(
+      entryAs("suggested-resolve", "inc-btn-s"),
+    ) as string;
+    expect(html).toContain("inc-guidance");
+    expect(html).toContain(GUIDANCE);
+    expect(html).toContain("CO_ENGRAM_INCUBATIONS.pause('inc-btn-s')");
+  });
+
+  it("in-flight 条目:立即夜思/暂停/删除三按钮均置灰(无 onclick,带 inFlightTip)", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(
+      entryAs("in-flight", "inc-btn-f"),
+    ) as string;
+    expect((html.match(/disabled title=/g) ?? []).length).toBe(3);
+    expect(html).not.toContain("CO_ENGRAM_INCUBATIONS.pause(");
+    expect(html).not.toContain("CO_ENGRAM_INCUBATIONS.remove(");
+  });
+
+  it("active 条目排程 chip 带 scheduleChipTip 悬停(单次执行语义)", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(makeEntry("inc-tip")) as string;
+    expect(html).toContain('title="' + zh["viewer.incubations.scheduleChipTip"] + '"');
+  });
+});
+
+describe("T17:删除确认与请求(confirm 二次确认)", () => {
+  async function runRemove(confirm: boolean): Promise<string[]> {
+    const sandbox = execRuntime();
+    const calls: string[] = [];
+    sandbox.confirm = () => confirm;
+    sandbox.fetch = async (url: unknown, opts: { method?: string } | undefined) => {
+      calls.push(`${(opts && opts.method) || "GET"} ${String(url)}`);
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    await sandbox.CO_ENGRAM_INCUBATIONS.remove("inc-del-1");
+    return calls;
+  }
+
+  it("confirm 取消 → 不发任何请求", async () => {
+    expect(await runRemove(false)).toEqual([]);
+  });
+
+  it("confirm 确认 → POST :id/delete(成功后 re-render 再拉列表)", async () => {
+    const calls = await runRemove(true);
+    expect(calls[0]).toBe("POST /api/incubations/inc-del-1/delete");
+    expect(calls.some((c) => c.endsWith("/api/incubations"))).toBe(true);
+  });
+
+  it("pause() → POST :id/pause", async () => {
+    const sandbox = execRuntime();
+    const calls: string[] = [];
+    sandbox.fetch = async (url: unknown, opts: { method?: string } | undefined) => {
+      calls.push(`${(opts && opts.method) || "GET"} ${String(url)}`);
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    await sandbox.CO_ENGRAM_INCUBATIONS.pause("inc-pz-1");
+    expect(calls[0]).toBe("POST /api/incubations/inc-pz-1/pause");
+  });
+});
+
+describe("T17:条目过滤(多条目管理,前端 filter)", () => {
+  const TWO = [
+    { ...makeEntry("inc-f-a"), question: "分布式团队如何避免知识孤岛" },
+    { ...makeEntry("inc-f-b"), question: "Algorithm 优化路径分析" },
+  ];
+
+  it("过滤框渲染存在;无过滤词全量渲染", async () => {
+    const sandbox = execRuntime();
+    const html = await renderList(sandbox, TWO);
+    expect(html).toContain('id="inc-filter"');
+    expect(html).toContain("分布式团队如何避免知识孤岛");
+    expect(html).toContain("Algorithm 优化路径分析");
+  });
+
+  it("_filterText 大小写不敏感:仅匹配条目渲染", async () => {
+    const sandbox = execRuntime();
+    sandbox.CO_ENGRAM_INCUBATIONS._filterText = "algorithm";
+    const html = await renderList(sandbox, TWO);
+    expect(html).not.toContain("分布式团队");
+    expect(html).toContain("Algorithm 优化路径分析");
+  });
+
+  it("过滤无匹配 → filterNoMatch 空态(而非全量)", async () => {
+    const sandbox = execRuntime();
+    sandbox.CO_ENGRAM_INCUBATIONS._filterText = "不存在的关键词xyz";
+    const html = await renderList(sandbox, TWO);
+    expect(html).toContain(zh["viewer.incubations.filterNoMatch"]);
+  });
+
+  it("setFilter:存值并 re-render(过滤立即生效)", async () => {
+    const sandbox = execRuntime();
+    await renderList(sandbox, TWO);
+    await sandbox.CO_ENGRAM_INCUBATIONS.setFilter("分布式");
+    const html = String(
+      sandbox.document.getElementById("incubations-content").innerHTML,
+    );
+    expect(sandbox.CO_ENGRAM_INCUBATIONS._filterText).toBe("分布式");
+    expect(html).toContain("分布式团队");
+    expect(html).not.toContain("Algorithm");
+  });
+});
+
+describe("T17:活跃区折叠(默认只展开前 5 条)", () => {
+  it("8 个 active:8 张卡全渲染,其余 3 条进折叠", async () => {
+    const sandbox = execRuntime();
+    const items = Array.from({ length: 8 }, (_, i) => makeEntry(`inc-fold-${i}`));
+    const html = await renderList(sandbox, items);
+    expect((html.match(/class="card inc-card"/g) ?? []).length).toBe(8);
+    expect(html).toContain('class="inc-fold"');
+    expect(html).toContain(
+      zh["viewer.incubations.activeFoldSummary"].replace("${n}", "3"),
+    );
+  });
+
+  it("恰好 5 个 active:不出现折叠", async () => {
+    const sandbox = execRuntime();
+    const items = Array.from({ length: 5 }, (_, i) => makeEntry(`inc-flat-${i}`));
+    const html = await renderList(sandbox, items);
+    expect(html).not.toContain('class="inc-fold"');
+  });
+});
+
+describe("T17:timeline trace 展示(旧轮无字段不渲染)", () => {
+  it("带 trace 数组的轮次:折叠列表逐条展示", () => {
+    const sandbox = execRuntime();
+    const entry = {
+      ...makeEntry("inc-tr-1"),
+      timeline: [
+        {
+          round: 1,
+          trigger: "scheduled",
+          summaries: ["第一轮摘要"],
+          trace: ["plan: build protocol", "retrieve: read graph"],
+        },
+      ],
+    };
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(entry) as string;
+    expect(html).toContain(zh["viewer.incubations.traceSummary"].replace("${n}", "2"));
+    expect(html).toContain("plan: build protocol");
+    expect(html).toContain("retrieve: read graph");
+  });
+
+  it("旧轮无 trace 字段:不渲染轨迹块", () => {
+    const sandbox = execRuntime();
+    const html = sandbox.CO_ENGRAM_INCUBATIONS.renderCard(makeEntry()) as string;
+    expect(html).not.toContain("执行轨迹");
+  });
+});
+
+describe("T17:提案页已删条目守护(moon-chip 纯展示,不查条目)", () => {
+  it("payload.incubationId 指向已删除条目:渲染不抛错,moon-chip 正常出现", () => {
+    const sandbox = execRuntime();
+    sandbox.CO_ENGRAM._proposalsPager = {
+      getItems: () => [
+        {
+          entityId: "insight-ghost-inc",
+          source: "rem-insight",
+          status: "pending",
+          occurrences: 1,
+          sampleQuotes: [],
+          centroidExcerpt: "",
+          payload: {
+            incubationId: "inc-deleted-x",
+            insightMode: "integration",
+            criticScore: 0.82,
+            kind: "fact",
+            title: "已删条目产出的洞察",
+            summary: "条目已删,提案仍在",
+          },
+        },
+      ],
+      getTotal: () => 1,
+      hasMore: () => false,
+      getLastResponse: () => ({ statusCounts: {} }),
+    };
+    const root = sandbox.document.getElementById("proposals-content");
+    // _render 尾部的卡片挂载查询:makeEl Proxy 对未定义方法返回 undefined,
+    // 需显式 stub 成空数组(真实 DOM 里 querySelectorAll 恒返回 NodeList)
+    root.querySelectorAll = () => [];
+    expect(() => sandbox.CO_ENGRAM_PROPOSALS._render()).not.toThrow();
+    const html = String(root.innerHTML);
+    expect(html).toContain("moon-chip");
+    expect(html).toContain("insight-ghost-inc");
+  });
+});
+
+describe("T17 评审 P0 修复:过滤框焦点保持(render 全量重建后恢复焦点与光标)", () => {
+  /** 拦截 getElementById('inc-filter') 返回可观察 input,记录 focus/setSelectionRange 调用 */
+  function observeFilterInput(sandbox: Record<string, any>): {
+    focusCalls: number[];
+    selCalls: number[];
+  } {
+    const focusCalls: number[] = [];
+    const selCalls: number[] = [];
+    const realGet = sandbox.document.getElementById.bind(sandbox.document);
+    sandbox.document.getElementById = (id: string) => {
+      if (id === "inc-filter") {
+        return {
+          focus: () => focusCalls.push(1),
+          setSelectionRange: (a: number) => selCalls.push(a),
+          value: "",
+        };
+      }
+      return realGet(id);
+    };
+    return { focusCalls, selCalls };
+  }
+
+  it("render 时 inc-filter 聚焦中 → 重建后 focus + 光标位恢复(IME 不被打断的前提)", async () => {
+    const sandbox = execRuntime();
+    // 旧 input(聚焦中,光标在第 3 位)= render 读取的 activeElement
+    sandbox.document.activeElement = { id: "inc-filter", selectionStart: 3 };
+    const { focusCalls, selCalls } = observeFilterInput(sandbox);
+    await renderList(sandbox, [makeEntry("inc-focus-1")]);
+    expect(focusCalls.length).toBeGreaterThanOrEqual(1);
+    expect(selCalls[0]).toBe(3);
+  });
+
+  it("非过滤框聚焦(无焦点)→ 不抢焦点", async () => {
+    const sandbox = execRuntime();
+    sandbox.document.activeElement = undefined;
+    const { focusCalls } = observeFilterInput(sandbox);
+    await renderList(sandbox, [makeEntry("inc-focus-2")]);
+    expect(focusCalls).toEqual([]);
+  });
+});

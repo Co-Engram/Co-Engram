@@ -4874,6 +4874,8 @@ CO_ENGRAM.on('incubations', async function() {
 window.CO_ENGRAM_INCUBATIONS = {
   _polling: {},
   _incPollTimer: null,
+  // 条目过滤词(多条目管理):render 重建 #inc-filter 后回填,30s 轮询不清空
+  _filterText: '',
   // 草案区展开态(T10 评审):30s 轮询 render 会整卡重建 DOM,把已展开的草案区
   // 打回 hidden。用 Set 记住展开的条目 id,renderCard 据此恢复展开态。
   _expandedDrafts: new Set(),
@@ -4896,12 +4898,13 @@ window.CO_ENGRAM_INCUBATIONS = {
     // + 条目卡片列表;去内联样式,样式收进 styles.ts .inc-*。
     let html = '<h1 class="page-h">' + T.t('viewer.incubations.title') + '</h1>'
       + '<div class="page-sub">' + T.t('viewer.incubations.intro') + '</div>'
-      + '<div class="info-banner inc-notice">' + T.t('viewer.incubations.l2BudgetNotice') + '</div>'
-      // 机理简述(T10):三行说清 what/how/gain —— 用户不看 README 也能理解夜思在干什么
+      // 机理简述(T10):三行说清 what/how/gain —— 用户不看 README 也能理解夜思在干什么;
+      // 预算提示并入第四行小字(2026-08 单次执行改版:不再单列 banner,减少整页横幅噪音)
       + '<div class="inc-explainer">'
       + '<div>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.explainer.what')) + '</div>'
       + '<div>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.explainer.how')) + '</div>'
       + '<div>' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.explainer.gain')) + '</div>'
+      + '<div class="inc-explainer-note">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.explainer.budget')) + '</div>'
       + '</div>'
       // 调度器状态:alive=排程准点跑;不在跑 → 提示错过的轮次会补跑(不吓用户)
       + '<div class="inc-scheduler ' + (payload.scheduler && payload.scheduler.alive ? 'ok' : 'off') + '">'
@@ -4926,35 +4929,71 @@ window.CO_ENGRAM_INCUBATIONS = {
       + '<div id="inc-create-tip" class="inc-create-tip"></div>'
       + '</div></div>';
 
-    const items = payload.items || [];
+    // 过滤框(多条目管理):播种卡与条目列表之间;前端按 question 文本过滤
+    // (大小写不敏感)。值存 _filterText,re-render 后回填(与 _expandedDrafts
+    // 同思路:全量重建架构下的状态恢复)。inline oninput 用 this.value,
+    // 不引用裸 event 标识符(interaction-contract 约定)。
+    html += '<input id="inc-filter" type="text" class="inc-filter" placeholder="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.filterPlaceholder')) + '"'
+      + ' oninput="CO_ENGRAM_INCUBATIONS.setFilter(this.value)"/>';
+
+    const ft = (CO_ENGRAM_INCUBATIONS._filterText || '').trim().toLowerCase();
+    const items = ft
+      ? (payload.items || []).filter(e => String(e.question || '').toLowerCase().includes(ft))
+      : (payload.items || []);
     if (!items.length) {
-      html += '<div class="inc-empty"><div class="icon">🌙</div>' + T.t('viewer.incubations.empty') + '</div>';
+      html += '<div class="inc-empty"><div class="icon">🌙</div>' + (ft ? T.t('viewer.incubations.filterNoMatch') : T.t('viewer.incubations.empty')) + '</div>';
     } else {
       // resolved/paused 折叠为荣誉记录(spec §六)
       const active = items.filter(e => e.status !== 'resolved' && e.status !== 'paused');
       const archived = items.filter(e => e.status === 'resolved' || e.status === 'paused');
-      html += active.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('');
+      // 多条目管理:active 默认只平铺前 5 张卡,其余折叠(inc-fold,与荣誉区
+      // 同款 details 交互);过滤词非空时折叠同样生效
+      const shown = active.slice(0, 5);
+      const rest = active.slice(5);
+      html += shown.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('');
+      if (rest.length) {
+        html += '<details class="inc-fold"><summary>📂 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.activeFoldSummary', { n: rest.length })) + '</summary>'
+          + rest.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('') + '</details>';
+      }
       if (archived.length) {
         html += '<details class="inc-archived"><summary>🏛️ ' + archived.length + ' × ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.resolved')) + '/' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.status.paused')) + '</summary>'
           + archived.map(e => CO_ENGRAM_INCUBATIONS.renderCard(e)).join('') + '</details>';
       }
     }
+    // 焦点保持(评审 P0):render 全量重建会移除 #inc-filter,旧 input 失焦 +
+    // 光标丢失 —— oninput 每次击键都触发 setFilter → render,真实浏览器里
+    // 英文只能打一个字符、中文 IME 组合态被逐键打断。重建前记录聚焦态,
+    // 回填后恢复焦点与光标位(与 _filterText/_expandedDrafts 同属「全量重建
+    // 架构下的状态恢复」家族;非标准宿主无 selectionStart 时 try 兜底)。
+    const ae = document.activeElement;
+    const wasFilter = !!(ae && ae.id === 'inc-filter');
+    const cursor = wasFilter ? ae.selectionStart : null;
     root.innerHTML = html;
+    // 过滤值回填:render 重建 input 后恢复 _filterText,用户输入不被 30s 轮询清空
+    if (CO_ENGRAM_INCUBATIONS._filterText || wasFilter) {
+      const f = document.getElementById('inc-filter');
+      if (f) {
+        if (CO_ENGRAM_INCUBATIONS._filterText) f.value = CO_ENGRAM_INCUBATIONS._filterText;
+        if (wasFilter) { f.focus(); try { f.setSelectionRange(cursor, cursor); } catch (e) { /* 防御:无光标 API 的宿主 */ } }
+      }
+    }
     // in-flight 自动刷新(30s):完成后状态/时间线自行流转,用户无需手点刷新。
-    // 保护:用户正在播种输入框打字(inc-q 有值)或已切走 tab 时跳过/停止,
-    // 避免清掉未提交的问题文本。
+    // 保护:播种框有未提交草稿(inc-q 有值)、或过滤框正被聚焦(正在输入 ——
+    // 过滤词是持久状态,非空是常态,按「值非空」判定会让留着过滤词的用户
+    // 永久停摆轮询,故改为聚焦判定)、或已切走 tab 时跳过/停止。
     if (CO_ENGRAM_INCUBATIONS._incPollTimer) { clearInterval(CO_ENGRAM_INCUBATIONS._incPollTimer); CO_ENGRAM_INCUBATIONS._incPollTimer = null; }
     if ((payload.items || []).some(x => x.status === 'in-flight')) {
       CO_ENGRAM_INCUBATIONS._incPollTimer = setInterval(function() {
         const root = document.getElementById('incubations-content');
         const panel = root ? root.closest('.tab-panel') : null;
-        const typing = document.getElementById('inc-q') && document.getElementById('inc-q').value.trim();
+        const typing = (document.getElementById('inc-q') && document.getElementById('inc-q').value.trim())
+          || (document.activeElement === document.getElementById('inc-filter'));
         if (!root || (panel && panel.hidden)) {
           clearInterval(CO_ENGRAM_INCUBATIONS._incPollTimer);
           CO_ENGRAM_INCUBATIONS._incPollTimer = null;
           return;
         }
-        if (typing) return; // 输入中:本轮跳过,不清用户的草稿
+        if (typing) return; // 输入中:本轮跳过,不清用户的草稿/过滤词
         CO_ENGRAM_INCUBATIONS.render(root);
       }, 30000);
     }
@@ -4973,9 +5012,10 @@ window.CO_ENGRAM_INCUBATIONS = {
       + '</div>'
       + '<div class="card-meta">'
       + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.rounds', { n: e.rounds })) + '</span>'
-      // 下一轮排程 chip(仅 active;suggested-resolve 无自动轮,不展示)
+      // 下一轮排程 chip(仅 active;suggested-resolve 无自动轮,不展示)。
+      // 悬停解释「单次执行」语义:每天此刻自动跑一次长任务,点 🕐 改写时刻
       + (e.status === 'active'
-        ? '<span class="chip inc-next">⏣ ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_INCUBATIONS.nextRunLabel(e)) + '</span>'
+        ? '<span class="chip inc-next" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.scheduleChipTip')) + '">⏣ ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_INCUBATIONS.nextRunLabel(e)) + '</span>'
         : '')
       + (e.webResearchOptIn ? '<span class="chip" title="web research">🌐</span>' : '')
       + (e.lastHatchedAt ? '<span class="inc-hatched" title="' + CO_ENGRAM.escapeHtml(e.lastHatchedAt) + '">' + CO_ENGRAM.relativeTime(e.lastHatchedAt) + '</span>' : '')
@@ -5004,8 +5044,28 @@ window.CO_ENGRAM_INCUBATIONS = {
       + ((e.status === 'active' || e.status === 'suggested-resolve')
         ? '<button class="btn mini secondary" onclick="CO_ENGRAM_INCUBATIONS.editSchedule(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', \\'' + CO_ENGRAM.escapeHtml(e.schedule || '00:00') + '\\')">🕐 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.editSchedule')) + '</button>'
         : '')
+      // 暂停(单次执行语义):不再排程、手动 run 被拒,收束不受影响;恢复走
+      // resolve(id,false) 回 active。域层允许轮中暂停(report 写前重读保留
+      // paused),但 in-flight 态此处置灰 + inFlightTip,防并发误解
+      + ((e.status === 'active' || e.status === 'suggested-resolve' || e.status === 'in-flight')
+        ? '<button class="btn mini secondary' + (e.status === 'in-flight' ? ' disabled' : '') + '"'
+          + (e.status === 'in-flight' ? ' disabled title="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.inFlightTip')) + '"' : '')
+          + (e.status === 'in-flight' ? '' : ' onclick="CO_ENGRAM_INCUBATIONS.pause(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')"')
+          + '>⏸ ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.pauseBtn')) + '</button>'
+        : '')
+      // 恢复(paused):域层 resolve(id,false) 即回 active,等下个排程锚点再跑
+      + (e.status === 'paused'
+        ? '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', false)">▶ ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resumeBtn')) + '</button>'
+        : '')
+      // 删除(生命周期终点):所有状态可用;in-flight 域层拒绝(409),此处置灰。
+      // 删条目不删提案 —— confirm 第二行说明已产出提案/审计保留
+      + '<button class="btn mini secondary' + (e.status === 'in-flight' ? ' disabled' : '') + '"'
+      + (e.status === 'in-flight' ? ' disabled title="' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.inFlightTip')) + '"' : '')
+      + (e.status === 'in-flight' ? '' : ' onclick="CO_ENGRAM_INCUBATIONS.remove(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')"')
+      + '>🗑 ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.deleteBtn')) + '</button>'
       + (e.status === 'suggested-resolve'
-        ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolvePrompt')) + '</span>'
+        ? '<span class="chip inc-guidance">✓ ' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveGuidance')) + '</span>'
+          + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolvePrompt')) + '</span>'
           + '<button class="btn mini" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', true)">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveYes')) + '</button>'
           + '<button class="btn mini secondary" onclick="CO_ENGRAM_INCUBATIONS.resolve(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\', false)">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.resolveNo')) + '</button>'
         : '')
@@ -5055,6 +5115,13 @@ window.CO_ENGRAM_INCUBATIONS = {
             ? '<details style="margin-top:2px"><summary style="color:var(--fg-muted);font-size:.78rem;cursor:pointer">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.diagnosis.rejectReasons', { n: t.diagnosis.rejectReasons.length })) + '</summary>'
               + '<ul style="margin:2px 0 0;padding-left:18px;color:var(--fg-muted);font-size:.78rem">'
               + t.diagnosis.rejectReasons.map((r) => '<li>' + CO_ENGRAM.escapeHtml(r) + '</li>').join('')
+              + '</ul></details>'
+            : '')
+          // 执行轨迹(2026-08 可观测性):L2 会话逐步动作留痕,旧轮无字段不渲染
+          + (t.trace && t.trace.length
+            ? '<details style="margin-top:2px"><summary style="color:var(--fg-muted);font-size:.78rem;cursor:pointer">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.traceSummary', { n: t.trace.length })) + '</summary>'
+              + '<ul style="margin:2px 0 0;padding-left:18px;color:var(--fg-muted);font-size:.78rem">'
+              + t.trace.map((s) => '<li>' + CO_ENGRAM.escapeHtml(s) + '</li>').join('')
               + '</ul></details>'
             : '')
           + '</li>';
@@ -5218,6 +5285,41 @@ window.CO_ENGRAM_INCUBATIONS = {
     } catch (e) {
       alert(e.message);
     }
+  },
+
+  /** 暂停(单次执行语义):不再排程、手动 run 被拒,收束不受影响;恢复走 resolve(id,false) */
+  async pause(id) {
+    try {
+      await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/pause', 'POST');
+      const root = document.getElementById('incubations-content');
+      if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+
+  /**
+   * 删除条目(方法名避开 JS 关键字 delete):confirm 两行文案 —— 不可恢复的
+   * 梦境时间线 + 会保留的洞察提案/审计记录;确认后 POST :id/delete
+   * (in-flight 域层拒绝 → 409,apiJson throw 的 message 含状态码,alert 呈现)。
+   */
+  async remove(id) {
+    const T = CO_ENGRAM_T;
+    if (!window.confirm(T.t('viewer.incubations.deleteConfirm') + '\\n' + T.t('viewer.incubations.deleteKeptNote'))) return;
+    try {
+      await CO_ENGRAM.apiJson('/api/incubations/' + encodeURIComponent(id) + '/delete', 'POST');
+      const root = document.getElementById('incubations-content');
+      if (root) await CO_ENGRAM_INCUBATIONS.render(root);
+    } catch (e) {
+      alert(e.message);
+    }
+  },
+
+  /** 过滤输入(inline oninput → this.value):存值 + re-render(render 会回填 input) */
+  async setFilter(v) {
+    CO_ENGRAM_INCUBATIONS._filterText = v;
+    const root = document.getElementById('incubations-content');
+    if (root) await CO_ENGRAM_INCUBATIONS.render(root);
   },
 };
 

@@ -1291,6 +1291,45 @@ async function routeApi(
     return;
   }
 
+  // 暂停(单次执行语义):nextRunAt=null 不再排程,手动 run 被拒,收束不受影响;
+  // 域层允许轮中暂停(report 写前重读保留 paused),前端 in-flight 态按钮置灰防误解
+  const incubationPauseMatch = /^\/api\/incubations\/([^/]+)\/pause$/.exec(path);
+  if (incubationPauseMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.pause(decodeURIComponent(incubationPauseMatch[1]!));
+      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /not found/.test(msg) ? 404 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 删除条目(生命周期终点):in-flight 拒绝(域层同 updateSchedule 保护);
+  // 删条目不删提案 —— 提案本体走各自 accept/dismiss 裁决流
+  const incubationDeleteMatch = /^\/api\/incubations\/([^/]+)\/delete$/.exec(path);
+  if (incubationDeleteMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
+      return;
+    }
+    const deleteId = decodeURIComponent(incubationDeleteMatch[1]!);
+    try {
+      ctx.incubator.delete(deleteId);
+      respondJson(res, 200, { id: deleteId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /in-flight|not found/.test(msg) ? 409 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
   // /api/proposals/:entityId/accept | /dismiss | /reactivate
   const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(
     path,

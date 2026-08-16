@@ -2497,7 +2497,6 @@ div.vis-tooltip {
 
 /* === 治理页页头 === */
 /* === 夜思实验室(incubations,2026-08 重设计:纸面主题,去内联样式) === */
-.inc-notice { margin-bottom: 0.9rem; }
 .inc-sow-card { margin-bottom: 1.1rem; padding: 1rem 1.2rem; }
 .inc-sow-title { margin: 0 0 0.7rem; font-size: 0.92rem; color: var(--accent); font-weight: 700; }
 .inc-form { display: flex; flex-direction: column; gap: 0.6rem; }
@@ -2543,10 +2542,21 @@ div.vis-tooltip {
 .inc-timeline { margin-top: 0.6rem; }
 .inc-timeline summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }
 .inc-timeline ul { padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0 0; }
-.inc-archived { margin-top: 0.9rem; }
-.inc-archived summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
+.inc-archived, .inc-fold { margin-top: 0.9rem; }
+.inc-archived summary, .inc-fold summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
 /* 夜思 T10:机理简述块 / 调度器状态 / nextRunAt chip / 草案区 / 播种反馈 */
 .inc-explainer { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); font-size: 0.85rem; color: var(--fg-muted); display: grid; gap: 4px; }
+/* 预算提示第四行(2026-08 单次执行改版:并入 explainer 的小字,替代旧 .inc-notice 横幅) */
+.inc-explainer-note { font-size: 0.75rem; color: var(--fg-dim); line-height: 1.55; }
+/* 条目过滤框(多条目管理):照 .inc-form-row input 纸面样式,整行宽 */
+.inc-filter {
+  width: 100%; font: inherit; font-size: 0.82rem;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.38rem 0.62rem;
+  background: var(--panel-bg, #fff); color: var(--fg); margin-bottom: 0.9rem;
+}
+.inc-filter:focus { outline: none; border-color: var(--accent); }
+/* 待裁决语境引导 chip:淡紫,与 .inc-st.st-resolve 同色系呼应 */
+.chip.inc-guidance { background: #EFEDF8; color: #7163C4; border-color: rgba(113, 99, 196, 0.25); }
 .inc-scheduler { font-size: 0.8rem; margin-bottom: 10px; }
 .inc-scheduler.ok { color: #0E9F6E; }
 .inc-scheduler.off { color: #B45309; }
