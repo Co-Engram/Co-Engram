@@ -874,6 +874,22 @@ export const IncubationResolveInputSchema = z
   })
   .strict();
 
+/** incubation_conclude:收束条目,综合全部梦境时间线生成 finalAnswer */
+export const IncubationConcludeInputSchema = z
+  .object({
+    id: z.string().min(1),
+  })
+  .strict();
+
+/** incubation_update:改写每日排程时刻(HH:mm 本地时间,默认 00:00) */
+export const IncubationUpdateInputSchema = z
+  .object({
+    id: z.string().min(1),
+    /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00";仅非 in-flight 态可改 */
+    schedule: z.string().regex(SCHEDULE_RE),
+  })
+  .strict();
+
 const InsightDraftSchema = z.object({
   type: z.enum(["theme", "lesson", "analogy", "hypothesis"]),
   title: z.string().min(1).max(200),

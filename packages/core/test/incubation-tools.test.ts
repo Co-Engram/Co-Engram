@@ -1,4 +1,5 @@
-// incubation_* 工具:注册/profile/fail-loud/agent 协议返回/report 回写
+// incubation_* 工具:注册/profile/fail-loud/agent 协议返回/report 回写 +
+// T6(conclude/update 工具、create/list 的 schedule/nextRunAt/timeline/finalAnswer 面)
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,7 +7,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { EngramRepository } from "../src/storage/repository.js";
 import { ProposalEngine } from "../src/observability/proposal-engine.js";
-import { Incubator } from "../src/maintenance/insight/incubator.js";
+import { Incubator, computeNextRunAt } from "../src/maintenance/insight/incubator.js";
+import type {
+  IncubationEntry,
+  IncubationTimelineEvent,
+} from "../src/maintenance/insight/incubator.js";
+import { IncubationUpdateInputSchema } from "../src/tools/schemas.js";
 import { createToolRegistry } from "../src/tools/registry.js";
 import { PROFILE_TOOL_SETS } from "../src/tools/tool-profile.js";
 import { isEngramToolError } from "../src/tools/error-schema.js";
@@ -175,5 +181,174 @@ describe("执行语义", () => {
       ctx,
     ) as { status: string };
     expect(resolved.status).toBe("resolved");
+  });
+});
+
+// ============================================================
+// T6:incubation_conclude / incubation_update + schedule 面
+// (conclude 依赖 llmClient,真实 Incubator 无法直跑 → 最小 fake;
+//  其余用例同样以 fake 隔离工具层透传语义,不重复测域层)
+// ============================================================
+
+/** 最小完整 entry 桩(满足 IncubationEntry 形状;override 覆盖关键字段) */
+function mkEntry(overrides: Partial<IncubationEntry> = {}): IncubationEntry {
+  return {
+    id: "inc-t6",
+    question: "T6 问题",
+    seedEngramIds: [],
+    status: "active",
+    rounds: 2,
+    webResearchOptIn: false,
+    schedule: "00:00",
+    createdAt: "2026-08-16T00:00:00.000Z",
+    lastHatchedAt: null,
+    timeline: [],
+    ...overrides,
+  };
+}
+
+describe("T6:conclude / update 工具与 schedule 面", () => {
+  it("incubation_conclude / incubation_update 注册进 registry 且 standard/full 可见、minimal 不可见", () => {
+    const registry = createToolRegistry();
+    for (const n of ["incubation_conclude", "incubation_update"] as const) {
+      expect(registry.get(n)).toBeDefined();
+      expect(PROFILE_TOOL_SETS.standard.has(n)).toBe(true);
+      expect(PROFILE_TOOL_SETS.full.has(n)).toBe(true);
+      expect(PROFILE_TOOL_SETS.minimal.has(n)).toBe(false);
+    }
+  });
+
+  it("conclude:走 incubator.conclude,返回 id/status/finalAnswer/concludedAt", async () => {
+    const concluded = mkEntry({
+      id: "inc-done",
+      status: "suggested-resolve",
+      finalAnswer: "综合全部梦境的最终回答",
+      concludedAt: "2026-08-16T01:23:45.000Z",
+    });
+    const calls: string[] = [];
+    const fake = {
+      conclude: async (id: string) => {
+        calls.push(id);
+        return concluded;
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const r = (await registry.get("incubation_conclude")!.execute(
+      { id: "inc-done" },
+      { ...ctx, incubator: fake },
+    )) as {
+      id: string;
+      status: string;
+      finalAnswer: string;
+      concludedAt: string;
+    };
+    expect(calls).toEqual(["inc-done"]);
+    expect(r).toEqual({
+      id: "inc-done",
+      status: "suggested-resolve",
+      finalAnswer: "综合全部梦境的最终回答",
+      concludedAt: "2026-08-16T01:23:45.000Z",
+    });
+  });
+
+  it("update:走 incubator.updateSchedule,返回 id/schedule/nextRunAt", () => {
+    const updated = mkEntry({ id: "inc-upd", schedule: "07:00" });
+    const calls: Array<[string, string]> = [];
+    const fake = {
+      updateSchedule: (id: string, schedule: string) => {
+        calls.push([id, schedule]);
+        return updated;
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const r = registry.get("incubation_update")!.execute(
+      { id: "inc-upd", schedule: "07:00" },
+      { ...ctx, incubator: fake },
+    ) as { id: string; schedule: string; nextRunAt: string | null };
+    expect(calls).toEqual([["inc-upd", "07:00"]]);
+    expect(r.id).toBe("inc-upd");
+    expect(r.schedule).toBe("07:00");
+    expect(r.nextRunAt).toBe(computeNextRunAt(updated));
+  });
+
+  it("schema:update 非法 schedule(99:00 / 24:00)safeParse 失败,合法 07:00 通过", () => {
+    expect(
+      IncubationUpdateInputSchema.safeParse({ id: "inc-x", schedule: "99:00" }).success,
+    ).toBe(false);
+    expect(
+      IncubationUpdateInputSchema.safeParse({ id: "inc-x", schedule: "24:00" }).success,
+    ).toBe(false);
+    expect(
+      IncubationUpdateInputSchema.safeParse({ id: "inc-x", schedule: "07:00" }).success,
+    ).toBe(true);
+  });
+
+  it("create:入参透传 schedule(fake 捕获断言),返回 schedule 与 nextRunAt", () => {
+    const created = mkEntry({ id: "inc-new", schedule: "07:00" });
+    const createCalls: unknown[] = [];
+    const fake = {
+      create: (input: unknown) => {
+        createCalls.push(input);
+        return created;
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const r = registry.get("incubation_create")!.execute(
+      { question: "排程透传问题文本", schedule: "07:00" },
+      { ...ctx, incubator: fake },
+    ) as { schedule: string; nextRunAt: string | null };
+    // T1 质量评审追加:schema 宣告的 schedule 字段必须透传给 incubator.create,不许静默丢弃
+    expect(createCalls).toEqual([
+      { question: "排程透传问题文本", webResearchOptIn: false, schedule: "07:00" },
+    ]);
+    expect(r.schedule).toBe("07:00");
+    expect(r.nextRunAt).toBe(computeNextRunAt(created));
+  });
+
+  it("list:条目含 schedule / nextRunAt / timeline(含 diagnosis)/ finalAnswer?", () => {
+    const timeline: IncubationTimelineEvent[] = [
+      {
+        at: "2026-08-15T00:05:00.000Z",
+        trigger: "scheduled",
+        round: 1,
+        summaries: ["洞察甲"],
+        proposalEntityIds: [],
+        externalCallCount: 0,
+        diagnosis: {
+          drafts: 1,
+          dupVetoed: 0,
+          validateRejected: 0,
+          criticRejected: 1,
+          llmClientMissing: true,
+        },
+        answerDraft: "阶段性回答草稿",
+      },
+    ];
+    const entries = [
+      mkEntry({ id: "inc-a", schedule: "07:00", timeline }),
+      mkEntry({ id: "inc-b", status: "suggested-resolve", finalAnswer: "已收束" }),
+    ];
+    const fake = { list: () => entries } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const r = registry.get("incubation_list")!.execute({}, { ...ctx, incubator: fake }) as {
+      items: ReadonlyArray<{
+        id: string;
+        schedule: string;
+        nextRunAt: string | null;
+        timeline: readonly IncubationTimelineEvent[];
+        finalAnswer?: string;
+      }>;
+      total: number;
+    };
+    expect(r.total).toBe(2);
+    const a = r.items.find((i) => i.id === "inc-a")!;
+    const b = r.items.find((i) => i.id === "inc-b")!;
+    expect(a.schedule).toBe("07:00");
+    expect(a.nextRunAt).toBe(computeNextRunAt(entries[0]!));
+    expect(a.timeline).toEqual(timeline);
+    expect("finalAnswer" in a).toBe(false);
+    expect(b.schedule).toBe("00:00"); // 缺省回落
+    expect(b.nextRunAt).toBe(computeNextRunAt(entries[1]!));
+    expect(b.finalAnswer).toBe("已收束");
   });
 });

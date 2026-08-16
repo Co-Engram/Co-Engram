@@ -104,6 +104,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "incubation_list",
     "incubation_resolve",
     "incubation_report",
+    "incubation_conclude",
+    "incubation_update",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -161,6 +163,8 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "incubation_list",
     "incubation_resolve",
     "incubation_report",
+    "incubation_conclude",
+    "incubation_update",
   ]),
 };
 
