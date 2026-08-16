@@ -106,15 +106,25 @@ body {
   flex-direction: column;
   overflow-y: auto;
 }
+/* 品牌区纵向布局(2026-08-16 用户定稿):logo 最上,下面 Co-Engram,
+   再下「自进化的团队记忆」—— 横排时 120px logo 挤压标题导致换行 */
 .side-nav .brand {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.7rem;
-  padding: 0 0.5rem 1rem;
+  text-align: center;
+  gap: 0.35rem;
+  padding: 0 0.25rem 1rem;
   border-bottom: 1px solid var(--border);
   margin-bottom: 0.5rem;
 }
-.side-nav .brand-text { flex-direction: column; align-items: flex-start; gap: 0.1rem; }
+.side-nav .brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  min-width: 0;
+}
 .side-nav .brand h1 {
   margin: 0;
   font-size: 1.05rem;
