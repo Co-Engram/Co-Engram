@@ -107,13 +107,14 @@ body {
   overflow-y: auto;
 }
 /* 品牌区纵向布局(2026-08-16 用户定稿):logo 最上,下面 Co-Engram,
-   再下「自进化的团队记忆」—— 横排时 120px logo 挤压标题导致换行 */
+   再下「自进化的团队记忆」—— 横排时 120px logo 挤压标题导致换行。
+   间距收紧:logo span 改 flex 消除 inline svg 基线留白,gap 压到 0.05rem */
 .side-nav .brand {
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 0.35rem;
+  gap: 0.05rem;
   padding: 0 0.25rem 1rem;
   border-bottom: 1px solid var(--border);
   margin-bottom: 0.5rem;
@@ -122,12 +123,13 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.15rem;
+  gap: 0.05rem;
   min-width: 0;
 }
 .side-nav .brand h1 {
   margin: 0;
   font-size: 1.05rem;
+  line-height: 1.2;
   font-weight: 700;
   color: var(--fg-bright);
   background: none;
@@ -142,7 +144,7 @@ body {
 }
 /* 品牌徽标(2026-08 用户反馈):当前为浅色纸面主题,只显示 light 变体;
    dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。尺寸放大一倍(40→80)。 */
-.brand-logo { width: 120px; height: 120px; flex-shrink: 0; }
+.brand-logo { width: 120px; height: 120px; flex-shrink: 0; display: flex; }
 .brand-logo svg { width: 100%; height: 100%; }
 .brand-logo-dark { display: none; }
 
@@ -692,6 +694,10 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 
 /* === Filter bar === */
 .filter-bar {
+  /* 2026-08-16 用户要求:记忆印迹等功能栏吸顶 —— 滚动长列表时筛选/操作常驻 */
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   flex-wrap: wrap;
   gap: 0.6rem;
@@ -827,6 +833,10 @@ section.tab-panel.active { display: block; animation: fade-in .25s ease-out; }
 
 /* === Graph 功能栏(2026-08 v3:功能性筛选独立于图例,置于舞台上方)=== */
 .graph-funcbar {
+  /* 2026-08-16:吸顶(与印迹 filter-bar 一致) */
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 0.6rem;
