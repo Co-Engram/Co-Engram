@@ -115,7 +115,10 @@ export function createAnthropicLlmClient(cfg: AnthropicLlmConfig): LlmClient {
       };
 
       const body = {
-        model: cfg.model,
+        // 规范化:剥 Claude Code 宿主模型的上下文窗口后缀(如 "glm-5.3[1m]"
+        // → "glm-5.3")—— 宿主自身会处理该标记,但 API 会拒(1214 modelCode
+        // 不存在,2026-08-16 实测);任何 [\d+k/km/m] 形态统一剥除
+        model: cfg.model.replace(/\[\d+[kKmM]?\d*\]$/, ""),
         max_tokens: opts.maxTokens ?? 300,
         ...(opts.temperature !== undefined
           ? { temperature: opts.temperature }

@@ -143,7 +143,10 @@ async function main() {
           let criticScore: number | null = null;
           if (v.ok && criticCalls < 40) {
             criticCalls += 1;
-            const sc = await critique(llm, d, sub, mode).catch(() => null);
+            const sc = await critique(llm, d, sub, mode).catch((e: unknown) => {
+              console.log(`[blind-eval][critic-error] ${d.title.slice(0, 24)}: ${(e instanceof Error ? e.message : String(e)).slice(0, 100)}`);
+              return null;
+            });
             criticScore = sc ? sc.overall : null;
           }
           sheet.push({ draft: d, critic: criticScore, mechanical: v.ok ? null : v.reason, window: r.label });

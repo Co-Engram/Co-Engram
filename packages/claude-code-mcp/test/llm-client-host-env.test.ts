@@ -62,3 +62,12 @@ describe("loadClaudeCodeFallbackLlmConfig(宿主 env 复用)", () => {
     expect(cfg.endpoint).toBeUndefined();
   });
 });
+
+describe("model 后缀规范化(宿主窗口标记)", () => {
+  it.each(["glm-5.3[1m]", "claude-opus-4-8[128k]", "m-x[500km]", "q-9[2m]"])(
+    "%s 发送前剥除窗口后缀",
+    (m) => {
+      expect(m.replace(/\[[a-zA-Z0-9]+\]$/, "")).not.toContain("[");
+    },
+  );
+});
