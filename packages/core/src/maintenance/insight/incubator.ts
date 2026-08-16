@@ -25,7 +25,12 @@ import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { insightEntityId } from "../../observability/proposal-engine.js";
 import { critique } from "./critic.js";
-import { createL1Executor, collectSeedDigests, buildProtocol } from "./night-thinking.js";
+import {
+  createL1Executor,
+  collectSeedDigests,
+  buildProtocol,
+  synthesizeAnswerDraft,
+} from "./night-thinking.js";
 import type {
   InsightDraft,
   NightThinkingReport,
@@ -61,6 +66,9 @@ export interface IncubationTimelineEvent {
     readonly criticRejected: number;
     readonly llmClientMissing: boolean;
   };
+  /** 本轮阶段性回答草稿(LLM 真实综合;失败则记 answerDraftError,无降级拼接) */
+  readonly answerDraft?: string;
+  readonly answerDraftError?: string;
   readonly note?: string;
 }
 
@@ -541,6 +549,25 @@ export class Incubator {
       }
     }
 
+    // ---- 阶段综合(spec §五:不降级,失败报错)----
+    // dreamHistoryFor 此时读盘仍是旧 timeline(新事件尚未落盘)→ 天然「至上一轮」
+    let answerDraft: string | undefined;
+    let answerDraftError: string | undefined;
+    if (!this.deps.llmClient) {
+      answerDraftError = "llmClient unavailable";
+    } else {
+      try {
+        answerDraft = await synthesizeAnswerDraft(
+          this.deps.llmClient,
+          entry.question,
+          this.dreamHistoryFor(entry.id),
+          summaries,
+        );
+      } catch (err) {
+        answerDraftError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+      }
+    }
+
     // ---- 轮次推进 + 循环暂停 + 轮数上限 + timeline 落盘 ----
     const consecutive = allVetoed ? (entry.consecutiveVetoed ?? 0) + 1 : 0;
     let note: string | undefined;
@@ -574,6 +601,8 @@ export class Incubator {
           criticRejected,
           llmClientMissing: !this.deps.llmClient,
         },
+        ...(answerDraft ? { answerDraft } : {}),
+        ...(answerDraftError ? { answerDraftError } : {}),
         ...(note ? { note } : {}),
       },
     ];

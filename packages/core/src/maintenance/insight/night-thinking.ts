@@ -114,3 +114,36 @@ export function collectSeedDigests(
   }
   return out;
 }
+
+/**
+ * 阶段性回答草稿(spec §五):对「问题 + 梦境史 + 本轮摘要」做单次综合。
+ * 不降级 —— 调用失败/空输出由调用方记 answerDraftError,绝不拼接伪草稿。
+ */
+export async function synthesizeAnswerDraft(
+  llm: LlmClient,
+  question: string,
+  dreamHistoryBefore: string,
+  roundSummaries: readonly string[],
+): Promise<string> {
+  const prompt = [
+    "You are synthesizing a WORKING ANSWER DRAFT (not final) for an incubated question.",
+    "Audience: the user who planted the question. Language: match the question's language.",
+    "",
+    "## Question",
+    question,
+    "",
+    "## Dream history (previous rounds, with user accept/dismiss dispositions)",
+    dreamHistoryBefore.trim() || "(no previous rounds)",
+    "",
+    "## This round's surviving insight summaries",
+    roundSummaries.length ? roundSummaries.map((s) => `- ${s}`).join("\n") : "(none survived this round)",
+    "",
+    "Write 3-6 sentences: what the accumulated evidence currently suggests as an answer,",
+    "how confident it is, and what the next round should examine. If nothing survived yet,",
+    "say so honestly instead of inventing conclusions. Plain text only, no markdown fences.",
+  ].join("\n");
+  const raw = await llm.complete(prompt, { temperature: 0.3, maxTokens: 8192, timeoutMs: 120_000 });
+  const text = raw.trim();
+  if (!text) throw new Error("empty synthesis output");
+  return text.slice(0, 4000);
+}

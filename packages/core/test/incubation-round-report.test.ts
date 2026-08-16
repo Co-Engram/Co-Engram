@@ -84,8 +84,8 @@ describe("report() diagnosis 计数", () => {
     });
     expect(r.entry.timeline.at(-1)?.diagnosis?.validateRejected).toBe(1);
     expect(r.entry.timeline.at(-1)?.diagnosis?.llmClientMissing).toBe(false);
-    // validate 拒后短路:critic(唯一 llm 调用点)不应被触达
-    expect(llmCalls).toBe(0);
+    // validate 拒后短路:critic 不被触达;有 llmClient 时仅 answerDraft 综合产生 1 次调用
+    expect(llmCalls).toBe(1);
   });
 
   it("llmClient 在 + validate 过 + critic 低分(0.1 < 0.6)→ criticRejected 计数,不出提案", async () => {
@@ -129,5 +129,39 @@ describe("report() diagnosis 计数", () => {
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "scheduled", actor: "test" });
     expect(r.entry.timeline.at(-1)?.diagnosis).toMatchObject({ drafts: 0, llmClientMissing: true });
+  });
+});
+
+describe("report() answerDraft(不降级,失败报错)", () => {
+  it("llmClient 缺失 → answerDraftError,无草稿", async () => {
+    const { incubator } = makeIncubator();
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    const last = r.entry.timeline.at(-1);
+    expect(last?.answerDraft).toBeUndefined();
+    expect(last?.answerDraftError).toBe("llmClient unavailable");
+  });
+
+  it("综合成功 → answerDraft 为 LLM 输出", async () => {
+    const { incubator } = makeIncubator({ llmComplete: async () => "阶段结论:方向 A 成立。" });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(r.entry.timeline.at(-1)?.answerDraft).toBe("阶段结论:方向 A 成立。");
+  });
+
+  it("综合调用失败 → answerDraftError 含原因,不生成伪草稿", async () => {
+    const { incubator } = makeIncubator({ llmComplete: async () => { throw new Error("boom"); } });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    const last = r.entry.timeline.at(-1);
+    expect(last?.answerDraft).toBeUndefined();
+    expect(last?.answerDraftError).toContain("boom");
+  });
+
+  it("空输出 → answerDraftError", async () => {
+    const { incubator } = makeIncubator({ llmComplete: async () => "   " });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(r.entry.timeline.at(-1)?.answerDraftError).toBeTruthy();
   });
 });
