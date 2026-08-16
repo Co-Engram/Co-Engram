@@ -2542,6 +2542,19 @@ div.vis-tooltip {
 .inc-timeline ul { padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0 0; }
 .inc-archived { margin-top: 0.9rem; }
 .inc-archived summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
+/* 夜思 T10:机理简述块 / 调度器状态 / nextRunAt chip / 草案区 / 播种反馈 */
+.inc-explainer { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); font-size: 0.85rem; color: var(--fg-muted); display: grid; gap: 4px; }
+.inc-scheduler { font-size: 0.8rem; margin-bottom: 10px; }
+.inc-scheduler.ok { color: #0E9F6E; }
+.inc-scheduler.off { color: #B45309; }
+.inc-next { font-variant-numeric: tabular-nums; }
+.inc-drafts { margin: 6px 0; display: grid; gap: 6px; }
+.inc-draft { padding: 8px 10px; background: var(--chip-bg, #F0EDE7); border-radius: 6px; font-size: 0.85rem; }
+.inc-draft .ilr-h { font-weight: 600; color: var(--fg-muted); font-size: 0.72rem; margin-bottom: 0.25rem; }
+.inc-draft .ilr-s { color: var(--fg); line-height: 1.6; white-space: pre-wrap; }
+.inc-draft.ilr-none { color: var(--fg-dim); font-style: italic; }
+.inc-draft.final { border: 1px solid var(--accent); }
+.inc-create-tip { margin-top: 6px; font-size: 0.82rem; color: #0E9F6E; }
 
 /* === 帮助页(DEMO g2-help:四卡快速上手 + 深入参考折叠) === */
 .help-card { margin-bottom: 0.65rem; padding: 0.95rem 1.15rem; }
