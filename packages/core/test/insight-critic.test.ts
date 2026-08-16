@@ -74,6 +74,27 @@ describe("critique(独立第二次调用)", () => {
     expect(await critique(llm, DRAFT, SUB, "integration")).toBeNull();
   });
 
+  it("首次解析失败 → 重试后成功(间歇性输出波动,2026-08-16)", async () => {
+    let call = 0;
+    const llm = {
+      complete: async () => {
+        call += 1;
+        return call === 1 ? "垃圾非 JSON 回复" : JSON.stringify({ evidenceSufficiency: 0.7, novelty: 0.7, actionability: 0.7, consistency: 0.7, overall: 0.7, rationale: "r" });
+      },
+    } as never;
+    const score = await critique(llm, DRAFT, SUB, "integration");
+    expect(score).not.toBeNull();
+    expect(score!.overall).toBe(0.7);
+    expect(call).toBe(2);
+  });
+
+  it("字符串数字容错:\"overall\": \"0.8\" → 0.8", async () => {
+    const llm = makeClient(JSON.stringify({ evidenceSufficiency: "0.7", novelty: 0.7, actionability: 0.7, consistency: 0.7, overall: "0.8", rationale: "r" }));
+    const score = await critique(llm, DRAFT, SUB, "integration");
+    expect(score).not.toBeNull();
+    expect(score!.overall).toBe(0.8);
+  });
+
   it("独立第二次调用:prompt 含草稿全文与来源摘要,含模式 rubric 与独立评审指令", async () => {
     const llm = makeClient(
       JSON.stringify({ evidenceSufficiency: 0.5, novelty: 0.5, actionability: 0.5, consistency: 0.5, overall: 0.5, rationale: "" }),

@@ -85,19 +85,37 @@ export async function critique(
     .filter((l) => l !== "")
     .join("\n");
 
-  let raw: string;
-  try {
-    raw = await llm.complete(prompt, {
-      temperature: 0.2,
-      // 效果优先(2026-08-15 用户决策):critic 输出短但思考长,真实库上
-      // 2048 仍造成大量解析失败(fail-closed 拒绝);16384 + 600s 给足
-      maxTokens: 16384,
-      timeoutMs: 600_000,
-    });
-  } catch {
-    return null; // fail-closed
+  // 间歇性输出波动重试(2026-08-16):同 prompt 同解析,失败样本复测 5/5
+  // 通过 —— GLM 偶发 thinking-only/截断属瞬态,重试 2 次而非强化解析
+  let parsed: Partial<CriticScore> | null = null;
+  for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
+    let raw: string;
+    try {
+      raw = await llm.complete(prompt, {
+        temperature: 0.2,
+        // 效果优先(2026-08-15 用户决策):critic 输出短但思考长,真实库上
+        // 2048 仍造成大量解析失败(fail-closed 拒绝);16384 + 600s 给足
+        maxTokens: 16384,
+        timeoutMs: 600_000,
+      });
+    } catch {
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      return null; // fail-closed
+    }
+    parsed = extractJson(raw) as Partial<CriticScore> | null;
+    // 字符串数字容错:模型偶发输出 "overall": "0.8"
+    if (parsed && typeof parsed.overall === "string") {
+      const n = Number(parsed.overall);
+      if (Number.isFinite(n)) parsed = { ...parsed, overall: n };
+      else parsed = null;
+    }
+    if (!parsed && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
   }
-  const parsed = extractJson(raw) as Partial<CriticScore> | null;
   if (!parsed || typeof parsed.overall !== "number") return null;
   return {
     overall: clamp01(parsed.overall),
