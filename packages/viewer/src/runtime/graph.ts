@@ -239,12 +239,11 @@ async function renderGraphInner(container) {
           group: n.kind,
           color: {
             background: nodeColor,
-            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离。
-            // 2026-08 用户反馈:点击选中变「带外圈的颜色」很难看 ——
-            // highlight/hover 与普通态完全一致,点击不再变色。
-            border: stageBg(),
-            highlight: { background: nodeColor, border: stageBg() },
-            hover: { background: nodeColor, border: stageBg() }
+            // 2026-08 用户三轮反馈「外圈难看」:去掉纸色描边圈,
+            // border = 填充色(视觉上无环);点击/悬停/选中全一致
+            border: nodeColor,
+            highlight: { background: nodeColor, border: nodeColor },
+            hover: { background: nodeColor, border: nodeColor }
           },
           size,
           // DEMO .nlabel:paint-order stroke 纸色 halo(vis 用 strokeWidth/strokeColor 等价实现)
@@ -748,7 +747,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => ({
       id: n.id,
       font: { color: fontColor, size: 11, face: 'sans-serif', strokeWidth: 3, strokeColor: stageBg() },
-      color: { ...n.color, border: stageBg() }
+      color: { ...n.color, border: 'transparent' }
     })));
     queueRefreshOverlay();
   };
@@ -763,7 +762,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
       const c = raw ? nodeColorFor(raw) : n.color;
-      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: stageBg() }, hover: { background: c, border: stageBg() } } };
+      return { id: n.id, color: { background: c, border: c, highlight: { background: c, border: c }, hover: { background: c, border: c } } };
     }));
     renderLegend();
     queueRefreshOverlay();
