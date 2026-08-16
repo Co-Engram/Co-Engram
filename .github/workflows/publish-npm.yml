@@ -1,0 +1,53 @@
+name: Publish npm packages
+
+# 手动触发:发布 @co-engram/core → @co-engram/viewer → @co-engram/dsh
+# (按依赖序;pnpm publish 自动把 workspace:* 解析为实际版本)
+# 前置:仓库 Settings → Secrets and variables → Actions 配置 NPM_TOKEN
+on:
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Dry run (pack only, no upload)"
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build (core → viewer → dsh, dependency order)
+        run: |
+          pnpm --filter @co-engram/core build
+          pnpm --filter @co-engram/viewer build
+          pnpm --filter @co-engram/dsh build
+
+      - name: Test gate (dsh plugin suite)
+        run: pnpm --filter @co-engram/dsh test
+
+      - name: Publish (core → viewer → dsh)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -e
+          DRY="${{ inputs.dry-run }}" && DRY_FLAG=""
+          if [ "$DRY" = "true" ]; then DRY_FLAG="--dry-run"; fi
+          cd packages/core     && pnpm publish --access public --no-git-checks $DRY_FLAG
+          cd ../viewer         && pnpm publish --access public --no-git-checks $DRY_FLAG
+          cd ../dsh-plugin     && pnpm publish --access public --no-git-checks $DRY_FLAG
