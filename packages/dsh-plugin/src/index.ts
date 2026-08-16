@@ -96,6 +96,16 @@ export async function apply(
   // prompt-signals 段(每次组装动态求值)
   ctx.systemPrompt.section(createCoEngramPromptSection(runtime));
 
+  // 启动 banner(对齐 claude-code-mcp 的 Loaded 惯例,便于用户确认插件生效)
+  try {
+    const engramCount = runtime.ctx.repository.listEngrams().length;
+    process.stderr.write(
+      `[co-engram] dsh plugin active: ${engramCount} engrams, ${defs.length} tools registered (host=dsh-plugin)\n`,
+    );
+  } catch {
+    // logging 失败不阻塞
+  }
+
   // viewer(holder gating,fire-and-forget 不阻塞激活)
   const viewerEnabled =
     config.startViewer ?? (config.proposalEnabled !== false);

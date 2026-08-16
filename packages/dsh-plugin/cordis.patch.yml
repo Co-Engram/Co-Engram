@@ -1,0 +1,10 @@
+# @co-engram/dsh bundle patch:dsh plugin add 后自动成为 profile layer,
+# 无需用户手动在 profile cordis.patch.yml 里写条目。
+#
+# 配置字段见包 README(language/defaultCreatedBy/startMaintenance/
+# proposalEnabled/startViewer 等,全部可选)。
+- insert:
+    - id: co-engram
+      name: '@co-engram/dsh'
+      config:
+        language: en
