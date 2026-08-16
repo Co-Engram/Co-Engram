@@ -44,7 +44,6 @@ describe("insight types and mode registry", () => {
     expect(INSIGHT_LIMITS.maxProposalsPerRun).toBe(5);
     expect(INSIGHT_LIMITS.jaccardDup).toBe(0.65);
     expect(INSIGHT_LIMITS.dreamJaccard).toBe(0.65);
-    expect(INSIGHT_LIMITS.maxRoundsDefault).toBe(5);
     expect(INSIGHT_LIMITS.inFlightTtlMs).toBe(30 * 60_000);
   });
 

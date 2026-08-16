@@ -75,20 +75,17 @@ export const SPREAD_PARAMS: Readonly<{
  * - maxProposalsPerRun:每轮 REM rem-insight 提案硬上限(防提案页淹没;synapse-suggestion 走 rem-synapse 不占额度)
  * - jaccardDup:与已有 pattern/insight 的内容查重阈值(≥ 即丢弃)
  * - dreamJaccard:夜思回灌循环检测阈值(新洞察与历史 ≥ 即本轮作废)
- * - maxRoundsDefault:夜思每条目默认轮数上限(无 accept 到限 → paused + 提示用户裁决)
  * - inFlightTtlMs:in-flight 锁过期时间(进程崩溃后自动回收)
  */
 export const INSIGHT_LIMITS: Readonly<{
   readonly maxProposalsPerRun: number;
   readonly jaccardDup: number;
   readonly dreamJaccard: number;
-  readonly maxRoundsDefault: number;
   readonly inFlightTtlMs: number;
 }> = {
   maxProposalsPerRun: 5,
   jaccardDup: 0.65,
   dreamJaccard: 0.65,
-  maxRoundsDefault: 5,
   inFlightTtlMs: 30 * 60_000,
 };
 

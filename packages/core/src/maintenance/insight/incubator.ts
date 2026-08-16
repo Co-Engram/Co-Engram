@@ -94,7 +94,7 @@ export interface IncubationEntry {
   /** 收束产物(incubation_conclude;幂等可重生成) */
   readonly finalAnswer?: string;
   readonly concludedAt?: string;
-  /** 连续全撞循环计数(≥2 → paused) */
+  /** 连续全撞循环计数(诊断信号保留;单次执行语义下不再驱动 paused) */
   readonly consecutiveVetoed?: number;
   /** resolve(false) 的显式续孵标记:期间 normalize 不做 suggested-resolve 自动翻转(用户裁决主权);新一轮 report 落盘时清除 */
   readonly resumedAt?: string;
@@ -162,13 +162,14 @@ function anchorOn(date: Date, schedule: string): Date {
 }
 
 /**
- * 下一个排程锚点(> lastHatchedAt ?? createdAt);非可调度态返回 null。
+ * 下一个排程锚点(> lastHatchedAt ?? createdAt);仅 active 可调度(单次执行
+ * 语义:跑完即 suggested-resolve 待裁决 → null;resolve(false) 回 active 后恢复)。
  *
  * `now` 不参与计算,仅与 `isDue` 签名对称;返回值可能落在过去(待补跑信号,
  * 由展示层判定)。
  */
 export function computeNextRunAt(entry: IncubationEntry, now: Date = new Date()): string | null {
-  if (entry.status !== "active" && entry.status !== "suggested-resolve") return null;
+  if (entry.status !== "active") return null;
   const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
   // 最坏情形:last 恰在当日锚点后 → 次日锚点必 > last,两轮足够
   for (let i = 0; i < 2; i += 1) {
@@ -368,6 +369,14 @@ export class Incubator {
     };
     const next = [...fresh];
     next[freshIdx] = updated;
+    this.deps.auditLog?.append({
+      actor: "user",
+      action: "incubation_conclude",
+      metadata: {
+        incubationId: id,
+        finalAnswerPreview: finalAnswer.slice(0, 200),
+      },
+    });
     this.write(next);
     return updated;
   }
@@ -378,7 +387,35 @@ export class Incubator {
     if (!target) throw new Error(`incubation ${id} not found`);
     const updated: IncubationEntry = { ...target, status: "paused" };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
+    this.deps.auditLog?.append({
+      actor: "user",
+      action: "incubation_pause",
+      metadata: { incubationId: id },
+    });
     return updated;
+  }
+
+  /**
+   * 删除条目(生命周期终点;in-flight 拒绝,同 updateSchedule 保护)。
+   * 语义:删条目不删提案 —— 提案本体在 proposalEngine,走各自 accept/dismiss
+   * 裁决流;梦境史(timeline)随条目一并移除。
+   */
+  delete(id: string): void {
+    const entries = this.read();
+    const target = entries.find((e) => e.id === id);
+    if (!target) throw new Error(`incubation ${id} not found`);
+    if (target.status === "in-flight") {
+      throw new Error(`incubation ${id} in-flight — delete after the round finishes`);
+    }
+    this.write(entries.filter((e) => e.id !== id));
+    this.deps.auditLog?.append({
+      actor: "user",
+      action: "incubation_delete",
+      metadata: {
+        incubationId: id,
+        question: target.question.slice(0, 120),
+      },
+    });
   }
 
   // ============================================================
@@ -653,23 +690,25 @@ export class Incubator {
       }
     }
 
-    // ---- 轮次推进 + 循环暂停 + 轮数上限 + timeline 落盘 ----
+    // ---- 轮次推进 + timeline 落盘(单次执行语义)----
+    // 排程时刻是「单次任务的启动时刻」:跑完任意一轮 → suggested-resolve,
+    // 完成后待用户裁决,不再自动续夜。再来一次只有两条路:手动「立即夜思」,
+    // 或 resolve(false) 回 active 等下个锚点。consecutiveVetoed 仍逐轮计数
+    // (dup 检测语料/诊断信号保留),但不再驱动自动 paused。
     const consecutive = allVetoed ? (entry.consecutiveVetoed ?? 0) + 1 : 0;
-    let note: string | undefined;
-    if (allVetoed) note = "all insights vetoed as duplicates";
-    let status: IncubationStatus =
-      entry.status === "in-flight" ? "active" : entry.status;
-    if (consecutive >= 2) {
-      status = "paused";
-      note = "孵化空间已充分探索(连续 2 轮全撞重复),已自动 paused";
-    } else if (
-      nextRound >= INSIGHT_LIMITS.maxRoundsDefault &&
-      entityIds.length === 0 &&
-      !entry.timeline.some((t) => t.proposalEntityIds.length > 0)
-    ) {
-      status = "paused";
-      note = `已到默认轮数上限(${INSIGHT_LIMITS.maxRoundsDefault} 轮)且无提案,请用户裁决`;
-    }
+    const note = allVetoed ? "all insights vetoed as duplicates" : undefined;
+    // 轮前已落的用户裁决(paused/resolved)保留;其余(in-flight/active)一律待裁决
+    const status: IncubationStatus =
+      entry.status === "paused" || entry.status === "resolved"
+        ? entry.status
+        : "suggested-resolve";
+    const diagnosis = {
+      drafts: input.report.insights.length,
+      dupVetoed: vetoed,
+      validateRejected,
+      criticRejected,
+      llmClientMissing: !this.deps.llmClient,
+    };
     const timeline: IncubationTimelineEvent[] = [
       ...entry.timeline,
       {
@@ -679,13 +718,7 @@ export class Incubator {
         summaries,
         proposalEntityIds: entityIds,
         externalCallCount: input.report.externalCalls.length,
-        diagnosis: {
-          drafts: input.report.insights.length,
-          dupVetoed: vetoed,
-          validateRejected,
-          criticRejected,
-          llmClientMissing: !this.deps.llmClient,
-        },
+        diagnosis,
         ...(answerDraft ? { answerDraft } : {}),
         ...(answerDraftError ? { answerDraftError } : {}),
         ...(note ? { note } : {}),
@@ -722,6 +755,21 @@ export class Incubator {
     };
     const next = [...fresh];
     next[freshIdx] = finalEntry;
+    // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata(audit.jsonl
+    // 按行 JSON.stringify,天然支持嵌套);草稿仅记 200 字预览防爆噪。
+    this.deps.auditLog?.append({
+      actor: input.actor,
+      action: "incubation_round",
+      metadata: {
+        incubationId: entry.id,
+        round: nextRound,
+        trigger: input.trigger,
+        proposals: entityIds.length,
+        drafts: input.report.insights.length,
+        diagnosis,
+        ...(answerDraft ? { answerDraftPreview: answerDraft.slice(0, 200) } : {}),
+      },
+    });
     this.write(next);
     return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: finalEntry };
   }

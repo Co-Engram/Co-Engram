@@ -15,6 +15,8 @@ function makeIncubator(
     llmComplete?: (prompt: string) => Promise<string>;
     /** 模拟已被 accept 的提案 entityId(构造 normalize 翻转场景) */
     acceptedEntityId?: string;
+    /** 审计收集器(断言 incubation_conclude 审计事件) */
+    audit?: Array<{ actor: string; action: string; metadata?: Record<string, unknown> }>;
   } = {},
 ) {
   const dataRoot = mkdtempSync(join(tmpdir(), "inc-conclude-"));
@@ -28,6 +30,15 @@ function makeIncubator(
     },
     dataRoot,
     ...(opts.llmComplete ? { llmClient: { complete: opts.llmComplete } as never } : {}),
+    ...(opts.audit
+      ? {
+          auditLog: {
+            append: (e: { actor: string; action: string; metadata?: Record<string, unknown> }) => {
+              opts.audit!.push(e);
+            },
+          },
+        }
+      : {}),
   });
   return { incubator, dataRoot };
 }
@@ -112,6 +123,21 @@ describe("conclude / updateSchedule", () => {
     entryId = e.id;
     await expect(incubator.conclude(e.id)).rejects.toThrow(/in-flight/);
     expect(incubator.get(e.id)?.status).toBe("in-flight");
+  });
+
+  it("conclude 成功 → 审计记 incubation_conclude(incubationId + finalAnswerPreview 截断 200)", async () => {
+    const audit: Array<{ actor: string; action: string; metadata?: Record<string, unknown> }> = [];
+    const { incubator } = makeIncubator({
+      llmComplete: async () => "答".repeat(300),
+      audit,
+    });
+    const e = incubator.create({ question: "测试问题ABC" });
+    await incubator.conclude(e.id);
+    const rec = audit.find((x) => x.action === "incubation_conclude");
+    expect(rec).toBeDefined();
+    expect(rec!.actor).toBe("user");
+    expect(rec!.metadata!.incubationId).toBe(e.id);
+    expect(rec!.metadata!.finalAnswerPreview).toBe("答".repeat(200));
   });
 
   it("updateSchedule 合法值落盘;in-flight 拒绝;非法值抛错", () => {

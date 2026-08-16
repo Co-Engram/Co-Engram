@@ -172,7 +172,7 @@ describe("L1 执行 + 回灌 + 循环检测", () => {
     expect(task.webResearchOptIn).toBe(false); // 默认 off
   });
 
-  it("循环检测:第 2 轮洞察与历史重复 → 本轮作废(cycleVetoed);连续 2 轮全撞 → paused", async () => {
+  it("循环检测:第 2 轮洞察与历史重复 → 本轮作废(cycleVetoed);连续全撞仅计数(单次执行下不再自动 paused)", async () => {
     const a = makeSource("A", ["域甲"]);
     const b = makeSource("B", ["域乙"]);
     const entry = incubator.create({ question: "Q", seedEngramIds: [a.id, b.id] });
@@ -184,24 +184,23 @@ describe("L1 执行 + 回灌 + 循环检测", () => {
     expect(r2.cycleVetoed).toBe(true);
     expect(r2.proposals).toBe(0);
     expect(r2.entry.consecutiveVetoed).toBe(1);
+    expect(r2.entry.status).toBe("suggested-resolve"); // 单次执行:跑完待裁决
     clockMs += 60_000;
     const r3 = await incubator.incubateOnce(entry.id, "scheduled");
     expect(r3.cycleVetoed).toBe(true);
-    expect(incubator.get(entry.id)!.status).toBe("paused"); // 充分探索
+    expect(r3.entry.consecutiveVetoed).toBe(2);
+    expect(incubator.get(entry.id)!.status).toBe("suggested-resolve"); // 不再自动 paused
     const last = incubator.get(entry.id)!.timeline.at(-1)!;
-    expect(last.note).toContain("充分探索");
+    expect(last.note).toContain("vetoed as duplicates");
   });
 
-  it("轮数上限:5 轮无提案 → paused + 提示用户裁决", async () => {
+  it("单次执行:零洞察跑完一轮 → suggested-resolve(无提案也待裁决,不自动续夜)", async () => {
     const entry = incubator.create({ question: "Q" });
-    generationOutput = "[]"; // 每轮零洞察
-    for (let i = 0; i < 5; i++) {
-      clockMs += 60_000;
-      await incubator.incubateOnce(entry.id, "scheduled");
-    }
-    expect(incubator.get(entry.id)!.rounds).toBe(5);
-    expect(incubator.get(entry.id)!.status).toBe("paused");
-    expect(incubator.get(entry.id)!.timeline.at(-1)!.note).toContain("上限");
+    generationOutput = "[]"; // 零洞察
+    await incubator.incubateOnce(entry.id, "scheduled");
+    expect(incubator.get(entry.id)!.rounds).toBe(1);
+    expect(incubator.get(entry.id)!.status).toBe("suggested-resolve");
+    expect(incubator.get(entry.id)!.timeline.at(-1)!.note).toBeUndefined();
   });
 });
 
@@ -265,16 +264,22 @@ describe("独立日调度 runDue(锚点时刻制)", () => {
     clockMs = anchor.getTime();
     const r1 = await incubator.runDue();
     expect(r1.ran).toContain(fresh.id);
-    // 当日锚点 ≤ lastHatchedAt → 再 tick 不重复
+    // 单次执行:跑完即 suggested-resolve(待裁决)→ 不再列跑
     const r2 = await incubator.runDue();
     expect(r2.ran).not.toContain(fresh.id);
-    expect(r2.skipped).toContain(fresh.id);
-    // 越过下一个锚点(错过补跑)→ 再触发
+    expect(r2.skipped).not.toContain(fresh.id); // 非 active,不进 due 名单
+    // resolve(false) → active(用户要再来一次);当日锚点 ≤ lastHatchedAt → 仍不跑
+    incubator.resolve(fresh.id, false);
+    const r2b = await incubator.runDue();
+    expect(r2b.ran).not.toContain(fresh.id);
+    expect(r2b.skipped).toContain(fresh.id);
+    // 越过下一个锚点(错过补跑)→ 再触发一轮 → 又 suggested-resolve
     clockMs += 25 * 3600_000;
     generationOutput = draftJson("次夜洞察", [a.id, b.id]);
     const r3 = await incubator.runDue();
     expect(r3.ran).toContain(fresh.id);
     expect(incubator.get(fresh.id)!.rounds).toBe(2);
+    expect(incubator.get(fresh.id)!.status).toBe("suggested-resolve");
   });
 });
 

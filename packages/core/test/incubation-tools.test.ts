@@ -123,7 +123,7 @@ describe("执行语义", () => {
     ).rejects.toThrow();
   });
 
-  it("report 回写:rounds+1、状态恢复 active、洞察走提案", async () => {
+  it("report 回写:rounds+1、单次执行后待裁决(suggested-resolve)、洞察走提案", async () => {
     const registry = createToolRegistry();
     const a = repo.createEngram({
       title: "A", content: "内容甲", kind: "fact",
@@ -160,9 +160,9 @@ describe("执行语义", () => {
       },
       ctx,
     )) as { rounds: number; status: string; proposals: number };
-    // 无 llmClient → critic fail-closed → proposals=0,但轮次推进、状态恢复
+    // 无 llmClient → critic fail-closed → proposals=0,但轮次推进、跑完待裁决
     expect(r.rounds).toBe(1);
-    expect(r.status).toBe("active");
+    expect(r.status).toBe("suggested-resolve");
     expect(r.proposals).toBe(0);
   });
 
