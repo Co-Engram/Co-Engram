@@ -90,7 +90,14 @@ export function adaptToolToDefinition(
     },
     async execute(args, _exec) {
       try {
-        return await tool.execute(args ?? {}, ctx);
+        const result = await tool.execute(args ?? {}, ctx);
+        // lossless 净化:core 工具返回的 TS 对象可含 undefined 可选字段
+        // (如 engram_get tier=meta 的 updatedBy/encodingContext 等)。
+        // MCP 路径经 JSON.stringify 静默剥离;dsh 对 execute 返回值逐项做
+        // lossless JSON 校验,undefined 直接违规(Code Mode 子调用即报
+        // "value is not lossless JSON")。JSON round-trip 剥 undefined/函数,
+        // Date→ISO 字符串,对"意为 JSON"的工具返回语义无损。
+        return JSON.parse(JSON.stringify(result ?? null));
       } catch (error) {
         // 结构化错误字段(code/resourceId/suggestion/retryable)序列化进 message,
         // 让 LLM 拿到 actionable 文本决定是否重试。
