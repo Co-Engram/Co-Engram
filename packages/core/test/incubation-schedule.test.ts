@@ -116,6 +116,7 @@ describe("锚点 due/nextRunAt(spec §四,红队修正 R4)", () => {
     const e = entry({ lastHatchedAt: "2026-08-13T16:00:00.000Z" }); // 08-14 00:00+08(昨日锚点轮)
     const now = new Date("2026-08-15T05:00:00.000Z"); // 08-15 13:00+08
     expect(isDue(e, now)).toBe(true);
+    expect(new Date(computeNextRunAt(e, now)!) < now).toBe(true);
   });
 
   it("resolved/paused 态无 nextRunAt", () => {

@@ -74,7 +74,8 @@ export function startMaintenanceRuntime(
       ...(deps.proposalEngine ? { proposalEngine: deps.proposalEngine } : {}),
       // S4 Task 3: 注入 skillRepository(供 light stage skill retention 衰退用)
       ...(deps.skillRepository ? { skillRepository: deps.skillRepository } : {}),
-      // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+      // 夜思独立日调度(锚点时刻制,spec §四):light tick 触发;
+      // active 条目每日 schedule 时刻一轮(默认 00:00),错过补跑
       ...(deps.incubator ? { incubator: deps.incubator } : {}),
     },
     config,

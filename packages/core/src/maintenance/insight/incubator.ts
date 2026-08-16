@@ -137,11 +137,17 @@ function anchorOn(date: Date, schedule: string): Date {
   return d;
 }
 
-/** 下一个排程锚点(> lastHatchedAt ?? createdAt);非可调度态返回 null */
+/**
+ * 下一个排程锚点(> lastHatchedAt ?? createdAt);非可调度态返回 null。
+ *
+ * `now` 不参与计算,仅与 `isDue` 签名对称;返回值可能落在过去(待补跑信号,
+ * 由展示层判定)。
+ */
 export function computeNextRunAt(entry: IncubationEntry, now: Date = new Date()): string | null {
   if (entry.status !== "active" && entry.status !== "suggested-resolve") return null;
   const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
-  for (let i = 0; i <= 2; i += 1) {
+  // 最坏情形:last 恰在当日锚点后 → 次日锚点必 > last,两轮足够
+  for (let i = 0; i < 2; i += 1) {
     const day = new Date(last);
     day.setDate(day.getDate() + i);
     const anchor = anchorOn(day, entry.schedule ?? "00:00");

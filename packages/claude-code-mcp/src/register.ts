@@ -462,7 +462,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 2: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(skillRepository ? { skillRepository } : {}),
-          // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+          // 夜思独立日调度(锚点时刻制,spec §四):light tick 触发;
+          // active 条目每日 schedule 时刻一轮(默认 00:00),错过补跑
           ...(incubator ? { incubator } : {}),
         },
         config.maintenanceConfig ?? {},
