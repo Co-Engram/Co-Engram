@@ -1,4 +1,4 @@
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -7,7 +7,7 @@ import { Incubator } from "../src/maintenance/insight/incubator.js";
 import type { NightThinkingReport } from "../src/maintenance/insight/types.js";
 
 function makeIncubator(
-  opts: { llmComplete?: () => Promise<string>; readableSources?: boolean } = {},
+  opts: { llmComplete?: (prompt: string) => Promise<string>; readableSources?: boolean } = {},
 ) {
   const dataRoot = mkdtempSync(join(tmpdir(), "inc-report-"));
   const incubator = new Incubator({
@@ -46,7 +46,7 @@ function makeIncubator(
     ...(opts.llmComplete ? { llmClient: { complete: opts.llmComplete } as never } : {}),
     now: () => "2026-08-16T02:00:00.000Z",
   });
-  return { incubator };
+  return { incubator, dataRoot };
 }
 
 const reportOf = (insights: unknown[]): NightThinkingReport =>
@@ -163,5 +163,127 @@ describe("report() answerDraft(不降级,失败报错)", () => {
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(r.entry.timeline.at(-1)?.answerDraftError).toBeTruthy();
+  });
+});
+
+describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
+  it("第 1 轮 prompt 含 question、(no previous rounds) 与 (none survived this round) 空态占位", async () => {
+    const prompts: string[] = [];
+    const { incubator } = makeIncubator({
+      llmComplete: async (prompt) => {
+        prompts.push(prompt);
+        return "阶段结论。";
+      },
+    });
+    const e = incubator.create({ question: "如何让知识自然生长?" });
+    await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toContain("## Question");
+    expect(prompts[0]).toContain("如何让知识自然生长?");
+    expect(prompts[0]).toContain("(no previous rounds)");
+    expect(prompts[0]).toContain("(none survived this round)");
+  });
+
+  it("成案草稿以「标题 — 摘要」渲染(- 前缀);第 2 轮 prompt 累积第 1 轮梦境史", async () => {
+    const prompts: string[] = [];
+    const { incubator } = makeIncubator({
+      readableSources: true,
+      llmComplete: async (prompt) => {
+        prompts.push(prompt);
+        // critic 调用返回评分 JSON;综合调用(WORKING ANSWER DRAFT)返回草稿文本
+        if (prompt.includes("independent critic")) {
+          return '{"overall":0.9,"rationale":"ok"}';
+        }
+        return "阶段结论。";
+      },
+    });
+    const e = incubator.create({ question: "如何让知识自然生长?" });
+    // 第 1 轮:1 条草稿通过 validate + critic → 成案
+    const r1 = await incubator.report({
+      incubationId: e.id,
+      report: reportOf([{ mode: "inspiration", type: "theme", title: "跨域共性主题", summary: "两域共享结构", content: "c", sourceIds: ["src-1", "src-2"], domainTags: [], reason: "r" }]),
+      trigger: "manual",
+      actor: "test",
+    });
+    expect(r1.proposals).toBe(1);
+    const synth1 = prompts.find((p) => p.includes("WORKING ANSWER DRAFT"));
+    expect(synth1).toBeDefined();
+    // 证据面 = 「标题 — 摘要」(不再是纯 title),以 "- " 前缀成行
+    expect(synth1).toContain("- 跨域共性主题 — 两域共享结构");
+    // timeline.summaries 契约不变:仍只存 title(Jaccard 语料不动)
+    expect(r1.entry.timeline.at(-1)?.summaries).toEqual(["跨域共性主题"]);
+
+    // 第 2 轮:零成案 → 综合看到第 1 轮梦境史(dreamHistoryFor 生效)+ 空态占位
+    prompts.length = 0;
+    await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "scheduled", actor: "test" });
+    const synth2 = prompts.find((p) => p.includes("WORKING ANSWER DRAFT"));
+    expect(synth2).toBeDefined();
+    expect(synth2).toContain("Round 1(manual): 跨域共性主题");
+    expect(synth2).not.toContain("(no previous rounds)");
+    expect(synth2).toContain("(none survived this round)");
+  });
+
+  it("综合输出 5000 字符 → answerDraft 截断至 4000", async () => {
+    const { incubator } = makeIncubator({ llmComplete: async () => "结".repeat(5000) });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(r.entry.timeline.at(-1)?.answerDraft).toHaveLength(4000);
+  });
+});
+
+describe("report() 写前重读合并(并发与用户裁决保留)", () => {
+  const overwriteDisk = (dataRoot: string, mutate: (x: { id: string; status: string }) => void) => {
+    // 模拟轮中(report 挂起在综合 await 时)其他写者直接改盘
+    const path = join(dataRoot, ".co-engram", "incubations.json");
+    const raw = JSON.parse(readFileSync(path, "utf8")) as Array<{ id: string; status: string }>;
+    for (const x of raw) mutate(x);
+    writeFileSync(path, JSON.stringify(raw, null, 2) + "\n", "utf8");
+  };
+
+  it("轮中用户 pause(并发改盘)→ 落盘保留 paused,timeline 仍追加本轮", async () => {
+    const { incubator, dataRoot } = makeIncubator({
+      llmComplete: async () => {
+        overwriteDisk(dataRoot, (x) => {
+          x.status = "paused";
+        });
+        return "阶段结论:保留用户裁决。";
+      },
+    });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    const onDisk = incubator.get(e.id)!;
+    expect(onDisk.status).toBe("paused"); // 用户裁决优先,未被轮末覆写回 active
+    expect(r.entry.status).toBe("paused");
+    expect(onDisk.rounds).toBe(1); // 轮次与 timeline 仍推进
+    expect(onDisk.timeline).toHaveLength(1);
+    expect(onDisk.timeline.at(-1)?.answerDraft).toBe("阶段结论:保留用户裁决。");
+  });
+
+  it("轮中用户 resolve(并发改盘 status=resolved)→ 落盘保留 resolved", async () => {
+    const { incubator, dataRoot } = makeIncubator({
+      llmComplete: async () => {
+        overwriteDisk(dataRoot, (x) => {
+          x.status = "resolved";
+        });
+        return "阶段结论。";
+      },
+    });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(incubator.get(e.id)?.status).toBe("resolved");
+    expect(r.entry.status).toBe("resolved");
+  });
+
+  it("轮中条目被并发删除 → 放弃写入,不复活条目", async () => {
+    const { incubator, dataRoot } = makeIncubator({
+      llmComplete: async () => {
+        writeFileSync(join(dataRoot, ".co-engram", "incubations.json"), "[]\n", "utf8");
+        return "阶段结论。";
+      },
+    });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    expect(incubator.get(e.id)).toBeUndefined(); // 未复活已删条目
+    expect(r.entry.rounds).toBe(1); // 仍返回本轮计算结果
   });
 });

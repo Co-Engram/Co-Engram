@@ -142,7 +142,13 @@ export async function synthesizeAnswerDraft(
     "how confident it is, and what the next round should examine. If nothing survived yet,",
     "say so honestly instead of inventing conclusions. Plain text only, no markdown fences.",
   ].join("\n");
-  const raw = await llm.complete(prompt, { temperature: 0.3, maxTokens: 8192, timeoutMs: 120_000 });
+  // 效果优先(2026-08-15 用户决策,与 critic.ts 对齐):GLM thinking 模型
+  // 思考耗时长,120s 会系统性超时 → 600s;8192 → 16384 给足输出预算
+  const raw = await llm.complete(prompt, {
+    temperature: 0.3,
+    maxTokens: 16384,
+    timeoutMs: 600_000,
+  });
   const text = raw.trim();
   if (!text) throw new Error("empty synthesis output");
   return text.slice(0, 4000);

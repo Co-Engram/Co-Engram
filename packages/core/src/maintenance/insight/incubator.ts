@@ -506,6 +506,9 @@ export class Incubator {
     // ---- 机械校验 + 独立 critic → rem-insight 提案(捕获即时成提案) ----
     const summaries: string[] = [];
     const entityIds: string[] = [];
+    /** 综合证据面:成案草稿的「标题 — 摘要」。timeline.summaries 仍只存
+     * title(既有契约 + Jaccard 语料不变),仅综合调用拿到更宽的证据面。 */
+    const draftEvidence: string[] = [];
     const threshold = DEFAULT_REM_INSIGHT.criticThreshold;
     let validateRejected = 0;
     let criticRejected = 0;
@@ -545,6 +548,7 @@ export class Incubator {
       });
       if (ok) {
         summaries.push(d.title);
+        draftEvidence.push(`${d.title} — ${d.summary}`);
         entityIds.push(entityId);
       }
     }
@@ -557,11 +561,15 @@ export class Incubator {
       answerDraftError = "llmClient unavailable";
     } else {
       try {
+        // 证据面取「标题 — 摘要」:draftEvidence 与 summaries 在同一 if(ok)
+        // 分支共同 push、长度恒相等,零成案时二者同为空(综合端渲染空态占位),
+        // 故直接传 draftEvidence 即等价于「有成案用标题+摘要、零成案退回
+        // title 列表」的语义,无需再写 length 回退分支。
         answerDraft = await synthesizeAnswerDraft(
           this.deps.llmClient,
           entry.question,
           this.dreamHistoryFor(entry.id),
-          summaries,
+          draftEvidence,
         );
       } catch (err) {
         answerDraftError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
@@ -616,10 +624,27 @@ export class Incubator {
       inFlightAt: undefined,
       inFlightBy: undefined,
     };
-    const next = [...entries];
-    next[idx] = updated;
+    // 写前重读合并:report 中途有 await(critic/综合走 LLM),若仍基于开头
+    // 快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中用户
+    // pause/resolve 裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
+    const fresh = this.read();
+    const freshIdx = fresh.findIndex((x) => x.id === entry.id);
+    if (freshIdx === -1) {
+      // 本条目被并发删除:放弃写入(不复活已删条目),返回本轮计算结果
+      return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: updated };
+    }
+    const freshEntry = fresh[freshIdx]!;
+    const finalEntry: IncubationEntry = {
+      ...updated,
+      status:
+        freshEntry.status === "paused" || freshEntry.status === "resolved"
+          ? freshEntry.status
+          : status,
+    };
+    const next = [...fresh];
+    next[freshIdx] = finalEntry;
     this.write(next);
-    return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: updated };
+    return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: finalEntry };
   }
 
   /** 由 sourceIds 构造最小校验子图(节点来自 repo;不存在者由引用闭合拒绝) */
