@@ -2345,10 +2345,12 @@ window.CO_ENGRAM_PROPOSALS = {
       return (typeof n === 'number') ? ' (' + n + ')' : '';
     };
 
-    const buttons = ['pending', 'accepted', 'dismissed', 'all'].map(s =>
-      '<button class="seg-tab ' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
+    // 状态过滤按钮组(2026-08-16 定稿):复用印迹 tab 的 .view-toggle 分段容器
+    // (统一外框 + 内部无边框按钮 + active 浅青底),与全站分段控件一致。
+    const buttons = '<div class="view-toggle">' + ['pending', 'accepted', 'dismissed', 'all'].map(s =>
+      '<button class="' + (s === currentStatus ? 'active' : '') + '" onclick="CO_ENGRAM_PROPOSALS._setStatus(\\'' + s + '\\')">'
       + CO_ENGRAM.escapeHtml(statusLabel(s) + countFor(s)) + '</button>'
-    ).join('');
+    ).join('') + '</div>';
 
     // 客户端虚拟分页(2026-07):与 engrams tab 同款翻页模式。
     // 旧版"加载更多"按钮在 2044+ 条候选下点击一次要拉一批,UI 无页码概念;
