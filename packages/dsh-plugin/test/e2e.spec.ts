@@ -73,9 +73,24 @@ describe("e2e: dsh 宿主完整往返", () => {
         });
         await done.promise;
 
-        // ② prompt 段进入组装:prompt.test 已验证段文本契约;
-        // 这里验证 SectionRegistry 层面 —— 段已注册且求值产出含 topTags 的引导文本
-        // (systemPrompt.render 的宿主级签名随 rc 版本变动,不在此耦合)
+        // ② 端到端:最终投喂模型的 system prompt 文本包含 memory:co-engram 段
+        //    且 prompt-signals(刚写入的 tag)已动态注入
+        const promptDone = Promise.withResolvers<string>();
+        await ctx.plugin({
+          inject: ["systemPrompt"],
+          async apply(c: {
+            systemPrompt: {
+              assemble: (ctx?: unknown) => Promise<unknown>;
+            };
+          }) {
+            const { renderPrompt } = await import("@deepseek-ai/dsh-system-prompt");
+            const assembly = await c.systemPrompt.assemble({});
+            promptDone.resolve(renderPrompt(assembly as never));
+          },
+        });
+        const finalPrompt = await promptDone.promise;
+        expect(finalPrompt).toMatch(/engram_search|memory/i);
+        expect(finalPrompt).toContain("dsh-e2e"); // 刚写入的 domainTag → topTags 动态注入
       } finally {
         delete process.env.CO_ENGRAM_TEST_DATAROOT;
         rmSync(dataRoot, { recursive: true, force: true });
