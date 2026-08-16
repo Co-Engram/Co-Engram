@@ -10,10 +10,10 @@ afterEach(() => {
 });
 
 describe("createDshRuntime", () => {
-  it("组装成功:host 标识 dsh-plugin、standard profile 工具就绪、dataRoot 自动创建", () => {
+  it("组装成功:host 标识 dsh-plugin、standard profile 工具就绪、dataRoot 自动创建", async () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "dsh-boot-"));
     roots.push(dataRoot);
-    const rt = createDshRuntime({ dataRootOverrideForTest: dataRoot });
+    const rt = await createDshRuntime({ dataRootOverrideForTest: dataRoot });
     expect(rt.ctx.host).toBe("dsh-plugin");
     expect(rt.tools.length).toBeGreaterThanOrEqual(38);
     expect(rt.tools.every((t) => !t.name.startsWith("mcp__"))).toBe(true);
@@ -21,10 +21,10 @@ describe("createDshRuntime", () => {
     rt.stop();
   });
 
-  it("ProcessLock 释放幂等(stop 两次不抛)", () => {
+  it("ProcessLock 释放幂等(stop 两次不抛)", async () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "dsh-boot2-"));
     roots.push(dataRoot);
-    const rt = createDshRuntime({ dataRootOverrideForTest: dataRoot });
+    const rt = await createDshRuntime({ dataRootOverrideForTest: dataRoot });
     rt.stop();
     expect(() => rt.stop()).not.toThrow();
   });

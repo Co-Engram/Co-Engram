@@ -45,12 +45,12 @@
   },
   "dependencies": {
     "@co-engram/core": "workspace:*",
-    "@co-engram/viewer": "workspace:*"
+    "@co-engram/viewer": "workspace:*",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.1",
     "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
-    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
     "zod": "^3.23.0"
   }
 }

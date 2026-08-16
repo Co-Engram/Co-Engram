@@ -101,7 +101,7 @@ function findInstalledMergeDriverBundle(): string | null {
  * 走 SqliteSearchEngineAdapter 时跳过;memory 模式仍全量。
  */
 function rebuildSearchIndex(
-  search: SearchOrchestrator,
+  search: SearchOrchestrator | import("@co-engram/core").SearchEngine,
   repo: EngramRepository,
 ): void {
   const isSqliteEngine =
@@ -116,10 +116,13 @@ function rebuildSearchIndex(
 }
 
 /** 组装 dsh 宿主运行时 */
-export function createDshRuntime(config: DshPluginConfig): DshRuntime {
+export async function createDshRuntime(
+  config: DshPluginConfig,
+): Promise<DshRuntime> {
   // dataRoot:测试注入 > resolveBootstrapDataRoot(~/.co-engram/config.json 权威)
   const dataRoot =
-    config.dataRootOverrideForTest ?? resolveBootstrapDataRoot().dataRoot;
+    config.dataRootOverrideForTest ??
+    (await resolveBootstrapDataRoot()).dataRoot;
   if (!existsSync(dataRoot)) {
     mkdirSync(dataRoot, { recursive: true });
   }

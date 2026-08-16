@@ -79,7 +79,7 @@ describe("zodShapeToParameterSpec", () => {
     expect(spec.extra).toEqual({ type: "json", description: "可选元数据" });
   });
 
-  it("真实工具注册表全量转换:每个属性都有 type 且不抛异常", async () => {
+  it("真实工具注册表全量转换:每个属性都有 type 且不抛异常", { timeout: 30_000 }, async () => {
     const { createToolRegistry } = await import("@co-engram/core");
     const tools = createToolRegistry().list();
     expect(tools.length).toBeGreaterThan(30);

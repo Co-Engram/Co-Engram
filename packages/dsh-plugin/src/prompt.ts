@@ -16,19 +16,42 @@ import {
 } from "@co-engram/core";
 import type { DshRuntime } from "./bootstrap.js";
 
-/** topTags 实时计算(register.ts:375-388 同源规则) */
-function computeTopTags(repository: DshRuntime["ctx"]["repository"]): string[] {
+/** topTags + stats 实时计算(一次遍历两产物,register.ts:375-388 同源规则) */
+function computeSignals(repository: DshRuntime["ctx"]["repository"]): {
+  topTags: string[];
+  stats: {
+    totalEngrams: number;
+    totalTagOccurrences: number;
+    uniqueTags: number;
+    tagCounts: Record<string, number>;
+  };
+} {
   const counts: Record<string, number> = {};
+  let totalEngrams = 0;
+  let totalTagOccurrences = 0;
   for (const e of repository.listEngrams()) {
+    totalEngrams += 1;
     for (const tag of e.domainTags ?? []) {
       const t = tag.trim();
-      if (t) counts[t] = (counts[t] ?? 0) + 1;
+      if (t) {
+        counts[t] = (counts[t] ?? 0) + 1;
+        totalTagOccurrences += 1;
+      }
     }
   }
-  return Object.entries(counts)
+  const topTags = Object.entries(counts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 20)
     .map(([t]) => t);
+  return {
+    topTags,
+    stats: {
+      totalEngrams,
+      totalTagOccurrences,
+      uniqueTags: Object.keys(counts).length,
+      tagCounts: counts,
+    },
+  };
 }
 
 /**
@@ -46,19 +69,21 @@ export function createCoEngramPromptSection(runtime: DshRuntime): {
   return {
     name: "memory:co-engram",
     order: 120,
-    text: () =>
-      buildCoEngramMemoryPrompt({
+    text: () => {
+      const { topTags, stats } = computeSignals(ctx.repository);
+      return buildCoEngramMemoryPrompt({
         availableTools,
         citationsMode: "compact",
         language: language as Language,
         // signals 每次组装实时构造(openclaw 为启动快照;dsh 侧全部动态)
         signals: {
           version: 1,
-          topTags: computeTopTags(ctx.repository),
+          topTags,
           missedTopics: [],
           lowConfidenceTopics: [],
           updatedAt: new Date().toISOString(),
           generatedBy: "dsh-plugin@runtime",
+          stats,
         } satisfies PromptSignals,
         proposalCount: ctx.proposalEngine?.listPending().length ?? 0,
         pathOverview: pathOverviewFromTree(ctx.repository.listPathTree(), 2),
@@ -70,6 +95,7 @@ export function createCoEngramPromptSection(runtime: DshRuntime): {
               ),
             }
           : {}),
-      }).join("\n\n"),
+      }).join("\n\n");
+    },
   };
 }
