@@ -49,6 +49,24 @@ describe("adaptToolToDefinition", () => {
     expect(out).toMatchObject({ ok: true });
   });
 
+  it("execute 净化非 lossless 值:undefined 字段被剥、Date 转 ISO(真实库 engram_get meta tier 场景)", async () => {
+    const tool = makeTool("engram_get");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (tool as any).execute = async () => ({
+      id: "01ABC",
+      meta: { title: "t", updatedBy: undefined, encodingContext: undefined, at: new Date(0) },
+      nums: [1, 2],
+    });
+    const def = adaptToolToDefinition(tool, makeCtx(), "en");
+    const out = (await def.execute({}, { signal: new AbortController().signal })) as {
+      meta: Record<string, unknown>;
+    };
+    expect("updatedBy" in out.meta).toBe(false);
+    expect("encodingContext" in out.meta).toBe(false);
+    expect(out.meta.at).toBe("1970-01-01T00:00:00.000Z"); // Date → ISO string
+    expect(out.nums).toEqual([1, 2]);
+  });
+
   it("execute 抛错 → Error(serializeToolError 文本)", async () => {
     const tool = makeTool("boom");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
