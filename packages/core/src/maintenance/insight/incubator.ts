@@ -24,6 +24,8 @@ import { randomUUID } from "node:crypto";
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { insightEntityId } from "../../observability/proposal-engine.js";
+import { collectDigestLines } from "../../index/digest-builder.js";
+import { buildFtsIndex, searchFts } from "../../retrieval/fts.js";
 import { critique } from "./critic.js";
 import {
   createL1Executor,
@@ -156,6 +158,54 @@ const INCUBATIONS_FILE = "incubations.json";
 
 function incubationsPath(dataRoot: string): string {
   return join(dataRoot, ".co-engram", INCUBATIONS_FILE);
+}
+
+/**
+ * 种子空兜底(缺陷 D,2026-08-17):seedEngramIds 为空时用问题文本对全库做
+ * FTS 检索(buildFtsIndex/searchFts,与 engram_search 同源底层)取 top-K
+ * active 记忆作为运行时种子。
+ *
+ * 此前种子为空 → 任务包零记忆上下文:L2 靠协议自觉检索尚可救,L1(无工具
+ * 单次调用)的草稿必然 "no sourceIds" 被引用闭合全灭(2026-08-16 重放实测
+ * 7/7 全灭)。兜底让每一轮至少携带可引用的真实 engram。检索命中为零(库中
+ * 确无相关记忆)时返回空 —— 此时 L1 仍会全灭,但拒因/轨迹可见,综合层会
+ * 如实归因而非误导。
+ */
+function searchFallbackSeeds(
+  repo: EngramRepository,
+  question: string,
+  cap = 8,
+): NightThinkingTask["seedDigests"] {
+  let lines: ReturnType<typeof collectDigestLines>;
+  try {
+    lines = collectDigestLines(repo).filter((l) => l.status === "active");
+  } catch {
+    // 索引不可用(损坏 / 测试 fake repo):兜底 best-effort,失败降级为无
+    // 种子(回到旧行为),不阻塞轮次执行
+    return [];
+  }
+  if (lines.length === 0) return [];
+  const index = buildFtsIndex(lines);
+  const hits = searchFts(question, index, cap * 3);
+  const byId = new Map(lines.map((l) => [l.id, l] as const));
+  const out: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    domainTags: readonly string[];
+  }> = [];
+  for (const hit of hits) {
+    const line = byId.get(hit.docId);
+    if (!line) continue;
+    out.push({
+      id: line.id,
+      title: line.title,
+      summary: line.summary,
+      domainTags: line.domainTags ?? [],
+    });
+    if (out.length >= cap) break;
+  }
+  return out;
 }
 
 function parseAt(iso: string): number {
@@ -505,10 +555,13 @@ export class Incubator {
   buildTask(id: string): NightThinkingTask {
     const entry = this.get(id);
     if (!entry) throw new Error(`incubation ${id} not found`);
+    const seedDigests = entry.seedEngramIds.length > 0
+      ? collectSeedDigests(this.deps.repository, entry.seedEngramIds)
+      : searchFallbackSeeds(this.deps.repository, entry.question);
     return {
       incubationId: entry.id,
       question: entry.question,
-      seedDigests: collectSeedDigests(this.deps.repository, entry.seedEngramIds),
+      seedDigests,
       dreamHistory: this.dreamHistoryFor(id),
       webResearchOptIn: entry.webResearchOptIn,
       resourceHints: collectResourceHints(this.deps.dataRoot),
@@ -539,6 +592,19 @@ export class Incubator {
       throw new Error(`incubation ${id} already in-flight`);
     }
     const task = this.buildTask(id);
+    // 种子空兜底留痕(缺陷 D):显式种子为空但任务包拿到了种子 → 记审计,
+    // audit_query / viewer 可区分「本轮种子来自兜底检索」与「用户指定」
+    if (entry.seedEngramIds.length === 0 && task.seedDigests.length > 0) {
+      this.deps.auditLog?.append({
+        actor: "system",
+        action: "night_thinking_seed_fallback",
+        metadata: {
+          incubationId: id,
+          seeded: task.seedDigests.length,
+          questionPreview: entry.question.slice(0, 80),
+        },
+      });
+    }
     let report: NightThinkingReport;
     let level: "L1" | "L2";
     try {

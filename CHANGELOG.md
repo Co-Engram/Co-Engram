@@ -39,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新工具 `incubation_pause` / `incubation_delete`**(9 工具,standard 42 / full 50):暂停自动排程(进行中的轮与收束不受影响;恢复走 `resolve` 选「还没有」);删除条目本体(已产出的提案与审计保留,梦境时间线随条目移除)。`incubation_run` 补状态门禁 —— paused/resolved 条目明确报错并指向恢复路径(此前被误报为「已在执行中」引向死等)。
 - **viewer 夜思实验室**:条目卡片新增暂停/恢复/删除按钮(删除带 confirm 二次确认,注明提案与审计保留);活跃区默认只展开前 5 张卡(其余折叠)+ 问题文本过滤框(焦点与光标跨 re-render 保持,IME 不被打断);预算横幅并入机理块;全文案改为单次执行口径;suggested-resolve 卡片加「已跑完:收束出结论,或再来一次」引导。
 - **可观测性**:时间线轮次新增逐条拒因(`rejectReasons`)与执行轨迹(`trace`)折叠展示(旧轮数据无字段不渲染);工具描述与双语 i18n 清理过时口径(nextRunAt 仅 active 态非空;resolve 知情说明)。
+- **证据锚定与归因治理(2026-08-17)**:① 协议新增 EVIDENCE ANCHORING 硬门 —— 洞察的 `sourceIds` 必须是记忆库真实 engram id,源码/日志/网页证据写入 content(全资源盘点的产物不再被引用闭合全拒);② 阶段综合(`answerDraft`)输入面扩展 —— 注入本轮执行轨迹、外部调研 purpose 与逐条拒因,零存活轮的归因锚定真实证据(不再出现「先明确问题所指」式误导);③ 种子空兜底 —— `seedEngramIds` 为空时,任务包用问题文本对全库 FTS 检索取 top-K active 记忆作运行时种子(L1 降级路径不再结构性全灭;兜底生效写 `night_thinking_seed_fallback` 审计;索引不可用时 best-effort 降级为无种子);④ L2 headless 超时 10min → 20min(实测全资源盘点 10min 跑不完,超时降级会丢掉全部执行成果;claude-code-mcp 与 dsh-plugin 同源同步)。实测:锚点轮两条目各产出 1 条存活洞察(co-engram 条目首次非零存活),拒因逐条可查,综合归因精确到具体质量门。
 
 ### Added
 

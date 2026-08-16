@@ -50,7 +50,10 @@ export interface HeadlessExecutorOptions {
 }
 
 const DEFAULT_MAX_TURNS = 40;
-const DEFAULT_TIMEOUT_MS = 10 * 60_000;
+// 2026-08-16 场景重放实测:全资源盘点(engram 检索 + 日志 Read + 技能 + 源码
+// 核实)在 10min 内跑不完,超时降级 L1 反而丢掉全部执行成果 —— 夜思不赶时间,
+// 给足 20min(EVIDENCE ANCHORING 的检索锚定也需要时间)。
+const DEFAULT_TIMEOUT_MS = 20 * 60_000;
 
 /**
  * 组装 headless 会话 prompt:任务包(问题/种子摘要/梦境史/隐私边界)+ 固化协议。
