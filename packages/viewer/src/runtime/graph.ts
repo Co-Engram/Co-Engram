@@ -138,23 +138,45 @@ async function renderGraphInner(container) {
   for (const n of graph.nodes) {
     if (typeof n.retrievalCount === 'number' && n.retrievalCount > _vitalityMax) _vitalityMax = n.retrievalCount;
   }
+  // 2026-08 用户反馈「效果不明显」根因:log1p(count)/log1p(max) 把中位数拉到
+  // ~0.6、前四分位挤在 0.3-0.74,叠加端点 #C9C4B8→#2563EB 中段是不饱和灰蓝,
+  // 梯度视觉上糊成一片。改用「百分位名次」映射(rank/(N-1)):与分布无关,
+  // 任何数据都铺满整个梯度;端点换成近纸米白 → 饱和深蓝,对比拉满。
+  // count=0 恒 t=0(从未取用统一最浅)。
+  const _vitalityCounts = graph.nodes
+    .map(n => (typeof n.retrievalCount === 'number' ? n.retrievalCount : 0))
+    .sort((a, b) => a - b);
+  function vitalityT(n) {
+    const c = typeof n.retrievalCount === 'number' ? n.retrievalCount : 0;
+    if (c <= 0) return 0;
+    // 名次 = counts 中 <c 的个数 + 同值半距(并列取中位名次,稳定)
+    let lo = 0, hi = _vitalityCounts.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (_vitalityCounts[mid] < c) lo = mid + 1; else hi = mid; }
+    let first = lo;
+    hi = _vitalityCounts.length;
+    let l2 = first;
+    while (l2 < hi && _vitalityCounts[l2] === c) l2++;
+    const rank = (first + (l2 - 1)) / 2;
+    return _vitalityCounts.length > 1 ? rank / (_vitalityCounts.length - 1) : 1;
+  }
   function nodeColorFor(n) {
     const isSkillNode = n.kind === 'skill';
     if (state.colorMode === 'vitality' && !isSkillNode) {
-      const t = Math.min(1, Math.log1p(n.retrievalCount || 0) / Math.log1p(_vitalityMax));
-      return lerpColor('#C9C4B8', '#2563EB', t);
+      return lerpColor('#EDE9DF', '#1D4ED8', vitalityT(n));
     }
     if (state.colorMode === 'conflict') {
       if (isSkillNode) return '#a78bfa';
       return _contraNodeSet.has(n.id) ? '#BE3B3B' : '#C9C4B8';
     }
+    // 热度:热带内部按 idle 天数连续渐变分层(今天最红 → 7 天橙),
+    // 30 天金棕;从未取用单独冷灰 —— 消除「67/91 节点挤同一橙红」的无层次
     if (state.colorMode === 'heat' && !isSkillNode) {
       const DAY = 86400000;
       const idle = n.lastRetrievedAt ? (Date.now() - n.lastRetrievedAt) / DAY : Infinity;
-      if (idle <= 7) return lerpColor('#D7730D', '#BE3B3B', Math.max(0, 1 - idle / 7));
-      if (idle <= 30) return '#D7730D';
+      if (idle <= 7) return lerpColor('#BE3B3B', '#D7730D', Math.min(1, idle / 7));
+      if (idle <= 30) return lerpColor('#D7730D', '#B8941D', (idle - 7) / 23);
       if (idle <= 90) return '#B8941D';
-      return '#C9C4B8';
+      return '#8B857B';
     }
     return isSkillNode ? '#a78bfa' : CO_ENGRAM.kindColor(n.kind);
   }
@@ -289,8 +311,12 @@ async function renderGraphInner(container) {
     height: '100%',
     width: '100%',
     // DEMO 节点:纸色描边圈 2.5px,扁平无阴影(旧 shadow 是暗色主题残留)
-    nodes: { borderWidth: 2.5, shadow: { enabled: false } },
-    edges: { smooth: { type: 'continuous' } },
+    // 2026-08 用户两轮反馈「点击画布后变带外圈的颜色」—— 两个来源一并根治:
+    //   1. vis 默认 borderWidthSelected=6:选中时描边 2.5→6 加粗成环 → 与普通态同宽
+    //   2. highlight 色(batches 前已与普通态对齐)
+    // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观
+    nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false }, chosen: false },
+    edges: { smooth: { type: 'continuous' }, chosen: false, selectionWidth: 1 },
     // 大规模图(1000+ 节点)物理引擎优化(2026-07):
     //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
     //      1000 节点级别单步模拟快 5-10×
