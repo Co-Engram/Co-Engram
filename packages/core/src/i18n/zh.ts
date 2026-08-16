@@ -1058,11 +1058,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.insightStats.laterUse": "后续使用率 ${v}",
   "viewer.help.nightThinkingTitle": "夜思（Overnight Thinking）",
   "viewer.help.nightThinkingDesc": "<strong>夜思</strong>：在「更多 → 夜思实验室」播种一个问题，Agent 每夜深想一轮，洞察以提案呈现，审批后才落为记忆；过程计划与轨迹完全透明。",
-  "viewer.help.incubations.pace": "每条目每天一轮，默认凌晨 00:00（本地），卡片「排程」可改。",
+  "viewer.help.incubations.pace": "排程时刻执行一次（默认每日 00:00 本地，卡片「排程」可改）；跑完待你裁决 —— 归档，或选「还没有」授权下个锚点再跑一轮。",
   "viewer.help.incubations.catchUp": "错过排程（无进程）会在下次会话或 daemon 启动后补跑；页头「调度器」状态实时可见。",
-  "viewer.help.incubations.draft": "每轮自动生成阶段性回答草稿，点击卡片查看；「收束出结论」随时生成最终回答。",
-  "viewer.help.incubations.runNow": "「立即夜思」可随时手动触发一轮（不消耗当晚排程额度）。",
-  "viewer.help.incubations.resources": "轮次资源：全部记忆图谱 + 行为日志 + 你的技能库（联网需按条目开启）。",
+  "viewer.help.incubations.draft": "每次执行自动生成阶段性回答草稿，点击卡片查看；「收束出结论」随时生成最终回答。",
+  "viewer.help.incubations.runNow": "「立即夜思」可随时手动触发一次；跑完同样待你裁决。",
+  "viewer.help.incubations.resources": "执行资源：全部记忆图谱 + 行为日志 + 你的技能库（联网需按条目开启）。",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
   "viewer.tab.config.tip":

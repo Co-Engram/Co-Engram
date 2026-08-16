@@ -1,6 +1,6 @@
 # Co-Engram × DeepSeek Harness（dsh）
 
-Co-Engram 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供原生 Cordis 插件：40 个记忆工具全部注册为 dsh 原生工具（裸名形态,如 `engram_search`）,并注入 `memory:co-engram` system prompt 段——其 signals（topTags／技能清单／目录概览／待审候选数）在每次 prompt 组装时重新求值。
+Co-Engram 为 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 提供原生 Cordis 插件：42 个记忆工具全部注册为 dsh 原生工具（裸名形态,如 `engram_search`）,并注入 `memory:co-engram` system prompt 段——其 signals（topTags／技能清单／目录概览／待审候选数）在每次 prompt 组装时重新求值。
 
 ## 安装
 
@@ -17,7 +17,7 @@ dsh plugin --profile <name> add @co-engram/dsh
 包内声明了 `dsh.bundle` patch,安装即自动激活为 profile 层——无需手改 `cordis.patch.yml`。重启 profile（或重载插件）后,启动日志可见：
 
 ```
-[co-engram] dsh plugin active: 12 engrams, 40 tools registered (host=dsh-plugin)
+[co-engram] dsh plugin active: 12 engrams, 42 tools registered (host=dsh-plugin)
 ```
 
 ## 配置

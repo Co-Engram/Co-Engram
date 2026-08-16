@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **viewer**:卡片显示下一轮预计时间、点击查看草案、排程编辑、机理简述、调度器状态。
 - **行为变更**:新建条目等首个排程时刻或手动触发(不再创建即跑)。
 - **新工具**:`incubation_conclude` / `incubation_update`。
+- **审计纳入**:轮次(`incubation_round`,含 diagnosis 与草稿 200 字预览)/收束/删除/暂停四类 action 写审计日志。
+
+#### 夜思实验室第二批(2026-08-17,单次执行语义)
+
+- **单次执行**:夜思不再分多夜 —— 排程时刻到,跑一次单次长任务,完成即 `suggested-resolve` 待用户裁决(不再自动续夜);`resolve` 选「还没有」= 用户显式授权,下个锚点自动再跑一轮,跑完再次待裁决。「连续 2 轮全撞自动 paused」「5 轮无 accept 到限暂停」路径移除(veto 计数保留为诊断信号)。
+- **新工具 `incubation_pause` / `incubation_delete`**(9 工具,standard 42 / full 50):暂停自动排程(进行中的轮与收束不受影响;恢复走 `resolve` 选「还没有」);删除条目本体(已产出的提案与审计保留,梦境时间线随条目移除)。`incubation_run` 补状态门禁 —— paused/resolved 条目明确报错并指向恢复路径(此前被误报为「已在执行中」引向死等)。
+- **viewer 夜思实验室**:条目卡片新增暂停/恢复/删除按钮(删除带 confirm 二次确认,注明提案与审计保留);活跃区默认只展开前 5 张卡(其余折叠)+ 问题文本过滤框(焦点与光标跨 re-render 保持,IME 不被打断);预算横幅并入机理块;全文案改为单次执行口径;suggested-resolve 卡片加「已跑完:收束出结论,或再来一次」引导。
+- **可观测性**:时间线轮次新增逐条拒因(`rejectReasons`)与执行轨迹(`trace`)折叠展示(旧轮数据无字段不渲染);工具描述与双语 i18n 清理过时口径(nextRunAt 仅 active 态非空;resolve 知情说明)。
 
 ### Added
 

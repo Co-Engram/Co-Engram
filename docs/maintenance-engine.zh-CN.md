@@ -111,7 +111,7 @@ flowchart TB
 - **L2 Agent 编排(主路径)** —— 一次完整 agent 会话(能力盘点 → PLAN → 只读执行 → 经 `incubation_report` 唯一写回路径回写)。claude-code 端定时/调度场景 spawn 无头 `claude -p` 会话;对话入口由当前会话按 `incubation_run` 返回的固化协议现场执行。
 - **L1 基线(降级)** —— 单次 LLM 远距类比,仅在无 agent runtime 或 L2 失败时使用。openclaw 一期走 L1。
 
-调度**独立于 REM 节拍**:active 条目每 24h 一轮(light tick 检查),即时触发不受限。跨进程 in-flight 锁(TTL 30 分钟)防轮次双计。每轮 prompt 首行锚定问题并携带完整梦境史(过往洞察 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本轮作废,连续 2 轮全撞自动 paused,5 轮无 accept 到限暂停待用户裁决。accept 洞察后条目进入 `suggested-resolve`,回答「是否回答了你的问题」即归档(时间线保留 —— 梦的日记)。
+调度**独立于 REM 节拍**:active 条目在每日排程时刻(默认 00:00,可按条目改写)到点执行一次单次长任务(light tick 检查 due),「立即夜思」随时手动触发。跨进程 in-flight 锁(TTL 30 分钟)防轮次双计。每次执行 prompt 首行锚定问题并携带完整梦境史(过往洞察 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号,不再驱动自动暂停)。**单次执行语义**:跑完即进入 `suggested-resolve` 待用户裁决 —— 回答「是否回答了你的问题」,是则归档(时间线保留,梦的日记);否则条目回 active,下个排程锚点自动再跑一轮(跑完再次待裁决)。`pause` 暂停自动排程(手动 run 被拒、收束不受影响),`delete` 删除条目(已产出的提案与审计保留)—— 两者随时可用,与轮次/收束一同纳入审计。
 
 **隐私边界(硬约束)**:联网默认关闭、按条目 opt-in;L2 prompt 只携带种子摘要级内容(不带记忆原文),外部调用写审计日志。viewer 完整展示计划与轨迹 —— 过程透明是信任来源。
 

@@ -1,6 +1,6 @@
 # Co-Engram × DeepSeek Harness (dsh)
 
-Co-Engram ships a native Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): all 40 memory tools registered as native dsh tools (bare names, e.g. `engram_search`), plus a `memory:co-engram` system-prompt section whose signals (top tags / skill catalog / path overview / pending proposals) are re-evaluated on every prompt assembly.
+Co-Engram ships a native Cordis plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): all 42 memory tools registered as native dsh tools (bare names, e.g. `engram_search`), plus a `memory:co-engram` system-prompt section whose signals (top tags / skill catalog / path overview / pending proposals) are re-evaluated on every prompt assembly.
 
 ## Install
 
@@ -17,7 +17,7 @@ dsh plugin --profile <name> add @co-engram/dsh
 The package declares a `dsh.bundle` patch, so installation activates the plugin as a profile layer automatically — no manual `cordis.patch.yml` editing. Restart the profile (or reload the plugin) and the boot log shows:
 
 ```
-[co-engram] dsh plugin active: 12 engrams, 40 tools registered (host=dsh-plugin)
+[co-engram] dsh plugin active: 12 engrams, 42 tools registered (host=dsh-plugin)
 ```
 
 ## Configuration
