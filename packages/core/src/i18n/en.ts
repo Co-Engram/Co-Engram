@@ -976,7 +976,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.incubations.webOptIn": "Allow web research",
   "viewer.incubations.webOptInHint": "Allow web research: the question summary is sent to search engines; turn off for fully offline thinking",
   "viewer.incubations.createBtn": "Seed",
-  "viewer.incubations.l2BudgetNotice": "Night thinking calls an external LLM (may consume significant tokens). The L2 session process (plan/trace) is fully transparent; web research is off by default — explicitly opt in per entry at creation (when enabled, the question and digest-level content are sent to the search engine).",
+  "viewer.incubations.l2BudgetNotice": "Night thinking calls an external LLM (may consume significant tokens). The L2 session process (plan/trace) is fully transparent; the web-research checkbox below is checked by default — uncheck it for fully offline thinking; when enabled, only the question and digest-level content are sent to the search engine.",
   "viewer.incubations.inFlightTip": "This entry is currently thinking; run again after it finishes",
   "viewer.incubations.lastRound": "Last round (R${round} · ${trigger})",
   "viewer.incubations.lastRoundNone": "No textual summary this round — see the timeline below",
@@ -2393,7 +2393,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Tool profiles =====
   "viewer.help.profilesTitle": "Tool profiles",
   "viewer.help.profilesBody":
-    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Counts come from <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal (12)</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (21, default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>), plus batch proposal triage (<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>). <strong>full (30)</strong>: all native tools except the experimental <code>skill_invoke</code> (P0 stub). Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
+    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Per-tier counts live in <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>), plus batch proposal triage (<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>). <strong>full (all tools)</strong>: all native tools. Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
 
   // ===== Save & sync =====
   "viewer.help.syncTitle": "Save and sync to remote",
