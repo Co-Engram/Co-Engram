@@ -20,6 +20,7 @@ function task(webResearchOptIn = false): NightThinkingTask {
     ],
     dreamHistory: "Round 1: 探索了 X",
     webResearchOptIn,
+    resourceHints: [],
     protocol: "NIGHT-THINKING PROTOCOL: ... call the tool `incubation_report` exactly once ...",
   };
 }

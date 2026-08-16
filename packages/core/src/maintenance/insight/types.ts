@@ -266,6 +266,8 @@ export interface NightThinkingTask {
   readonly dreamHistory: string;
   /** 按条目 opt-in 的联网开关(默认 off) */
   readonly webResearchOptIn: boolean;
+  /** 本地日志/状态文件路径(存在的才列;L2 用已授权 Read 读取,spec §六) */
+  readonly resourceHints: readonly string[];
   /** 固化协议:盘点→plan→执行→按格式 report(不依赖 agent 自觉) */
   readonly protocol: string;
 }

@@ -10,6 +10,9 @@
  * @module @co-engram/core/maintenance/insight
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { buildNightThinkingL1Prompt } from "./modes.js";
@@ -24,20 +27,48 @@ import type { NightThinkingReport, NightThinkingTask } from "./types.js";
 export const NO_SURVIVOR_MARKER = "(no insight survived validation)";
 
 /**
+ * dataRoot/.co-engram 下可作夜思证据源的日志/状态文件(存在才返回)。
+ * 仅列行为证据类文件;不列 incubations/proposals 等内部存储 —— 那些由
+ * dreamHistory / 提案工具面结构化提供,直读会绕过脱敏边界。
+ */
+const RESOURCE_FILES = [
+  "signals.jsonl",
+  "maintenance-state.json",
+  "audit.jsonl",
+  "rem-state.json",
+  "observation-windows.jsonl",
+] as const;
+
+/** 收集 dataRoot/.co-engram 下存在的资源文件路径(协议 RESOURCE MANDATE 证据面) */
+export function collectResourceHints(dataRoot: string): string[] {
+  const dir = join(dataRoot, ".co-engram");
+  return RESOURCE_FILES.map((f) => join(dir, f)).filter((p) => existsSync(p));
+}
+
+/**
  * 固化协议(spec §四 L2 主路径):协议固化在 incubation_run 返回的结构化
  * 指令中,不依赖 agent 自觉;incubation_report 是唯一写回路径。
  */
 export const NIGHT_THINKING_PROTOCOL = `NIGHT-THINKING PROTOCOL (follow exactly):
 1. CAPABILITY INVENTORY — enumerate your available read-only capabilities
    (installed skills, engram_search, repository reading, WebSearch if allowed).
-2. PLAN — decide the steps: what to examine, which capability for each step,
+2. RESOURCE MANDATE — mine ALL available resources before planning:
+   - Full memory graph: engram_search from multiple angles (keywords,
+     synonyms, upstream/downstream concepts); survey engram_list_paths.
+     Do NOT limit yourself to the seed digests.
+   - Behavioral logs: paths in task.resourceHints are local log/state files
+     you may Read; ground improvement-type questions in real usage evidence
+     (retrieval counts, failed uses).
+   - Installed skills: enumerate via skill_list; read relevant ones via
+     skill_get and apply their methodology.
+3. PLAN — decide the steps: what to examine, which capability for each step,
    what question each step answers. Keep it small (3-6 steps).
-3. EXECUTE — run the plan with READ-ONLY actions only. Record what you did
+4. EXECUTE — run the plan with READ-ONLY actions only. Record what you did
    and what you found at each step. Do NOT write or modify anything.
    PRIVACY: web research is ${"__WEB__"} — if disabled, do not make any
    network call; never send raw memory content to external services; only
    the question and summary-level content may leave.
-4. REPORT — call the tool \`incubation_report\` exactly once with a JSON object:
+5. REPORT — call the tool \`incubation_report\` exactly once with a JSON object:
    { "incubationId": "<id>", "report": { "insights": [ <insight drafts> ],
      "plan": [ {"step": "...", "capability": "..."} ],
      "trace": [ {"step": "...", "action": "...", "detail": "..."} ],

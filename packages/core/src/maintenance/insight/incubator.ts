@@ -27,6 +27,7 @@ import { insightEntityId } from "../../observability/proposal-engine.js";
 import { critique } from "./critic.js";
 import {
   createL1Executor,
+  collectResourceHints,
   collectSeedDigests,
   buildProtocol,
   synthesizeAnswerDraft,
@@ -462,6 +463,7 @@ export class Incubator {
       seedDigests: collectSeedDigests(this.deps.repository, entry.seedEngramIds),
       dreamHistory: this.dreamHistoryFor(id),
       webResearchOptIn: entry.webResearchOptIn,
+      resourceHints: collectResourceHints(this.deps.dataRoot),
       protocol: buildProtocol(entry.webResearchOptIn),
     };
   }
