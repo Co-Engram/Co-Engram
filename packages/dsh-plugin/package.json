@@ -1,0 +1,56 @@
+{
+  "name": "@co-engram/dsh",
+  "version": "0.1.0",
+  "description": "Co-Engram team memory plugin for DeepSeek Harness (dsh): native Cordis tools + dynamic prompt-signals injection.",
+  "license": "MIT",
+  "author": "Yang Yang <yang.yang29@zte.com.cn>",
+  "homepage": "https://github.com/co-engram/co-engram#readme",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/co-engram/co-engram.git",
+    "directory": "packages/dsh-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/co-engram/co-engram/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "memory",
+    "ai-memory",
+    "agent-memory",
+    "engram",
+    "cordis"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.17.0"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run --reporter=verbose",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@co-engram/core": "workspace:*",
+    "@co-engram/viewer": "workspace:*"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-system-prompt": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-tools": "0.1.0-rc.6",
+    "zod": "^3.23.0"
+  }
+}
