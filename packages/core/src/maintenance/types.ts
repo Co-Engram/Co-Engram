@@ -193,7 +193,8 @@ export interface MaintenanceDeps {
   readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
   /**
    * 夜思孵化器(可选,结构类型)。REM 灵感模式与 active 条目合并执行;
-   * light 阶段尾部独立日调度(runDue,active 条目 24h 一轮,不依赖 REM 节拍)。
+   * light 阶段尾部独立日调度(runDue,锚点时刻制:active 条目每日 schedule
+   * 时刻一轮,不依赖 REM 节拍)。
    * 未注入时深度思考照常跑(无孵化合并),夜思不可用。
    */
   readonly incubator?: import("./insight/run.js").IncubationSource & {

@@ -3,7 +3,7 @@
  *
  * 设计要点:
  * - **从 runRem 解耦**:REM 只是调度来源之一;即时触发(对话/viewer/CLI)与
- *   独立日调度(light tick,active 条目 24h 一轮)都是独立调用方
+ *   独立日调度(light tick,锚点时刻制每日一轮)都是独立调用方
  * - **incubations.json 持锁写**:与 maintenance-state 同款模式,仅 processLock
  *   holder 落盘,防多进程 lost-update
  * - **in-flight 原子标记**:跨进程互斥(REM 进程/即时触发/CLI 共用),TTL 30min
@@ -32,7 +32,7 @@ import type {
   NightThinkingTask,
   NightThinkingExecutor,
 } from "./types.js";
-import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
+import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS, SCHEDULE_RE } from "./types.js";
 import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
 
 /** 孵化条目状态:lifecycle + in-flight 瞬态(崩溃后 TTL 回收) */
@@ -125,6 +125,37 @@ function incubationsPath(dataRoot: string): string {
 
 function parseAt(iso: string): number {
   return new Date(iso).getTime();
+}
+
+/** 解析 "HH:mm" → date 当日该时刻(本地时区);不合法值回落 00:00 */
+function anchorOn(date: Date, schedule: string): Date {
+  const m = SCHEDULE_RE.exec(schedule);
+  const h = m ? Number(m[1]) : 0;
+  const min = m ? Number(m[2]) : 0;
+  const d = new Date(date);
+  d.setHours(h, min, 0, 0);
+  return d;
+}
+
+/** 下一个排程锚点(> lastHatchedAt ?? createdAt);非可调度态返回 null */
+export function computeNextRunAt(entry: IncubationEntry, now: Date = new Date()): string | null {
+  if (entry.status !== "active" && entry.status !== "suggested-resolve") return null;
+  const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
+  for (let i = 0; i <= 2; i += 1) {
+    const day = new Date(last);
+    day.setDate(day.getDate() + i);
+    const anchor = anchorOn(day, entry.schedule ?? "00:00");
+    if (anchor > last) return anchor.toISOString();
+  }
+  return null;
+}
+
+/** 锚点 due 判定(spec §四,红队修正 R4):now ≥ 今日锚点 && 今日锚点 > (last ?? createdAt) */
+export function isDue(entry: IncubationEntry, now: Date = new Date()): boolean {
+  if (entry.status !== "active") return false;
+  const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
+  const anchor = anchorOn(now, entry.schedule ?? "00:00");
+  return now >= anchor && anchor > last;
 }
 
 /**
@@ -562,23 +593,22 @@ export class Incubator {
   }
 
   // ============================================================
-  // 独立日调度(active 条目 24h 一轮,不依赖 REM 节拍)
+  // 独立日调度(锚点时刻制,active 条目每日 schedule 时刻一轮,不依赖 REM 节拍)
   // ============================================================
 
   async runDue(
     now: string = this.now(),
   ): Promise<{ ran: readonly string[]; skipped: readonly string[] }> {
-    const nowMs = parseAt(now);
-    // spec §四:active 条目不依赖 REM 节拍 —— now-lastHatchedAt ≥ 24h 触发一轮
-    // (等效每夜一次);从未跑过的条目创建后首个 tick 即开始(用户意图明确)。
+    const nowDate = new Date(parseAt(now));
+    // spec §四(锚点时刻制):active 条目每日在 schedule 锚点时刻(默认 00:00
+    // 本地)跑一轮;错过锚点(无进程)→ 下一 tick 补跑;新建条目等首个锚点
+    // 或手动触发;锚点前手动跑过(昨夜)不消耗当日锚点,锚点后手动跑过
+    // (last ≥ 今日锚点)则当日不再自动。
     const active = this.read().filter((e) => e.status === "active");
     const ran: string[] = [];
     const skipped: string[] = [];
     for (const e of active) {
-      const due =
-        !e.lastHatchedAt ||
-        nowMs - parseAt(e.lastHatchedAt) >= INSIGHT_LIMITS.dailyIntervalMs;
-      if (!due) {
+      if (!isDue(e, nowDate)) {
         skipped.push(e.id);
         continue;
       }

@@ -46,7 +46,6 @@ describe("insight types and mode registry", () => {
     expect(INSIGHT_LIMITS.dreamJaccard).toBe(0.65);
     expect(INSIGHT_LIMITS.maxRoundsDefault).toBe(5);
     expect(INSIGHT_LIMITS.inFlightTtlMs).toBe(30 * 60_000);
-    expect(INSIGHT_LIMITS.dailyIntervalMs).toBe(24 * 3600_000);
   });
 
   it("真值因子覆盖全部 verificationStatus,refuted 归零", () => {

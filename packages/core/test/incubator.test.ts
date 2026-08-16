@@ -245,22 +245,31 @@ describe("resolve 仪式", () => {
   });
 });
 
-describe("独立日调度 runDue", () => {
-  it("从未跑过 → 立即执行;24h 内 → skip;非 active → skip", async () => {
+describe("独立日调度 runDue(锚点时刻制)", () => {
+  it("新建条目等首个锚点;锚点过 → 跑一轮;当日再 tick 不重复;非 active → skip", async () => {
     const a = makeSource("A", ["域甲"]);
     const b = makeSource("B", ["域乙"]);
     const fresh = incubator.create({ question: "Q1", seedEngramIds: [a.id, b.id] });
     const pausedEntry = incubator.create({ question: "Q2" });
     incubator.pause(pausedEntry.id);
     generationOutput = draftJson("调度洞察", [a.id, b.id]);
+    // 新建于今日锚点之后(createdAt ≥ 今日 00:00 本地)→ 未到/已过都不 due,skip
+    const r0 = await incubator.runDue();
+    expect(r0.ran).not.toContain(fresh.id);
+    expect(r0.skipped).toContain(fresh.id);
+    expect(r0.ran).not.toContain(pausedEntry.id);
+    // 推进到次日 00:00(本地锚点)→ due,跑一轮
+    const anchor = new Date(clockMs);
+    anchor.setDate(anchor.getDate() + 1);
+    anchor.setHours(0, 0, 0, 0);
+    clockMs = anchor.getTime();
     const r1 = await incubator.runDue();
     expect(r1.ran).toContain(fresh.id);
-    expect(r1.ran).not.toContain(pausedEntry.id);
-    // 24h 内:lastHatchedAt 刚写 → skip
+    // 当日锚点 ≤ lastHatchedAt → 再 tick 不重复
     const r2 = await incubator.runDue();
     expect(r2.ran).not.toContain(fresh.id);
     expect(r2.skipped).toContain(fresh.id);
-    // 25h 后 → 再触发
+    // 越过下一个锚点(错过补跑)→ 再触发
     clockMs += 25 * 3600_000;
     generationOutput = draftJson("次夜洞察", [a.id, b.id]);
     const r3 = await incubator.runDue();

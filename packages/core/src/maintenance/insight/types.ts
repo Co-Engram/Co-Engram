@@ -74,7 +74,6 @@ export const SPREAD_PARAMS: Readonly<{
  * - dreamJaccard:夜思回灌循环检测阈值(新洞察与历史 ≥ 即本轮作废)
  * - maxRoundsDefault:夜思每条目默认轮数上限(无 accept 到限 → paused + 提示用户裁决)
  * - inFlightTtlMs:in-flight 锁过期时间(进程崩溃后自动回收)
- * - dailyIntervalMs:独立日调度间隔(active 条目 24h 一轮,不依赖 REM 节拍)
  */
 export const INSIGHT_LIMITS: Readonly<{
   readonly maxProposalsPerRun: number;
@@ -82,15 +81,16 @@ export const INSIGHT_LIMITS: Readonly<{
   readonly dreamJaccard: number;
   readonly maxRoundsDefault: number;
   readonly inFlightTtlMs: number;
-  readonly dailyIntervalMs: number;
 }> = {
   maxProposalsPerRun: 5,
   jaccardDup: 0.65,
   dreamJaccard: 0.65,
   maxRoundsDefault: 5,
   inFlightTtlMs: 30 * 60_000,
-  dailyIntervalMs: 24 * 3600_000,
 };
+
+/** 每日排程时刻格式(锚点调度用);m[1]=时、m[2]=分(anchorOn 解析用) */
+export const SCHEDULE_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 
 /** verificationStatus → 真值因子(activation 计算用;refuted = 0) */
 export const TRUTH_FACTOR: Readonly<Record<string, number>> = {
