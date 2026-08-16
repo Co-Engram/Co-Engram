@@ -25,6 +25,7 @@ describe("resourceHints 与协议 Resource mandate", () => {
     expect(NIGHT_THINKING_PROTOCOL).toContain("RESOURCE MANDATE");
     expect(NIGHT_THINKING_PROTOCOL).toContain("Do NOT limit yourself to the seed digests");
     expect(NIGHT_THINKING_PROTOCOL).toContain("skill_list");
+    expect(NIGHT_THINKING_PROTOCOL).toContain("task.resourceHints");
   });
 
   it("buildTask 携带 resourceHints", () => {

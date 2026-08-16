@@ -63,6 +63,21 @@ describe("buildHeadlessPrompt(脱敏)", () => {
     expect(p).toContain("DISABLED");
     expect(p).toContain("Do NOT make any network call");
   });
+
+  it("prompt 渲染 resourceHints 路径清单(节标题与协议措辞呼应)", () => {
+    const prompt = buildHeadlessPrompt({
+      ...task(),
+      resourceHints: ["/tmp/x/.co-engram/signals.jsonl"],
+    });
+    expect(prompt).toContain("## Resource hints (task.resourceHints — local, read-only)");
+    expect(prompt).toContain("/tmp/x/.co-engram/signals.jsonl");
+  });
+
+  it("无 resourceHints 时渲染占位行而非省略节(T7 评审)", () => {
+    const prompt = buildHeadlessPrompt({ ...task(), resourceHints: [] });
+    expect(prompt).toContain("## Resource hints");
+    expect(prompt).toContain("(none in this environment");
+  });
 });
 
 describe("parseHeadlessReport", () => {

@@ -68,6 +68,12 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
     `## Seed memory digests (summary-level only; read full content via engram_get if needed)`,
     seeds || "(no seeds — use engram_search to find relevant memories yourself)",
     ``,
+    `## Resource hints (task.resourceHints — local, read-only)`,
+    task.resourceHints.length > 0
+      ? `Log/state files you may Read for behavioral evidence:`
+      : `(none in this environment — skip the behavioral-logs step)`,
+    ...task.resourceHints.map((p) => `- ${p}`),
+    ``,
     ...(task.dreamHistory.trim().length > 0
       ? [`## Dream history (previous rounds — deepen or pivot, do not repeat)`, task.dreamHistory, ``]
       : []),
