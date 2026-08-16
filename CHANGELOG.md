@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **audit.jsonl 大小上限真正生效(`@co-engram/core`)**: 真实库涨到 106MB(上限 50MB)的三个叠加原因逐一修复 —— ① 轮转只有 `setInterval(24h)` 且无启动首跑,短命进程活不到首次触发,现启动 30s 后首跑;② 高频写入进程不再单纯依赖定时器,`append` 超上限 ×1.1 时写入路径自己触发异步轮转(1h 冷却防边界震荡);③ 刷屏主源是 IDE 空文件(`未命名.md`)被持续扫描重写 noise_filtered(7 天 46 万条、占 99.9%,内存去重跨进程/实例失效),空文件拦截改为完全静默。`rotate` 同步流式化(两遍扫 + 字节级截断):旧实现 `readFileSync` 全量进内存,106MB 场景堆增量仅 10MB、4 秒完成,高价值行(create/update/accept 等)完整保留。
 - 记忆动态为空(noise_filtered 刷屏挤光 limit + 空串渲染)—— 服务端动作过滤 + core 空文件噪声审计按路径去重;元数据类 update(标签维护)不再计入动态/更新图。
 - 记忆健康检查整页空白(standalone 场景 `startViewerServer` dataRoot 未兜底 `repository.rootPath`)。
 - 品牌徽标 light/dark 双显;详情抽屉 1px accent 绿线;配置 tab 暗色残留(保存栏渐变/下拉选项);图谱检查器「模式 · 模式」重复;记忆更新柱状图高度丢 `%`;检查器悬停 tooltip 对比度。

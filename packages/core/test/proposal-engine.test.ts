@@ -1309,6 +1309,16 @@ describe("ProposalEngine.proposeExternalMarkdown", () => {
     expect(engine.listAll()).toHaveLength(0);
   });
 
+  it("createExternalMarkdownHook:空文件不写 noise audit(2026-08-16 停写修复)", () => {
+    const hook = engine.createExternalMarkdownHook();
+    // 同一路径反复触发(IDE 持续 touch 的空文件)—— 曾经每 2 秒刷一条,
+    // 真实库 7 天 46 万条占 audit 99.9%;现在完全静默
+    for (let i = 0; i < 100; i++) {
+      hook({ absPath: "/root/未命名.md", relPath: "未命名.md", raw: "", parsed: null });
+    }
+    expect(audit.query({ action: "noise_filtered" })).toHaveLength(0);
+  });
+
   it("相同 sourcePath + 相同 payload → no-change", () => {
     engine.proposeExternalMarkdown({
       sourcePath: "x.md",

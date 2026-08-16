@@ -12,7 +12,7 @@
  * @module @co-engram/core/test/audit-rotation
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   mkdtempSync,
   rmSync,
@@ -258,4 +258,95 @@ describe("AuditLog.startAutoRotation", () => {
     // 清理避免 timer 泄漏(unref 已设,但显式 stop 更稳)
     stop();
   });
+
+  it("启动首跑(30s 延迟):过期数据在首个 interval 之前就被清理(2026-08-16 修复)", () => {
+    vi.useFakeTimers();
+    try {
+      // 100 天前的 propose(低价值)→ 过期
+      const old = new Date(NOW - 100 * 24 * 60 * 60 * 1000).toISOString();
+      writeRawAudit(line("propose", old) + "\n");
+      const realNow = Date.now;
+      Date.now = () => NOW;
+
+      const stop = audit.startAutoRotation({
+        retentionDays: 90,
+        highValueRetentionDays: 365,
+        maxSizeMb: 50,
+        intervalMs: 24 * 60 * 60 * 1000, // 24h:不等 interval
+      });
+      // 未到 30s:不跑
+      vi.advanceTimersByTime(29_000);
+      expect(readLines().length).toBe(1);
+      // 到 30s:首跑清理
+      vi.advanceTimersByTime(1_000);
+      expect(readLines().length).toBe(0);
+      Date.now = realNow;
+      stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("append 背压:超上限 ×1.1 时写入路径自己触发轮转(2026-08-16)", async () => {
+    vi.useFakeTimers();
+    try {
+      // maxSizeMb 最小粒度是 1MB → 用字节数堆过 1.1MB
+      lastStop = audit.startAutoRotation({
+        retentionDays: 90,
+        highValueRetentionDays: 365,
+        maxSizeMb: 1,
+        intervalMs: 24 * 60 * 60 * 1000,
+      });
+      const big = "x".repeat(2_000);
+      // append 用真实当前时间 → 都在 retention 内,只被大小截断。
+      // 灌到刚好跨过 1.1× 触发线(600 条 × ~2KB ≈ 1.2MB),然后放行背压的
+      // setTimeout(0),断言被压回 ≤ 1MB(冷却 1h 内只此一次,故之后不再灌)
+      let n = 0;
+      while (n < 600) {
+        audit.append({ actor: "user", action: "update", engramId: `e${n}` , metadata: { pad: big }});
+        n++;
+      }
+      vi.advanceTimersByTime(10);
+      const size = statSync(audit.path).size;
+      expect(size).toBeLessThanOrEqual(1.05 * 1024 * 1024);
+      stopLast();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("流式 rotate:行跨 64KB chunk 边界仍完整(2026-08-16 流式化)", () => {
+    // 构造 >64KB 的行集,确保 chunk 边界落在行中间
+    const recent = new Date(NOW - 1 * 24 * 60 * 60 * 1000).toISOString();
+    const rows: string[] = [];
+    for (let i = 0; i < 300; i++) {
+      rows.push(JSON.stringify({ ts: recent, actor: "user", action: "update", engramId: `e${i}`, metadata: { pad: "y".repeat(600) } }));
+    }
+    writeRawAudit(rows.join("\n") + "\n");
+    const realNow = Date.now;
+    Date.now = () => NOW;
+    try {
+      const r = audit.rotate({ retentionDays: 90, highValueRetentionDays: 365, maxSizeMb: 50 });
+      expect(r.droppedCount).toBe(0); // 全部在保留期内,未超限 → no-op
+      expect(readLines().length).toBe(300);
+      // 再跑一次 maxSizeMb 极小 → 全部被截断,只剩尾部能装下的
+      const r2 = audit.rotate({ retentionDays: 90, highValueRetentionDays: 365, maxSizeMb: 0.01 });
+      expect(r2.droppedCount).toBeGreaterThan(0);
+      const after = readLines();
+      expect(after.length).toBeLessThan(300);
+      expect(after.length).toBeGreaterThan(0);
+      // 保留的是尾部(最新)行:engramId 序号最大段
+      const ids = after.map((l) => JSON.parse(l).engramId as string);
+      expect(ids[ids.length - 1]).toBe("e299");
+    } finally {
+      Date.now = realNow;
+    }
+  });
 });
+
+/** 保存最近的 auto-rotation stop 以便测试清理 */
+let lastStop: (() => void) | undefined;
+function stopLast(): void {
+  lastStop?.();
+  lastStop = undefined;
+}

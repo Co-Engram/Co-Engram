@@ -38,6 +38,7 @@ import {
   renameSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 
@@ -135,6 +136,12 @@ export interface AuditQueryFilter {
 /** 默认 limit */
 const DEFAULT_QUERY_LIMIT = 1000;
 
+/** append 背压冷却(1h):防上限边界反复轮转 */
+const BACKPRESSURE_COOLDOWN_MS = 60 * 60 * 1000;
+
+/** 自动轮转启动首跑延迟(30s):避开进程启动 IO 高峰 */
+const FIRST_ROTATION_DELAY_MS = 30_000;
+
 /**
  * 审计日志
  *
@@ -143,6 +150,16 @@ const DEFAULT_QUERY_LIMIT = 1000;
  */
 export class AuditLog {
   private readonly filePath: string;
+  /**
+   * 自动轮转参数(startAutoRotation 注入;append 背压依赖)。
+   * 未启用轮转(rotation.enabled=false)时为 undefined —— append 不私自删数据,
+   * 尊重「用户明确关闭轮转」的语义。
+   */
+  private autoRotationOpts:
+    | { readonly retentionDays: number; readonly highValueRetentionDays: number; readonly maxSizeMb: number }
+    | undefined;
+  /** 背压冷却:上次 append 触发轮转的时间戳(防边界震荡) */
+  private lastBackpressureAt = 0;
 
   constructor(dataRoot: string) {
     this.filePath = join(dataRoot, ".co-engram", "audit.jsonl");
@@ -157,9 +174,49 @@ export class AuditLog {
         mkdirSync(dir, { recursive: true });
       }
       appendFileSync(this.filePath, `${JSON.stringify(fullEntry)}\n`, "utf8");
+      this.maybeBackpressureRotate();
     } catch {
       // intentional:审计失败不应阻塞业务逻辑
     }
+  }
+
+  /**
+   * append 侧背压(2026-08-16):文件超上限 ×1.1 且冷却期外 → 排队一次异步轮转。
+   *
+   * 背景:轮转 interval 默认 24h 且无首跑时,短命进程(daemon 重启间隙的 stdio
+   * 连接)永远轮转不到,audit.jsonl 曾涨到 106MB。背压让「高频写入进程」自己
+   * 兜底上限。触发线 1.1×maxSizeMb 留 buffer 防边界反复轮转;冷却 1h;
+   * setTimeout 异步执行不阻塞 append 返回(轮转含全量 IO)。
+   */
+  private maybeBackpressureRotate(): void {
+    const opts = this.autoRotationOpts;
+    if (!opts) return;
+    const now = Date.now();
+    if (now - this.lastBackpressureAt < BACKPRESSURE_COOLDOWN_MS) return;
+    const maxBytes = opts.maxSizeMb * 1024 * 1024;
+    let size = 0;
+    try {
+      size = this.statSize();
+    } catch {
+      return;
+    }
+    if (size <= maxBytes * 1.1) return;
+    this.lastBackpressureAt = now;
+    const tick = (): void => {
+      try {
+        const r = this.rotate(opts);
+        if (r.droppedCount > 0) {
+          process.stderr.write(
+            `[co-engram] audit backpressure rotation: dropped ${r.droppedCount} entries ` +
+              `(${r.originalSize} → ${r.newSize} bytes)\n`,
+          );
+        }
+      } catch {
+        // fail-soft
+      }
+    };
+    const h = setTimeout(tick, 0);
+    if (typeof h.unref === "function") h.unref();
   }
 
   /**
@@ -301,69 +358,109 @@ export class AuditLog {
     }
     const originalSize = this.statSize();
     try {
-      const raw = readFileSync(this.filePath, "utf8");
-      const lines = raw.split("\n");
       const now = Date.now();
       const retentionMs = opts.retentionDays * 24 * 60 * 60 * 1000;
       const highValueMs = opts.highValueRetentionDays * 24 * 60 * 60 * 1000;
-      const kept: string[] = [];
-      let droppedCount = 0;
+      const maxBytes = Math.max(0, opts.maxSizeMb * 1024 * 1024);
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (trimmed.length === 0) continue; // 末尾空行
+      // 时间维度决策(两遍共用,确定性一致)
+      const keepByTime = (trimmed: string): boolean => {
         let entry: AuditEntry;
         try {
           entry = JSON.parse(trimmed) as AuditEntry;
         } catch {
-          // 损坏行保留(交给人工/audit-query 处理,不擅自删除)
-          kept.push(trimmed);
-          continue;
+          return true; // 损坏行保留(交给人工/audit-query 处理,不擅自删除)
         }
         const tsMs = Date.parse(entry.ts ?? "");
-        if (Number.isNaN(tsMs)) {
-          kept.push(trimmed);
-          continue;
-        }
+        if (Number.isNaN(tsMs)) return true;
         const ageMs = now - tsMs;
         const isHighValue = HIGH_VALUE_ACTIONS.has(entry.action);
         const threshold = isHighValue ? highValueMs : retentionMs;
-        if (ageMs > threshold) {
-          droppedCount++;
-          continue;
-        }
-        kept.push(trimmed);
-      }
+        return ageMs <= threshold;
+      };
 
-      // 文件大小硬上限:即使按时间窗未到,也强制截断尾部(保留最新 maxSizeMb)
-      // 按行边界切,避免半行残留;从尾部向前累加字节直到达到上限。
-      const maxBytes = Math.max(0, opts.maxSizeMb * 1024 * 1024);
-      let newSize = kept.reduce((sum, l) => sum + l.length + 1, 0);
-      const trimmedBySize: string[] = [];
-      if (newSize > maxBytes) {
-        let bytes = 0;
-        for (let i = kept.length - 1; i >= 0; i--) {
-          if (bytes + kept[i]!.length + 1 > maxBytes) break;
-          bytes += kept[i]!.length + 1;
-          trimmedBySize.unshift(kept[i]!);
-        }
-        droppedCount += kept.length - trimmedBySize.length;
-        kept.length = 0;
-        kept.push(...trimmedBySize);
-        newSize = kept.reduce((sum, l) => sum + l.length + 1, 0);
-      }
+      // Pass 1(流式,内存 = keep 行数 × 8B 的字节数组):时间决策 + 输出字节统计。
+      // 2026-08-16 流式化:旧实现 readFileSync 全文 + split,内存峰值 = 整个
+      // 文件(真实库曾 106MB),与 query 的 2026-07 修复同款问题。
+      const keepLineBytes: number[] = [];
+      let droppedByTime = 0;
+      this.forEachLine((trimmed) => {
+        if (keepByTime(trimmed)) keepLineBytes.push(trimmed.length + 1);
+        else droppedByTime += 1;
+      });
 
-      if (droppedCount === 0) {
+      // 大小硬上限:即使按时间窗未到,也强制截断头部(保留最新 maxSizeMb)
+      // 按行边界切,避免半行残留;从尾部向前累加输出字节直到达到上限。
+      let keepFrom = 0; // keep 序号 < keepFrom 的行被大小截断丢弃
+      let keptBytes = 0;
+      for (let i = keepLineBytes.length - 1; i >= 0; i--) {
+        if (keptBytes + keepLineBytes[i]! > maxBytes) {
+          keepFrom = i + 1;
+          break;
+        }
+        keptBytes += keepLineBytes[i]!;
+      }
+      if (keepFrom === 0 && droppedByTime === 0) {
         return { droppedCount: 0, originalSize, newSize: originalSize };
       }
 
-      // 原子写:临时文件 + rename
+      // Pass 2(流式):写出 时间 keep 且序号 ≥ keepFrom 的行,原子 rename
       const tmpPath = `${this.filePath}.rotate-${process.pid}-${Date.now()}`;
-      writeFileSync(tmpPath, kept.map((l) => l).join("\n") + "\n", "utf8");
+      const fd = openSync(tmpPath, "w");
+      let writeIdx = 0;
+      let newSize = 0;
+      try {
+        this.forEachLine((trimmed) => {
+          if (!keepByTime(trimmed)) return;
+          if (writeIdx >= keepFrom) {
+            writeSync(fd, trimmed + "\n");
+            newSize += trimmed.length + 1;
+          }
+          writeIdx++;
+        });
+      } finally {
+        closeSync(fd);
+      }
       renameSync(tmpPath, this.filePath);
+      const droppedCount = droppedByTime + keepFrom;
       return { droppedCount, originalSize, newSize };
     } catch {
       return { droppedCount: 0, originalSize, newSize: originalSize };
+    }
+  }
+
+  /** 流式逐行遍历 audit.jsonl(跨 chunk 行拼接;空行跳过;只读) */
+  private forEachLine(cb: (trimmed: string) => void): void {
+    const CHUNK = 64 * 1024;
+    const buf = Buffer.alloc(CHUNK);
+    const fd = openSync(this.filePath, "r");
+    let pos = 0;
+    let pending = "";
+    try {
+      while (true) {
+        const n = readSync(fd, buf, 0, CHUNK, pos);
+        if (n === 0) break;
+        pos += n;
+        const text = buf.subarray(0, n).toString("utf8");
+        const endsWithNewline = text.charCodeAt(text.length - 1) === 10;
+        const lines = text.split("\n");
+        if (pending.length > 0 && lines.length > 0) {
+          lines[0] = pending + lines[0];
+          pending = "";
+        }
+        if (!endsWithNewline) {
+          pending = lines.pop()!;
+        } else {
+          lines.pop();
+        }
+        for (const l of lines) {
+          const t = l.trim();
+          if (t.length > 0) cb(t);
+        }
+      }
+      if (pending.trim().length > 0) cb(pending.trim());
+    } finally {
+      closeSync(fd);
     }
   }
 
@@ -374,6 +471,13 @@ export class AuditLog {
    * 自己持有 setInterval。返回 stop 函数,host adapter 在卸载/退出时调。
    *
    * 配置项来自 persisted config 或默认值;intervalMs ≤ 0 时不启动。
+   *
+   * 2026-08-16 修复「轮转从未执行」:
+   * - **启动首跑**(30s 延迟避峰):旧实现只有 setInterval(24h),短命进程
+   *   (daemon 重启间隙的 stdio 连接)活不到首次触发,轮转形同虚设 ——
+   *   真实库 audit.jsonl 曾涨到 106MB(上限 50MB)。
+   * - **注入 append 背压参数**:超限 ×1.1 时写入路径自己触发异步轮转
+   *   (见 maybeBackpressureRotate),高频写入进程不再单纯依赖定时器。
    */
   startAutoRotation(opts: {
     readonly retentionDays: number;
@@ -382,6 +486,11 @@ export class AuditLog {
     readonly intervalMs: number;
   }): () => void {
     if (opts.intervalMs <= 0) return () => {};
+    this.autoRotationOpts = {
+      retentionDays: opts.retentionDays,
+      highValueRetentionDays: opts.highValueRetentionDays,
+      maxSizeMb: opts.maxSizeMb,
+    };
     const tick = (): void => {
       try {
         const r = this.rotate(opts);
@@ -396,9 +505,14 @@ export class AuditLog {
       }
     };
     const handle = setInterval(tick, opts.intervalMs);
+    const first = setTimeout(tick, FIRST_ROTATION_DELAY_MS);
     // unref:不阻塞 Node 退出(host adapter 显式 stop 时清理)
     if (typeof handle.unref === "function") handle.unref();
-    return () => clearInterval(handle);
+    if (typeof first.unref === "function") first.unref();
+    return () => {
+      clearInterval(handle);
+      clearTimeout(first);
+    };
   }
 
   /** 清空所有记录(测试用) */
