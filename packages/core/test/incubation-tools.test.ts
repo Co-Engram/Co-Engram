@@ -351,4 +351,123 @@ describe("T6:conclude / update 工具与 schedule 面", () => {
     expect(b.nextRunAt).toBe(computeNextRunAt(entries[1]!));
     expect(b.finalAnswer).toBe("已收束");
   });
+
+  it("list:timeline 摘要化 —— answerDraft 仅最近 2 轮,轻量字段与 timelineRounds 全保留", () => {
+    const timeline: IncubationTimelineEvent[] = [1, 2, 3, 4].map((n) => ({
+      at: `2026-08-1${n}T00:05:00.000Z`,
+      trigger: "scheduled" as const,
+      round: n,
+      summaries: [`洞察${n}`],
+      proposalEntityIds: [],
+      externalCallCount: 0,
+      answerDraft: `第${n}轮阶段草稿`,
+    }));
+    const fake = {
+      list: () => [mkEntry({ id: "inc-sum", timeline })],
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const r = registry.get("incubation_list")!.execute({}, { ...ctx, incubator: fake }) as {
+      items: ReadonlyArray<{
+        id: string;
+        timelineRounds: number;
+        timeline: ReadonlyArray<Record<string, unknown>>;
+      }>;
+    };
+    const item = r.items.find((i) => i.id === "inc-sum")!;
+    expect(item.timelineRounds).toBe(4);
+    expect(item.timeline).toHaveLength(4);
+    // 前 2 轮:answerDraft 被裁(键不存在),轻量字段保留
+    expect("answerDraft" in item.timeline[0]!).toBe(false);
+    expect("answerDraft" in item.timeline[1]!).toBe(false);
+    expect(item.timeline[0]!.round).toBe(1);
+    expect(item.timeline[0]!.summaries).toEqual(["洞察1"]);
+    // 最近 2 轮:answerDraft 全文保留
+    expect(item.timeline[2]!.answerDraft).toBe("第3轮阶段草稿");
+    expect(item.timeline[3]!.answerDraft).toBe("第4轮阶段草稿");
+  });
+
+  // ============================================================
+  // 失败路径:域层裸 Error 经工具层转译为带 code 的 EngramToolError
+  // (防三类可预期失败被宿主当 INTERNAL 上报)
+  // ============================================================
+
+  /** 捕获同步/异步抛错为值,便于断言错误字段 */
+  async function captureErr(fn: () => unknown | Promise<unknown>): Promise<unknown> {
+    try {
+      await fn();
+    } catch (e) {
+      return e;
+    }
+    return undefined;
+  }
+
+  it("conclude:id 不存在 → 转译为 NOT_FOUND(保留 id 提示)", async () => {
+    const fake = {
+      conclude: async () => {
+        throw new Error("incubation inc-none not found");
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_conclude")!.execute({ id: "inc-none" }, { ...ctx, incubator: fake }),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; resourceId?: string };
+    expect(e.code).toBe("NOT_FOUND");
+    expect(e.message).toContain("inc-none");
+    expect(e.resourceId).toBe("inc-none");
+  });
+
+  it("conclude:in-flight 拒绝 → 转译为可重试 LOCK_BUSY,message 带 TTL 提示", async () => {
+    const fake = {
+      conclude: async () => {
+        throw new Error("incubation inc-busy in-flight — conclude after the round finishes");
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_conclude")!.execute({ id: "inc-busy" }, { ...ctx, incubator: fake }),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; retryable: boolean; message: string };
+    expect(e.code).toBe("LOCK_BUSY");
+    expect(e.retryable).toBe(true);
+    expect(e.message).toContain("TTL 30min");
+  });
+
+  it("conclude:llmClient 未注入 → 转译为 CONFIG,message 明示收束不可用", async () => {
+    const fake = {
+      conclude: async () => {
+        throw new Error("conclude unavailable: no llmClient injected");
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_conclude")!.execute({ id: "inc-x" }, { ...ctx, incubator: fake }),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string };
+    expect(e.code).toBe("CONFIG");
+    expect(e.message).toContain("llmClient 未注入");
+  });
+
+  it("update:id 不存在 → 转译为 NOT_FOUND(保留 id 提示)", async () => {
+    const fake = {
+      updateSchedule: () => {
+        throw new Error("incubation inc-none not found");
+      },
+    } as unknown as Incubator;
+    const registry = createToolRegistry();
+    const err = await captureErr(() =>
+      registry.get("incubation_update")!.execute(
+        { id: "inc-none", schedule: "07:00" },
+        { ...ctx, incubator: fake },
+      ),
+    );
+    expect(isEngramToolError(err)).toBe(true);
+    const e = err as { code: string; message: string; resourceId?: string };
+    expect(e.code).toBe("NOT_FOUND");
+    expect(e.message).toContain("inc-none");
+    expect(e.resourceId).toBe("inc-none");
+  });
 });

@@ -24,7 +24,12 @@ import {
 } from "./schemas.js";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
-import { configError } from "./error-schema.js";
+import {
+  configError,
+  EngramToolError,
+  isEngramToolError,
+  notFoundError,
+} from "./error-schema.js";
 import { computeNextRunAt } from "../maintenance/insight/incubator.js";
 import type {
   Incubator,
@@ -41,6 +46,52 @@ function requireIncubator(ctx: ToolContext): Incubator {
     );
   }
   return ctx.incubator;
+}
+
+/**
+ * list 工具的 timeline 摘要:轻量字段全保留,answerDraft 仅最近 2 轮全文
+ * (agent 上下文预算;viewer 走域层取全文,不受此限)。
+ */
+function summarizeTimeline(
+  tl: readonly IncubationTimelineEvent[],
+): readonly IncubationTimelineEvent[] {
+  const keepDraftFrom = Math.max(0, tl.length - 2);
+  return tl.map((t, i) => {
+    const { answerDraft, ...rest } = t;
+    return i >= keepDraftFrom ? t : rest;
+  });
+}
+
+/**
+ * conclude/update 的域层错误转译:incubator 域层抛裸 Error(不依赖工具契约),
+ * 三类可预期失败按文案转成 EngramToolError,让 agent 拿到可读的 code/message
+ * 而非一律 INTERNAL;其余错误原样上抛(不吞未知失败)。
+ */
+function translateIncubationError(err: unknown, id: string): unknown {
+  if (!(err instanceof Error) || isEngramToolError(err)) return err;
+  const msg = err.message;
+  if (/not found/.test(msg)) {
+    return notFoundError(
+      "Incubation",
+      id,
+      "Use incubation_list to find the correct incubation id.",
+    );
+  }
+  if (/in-flight/.test(msg)) {
+    // LOCK_BUSY 是契约里唯一 retryable 语义的 code;in-flight 锁随轮次结束或 TTL 回收释放。
+    return new EngramToolError({
+      code: "LOCK_BUSY",
+      message: `incubation ${id} 本轮夜思进行中,结束后或 TTL 30min 回收后可重试`,
+      resourceId: id,
+      retryable: true,
+      retryAfterMs: 30 * 60 * 1000,
+      suggestion: "等本轮夜思结束(in-flight TTL 30 分钟自动回收)后重试同一调用。",
+    });
+  }
+  if (/llmClient/.test(msg)) {
+    return configError("llmClient", "llmClient 未注入,收束不可用");
+  }
+  return err;
 }
 
 // ============================================================
@@ -60,7 +111,7 @@ export const incubationCreateTool: Tool<
 > = {
   name: "incubation_create",
   description:
-    "创建一个夜思(overnight thinking)孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。问题为自由文本(可比记忆更丰富);可选 seedEngramIds 指定种子记忆。webResearchOptIn 默认 false —— 联网调研需按条目显式开启,开启后问题摘要会发送至搜索引擎(创建前应向用户确认)。每日排程时刻 schedule 为 HH:mm(本地时间,默认 00:00),返回含下一轮预计时间 nextRunAt。",
+    "创建一个夜思(overnight thinking)孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。问题为自由文本(可比记忆更丰富);可选 seedEngramIds 指定种子记忆。webResearchOptIn 默认 false —— 联网调研需按条目显式开启,开启后问题摘要会发送至搜索引擎(创建前应向用户确认)。每日排程时刻 schedule 为 HH:mm(本地时间,默认 00:00),返回含下一轮预计时间 nextRunAt;suggested-resolve 态条目不自动跑轮(待用户裁决),nextRunAt 为提示性预计。",
   inputSchema: IncubationCreateInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationCreateInputSchema>>(IncubationCreateInputSchema, input);
@@ -152,7 +203,10 @@ export const incubationListTool: Tool<
       readonly lastHatchedAt: string | null;
       readonly nextRunAt: string | null;
       readonly timelineRounds: number;
-      /** 完整梦境时间线(含空转诊断 diagnosis 与阶段 answerDraft) */
+      /**
+       * 梦境时间线摘要:轻量字段(含空转诊断 diagnosis)全保留,
+       * answerDraft 仅最近 2 轮全文(agent 上下文预算;viewer 走域层取全文)
+       */
       readonly timeline: readonly IncubationTimelineEvent[];
       /** 收束产物(incubation_conclude);未收束条目无此字段 */
       readonly finalAnswer?: string;
@@ -162,7 +216,7 @@ export const incubationListTool: Tool<
 > = {
   name: "incubation_list",
   description:
-    "列出夜思孵化条目(含 resolved/paused 荣誉记录)。返回 id/问题/状态(active|in-flight|suggested-resolve|resolved|paused)/轮数/联网 opt-in/排程时刻与下一轮预计时间(schedule/nextRunAt)/最近孵化时间/完整梦境时间线(timeline,含空转诊断与阶段 answerDraft)/收束后的最终回答(finalAnswer,未收束无此字段)。",
+    "列出夜思孵化条目(含 resolved/paused 荣誉记录)。返回 id/问题/状态(active|in-flight|suggested-resolve|resolved|paused)/轮数/联网 opt-in/排程时刻与下一轮预计时间(schedule/nextRunAt)/最近孵化时间/梦境时间线摘要(timeline,轻量字段全保留,answerDraft 仅最近 2 轮)/收束后的最终回答(finalAnswer,未收束无此字段)。suggested-resolve 态条目不自动跑轮(待用户裁决),nextRunAt 为提示性预计。",
   inputSchema: IncubationListInputSchema,
   execute(input, ctx) {
     validateInput<z.infer<typeof IncubationListInputSchema>>(IncubationListInputSchema, input);
@@ -178,7 +232,7 @@ export const incubationListTool: Tool<
         lastHatchedAt: e.lastHatchedAt,
         nextRunAt: computeNextRunAt(e),
         timelineRounds: e.timeline.length,
-        timeline: e.timeline,
+        timeline: summarizeTimeline(e.timeline),
         ...(e.finalAnswer ? { finalAnswer: e.finalAnswer } : {}),
       })),
       total: entries.length,
@@ -262,12 +316,16 @@ export const incubationConcludeTool: Tool<
 > = {
   name: "incubation_conclude",
   description:
-    "收束夜思条目:综合全部梦境时间线生成最终回答(finalAnswer)并置 suggested-resolve。幂等可重复(重生成并覆盖)。llmClient 未注入时报错。收束不自动 accept 任何提案;是否已回答仍由用户经 incubation_resolve 裁决。",
+    "收束夜思条目:综合全部梦境时间线生成最终回答(finalAnswer)并置 suggested-resolve。幂等可重复(重生成并覆盖);已 resolved/paused 的条目收束会保留原状态,仅重生成 finalAnswer。llmClient 未注入时报错。收束不自动 accept 任何提案;是否已回答仍由用户经 incubation_resolve 裁决。",
   inputSchema: IncubationConcludeInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationConcludeInputSchema>>(IncubationConcludeInputSchema, input);
-    const e = await requireIncubator(ctx).conclude(parsed.id);
-    return { id: e.id, status: e.status, finalAnswer: e.finalAnswer ?? "", concludedAt: e.concludedAt ?? "" };
+    try {
+      const e = await requireIncubator(ctx).conclude(parsed.id);
+      return { id: e.id, status: e.status, finalAnswer: e.finalAnswer ?? "", concludedAt: e.concludedAt ?? "" };
+    } catch (err) {
+      throw translateIncubationError(err, parsed.id);
+    }
   },
 };
 
@@ -285,8 +343,12 @@ export const incubationUpdateTool: Tool<
   inputSchema: IncubationUpdateInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationUpdateInputSchema>>(IncubationUpdateInputSchema, input);
-    const e = requireIncubator(ctx).updateSchedule(parsed.id, parsed.schedule);
-    return { id: e.id, schedule: e.schedule ?? "00:00", nextRunAt: computeNextRunAt(e) };
+    try {
+      const e = requireIncubator(ctx).updateSchedule(parsed.id, parsed.schedule);
+      return { id: e.id, schedule: e.schedule ?? "00:00", nextRunAt: computeNextRunAt(e) };
+    } catch (err) {
+      throw translateIncubationError(err, parsed.id);
+    }
   },
 };
 
