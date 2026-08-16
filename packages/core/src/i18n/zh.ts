@@ -335,7 +335,7 @@ WHEN NOT TO CALL:
 - 用户要即时答案(直接回答或用 engram_search)
 - 一次性琐碎问题
 
-RETURNS: { id, status, question, rounds }。webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
+RETURNS: { id, status, question, rounds, schedule, nextRunAt }。schedule 为每日排程时刻(HH:mm 本地时间,默认 00:00),nextRunAt 为下一轮预计时间;webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
   "tool.incubation_run.agent": `立即执行一轮夜思。
 
 WHEN TO CALL:
@@ -351,7 +351,7 @@ RETURNS: mode=agent 时返回固化协议任务包(问题/种子摘要/梦境史
 WHEN TO CALL:
 - 用户问"我的夜思条目""孵化到第几夜了""有没有暂停的条目"
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, lastHatchedAt, timelineRounds }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。`,
+RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。timeline 为梦境时间线摘要(轻量字段全保留,answerDraft 仅最近 2 轮全文);finalAnswer 为收束产物,未收束条目无此字段。`,
   "tool.incubation_resolve.agent": `夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve,由你问用户「是否回答了你的问题」。
 
 WHEN TO CALL:
@@ -367,6 +367,25 @@ WHEN NOT TO CALL:
 - 未执行协议就调用;或已回写过本轮
 
 RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察本轮作废,连续 2 轮全撞自动 paused。`,
+  "tool.incubation_conclude.agent": `收束夜思条目：综合全部梦境时间线，由 LLM 生成最终回答（finalAnswer），条目进入 suggested-resolve。
+
+WHEN TO CALL:
+- 条目孵化多轮、洞察累积到值得收束，或用户想要「这个问题的最终答案」
+
+WHEN NOT TO CALL:
+- 条目仍在早期孵化（继续等夜里跑轮）
+- 部署未注入 llmClient（收束直接报错）
+
+RETURNS: { id, status, finalAnswer, concludedAt }。幂等：可重复调用，重生成并覆盖 finalAnswer；已 resolved / paused 的条目收束保留原状态，仅重生成 finalAnswer。收束不自动 accept 任何提案 —— 是否已回答仍由用户经 incubation_resolve 裁决。`,
+  "tool.incubation_update.agent": `改写夜思条目的每日排程时刻。
+
+WHEN TO CALL:
+- 用户说「以后夜里 11 点再想」「改成早上 6 点收洞察」等调整每日跑轮时刻
+
+WHEN NOT TO CALL:
+- 条目本轮 in-flight（仅非 in-flight 态可改；锁随轮次结束或 TTL 30 分钟回收后释放）
+
+RETURNS: { id, schedule, nextRunAt }。schedule 为 HH:mm 本地时间（默认 00:00），nextRunAt 为下一轮预计时间。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。

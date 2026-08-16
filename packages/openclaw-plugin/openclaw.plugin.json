@@ -53,7 +53,9 @@
       "incubation_run",
       "incubation_list",
       "incubation_resolve",
-      "incubation_report"
+      "incubation_report",
+      "incubation_conclude",
+      "incubation_update"
     ]
   },
   "name": "Co-Engram",

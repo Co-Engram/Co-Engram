@@ -342,7 +342,7 @@ WHEN NOT TO CALL:
 - User wants an immediate answer (answer directly or use engram_search)
 - One-off trivial questions
 
-RETURNS: { id, status, question, rounds }. webResearchOptIn defaults to false — confirm with the user before enabling (the question summary will be sent to search engines).`,
+RETURNS: { id, status, question, rounds, schedule, nextRunAt }. schedule is the daily run time (HH:mm local, default 00:00); nextRunAt is the projected time of the next round. webResearchOptIn defaults to false — confirm with the user before enabling (the question summary will be sent to search engines).`,
   "tool.incubation_run.agent": `Run one night-thinking round immediately.
 
 WHEN TO CALL:
@@ -358,7 +358,7 @@ RETURNS: mode=agent returns the fixed-protocol task package (question / seed dig
 WHEN TO CALL:
 - User asks "my night-thinking entries", "which night are we on", "any paused entries"
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, lastHatchedAt, timelineRounds }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused.`,
+RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused. timeline is a dream-timeline summary (lightweight fields kept in full; answerDraft full text only for the most recent 2 rounds); finalAnswer is the concluded answer, absent for unconcluded entries.`,
   "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after an insight is accepted the entry becomes suggested-resolve; ask the user "did it answer your question?".
 
 WHEN TO CALL:
@@ -374,6 +374,25 @@ WHEN NOT TO CALL:
 - Before executing the protocol; or when the round was already reported
 
 RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round; 2 fully-duplicate rounds auto-pause the entry.`,
+  "tool.incubation_conclude.agent": `Conclude a night-thinking entry: synthesize the full dream timeline into a final answer (finalAnswer) and set the entry to suggested-resolve.
+
+WHEN TO CALL:
+- The entry has accumulated enough rounds of insights to wrap up, or the user wants "the final answer to this question"
+
+WHEN NOT TO CALL:
+- Entry is still in early incubation (let nightly rounds continue)
+- Deployment without llmClient injected (conclude fails loudly)
+
+RETURNS: { id, status, finalAnswer, concludedAt }. Idempotent: may be called repeatedly, regenerating and overwriting finalAnswer; already resolved / paused entries keep their status, only finalAnswer is regenerated. Concluding does NOT auto-accept any proposal — whether the question was answered is still decided by the user via incubation_resolve.`,
+  "tool.incubation_update.agent": `Rewrite the daily schedule time of a night-thinking entry.
+
+WHEN TO CALL:
+- User asks to shift the nightly run time ("think at 11pm instead", "move harvest to 6am")
+
+WHEN NOT TO CALL:
+- Entry is currently in-flight (schedule can only be rewritten outside a running round; the lock releases when the round ends or after the 30-min TTL recovery)
+
+RETURNS: { id, schedule, nextRunAt }. schedule is HH:mm local time (default 00:00); nextRunAt is the projected time of the next round.`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
