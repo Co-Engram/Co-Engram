@@ -178,7 +178,17 @@ export const EngramUpdateInputSchema = z.object({
   importance: z.coerce.number().min(0).max(1).optional(),
   confidence: z.coerce.number().min(0).max(1).optional(),
   visibility: EngramVisibilitySchema.optional(),
-  updatedBy: z.string().min(1),
+  // 署名契约对齐(r15 修复):与 engram_create 的 createdBy 同一原则——
+  // 「人类责任归属」字段由宿主 git 身份决定,LLM 传入值不生效(schema 仍
+  // 接受该字段以向后兼容)。此前 update 直接透传 parsed.updatedBy 落盘,
+  // LLM 自填的机器标签(如 "claude-code")会写进 frontmatter「更新者」,
+  // 与 create 的忽略策略分裂。
+  updatedBy: z
+    .string()
+    .min(1)
+    .describe(
+      "Ignored (kept for backward compat): authorship is resolved from the host git identity, same as engram_create.createdBy. Use encodingContext to convey automation context.",
+    ),
 });
 
 // ============================================================

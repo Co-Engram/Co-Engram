@@ -63,7 +63,10 @@ describe("report() diagnosis 计数", () => {
       actor: "test",
     });
     const diag = r.entry.timeline.at(-1)?.diagnosis;
-    expect(diag).toEqual({ drafts: 1, dupVetoed: 0, validateRejected: 1, criticRejected: 0, llmClientMissing: true });
+    expect(diag).toMatchObject({ drafts: 1, dupVetoed: 0, validateRejected: 1, criticRejected: 0, llmClientMissing: true });
+    // 逐条拒因落盘(2026-08-16 诊断可达性):title 前缀 + 引用闭合成因
+    expect(diag?.rejectReasons?.[0]).toContain("[validate] t");
+    expect(diag?.rejectReasons?.[0]).toContain("citation closure");
     expect(r.proposals).toBe(0);
   });
 
@@ -101,7 +104,9 @@ describe("report() diagnosis 计数", () => {
       actor: "test",
     });
     const diag = r.entry.timeline.at(-1)?.diagnosis;
-    expect(diag).toEqual({ drafts: 1, dupVetoed: 0, validateRejected: 0, criticRejected: 1, llmClientMissing: false });
+    expect(diag).toMatchObject({ drafts: 1, dupVetoed: 0, validateRejected: 0, criticRejected: 1, llmClientMissing: false });
+    expect(diag?.rejectReasons?.[0]).toContain("[critic] t3");
+    expect(diag?.rejectReasons?.[0]).toContain("0.10 < 0.6");
     expect(r.proposals).toBe(0);
   });
 
@@ -285,5 +290,51 @@ describe("report() 写前重读合并(并发与用户裁决保留)", () => {
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(incubator.get(e.id)).toBeUndefined(); // 未复活已删条目
     expect(r.entry.rounds).toBe(1); // 仍返回本轮计算结果
+  });
+});
+
+describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修复)", () => {
+  it("trace 摘要与外部调研 purpose 落 timeline,并注入 answerDraft 综合输入", async () => {
+    const prompts: string[] = [];
+    const { incubator } = makeIncubator({
+      llmComplete: async (p: string) => {
+        prompts.push(p);
+        return "阶段结论。";
+      },
+    });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const report = {
+      insights: [{ mode: "inspiration", type: "theme", title: "t9", summary: "s9", content: "c9", sourceIds: ["missing-id"], domainTags: [], reason: "r" }],
+      plan: [],
+      trace: [
+        { step: "survey", action: "engram_search", detail: "co-engram 相关记忆 21 条" },
+        { step: "verify", action: "codegraph_explore", detail: "audit rotation 实现核实" },
+      ],
+      externalCalls: [{ tool: "WebSearch", purpose: "业界记忆评测趋势调研", at: "2026-08-16T13:00:00.000Z" }],
+    } as unknown as NightThinkingReport;
+    const r = await incubator.report({ incubationId: e.id, report, trigger: "scheduled", actor: "test" });
+    // timeline:轨迹摘要(截断格式)+ 拒因
+    const last = r.entry.timeline.at(-1);
+    expect(last?.trace).toEqual([
+      "survey: engram_search — co-engram 相关记忆 21 条",
+      "verify: codegraph_explore — audit rotation 实现核实",
+    ]);
+    expect(last?.diagnosis?.rejectReasons?.[0]).toContain("[validate] t9");
+    // answerDraft 综合输入:轨迹 / 外调 purpose / 拒因三节都要在
+    const synth = prompts.at(-1)!;
+    expect(synth).toContain("## This round's execution trace");
+    expect(synth).toContain("engram_search — co-engram 相关记忆 21 条");
+    expect(synth).toContain("External research performed: [WebSearch: 业界记忆评测趋势调研]");
+    expect(synth).toContain("## This round's rejection reasons");
+    expect(synth).toContain("[validate] t9");
+  });
+
+  it("零拒因零轨迹 → 两个可选字段均省略(旧 JSON 形状不变)", async () => {
+    const { incubator } = makeIncubator({ llmComplete: async () => "阶段结论。" });
+    const e = incubator.create({ question: "测试问题ABC" });
+    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
+    const last = r.entry.timeline.at(-1);
+    expect(last?.trace).toBeUndefined();
+    expect(last?.diagnosis && "rejectReasons" in last.diagnosis).toBe(false);
   });
 });

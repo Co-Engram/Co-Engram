@@ -155,7 +155,7 @@ describe("engram_update audit content", () => {
     expect(toVal.length).toBeLessThan(newLongContent.length);
   });
 
-  it("changes 之外的 metadata 字段(updatedBy)保留", () => {
+  it("updatedBy 署名契约(r15):LLM 传入忽略,落宿主身份", () => {
     const { id } = engramCreateTool.execute(
       {
         title: "A",
@@ -166,9 +166,13 @@ describe("engram_update audit content", () => {
       },
       ctx,
     );
-    engramUpdateTool.execute({ id, title: "B", updatedBy: "bob" }, ctx);
+    // 传入机器标签 "claude-code" —— 修复前直接透传落盘,修复后忽略并落宿主身份
+    engramUpdateTool.execute({ id, title: "B", updatedBy: "claude-code" }, ctx);
     const entries = audit.query({ action: "update", engramId: id });
-    expect(entries[0]!.metadata?.updatedBy).toBe("bob");
+    expect(entries[0]!.metadata?.updatedBy).toBe(
+      ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown",
+    );
+    expect(entries[0]!.metadata?.updatedBy).not.toBe("claude-code");
   });
 });
 

@@ -1317,6 +1317,8 @@ async function routeApi(
       readonly visibility?: string;
       readonly reason?: string;
       readonly dismissDays?: number;
+      /** H7 归因:前端「全部采纳」批量循环逐条 POST 时带 true → audit via=viewer-batch */
+      readonly batch?: boolean;
     }>(req);
     try {
       if (action === "accept") {
@@ -1368,7 +1370,11 @@ async function routeApi(
             : {}),
         };
         try {
-          const engramId = ctx.proposalEngine.accept(entityId, acceptInput);
+          // H7 归因:accept 决策审计记 via(viewer-card 单卡 / viewer-batch 全部采纳)
+          const engramId = ctx.proposalEngine.accept(entityId, {
+            ...acceptInput,
+            via: body?.batch ? "viewer-batch" : "viewer-card",
+          });
           // 异步触发 graph.json 重建,让 /api/graph 立即看到新节点。
           // batch accept 时 200ms debounce 合并成一次重建。
           if (ctx.repository) scheduleGraphRebuild(ctx.repository);

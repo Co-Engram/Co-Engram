@@ -715,6 +715,22 @@ if (
   process.argv[1] &&
   realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1])
 ) {
+  // H7/D 簇修复(2026-08-16 loop r13):server 此前 5+ 次死亡零日志——
+  // 进程无 uncaughtException/unhandledRejection 兜底,任何异步异常直接
+  // 静默退出,宿主侧只见断连无法归因。fail-loud:崩溃详情写 stderr
+  // (stdio MCP 下进宿主日志),下次死亡可归因。
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(
+      `[co-engram] FATAL uncaughtException @ ${new Date().toISOString()}: ${err.stack ?? err}\n`,
+    );
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(
+      `[co-engram] FATAL unhandledRejection @ ${new Date().toISOString()}: ${reason instanceof Error ? reason.stack : String(reason)}\n`,
+    );
+    process.exit(1);
+  });
   main().catch((error) => {
     console.error("Co-Engram MCP server failed to start:", error);
     process.exit(1);

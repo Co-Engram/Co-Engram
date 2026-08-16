@@ -2374,17 +2374,17 @@ window.CO_ENGRAM_PROPOSALS = {
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.dismissAll', { n: visiblePending.length })) + '</button>'
       : '';
 
-    // Bug 6:已驳回 tab 显示「彻底清空(N)」按钮 —— 把 dismissed 提案从磁盘 proposals.json 物理删除
-    // 仅在 currentStatus=dismissed 且确实有 dismissed 提案时显示;物理删除不可恢复,需 confirm
+    // 清空按钮(2026-08-16 统一设计):句式「清空已驳回(N)/清空已采纳(N)」对齐
+    // 「全部采纳(N)/全部驳回(N)」;对应状态 tab 与「全部」tab 都提供,行为差异
+    // (驳回=物理删除不可恢复;采纳=只清记录保留 engram)在各自 confirm 里说明。
     const dismissedCount = (typeof statusCounts.dismissed === 'number') ? statusCounts.dismissed : 0;
-    const purgeBtn = (currentStatus === 'dismissed' && dismissedCount > 0)
+    const purgeBtn = ((currentStatus === 'dismissed' || currentStatus === 'all') && dismissedCount > 0)
       ? '<button class="btn mini" style="margin-left:0.25rem" onclick="CO_ENGRAM_PROPOSALS.purgeDismissed()">'
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeDismissed', { n: dismissedCount })) + '</button>'
       : '';
 
-    // 仅在 currentStatus=accepted 且确实有 accepted 提案时显示;清空采纳记录但保留已创建的 engram
     const acceptedCount = (typeof statusCounts.accepted === 'number') ? statusCounts.accepted : 0;
-    const purgeAcceptedBtn = (currentStatus === 'accepted' && acceptedCount > 0)
+    const purgeAcceptedBtn = ((currentStatus === 'accepted' || currentStatus === 'all') && acceptedCount > 0)
       ? '<button class="btn mini" style="margin-left:0.25rem" onclick="CO_ENGRAM_PROPOSALS.purgeAccepted()">'
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeAccepted', { n: acceptedCount })) + '</button>'
       : '';
@@ -5050,6 +5050,13 @@ window.CO_ENGRAM_INCUBATIONS = {
           + (t.note ? '<div style="color:var(--fg-muted);font-size:.82rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.note', { note: t.note })) + '</div>' : '')
           // 空转诊断人话化(T3):N 条草稿去向逐闸拆解 + 尾差兜底,不留「去向不明」缺口
           + (t.diagnosis ? '<div style="color:var(--fg-muted);font-size:.82rem">' + CO_ENGRAM.escapeHtml(CO_ENGRAM_INCUBATIONS.diagnosisText(t.diagnosis, (t.proposalEntityIds || []).length)) + '</div>' : '')
+          // 逐条拒因(2026-08-16 机制缺陷修复):计数区分不了的成因在这里可见
+          + (t.diagnosis && t.diagnosis.rejectReasons && t.diagnosis.rejectReasons.length
+            ? '<details style="margin-top:2px"><summary style="color:var(--fg-muted);font-size:.78rem;cursor:pointer">' + CO_ENGRAM.escapeHtml(T.t('viewer.incubations.diagnosis.rejectReasons', { n: t.diagnosis.rejectReasons.length })) + '</summary>'
+              + '<ul style="margin:2px 0 0;padding-left:18px;color:var(--fg-muted);font-size:.78rem">'
+              + t.diagnosis.rejectReasons.map((r) => '<li>' + CO_ENGRAM.escapeHtml(r) + '</li>').join('')
+              + '</ul></details>'
+            : '')
           + '</li>';
       }
       html += '</ul></details>';

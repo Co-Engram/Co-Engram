@@ -77,7 +77,15 @@ export const NIGHT_THINKING_PROTOCOL = `NIGHT-THINKING PROTOCOL (follow exactly)
    "summary", "content", "sourceIds": [...], "domainTags": [...], "reason",
    "aar": {...} (lesson only) }. Insights are captured immediately — do not
    wait or batch. Do not repeat directions already explored in the dream
-   history; deepen or pivot.`;
+   history; deepen or pivot.
+   EVIDENCE ANCHORING (hard gate): every insight's sourceIds must contain ONLY
+   real engram ids from the memory repo — the path-like ids returned by
+   engram_search / engram_get / seed digests — at least one per insight.
+   Findings from other resources (source code, behavioral logs, web pages)
+   are valuable evidence but are NOT valid sourceIds: cite them inside
+   content (e.g. "verified in repo source / log") and mention them in reason.
+   Insights with empty, invented, or non-engram sourceIds are rejected by
+   the citation gate before review.`;
 
 /** 组装带隐私开关的协议文本 */
 export function buildProtocol(webResearchOptIn: boolean): string {
@@ -154,15 +162,32 @@ export function collectSeedDigests(
 }
 
 /**
- * 阶段性回答草稿(spec §五):对「问题 + 梦境史 + 本轮摘要」做单次综合。
- * 不降级 —— 调用失败/空输出由调用方记 answerDraftError,绝不拼接伪草稿。
+ * 阶段性回答草稿(spec §五):对「问题 + 梦境史 + 本轮摘要 + 本轮执行语境」
+ * 做单次综合。不降级 —— 调用失败/空输出由调用方记 answerDraftError,绝不
+ * 拼接伪草稿。
+ *
+ * roundContext(2026-08-16 机制缺陷修复:综合层信息面断裂):零存活轮里
+ * 执行层 agent 往往做了大量实质工作(资源盘点/源码核实/联网调研),但旧
+ * 输入面只有「存活摘要」—— 综合层对拒因与执行轨迹一无所知,只能猜测性
+ * 归因(「问题表述模糊」「先明确概念所指」),把系统缺陷误报成用户提问
+ * 问题。此处把拒因/轨迹/外部调研 purpose 注入综合输入,归因必须锚定真实
+ * 证据。
  */
 export async function synthesizeAnswerDraft(
   llm: LlmClient,
   question: string,
   dreamHistoryBefore: string,
   roundSummaries: readonly string[],
+  roundContext?: {
+    /** 本轮逐条拒绝原因(三道闸;title 前缀 + reason) */
+    readonly rejectReasons?: readonly string[];
+    /** 本轮执行轨迹摘要(step: action — detail) */
+    readonly traceSummary?: readonly string[];
+    /** 本轮外部调用申报(tool: purpose) */
+    readonly externalPurposes?: readonly string[];
+  },
 ): Promise<string> {
+  const ctx = roundContext ?? {};
   const prompt = [
     "You are synthesizing a WORKING ANSWER DRAFT (not final) for an incubated question.",
     "Audience: the user who planted the question. Language: match the question's language.",
@@ -176,9 +201,21 @@ export async function synthesizeAnswerDraft(
     "## This round's surviving insight summaries",
     roundSummaries.length ? roundSummaries.map((s) => `- ${s}`).join("\n") : "(none survived this round)",
     "",
+    "## This round's execution trace (what the thinking agent actually did)",
+    ctx.traceSummary?.length ? ctx.traceSummary.map((t) => `- ${t}`).join("\n") : "(no trace recorded)",
+    ...(ctx.externalPurposes?.length
+      ? [`External research performed: ${ctx.externalPurposes.map((p) => `[${p}]`).join(" ")}`, ""]
+      : []),
+    "## This round's rejection reasons (why drafts died at the quality gates)",
+    ctx.rejectReasons?.length ? ctx.rejectReasons.map((r) => `- ${r}`).join("\n") : "(none)",
+    "",
     "Write 3-6 sentences: what the accumulated evidence currently suggests as an answer,",
     "how confident it is, and what the next round should examine. If nothing survived yet,",
-    "say so honestly instead of inventing conclusions. Plain text only, no markdown fences.",
+    "say so honestly instead of inventing conclusions — and when explaining WHY nothing",
+    "survived, ground the explanation in the rejection reasons and execution trace above.",
+    "Do NOT speculate that the question is too vague or ask the user to clarify the",
+    "subject unless the rejection reasons actually say so.",
+    "Plain text only, no markdown fences.",
   ].join("\n");
   // 效果优先(2026-08-15 用户决策,与 critic.ts 对齐):GLM thinking 模型
   // 思考耗时长,120s 会系统性超时 → 600s;8192 → 16384 给足输出预算

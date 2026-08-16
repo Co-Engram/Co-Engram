@@ -568,15 +568,20 @@ export const engramUpdateTool: Tool<
       importance: parsed.importance,
       confidence: parsed.confidence,
       visibility: parsed.visibility,
-      updatedBy: parsed.updatedBy,
+      // 署名契约对齐(r15 修复):与 create 的 createdBy 同一原则——LLM 传入
+      // 一律忽略(人类责任归属字段),宿主 git 身份兜底。此前直接透传
+      // parsed.updatedBy,机器标签会落盘 frontmatter「更新者」。
+      updatedBy:
+        ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "unknown",
     });
+    void parsed.updatedBy; // 向后兼容:schema 仍接受此字段,但值不生效(同 create.createdBy)
     invalidateSearchIndex(ctx);
     ctx.auditLog?.append({
       actor: "user",
       action: "update",
       engramId: engram.id,
       metadata: {
-        updatedBy: parsed.updatedBy,
+        updatedBy: engram.updatedBy,
         changes: diffEngramFields(before, engram),
       },
     });

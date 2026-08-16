@@ -28,6 +28,15 @@ describe("resourceHints 与协议 Resource mandate", () => {
     expect(NIGHT_THINKING_PROTOCOL).toContain("task.resourceHints");
   });
 
+  it("协议含 EVIDENCE ANCHORING 硬门(sourceIds 只认记忆库 engram id)", () => {
+    // 2026-08-16 机制缺陷修复:全资源盘点的证据(codegraph/日志/web)不是
+    // 合法 sourceIds,引用闭合只认 repo engram —— 协议必须显式引导 LLM 锚定
+    expect(NIGHT_THINKING_PROTOCOL).toContain("EVIDENCE ANCHORING");
+    expect(NIGHT_THINKING_PROTOCOL).toContain("real engram ids from the memory repo");
+    expect(NIGHT_THINKING_PROTOCOL).toContain("NOT valid sourceIds");
+    expect(NIGHT_THINKING_PROTOCOL).toContain("rejected by\n   the citation gate");
+  });
+
   it("buildTask 携带 resourceHints", () => {
     const dataRoot = mkdtempSync(join(tmpdir(), "inc-res2-"));
     const dir = join(dataRoot, ".co-engram");

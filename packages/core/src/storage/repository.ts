@@ -3621,10 +3621,20 @@ export class EngramRepository {
               path: invalidPath,
               message: vi.message,
               autoFixed: false,
-              nextAction: this.nextActionFor(
-                vi,
-                typeof fmId === "string" ? fmId : "<unknown>",
-              ),
+              // id 有效 → 字段级 nextAction(可精确执行);
+              // id 缺失/无效 → 一律文件级引导。此前会把字面量 "<unknown>" 当
+              // stableId 传给 nextActionFor,生成 `id=<unknown>` 的 delete/update
+              // 建议——同一条目同时出现「delete 重建」与「update 补字段」且都
+              // 无法执行(2026-08-16 loop r12 P0)。id 定位不了时字段级建议没有
+              // 意义,统一引导先修 id(或文件级重建),修好后 doctor 再给字段级建议。
+              nextAction: stableId
+                ? this.nextActionFor(vi, stableId)
+                : {
+                    tool: "(manual edit)",
+                    argsHint: `Fix frontmatter.id in ${invalidPath} to a valid ULID (or delete the file and engram_create to rebuild)`,
+                    explanation:
+                      "id is missing/invalid, so field-level engram_update/engram_delete cannot locate this entry. Restore a valid id first, then re-run engram_doctor for per-field nextActions.",
+                  },
             };
             issues.push(issue);
             pendingManualReview.push(issue);

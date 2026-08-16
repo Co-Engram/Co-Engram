@@ -68,7 +68,18 @@ export interface IncubationTimelineEvent {
     readonly validateRejected: number;
     readonly criticRejected: number;
     readonly llmClientMissing: boolean;
+    /**
+     * 逐条拒绝原因(title 前缀 + reason;validate/critic 两关)。
+     * 2026-08-16 机制缺陷修复:只有计数无法区分「引用闭合拒」的具体成因
+     * (no sourceIds / 不在库 / 非 engram 来源),事后诊断不可达。
+     */
+    readonly rejectReasons?: readonly string[];
   };
+  /**
+   * 执行层轨迹摘要(step: action — detail,每条截断,上限保护)。
+   * 过程可观测:零存活轮里执行层的实质工作(资源盘点/调研)不再蒸发。
+   */
+  readonly trace?: readonly string[];
   /** 本轮阶段性回答草稿(LLM 真实综合;失败则记 answerDraftError,无降级拼接) */
   readonly answerDraft?: string;
   readonly answerDraftError?: string;
@@ -626,6 +637,8 @@ export class Incubator {
     const threshold = DEFAULT_REM_INSIGHT.criticThreshold;
     let validateRejected = 0;
     let criticRejected = 0;
+    /** 逐条拒因(title 前缀 + reason;诊断可达性:计数区分不了成因) */
+    const rejectReasons: string[] = [];
     for (const d of survived) {
       const sub = this.subgraphFor(d);
       const v = validateInsightDraft(
@@ -636,6 +649,7 @@ export class Incubator {
       );
       if (!v.ok) {
         validateRejected += 1;
+        rejectReasons.push(`[validate] ${d.title.slice(0, 40)}: ${v.reason}`);
         continue;
       }
       // fail-closed:无 llmClient 即无独立 critic → 不出提案
@@ -644,6 +658,9 @@ export class Incubator {
       const score = await critique(this.deps.llmClient, d, sub, d.mode);
       if (!score || score.overall < threshold) {
         criticRejected += 1;
+        rejectReasons.push(
+          `[critic] ${d.title.slice(0, 40)}: ${score ? score.overall.toFixed(2) : "unparseable"} < ${threshold}`,
+        );
         continue;
       }
       const entityId = insightEntityId(d.mode, entry.id, nextRound, d.sourceIds);
@@ -669,6 +686,14 @@ export class Incubator {
 
     // ---- 阶段综合(spec §五:不降级,失败报错)----
     // dreamHistoryFor 此时读盘仍是旧 timeline(新事件尚未落盘)→ 天然「至上一轮」
+    // 执行语境(2026-08-16 机制缺陷修复):轨迹/外调 purpose/逐条拒因注入综合
+    // 输入 —— 零存活轮的综合层不再对执行层的工作一无所知,归因锚定真实证据。
+    const traceSummary = input.report.trace
+      .slice(0, 20)
+      .map((t) => `${t.step}: ${t.action} — ${t.detail}`.slice(0, 160));
+    const externalPurposes = input.report.externalCalls.map((c) =>
+      `${c.tool}: ${c.purpose.slice(0, 120)}`,
+    );
     let answerDraft: string | undefined;
     let answerDraftError: string | undefined;
     if (!this.deps.llmClient) {
@@ -684,6 +709,11 @@ export class Incubator {
           entry.question,
           this.dreamHistoryFor(entry.id),
           draftEvidence,
+          {
+            rejectReasons,
+            traceSummary,
+            externalPurposes,
+          },
         );
       } catch (err) {
         answerDraftError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
@@ -708,6 +738,7 @@ export class Incubator {
       validateRejected,
       criticRejected,
       llmClientMissing: !this.deps.llmClient,
+      ...(rejectReasons.length ? { rejectReasons } : {}),
     };
     const timeline: IncubationTimelineEvent[] = [
       ...entry.timeline,
@@ -719,6 +750,7 @@ export class Incubator {
         proposalEntityIds: entityIds,
         externalCallCount: input.report.externalCalls.length,
         diagnosis,
+        ...(traceSummary.length ? { trace: traceSummary } : {}),
         ...(answerDraft ? { answerDraft } : {}),
         ...(answerDraftError ? { answerDraftError } : {}),
         ...(note ? { note } : {}),

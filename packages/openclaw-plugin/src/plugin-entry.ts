@@ -247,6 +247,8 @@ export function createCoEngramContext(
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot: fullConfig.dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "openclaw-plugin",
           ...(config.proposalConfig ? { config: config.proposalConfig } : {}),
           ...(necessityEvaluator ? { necessityEvaluator } : {}),
           // S4 Task 3: 注入 skillRepository(供 proposal skill hook 用)

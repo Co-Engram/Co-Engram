@@ -432,6 +432,8 @@ export class ProposalEngine {
    * 优先于 defaultCreatedBy 启动快照。git user.name 改动后无需重启即生效。
    */
   private readonly resolveCreatedBy?: () => string | undefined;
+  /** 宿主标识(构造注入);所有 proposal 审计 append 自动携带,见 appendAcceptAudit */
+  private readonly host?: string;
   /**
    * readProposals / readClusters 的 mtime-based cache。
    *
@@ -491,6 +493,13 @@ export class ProposalEngine {
      * 启动快照。让 git user.name 改动后无需重启即生效。
      */
     readonly resolveCreatedBy?: () => string | undefined;
+    /**
+     * 宿主标识(claude-code-mcp / openclaw-plugin / dsh-plugin / viewer)。
+     * H7 归因修复(2026-08-16 loop r24):accept 决策审计此前不带 host,
+     * 真人点卡 / viewer 批量 / MCP 工具调用在 audit 里不可区分,「rem 自执行」
+     * 误判正源于此。host 注入后所有 proposal 审计自动可归因。
+     */
+    readonly host?: string;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -513,6 +522,34 @@ export class ProposalEngine {
     this.skillRepository = deps.skillRepository;
     this.defaultCreatedBy = deps.defaultCreatedBy;
     this.resolveCreatedBy = deps.resolveCreatedBy;
+    this.host = deps.host;
+  }
+
+  /**
+   * proposal accept 决策审计(H7 归因修复)。
+   *
+   * 统一 action="accept"(此前各分支记 update/create/purge 或漏记,同一「用户批准
+   * 提案」语义多种写法,r24 按 action=accept 检索误判「audit 零 accept 事件」;
+   * rem-pattern 分支则完全零审计)。具体落盘动作放 metadata.appliedAction,
+   * 调用通道放 metadata.via(viewer-card / viewer-batch / mcp),host 来自构造注入。
+   */
+  private appendAcceptAudit(params: {
+    readonly entityId: string;
+    readonly engramId: string;
+    readonly via?: string;
+    readonly metadata?: Readonly<Record<string, unknown>>;
+  }): void {
+    this.auditLog.append({
+      actor: "user",
+      action: "accept",
+      engramId: params.engramId,
+      ...(this.host ? { host: this.host } : {}),
+      metadata: {
+        entityId: params.entityId,
+        ...(params.via ? { via: params.via } : {}),
+        ...params.metadata,
+      },
+    });
   }
 
   /**
@@ -1151,6 +1188,8 @@ export class ProposalEngine {
       readonly createdBy?: string;
       readonly kind?: EngramCreateInput["kind"];
       readonly visibility?: EngramVisibility;
+      /** 调用通道标识(viewer-card / viewer-batch / mcp),写入 audit metadata.via 供归因 */
+      readonly via?: string;
     },
   ): string {
     const proposals = this.readProposals();
@@ -1213,6 +1252,18 @@ export class ProposalEngine {
       );
       this.writeProposals(updated);
       this.clustersCache = null;
+      // H7 修复:rem-verification accept 决策此前零审计(字段变更靠
+      // upgradeVerification/refuteEngram 内部留痕,但「谁批准」不可追溯),补齐。
+      this.appendAcceptAudit({
+        entityId,
+        engramId,
+        via: input.via,
+        metadata: {
+          source: "rem-verification",
+          ...(newStatus ? { appliedAction: newStatus } : {}),
+          ...(pipeParts[0] ? { title: pipeParts[0].slice(0, 80) } : {}),
+        },
+      });
       return engramId;
     }
 
@@ -1275,18 +1326,18 @@ export class ProposalEngine {
         }
       }
 
-      this.auditLog.append({
-        actor: "user",
-        action:
-          p.synapseOp === "add"
-            ? "create"
-            : p.synapseOp === "delete"
-              ? "purge"
-              : "update",
+      this.appendAcceptAudit({
+        entityId,
         engramId: p.synapseFrom,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-synapse",
+          appliedAction:
+            p.synapseOp === "add"
+              ? "create"
+              : p.synapseOp === "delete"
+                ? "purge"
+                : "update",
           op: p.synapseOp,
           from: p.synapseFrom,
           to: p.synapseTo,
@@ -1333,13 +1384,13 @@ export class ProposalEngine {
         domainTags: [...p.tagNewTags],
         updatedBy: createdBy,
       });
-      this.auditLog.append({
-        actor: "user",
-        action: "update",
+      this.appendAcceptAudit({
+        entityId,
         engramId: p.tagEngramId,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-tag-refresh",
+          appliedAction: "update",
           oldTags: p.tagOldTags,
           newTags: p.tagNewTags,
           reason: p.tagReason,
@@ -1440,12 +1491,11 @@ export class ProposalEngine {
         };
         this.repository.addOutgoingSynapse(insightEngram.id, synapse);
       }
-      this.auditLog.append({
-        actor: "user",
-        action: "accept",
+      this.appendAcceptAudit({
+        entityId,
         engramId: insightEngram.id,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-insight",
           mode: payload.insightMode,
           criticScore: payload.criticScore,
@@ -1534,6 +1584,22 @@ export class ProposalEngine {
       );
       this.writeProposals(updated);
       this.clustersCache = null;
+      // H7 修复:rem-pattern accept 此前零审计(其余 accept 分支均留痕),补齐决策审计。
+      this.appendAcceptAudit({
+        entityId,
+        engramId: patternEngram.id,
+        via: input.via,
+        metadata: {
+          source: "rem-pattern",
+          appliedAction: "create",
+          confidence: payload.remConfidence,
+        },
+      });
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: patternEngram.id,
+        at: new Date().toISOString(),
+      });
       return patternEngram.id;
     }
 
@@ -1581,11 +1647,11 @@ export class ProposalEngine {
       );
       this.writeProposals(updatedSkill);
       this.clustersCache = null;
-      this.auditLog.append({
-        actor: "user",
-        action: "accept",
+      this.appendAcceptAudit({
+        entityId,
         engramId: skill.skillId,
-        metadata: { entityId, source: "skill", skillId: skill.skillId },
+        via: input.via,
+        metadata: { source: "skill", skillId: skill.skillId },
       });
       safeEmit({
         type: "proposal_accepted",
@@ -1712,13 +1778,13 @@ export class ProposalEngine {
     // 移除对应的 cluster(已转化);auto-memory proposal 无对应 cluster,filter 是 noop
     this.writeClusters(this.readClusters().filter((c) => c.id !== entityId));
 
-    this.auditLog.append({
-      actor: "user",
-      action: "accept",
+    this.appendAcceptAudit({
+      entityId,
       engramId: engram.id,
+      via: input.via,
       metadata: {
-        entityId,
         occurrences: target.occurrences,
+        appliedAction: "create",
         ...(target.source ? { source: target.source } : {}),
         ...(target.slug ? { slug: target.slug } : {}),
       },
@@ -2494,6 +2560,8 @@ export class ProposalEngine {
     input: {
       readonly createdBy?: string;
       readonly visibility?: EngramVisibility;
+      /** 调用通道标识(mcp / viewer-batch),写入 audit metadata.via;缺省 "batch" */
+      readonly via?: string;
     } = {},
   ): {
     readonly acceptedIds: readonly string[];
@@ -2665,12 +2733,11 @@ export class ProposalEngine {
       // audit + emit:逐条(auditLog.append 是 O(1) 追加)
       for (const [entityId, engramId] of acceptedMap) {
         const proposal = proposalMeta.get(entityId)!;
-        this.auditLog.append({
-          actor: "user",
-          action: "accept",
+        this.appendAcceptAudit({
+          entityId,
           engramId,
+          via: input.via ?? "batch",
           metadata: {
-            entityId,
             occurrences: proposal.occurrences,
             ...(proposal.source ? { source: proposal.source } : {}),
             ...(proposal.slug ? { slug: proposal.slug } : {}),

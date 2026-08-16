@@ -320,6 +320,8 @@ export const engramAcceptProposalTool: Tool<
       ...(parsed.kind !== undefined ? { kind: parsed.kind } : {}),
       ...(parsed.visibility !== undefined ? { visibility: parsed.visibility } : {}),
       createdBy,
+      // H7 归因:accept 决策审计记 via=mcp,与 viewer 卡片/批量点击区分
+      via: "mcp",
     });
     return { engramId, entityId: parsed.entityId, status: "accepted" };
   },
@@ -411,6 +413,8 @@ export const engramAcceptProposalsBySourceTool: Tool<
         ...(parsed.visibility !== undefined
           ? { visibility: parsed.visibility }
           : {}),
+        // H7 归因:批量 accept 决策审计记 via=mcp,与 viewer 批量点击区分
+        via: "mcp",
       },
     );
     // batch 后查 remaining pending(所有 source,不限当前 filter)

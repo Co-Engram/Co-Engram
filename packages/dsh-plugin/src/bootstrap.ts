@@ -164,6 +164,8 @@ export async function createDshRuntime(
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "dsh-plugin",
           config: {
             // hash-based embedder 必须配套更低阈值(见 core 内常量注释)
             similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD,

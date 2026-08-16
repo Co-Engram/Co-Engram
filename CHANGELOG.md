@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed(2026-08-16 loop r12-r33 修复工程)
+
+- **doctor×rem 字段 schema 互毁止血(`@co-engram/core`)**:`validateFrontmatter` 的 knownFields 曾是一份独立硬编码清单,缺 `updatedBy`/`visibility`/`sourceType`/`status` 四个契约字段——rem 管线写入的合法字段被 doctor autoFix 判为 unknown field 删除,两个维护子系统在字段层互相销毁产出(rem 写 → doctor 删 → rem 再写震荡)。现从 `ENGRAM_FIELD_MAP.en` 派生单一事实源:序列化会写出的字段就是校验认识的字段,新加字段只需改 map 一处。
+- **proposal accept 审计归因**:accept 决策审计统一 `action="accept"` + `metadata.appliedAction`(此前 rem-tag-refresh 记 `update`、rem-synapse 记 `create/purge`、rem-pattern/rem-verification 完全零审计——同一「用户批准」语义多种写法,按 `action=accept` 检索会漏);新增 `metadata.via`(`viewer-card` / `viewer-batch` / `mcp`,viewer「全部采纳」批量循环自动标记)与 `host`(三宿主构造注入),真人点卡、viewer 批量、MCP 工具调用在审计层可区分;rem-pattern accept 补齐决策审计与 `proposal_accepted` 事件。
+- **SQLite FTS 索引补标签列(schema v7)**:`engram_fts` 新增 `domain_tags`/`context_tags` 列——此前 FTS MATCH 主路径只查 title+summary+content,rem tag-refresh 的语义化标签对检索零收益(仅完全 0 召回时的 LIKE 兜底可查)。补列后标签词进主召回路径,与 in-memory 引擎索引字段下界对齐(title+summary+domainTags+contextTags;content_tokens 仍是 SQLite 独有增强项)。schema 6→7 自动 DROP 重建 + cold-start 灌回,升级无感。
+- **SQLite 检索 matchReason 不再恒空**:bm25 不暴露 per-field 命中,现用 query tokens 对 title/summary/domainTags/contextTags 重建命中解释(复用 in-memory `buildMatchReason` 同一逻辑),两引擎的 score 解释行为一致。
+- **`engram_list_paths` maxDepth 语义修正**:旧实现实际只显示到第 N-1 层(`maxDepth=1` 返回空树,根的子目录全被剪掉)。现 N = 显示到第 N 层(根为第 0 层),`maxDepth=1` 可见第一层目录。
+- **doctor 对 id 缺失条目不再给不可执行建议**:此前把字面量 `<unknown>` 当 id 生成 `id=<unknown>` 的 delete/update 建议(同一条目同时出现「删了重建」与「补字段」两条矛盾建议,且都无法执行);id 无效时统一给文件级引导(修 `frontmatter.id` 或删文件 `engram_create` 重建),id 修好后 doctor 再给字段级建议。
+- **验证脚本密钥不再进 curl argv**:`verify-rem-deep-thought.mts` / `blind-eval-night-thinking.mts` 的 `x-api-key`/`Bearer` 改经 stdin 的 curl config(`-K -`)传递——此前直接拼在命令行,`ps aux` 全机可见。
+- **MCP server 崩溃零日志修复**:入口加 `uncaughtException`/`unhandledRejection` 兜底,FATAL 详情(时间+stack)写 stderr——此前进程静默死亡,宿主只见断连无法归因。
+
+### Changed
+
+- **`engram_update.updatedBy` 署名契约对齐 `engram_create.createdBy`**:LLM 传入值不再透传落盘(此前机器标签如 `claude-code` 会写进 frontmatter「更新者」),统一由宿主 git 身份决定;schema 仍接受该字段以向后兼容。表达自动化情境请用 `encodingContext`。
+
 ### 夜思实验室(Incubation)
 
 - **锚点时刻制调度**:默认每日 00:00,可按条目改写(`HH:mm`);错过自动补跑(原滚动 24h 间隔移除)。

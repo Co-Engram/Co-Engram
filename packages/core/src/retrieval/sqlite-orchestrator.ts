@@ -17,6 +17,8 @@ import type { SearchFilter } from "../types/disclosure.js";
 // 复用 in-memory orchestrator 的 SimpleSearchResult,保证两个引擎互换时
 // 上层工具调用方零代码改动。
 import type { SimpleSearchResult } from "./orchestrator.js";
+import { buildMatchReason } from "./orchestrator.js";
+import { tokenize } from "./fts.js";
 import {
   computeFiveFactorScore,
   DEFAULT_HOTNESS_HALF_LIFE_DAYS,
@@ -125,6 +127,9 @@ export class SqliteSearchOrchestrator {
     const filtered = this.applyPostFilter(rows, opts.filter);
     if (filtered.length === 0) return { results: [], nextCursor: null };
 
+    // r12 修复:query tokens(index 口径)用于 matchReason 重建,见 results 构造。
+    const queryTokens = tokenize(q, "index");
+
     // bm25 raw(正数)归一化到 [0,1] 作五因子 relevance 项。LIKE 路径 score 全 0
     // → maxRaw=0 → relevance 全 0,五因子退化为 β·recency + γ·effImp + δ·strength + ε·hotness
     // (纯增值信号排序,因 LIKE 无文本相关度分)。
@@ -180,9 +185,16 @@ export class SqliteSearchOrchestrator {
         kind: r.kind as EngramKind,
         domainTags: r.domainTags,
       },
-      // SQLite FTS5 trigram tokenizer 不暴露 per-field 命中信息(engram_fts 是
-      // title + summary + content_tokens 合并列的单索引),matchReason 留空。
-      matchReason: [],
+      // r12 修复:SQLite 路径 matchReason 此前恒空数组(bm25 不暴露 per-field
+      // 命中)。现用 query tokens 对 title/summary/domainTags/contextTags 四字段
+      // tokenize 比对重建,与 in-memory buildMatchReason 同一逻辑——score 的
+      // 命中解释在两引擎行为一致。
+      matchReason: buildMatchReason(queryTokens, {
+        title: r.title,
+        summary: r.summary,
+        domainTags: r.domainTags,
+        contextTags: r.contextTags,
+      }),
     }));
 
     return { results, nextCursor: null };
@@ -202,6 +214,8 @@ export class SqliteSearchOrchestrator {
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
+        e.summary AS summary,
+        e.context_tags AS context_tags_json,
         e.created_at AS created_at,
         e.last_effective_at AS last_effective_at,
         e.last_retrieved_at AS last_retrieved_at,
@@ -222,6 +236,8 @@ export class SqliteSearchOrchestrator {
       kind: r.kind,
       importance: r.importance,
       domainTags: splitCsv(r.domain_tags),
+      summary: r.summary ?? "",
+      contextTags: parseContextTags(r.context_tags_json),
       // bm25 返回负值,反转成正数(score 越大越优,与 in-memory 一致)
       score: -r.fts_score,
       createdAtMs: r.created_at ?? 0,
@@ -253,6 +269,8 @@ export class SqliteSearchOrchestrator {
     const stmt = this.db.prepare(`
       SELECT e.id AS id, e.title AS title, e.kind AS kind, e.importance AS importance,
         (SELECT group_concat(domain, ',') FROM engram_domains d WHERE d.engram_id = e.id) AS domain_tags,
+        e.summary AS summary,
+        e.context_tags AS context_tags_json,
         e.created_at AS created_at,
         e.last_effective_at AS last_effective_at,
         e.last_retrieved_at AS last_retrieved_at,
@@ -280,6 +298,8 @@ export class SqliteSearchOrchestrator {
       kind: r.kind,
       importance: r.importance,
       domainTags: splitCsv(r.domain_tags),
+      summary: r.summary ?? "",
+      contextTags: parseContextTags(r.context_tags_json),
       score: 0,
       createdAtMs: r.created_at ?? 0,
       lastEffectiveAtMs: r.last_effective_at ?? null,
@@ -364,6 +384,9 @@ interface RawSearchRow {
   readonly importance: number;
   readonly domainTags: readonly string[];
   readonly score: number;
+  // matchReason 重建输入(r12 修复:SQLite 路径此前恒空数组)
+  readonly summary: string;
+  readonly contextTags: readonly string[];
   // T7:五因子重排需要(epoch ms / 原始值,search() 转 ISO 后喂 computeFiveFactorScore)
   readonly createdAtMs: number;
   readonly lastEffectiveAtMs: number | null;
@@ -381,6 +404,8 @@ interface SqliteFtsRow {
   readonly kind: string;
   readonly importance: number;
   readonly domain_tags: string | null;
+  readonly summary: string | null;
+  readonly context_tags_json: string | null;
   readonly created_at: number | null;
   readonly last_effective_at: number | null;
   readonly last_retrieved_at: number | null;
@@ -397,12 +422,25 @@ interface SqliteLikeRow {
   readonly kind: string;
   readonly importance: number;
   readonly domain_tags: string | null;
+  readonly summary: string | null;
+  readonly context_tags_json: string | null;
   readonly created_at: number | null;
   readonly last_effective_at: number | null;
   readonly last_retrieved_at: number | null;
   readonly retrieval_count: number | null;
   readonly reinforcement_score: number | null;
   readonly verification_status: string | null;
+}
+
+/** context_tags JSON 列解析回数组(容错:null / 非法 JSON → []) */
+function parseContextTags(json: string | null | undefined): string[] {
+  if (!json) return [];
+  try {
+    const arr = JSON.parse(json);
+    return Array.isArray(arr) ? arr.filter((t) => typeof t === "string") : [];
+  } catch {
+    return [];
+  }
 }
 
 /** group_concat(domain, ',') 拆回数组(null / "" → []) */

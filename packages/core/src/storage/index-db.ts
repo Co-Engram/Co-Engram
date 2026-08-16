@@ -104,10 +104,18 @@ CREATE INDEX IF NOT EXISTS idx_synapses_from ON synapses(from_id);
 CREATE INDEX IF NOT EXISTS idx_synapses_to ON synapses(to_id);
 
 -- FTS5 trigram
+-- schema v7:加 domain_tags / context_tags 两列(簇 B 修复:rem tag-refresh 改写的
+-- 标签此前不进 FTS 索引——FTS MATCH 只查 title+summary+content_tokens,标签词
+-- 查询仅在完全 0 召回时才 fallback LIKE 兜底,标签语义化对主检索路径零收益。
+-- 补列后与 in-memory 引擎的索引字段下界对齐:两者都至少索引
+-- title+summary+domainTags+contextTags;content_tokens 仍是 SQLite 独有增强项
+-- (in-memory 是 digest 级轻量引擎,不索引全文,属设计取舍而非漂移)。
 CREATE VIRTUAL TABLE IF NOT EXISTS engram_fts USING fts5(
   id UNINDEXED,
   title,
   summary,
+  domain_tags,
+  context_tags,
   content_tokens,
   tokenize = 'trigram'
 );
@@ -151,7 +159,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 // bump 触发现有库 migrateSchema DROP 全表(空库)→ open() 在建表前设
 // auto_vacuum=INCREMENTAL(SQLite 语义:有表时设不生效,空库才生效)→ 建表
 // → cold-start rebuild 灌回。一次性切到增量回收 + 回收历史膨胀(实测 29MB→~1.5MB)。
-const SCHEMA_VERSION = 6;
+// v7(2026-08):engram_fts 加 domain_tags / context_tags 列(簇 B 修复,见建表注释)。
+// bump → DROP 全表重建,cold-start 从 .md 灌回,rem 标签自此进主检索路径。
+const SCHEMA_VERSION = 7;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -468,11 +478,20 @@ export class IndexDb {
     for (const d of entry.domainTags) {
       insertDomain.run(entry.id, d);
     }
-    // FTS5 不支持 ON CONFLICT,delete + insert
+    // FTS5 不支持 ON CONFLICT,delete + insert。
+    // domain_tags / context_tags:逗号 join 纯文本进 FTS(schema v7,簇 B 修复)
+    // ——标签词自此可被 FTS MATCH 主路径召回,不再依赖 LIKE 兜底。
     this.prepare("DELETE FROM engram_fts WHERE id = ?").run(entry.id);
     this.prepare(
-      "INSERT INTO engram_fts (id, title, summary, content_tokens) VALUES (?, ?, ?, ?)",
-    ).run(entry.id, entry.title, entry.summary, entry.contentTokens);
+      "INSERT INTO engram_fts (id, title, summary, domain_tags, context_tags, content_tokens) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      entry.id,
+      entry.title,
+      entry.summary,
+      entry.domainTags.join(", "),
+      (entry.contextTags ?? []).join(", "),
+      entry.contentTokens,
+    );
   }
 
   /**

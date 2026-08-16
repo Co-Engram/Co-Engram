@@ -1019,6 +1019,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.incubations.diagnosis.critic": "${n} 条未过 critic 评审",
   "viewer.incubations.diagnosis.residual": "其余 ${n} 条未成案",
   "viewer.incubations.diagnosis.noLlm": "llmClient 未注入：提案评审与阶段综合均不可用",
+  "viewer.incubations.diagnosis.rejectReasons": "拒因明细（${n} 条，点开查看）",
   "viewer.maintenance.insightStats.title": "洞察质量度量",
   "viewer.maintenance.insightStats.total": "洞察提案 ${n} 条",
   "viewer.maintenance.insightStats.acceptance": "采纳率 ${v}",
@@ -1631,16 +1632,16 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.batch.dismissAllToast":
     "批量驳回完成:成功 ${ok} 条,失败 ${fail} 条",
   "viewer.proposals.batch.noPending": "当前没有待审提案可批量操作",
-  "viewer.proposals.batch.purgeDismissed": "彻底清空(${n})",
+  "viewer.proposals.batch.purgeDismissed": "清空已驳回(${n})",
   "viewer.proposals.batch.purgeConfirm":
-    "确认从磁盘物理删除 ${n} 条已驳回提案?\n\n物理删除不可恢复(audit log 仍保留)。该操作只影响 status=dismissed 的提案,不影响 pending / accepted。",
-  "viewer.proposals.batch.purgeToast": "已物理清空 ${n} 条已驳回提案",
+    "确认清空 ${n} 条已驳回提案?\n\n将从磁盘物理删除,不可恢复(audit log 仍保留)。只影响已驳回提案,不影响待审 / 已采纳。",
+  "viewer.proposals.batch.purgeToast": "已清空 ${n} 条已驳回提案",
   "viewer.proposals.batch.purgeFailed": "清空失败:${err}",
   "viewer.proposals.batch.purgeNoDismissed": "当前没有已驳回提案可清空",
-  "viewer.proposals.batch.purgeAccepted": "清空已采纳记录(${n})",
+  "viewer.proposals.batch.purgeAccepted": "清空已采纳(${n})",
   "viewer.proposals.batch.purgeNoAccepted": "当前没有已采纳记录可清空",
   "viewer.proposals.batch.purgeAcceptedConfirm":
-    "确认清空 ${n} 条已采纳记录?\n\n只清空 proposals.jsonl 中的采纳记录,accept 时已创建的 engram 不受影响。",
+    "确认清空 ${n} 条已采纳记录?\n\n只清空 proposals.jsonl 中的采纳记录,采纳时已创建的记忆(engram)不受影响。",
   "viewer.proposals.batch.purgeAcceptedToast": "已清空 ${n} 条已采纳记录",
 
   // ===== Audit 面板(viewer.audit.*) =====

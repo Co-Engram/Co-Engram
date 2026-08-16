@@ -315,6 +315,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot: config.dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "claude-code-mcp",
           config: {
             // hash-based embedder 必须配套更低阈值,详见 DEFAULT_HASHER_SIMILARITY_THRESHOLD 注释。
             // 用户在 proposalConfig 里显式给的值优先。

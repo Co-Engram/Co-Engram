@@ -468,7 +468,7 @@ flowchart TB
 |              | `contentHash`                         | 字符串              | 正文的 SHA-256;驱动搜索索引重建。                                                                                                       |
 |              | `contentSize`                         | 整数                | 正文字节数。                                                                                                                            |
 | **作者**     | `createdBy` / `createdAt`             | 字符串 / ISO 时间戳 | 原始作者与创建时间。                                                                                                                    |
-|              | `updatedBy` / `updatedAt`             | 字符串 / ISO 时间戳 | 最近修改者与时间。                                                                                                                      |
+|              | `updatedBy` / `updatedAt`             | 字符串 / ISO 时间戳 | 最近修改者与时间。署名由宿主 git 身份决定(`engram_update` 传入的 `updatedBy` 不生效,与 `createdBy` 同一原则)。                       |
 |              | `version`                             | 整数                | `engram_update` 时单调递增。                                                                                                            |
 | **价值**     | `importance`                          | 数值 `[0, 1]`       | 综合重要性;驱动排序与衰减。                                                                                                             |
 |              | `confidence`                          | 数值 `[0, 1]`       | 由 `sourceType` 派生初始值(`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`),随后随使用反馈动态调整:有效检索 +0.05、失败检索 −0.05、refute ×0.3、verify +0.2。 |
@@ -508,9 +508,9 @@ sourceType: firsthand
 status: active
 verificationStatus: unverified
 visibility: team
-createdBy: claude-code
+createdBy: 杨洋 10192021
 createdAt: 2026-06-21T10:30:00.000Z
-updatedBy: claude-code
+updatedBy: 杨洋 10192021
 updatedAt: 2026-06-21T11:45:00.000Z
 version: 3
 contentHash: sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae

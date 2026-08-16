@@ -39,6 +39,12 @@ if (!realRoot) {
 }
 
 const MODEL = process.env.VERIFY_MODEL ?? process.env.ANTHROPIC_MODEL ?? "glm-5.3[1m]";
+
+/** curl config 值转义(双引号字符串内仅 \\ 与 \" 需转义),见 verify-rem-deep-thought.mts 同名函数 */
+function escapeCurlConfigValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 const llm: LlmClient = {
   async complete(prompt, opts = {}) {
     const body = JSON.stringify({
@@ -48,18 +54,22 @@ const llm: LlmClient = {
       messages: [{ role: "user", content: prompt }],
     });
     const endpoint = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/+$/, "");
-    const args = [
-      "-sS", "--max-time", "300",
-      "-X", "POST", endpoint + "/v1/messages",
-      "-H", "content-type: application/json",
-      "-H", "anthropic-version: 2023-06-01",
-      "-H", "x-api-key: " + (process.env.ANTHROPIC_API_KEY ?? ""),
-      ...(process.env.ANTHROPIC_AUTH_TOKEN ? ["-H", "authorization: Bearer " + process.env.ANTHROPIC_AUTH_TOKEN] : []),
-      "-d", body,
+    // 安全(2026-08-16 loop r13 修复):密钥与请求体经 stdin 的 curl config
+    // (`-K -`)传递,argv 零敏感信息——此前 `-H "x-api-key: <key>"` 直接进
+    // argv,ps aux 全机可见。
+    const configLines = [
+      `url = "${escapeCurlConfigValue(endpoint + "/v1/messages")}"`,
+      `header = "content-type: application/json"`,
+      `header = "anthropic-version: 2023-06-01"`,
+      `header = "x-api-key: ${escapeCurlConfigValue(process.env.ANTHROPIC_API_KEY ?? "")}"`,
+      ...(process.env.ANTHROPIC_AUTH_TOKEN
+        ? [`header = "authorization: Bearer ${escapeCurlConfigValue(process.env.ANTHROPIC_AUTH_TOKEN)}"`]
+        : []),
+      `data = "${escapeCurlConfigValue(body)}"`,
     ];
     return new Promise((resolve, reject) => {
       const attempt = (left: number) => {
-      execFile("curl", args, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
+      const child = execFile("curl", ["-sS", "--max-time", "300", "-K", "-"], { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
         if (err) {
           if (left > 0) { setTimeout(() => attempt(left - 1), 3000); return; }
           reject(err); return;
@@ -71,6 +81,8 @@ const llm: LlmClient = {
           resolve(text);
         } catch { reject(new Error("bad response: " + String(stdout).slice(0, 200))); }
       });
+      child.stdin?.on("error", () => {/* EPIPE:curl 早退时忽略*/});
+      child.stdin?.end(configLines.join("\n") + "\n");
       };
       attempt(2);
     });
