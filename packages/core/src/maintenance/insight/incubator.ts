@@ -30,6 +30,7 @@ import {
   collectSeedDigests,
   buildProtocol,
   synthesizeAnswerDraft,
+  synthesizeFinalAnswer,
 } from "./night-thinking.js";
 import type {
   InsightDraft,
@@ -88,6 +89,9 @@ export interface IncubationEntry {
   /** in-flight 瞬态字段(TTL 30min 回收) */
   readonly inFlightAt?: string;
   readonly inFlightBy?: string;
+  /** 收束产物(incubation_conclude;幂等可重生成) */
+  readonly finalAnswer?: string;
+  readonly concludedAt?: string;
   /** 连续全撞循环计数(≥2 → paused) */
   readonly consecutiveVetoed?: number;
 }
@@ -259,6 +263,10 @@ export class Incubator {
     readonly webResearchOptIn?: boolean;
     readonly schedule?: string;
   }): IncubationEntry {
+    // 域层对称校验:与 updateSchedule 同一 SCHEDULE_RE,防工具层漏检脏值落盘
+    if (input.schedule !== undefined && !SCHEDULE_RE.test(input.schedule)) {
+      throw new Error(`invalid schedule "${input.schedule}" (expect HH:mm)`);
+    }
     const entry: IncubationEntry = {
       id: `inc-${randomUUID().slice(0, 12)}`,
       question: input.question.trim(),
@@ -293,6 +301,58 @@ export class Incubator {
       status: answered ? "resolved" : "active",
     };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
+    return updated;
+  }
+
+  /** 改写排程时刻(仅非 in-flight;SCHEDULE_RE 校验;写前重读合并) */
+  updateSchedule(id: string, schedule: string): IncubationEntry {
+    if (!SCHEDULE_RE.test(schedule)) {
+      throw new Error(`invalid schedule "${schedule}" (expect HH:mm)`);
+    }
+    const entries = this.read();
+    const target = entries.find((e) => e.id === id);
+    if (!target) throw new Error(`incubation ${id} not found`);
+    if (target.status === "in-flight") {
+      throw new Error(`incubation ${id} in-flight — update schedule after the round finishes`);
+    }
+    const updated: IncubationEntry = { ...target, schedule };
+    this.write(entries.map((e) => (e.id === id ? updated : e)));
+    return updated;
+  }
+
+  /** 收束:综合全部梦境史出最终回答,置 suggested-resolve(幂等,可重复收束) */
+  async conclude(id: string): Promise<IncubationEntry> {
+    if (!this.deps.llmClient) {
+      throw new Error("conclude unavailable: no llmClient injected");
+    }
+    const entries = this.read();
+    const target = entries.find((e) => e.id === id);
+    if (!target) throw new Error(`incubation ${id} not found`);
+    if (target.status === "in-flight") {
+      throw new Error(`incubation ${id} in-flight — conclude after the round finishes`);
+    }
+    const finalAnswer = await synthesizeFinalAnswer(
+      this.deps.llmClient,
+      target.question,
+      this.dreamHistoryFor(id),
+    );
+    // 写前重读合并(同 report() 模式):LLM await 窗口内的并发写不回滚;
+    // 若用户已把条目 resolve 成 resolved(或 paused),保留用户裁决,仅落 finalAnswer。
+    const fresh = this.read();
+    const freshIdx = fresh.findIndex((e) => e.id === id);
+    if (freshIdx === -1) throw new Error(`incubation ${id} not found`);
+    const freshStatus = fresh[freshIdx]!.status;
+    const status =
+      freshStatus === "resolved" || freshStatus === "paused" ? freshStatus : "suggested-resolve";
+    const updated: IncubationEntry = {
+      ...fresh[freshIdx]!,
+      finalAnswer,
+      concludedAt: this.now(),
+      status,
+    };
+    const next = [...fresh];
+    next[freshIdx] = updated;
+    this.write(next);
     return updated;
   }
 

@@ -153,3 +153,48 @@ export async function synthesizeAnswerDraft(
   if (!text) throw new Error("empty synthesis output");
   return text.slice(0, 4000);
 }
+
+/**
+ * 最终回答(spec §五收束):对全部梦境史做终版综合。
+ * 诚实性:历史为空/零存活时必须如实陈述,禁止虚构。
+ */
+export async function synthesizeFinalAnswer(
+  llm: LlmClient,
+  question: string,
+  dreamHistory: string,
+): Promise<string> {
+  // 「零存活」= 全部轮次都无存活洞察(逐行判定;混合历史 —— 部分轮成案、
+  // 部分轮零存活 —— 不算零存活,不能给 LLM 注入与可见历史矛盾的空态指令)
+  const lines = dreamHistory.split("\n").filter((l) => l.trim());
+  const empty =
+    lines.length === 0 ||
+    lines.every((l) => l.includes("(no insight survived validation)"));
+  const prompt = [
+    "You are writing the FINAL ANSWER for an incubated question, based only on the dream history below.",
+    "Audience: the user who planted the question. Language: match the question's language.",
+    "",
+    "## Question",
+    question,
+    "",
+    "## Dream history (all rounds, with user accept/dismiss dispositions)",
+    dreamHistory.trim() || "(empty — no round produced anything)",
+    "",
+    empty
+      ? "MANDATORY: no insight survived. State this honestly, explain what blocked progress "
+        + "(see history notes), and suggest what the user should change (seeds, schedule, or question). "
+        + "Do NOT invent findings."
+      : "Synthesize the accumulated, user-vetted insights into a direct, actionable answer. "
+        + "Cite which accepted insights support each point. Note open gaps honestly.",
+    "",
+    "Plain text, 5-15 sentences. No markdown fences.",
+  ].join("\n");
+  // 与 synthesizeAnswerDraft 同款参数(效果优先:600s 超时 + 16384 输出预算)
+  const raw = await llm.complete(prompt, {
+    temperature: 0.3,
+    maxTokens: 16384,
+    timeoutMs: 600_000,
+  });
+  const text = raw.trim();
+  if (!text) throw new Error("empty final answer output");
+  return text.slice(0, 8000);
+}
