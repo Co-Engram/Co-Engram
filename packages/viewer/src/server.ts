@@ -68,6 +68,7 @@ import {
   GraphBuilder,
   defaultCachePath,
   readMaintenanceState,
+  computeNextRunAt,
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
@@ -1134,7 +1135,11 @@ async function routeApi(
       respondJson(res, 503, { enabled: false, items: [] });
       return;
     }
-    respondJson(res, 200, { enabled: true, items: ctx.incubator.list() });
+    respondJson(res, 200, {
+      enabled: true,
+      scheduler: dataRoot ? schedulerStatus(dataRoot) : { alive: false },
+      items: ctx.incubator.list().map((e) => ({ ...e, nextRunAt: computeNextRunAt(e) })),
+    });
     return;
   }
 
@@ -1147,6 +1152,7 @@ async function routeApi(
       readonly question?: string;
       readonly seedEngramIds?: readonly string[];
       readonly webResearchOptIn?: boolean;
+      readonly schedule?: string;
     }>(req);
     if (!body?.question || body.question.trim().length < 4) {
       respondJson(res, 400, { error: "question required (min 4 chars)" });
@@ -1157,10 +1163,15 @@ async function routeApi(
         question: body.question,
         ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
         webResearchOptIn: body.webResearchOptIn === true,
+        ...(body.schedule ? { schedule: body.schedule } : {}),
       });
-      respondJson(res, 201, { entry });
+      respondJson(res, 201, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
     } catch (err) {
-      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      respondJson(
+        res,
+        err instanceof Error && /invalid schedule/.test(err.message) ? 400 : 500,
+        { error: err instanceof Error ? err.message : String(err) },
+      );
       return;
     }
     return;
@@ -1201,6 +1212,53 @@ async function routeApi(
       }
     })();
     respondJson(res, 202, { jobId, status: "running" });
+    return;
+  }
+
+  // 收束:综合全部梦境史出最终回答(spec §五;LLM 分钟级,同步等待可接受 ——
+  // 与 run 不同,conclude 单次 LLM 调用而非整轮 agent 会话)
+  const incubationConcludeMatch = /^\/api\/incubations\/([^/]+)\/conclude$/.exec(path);
+  if (incubationConcludeMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
+      return;
+    }
+    try {
+      const entry = await ctx.incubator.conclude(
+        decodeURIComponent(incubationConcludeMatch[1]!),
+      );
+      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /llmClient|in-flight|not found/.test(msg) ? 409 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 改排程时刻(spec §四):域层 SCHEDULE_RE 校验 + in-flight/404 映射
+  const incubationScheduleMatch = /^\/api\/incubations\/([^/]+)\/schedule$/.exec(path);
+  if (incubationScheduleMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
+      return;
+    }
+    const body = await readJsonBodyAs<{ readonly schedule?: string }>(req);
+    if (!body?.schedule) {
+      respondJson(res, 400, { error: "schedule required (HH:mm)" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.updateSchedule(
+        decodeURIComponent(incubationScheduleMatch[1]!),
+        body.schedule,
+      );
+      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /invalid schedule|in-flight|not found/.test(msg) ? 400 : 500, { error: msg });
+      return;
+    }
     return;
   }
 
@@ -3504,6 +3562,18 @@ async function readJsonBody(req: IncomingMessage): Promise<UpdateInputBody> {
   const raw = Buffer.concat(chunks).toString("utf8");
   if (!raw) return {};
   return JSON.parse(raw) as UpdateInputBody;
+}
+
+/** 调度器存活:agent.lock 心跳 90s 内视为运行中(holder 会话或 daemon) */
+function schedulerStatus(dataRoot: string): { alive: boolean; heartbeatAt?: string } {
+  try {
+    const raw = readFileSync(join(dataRoot, ".co-engram", "agent.lock"), "utf8");
+    const hb = (JSON.parse(raw) as { heartbeatAt?: string }).heartbeatAt;
+    if (hb && Date.now() - new Date(hb).getTime() < 90_000) return { alive: true, heartbeatAt: hb };
+    return { alive: false, heartbeatAt: hb };
+  } catch {
+    return { alive: false };
+  }
 }
 
 /**
