@@ -2389,7 +2389,9 @@ window.CO_ENGRAM_PROPOSALS = {
         + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.batch.purgeAccepted', { n: acceptedCount })) + '</button>'
       : '';
 
-    let html = '<div style="margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap">' + buttons
+    // 顶部工具条复用 .filter-bar(2026-08-16 用户反馈:与印迹 tab 工具条风格统一
+    // —— 白底+边框+圆角横条,且同款 sticky 吸顶,长列表滚动时过滤常驻)。
+    let html = '<div class="filter-bar">' + buttons
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
       + batchBtns + purgeBtn + purgeAcceptedBtn + '</div>';
     if (!items.length) {
