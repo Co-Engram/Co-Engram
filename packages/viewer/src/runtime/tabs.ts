@@ -2437,14 +2437,16 @@ window.CO_ENGRAM_PROPOSALS = {
           var reasonZh = T.t(isRefute ? 'viewer.proposals.rem.reason.refute' : 'viewer.proposals.rem.reason.verify');
 
           html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="prop-head">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(engId) + '\\')">'
             + CO_ENGRAM.escapeHtml(remTitle || engId.slice(-8))
+            + '</div>'
+            + '<span class="chip prop-st st-' + p.status + '">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(sceneLabel) + '</span>'
             + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
             + '<span class="chip">' + CO_ENGRAM.escapeHtml(beforeZh) + ' → <strong style="color:' + sceneColor + '">' + CO_ENGRAM.escapeHtml(afterZh) + '</strong></span>'
-            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml(reasonZh) + '</div>';
           if (isAccepted) {
@@ -2492,7 +2494,10 @@ window.CO_ENGRAM_PROPOSALS = {
           var synapseKindColor = CO_ENGRAM.edgeColor(sKind);
 
           html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="prop-head">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_PROPOSALS.openSynapseDetail(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.synapse.op.' + op)) + '</div>'
+            + '<span class="chip prop-st st-' + p.status + '">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+            + '</div>'
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.scene.synapse')) + '</span>'
             + '<span class="chip" style="color:' + bandColor + '" title="' + CO_ENGRAM.escapeHtml(bandTip) + '">' + CO_ENGRAM.escapeHtml(bandZh) + '</span>'
@@ -2504,7 +2509,6 @@ window.CO_ENGRAM_PROPOSALS = {
             + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(fromId) + '&quot;)},50)">' + CO_ENGRAM.escapeHtml(fromTitle) + '</span>'
             + '<span style="opacity:.5">→</span>'
             + '<span class="chip" style="cursor:pointer" onclick="CO_ENGRAM.showTab(&quot;engrams&quot;);setTimeout(function(){CO_ENGRAM_ENGRAMS.open(&quot;' + CO_ENGRAM.escapeHtml(toId) + '&quot;)},50)">' + CO_ENGRAM.escapeHtml(toTitle) + '</span>'
-            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div style="font-size:.83rem;color:var(--fg-muted);line-height:1.55">' + CO_ENGRAM.escapeHtml((p.payload && p.payload.remSynapseReason) || T.t('viewer.proposals.rem.synapse.reason.' + op)) + '</div>';
           if (isAccepted) {
@@ -2543,13 +2547,15 @@ window.CO_ENGRAM_PROPOSALS = {
           var keptTags = (tOld || []).filter(function (t) { return newSet[t]; });
 
           html += '<div class="card' + (!isAccepted && !isDismissed ? ' prop-selectable' : '') + '" data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '" style="border-left:3px solid ' + sceneColor + '">'
+            + '<div class="prop-head">'
             + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_ENGRAMS.open(\\'' + CO_ENGRAM.escapeHtml(tEngId) + '\\')">'
             + CO_ENGRAM.escapeHtml(tTitle || tEngId.slice(-8))
+            + '</div>'
+            + '<span class="chip prop-st st-' + p.status + '">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div class="card-meta" style="margin:.45rem 0;display:flex;flex-wrap:wrap;gap:.35rem;align-items:center">'
             + '<span class="chip" style="border-color:' + sceneColor + ';color:' + sceneColor + '">🌙 ' + CO_ENGRAM.escapeHtml(sceneLabel) + '</span>'
             + (tDrift ? '<span class="chip" style="color:#fbbf24" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.driftTip', { drift: tDrift.toFixed(2) })) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.drift', { drift: tDrift.toFixed(2) })) + '</span>' : '')
-            + '<span class="chip" style="margin-left:auto;opacity:.7">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
             + '</div>'
             + '<div style="font-size:.83rem;color:var(--fg-muted);margin:.3rem 0 .15rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.rem.tagRefresh.from')) + '</div>'
             + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.35rem">'
@@ -2616,7 +2622,10 @@ window.CO_ENGRAM_PROPOSALS = {
           + (moreTags ? '<span class="chip">+' + moreTags + '</span>' : '');
 
         html += '<div class="card' + (p.status === 'pending' ? ' prop-selectable' : '') + '"' + cardClick + '>'
-          + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>';
+          + '<div class="prop-head">'
+          + '<div class="card-title" title="' + CO_ENGRAM.escapeHtml(p.entityId) + '">' + CO_ENGRAM.escapeHtml(meta.title) + '</div>'
+          + '<span class="chip prop-st st-' + p.status + '">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
+          + '</div>';
         html += '<div class="card-meta" style="margin-bottom:0.4rem;display:flex;flex-wrap:wrap;gap:.3rem;align-items:center">'
           + remPatternChips
           + remInsightChips
@@ -2625,7 +2634,6 @@ window.CO_ENGRAM_PROPOSALS = {
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
           + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
           + (p.createdAt ? '<span title="' + CO_ENGRAM.escapeHtml(p.createdAt) + '">' + CO_ENGRAM.relativeTime(p.createdAt) + '</span>' : '')
-          + '<span class="chip">' + CO_ENGRAM.escapeHtml(statusLabel(p.status)) + '</span>'
           + (p.payload && p.payload.visibility ? CO_ENGRAM.renderVisibilityBadge(p.payload.visibility) : '')
           + '</div>';
         html += this._sourceLine(p);
@@ -2643,10 +2651,10 @@ window.CO_ENGRAM_PROPOSALS = {
           html += '<div class="card-meta" style="margin-bottom:0.3rem">' + tagsHtml + '</div>';
         }
         if (p.status === 'accepted' && p.acceptedEngramId) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(16,185,129,.12);color:var(--accent)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="color:var(--accent);background:var(--accent-soft,#EDF7F5)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.convertedTo')) + ' ▸ ' + CO_ENGRAM.escapeHtml(p.acceptedEngramId.slice(0, 12)) + '</span></div>';
         }
         if (p.status === 'dismissed' && p.dismissReason) {
-          html += '<div class="card-meta"><span class="chip" style="background:rgba(239,68,68,.12);color:#ef4444">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
+          html += '<div class="card-meta"><span class="chip" style="color:var(--fam-contradicts,#E02424);background:rgba(224,36,36,.08)">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.dismissedReason')) + ': ' + CO_ENGRAM.escapeHtml((p.dismissReason || '').slice(0, 40)) + '</span></div>';
         }
         html += '</div>';
       }

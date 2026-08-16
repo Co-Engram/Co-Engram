@@ -106,15 +106,16 @@ body {
   flex-direction: column;
   overflow-y: auto;
 }
-/* 品牌区纵向布局(2026-08-16 用户定稿):logo 最上,下面 Co-Engram,
-   再下「自进化的团队记忆」—— 横排时 120px logo 挤压标题导致换行。
-   间距收紧:logo span 改 flex 消除 inline svg 基线留白,gap 压到 0.05rem */
+/* 品牌区横排布局(2026-08-16 用户定稿):logo 居左,右侧平行两行——
+   Co-Engram(h1)+「自进化的团队记忆」(slogan)。
+   横排对 logo 宽度敏感:120px 会挤压标题换行(前车之鉴),60px +
+   两行文字 nowrap 兜底后在 240px 侧栏内稳定单行。 */
 .side-nav .brand {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  text-align: center;
-  gap: 0.05rem;
+  text-align: left;
+  gap: 0.55rem;
   padding: 0 0.25rem 1rem;
   border-bottom: 1px solid var(--border);
   margin-bottom: 0.5rem;
@@ -122,7 +123,7 @@ body {
 .side-nav .brand-text {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.05rem;
   min-width: 0;
 }
@@ -135,18 +136,20 @@ body {
   background: none;
   -webkit-text-fill-color: currentColor;
   letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 .side-nav .brand-slogan {
   font-size: 0.7rem;
   color: #B8941D;
   font-weight: 600;
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 /* 品牌徽标(2026-08 用户反馈):当前为浅色纸面主题,只显示 light 变体;
-   dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。尺寸放大一倍(40→80)。 */
+   dark 变体保留在 DOM(html.ts 注入)但隐藏,防双徽标同显。 */
 /* viewBox 裁剪到图形紧界(66 148 268 104):高度随宽度自适应,消除 400×400 画布的垂直空白 */
-/* 2026-08-16 用户反馈:logo 缩到 70%(120 → 84px) */
-.brand-logo { width: 84px; height: auto; aspect-ratio: 268 / 104; flex-shrink: 0; display: flex; }
+/* 2026-08-16 横排定稿:logo 60px(纵排期为 84px;120px 曾致标题换行) */
+.brand-logo { width: 60px; height: auto; aspect-ratio: 268 / 104; flex-shrink: 0; display: flex; }
 .brand-logo svg { width: 100%; height: 100%; }
 .brand-logo-dark { display: none; }
 
@@ -2625,6 +2628,20 @@ div.vis-tooltip {
 .slp-card { padding: 0.6rem 0.9rem; margin-bottom: 0.45rem; }
 .slp-card .ct { display: flex; gap: 0.7rem; align-items: baseline; }
 .slp-card .delta { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.78rem; }
+
+/* === 提案状态徽标(2026-08-16,对齐夜思 .inc-st 三态模式)== =
+ * 此前状态是埋在 card-meta 里的灰色纯文字 chip,待审/已采纳/已驳回三态无区分,
+ * 与夜思 tab 的状态徽标(头部右侧 + 状态色文字/浅底)风格割裂。
+ * 统一为:.prop-head 头部行(同 .inc-card-head 布局)+ .prop-st 状态徽标。
+ * 配色语义:待审=琥珀(待人裁决,同 st-flight)/ 已采纳=青绿(已生效,同
+ * st-active)/ 已驳回=灰(终结降权,同 st-dim;驳回是正常治理动作,不用
+ * 矛盾红)。
+ */
+.prop-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.45rem; }
+.prop-head .card-title { flex: 1; min-width: 0; margin: 0; }
+.prop-st.st-pending { color: #B45309; background: #FDF3E3; }
+.prop-st.st-accepted { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
+.prop-st.st-dismissed { color: var(--fg-dim); background: var(--chip-bg); }
 
 /* === 2026-08 提案勾选批量 + 5 秒撤销 toast(DEMO g2-proposals)=== */
 /* 勾选框置于左上角并为卡片内容让位(2026-08-15 修复:原右上角与标题/状态
