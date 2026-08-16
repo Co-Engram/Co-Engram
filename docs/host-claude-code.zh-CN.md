@@ -227,7 +227,7 @@ data root 是一个 Git 仓库,Claude Code 宿主会自动与远端保持同步 
 2. `git push`(30 秒超时)—— 推送新 commit 到远端。
 3. push 失败仅打印警告,不阻塞退出 —— 下次启动的 `git pull` 会补同步。
 
-如需按需控制(自定义 commit message、`dryRun`、冲突复核、Gerrit review 回退),显式调 `engram_sync` —— 见 [README → 保存并同步到远端](../README.zh-CN.md#保存并同步到远端-engram_sync)。两条路径互补:自动生命周期负责日常流量,`engram_sync` 是手动 override。
+如需按需控制(自定义 commit message、`dryRun`、冲突复核、Gerrit review 回退),显式调 `engram_sync` —— 见 [README → 保存并同步到远端](../README.zh.md#保存并同步到远端-engram_sync)。两条路径互补:自动生命周期负责日常流量,`engram_sync` 是手动 override。
 
 ## 项目本地配置(`.mcp.json`)
 

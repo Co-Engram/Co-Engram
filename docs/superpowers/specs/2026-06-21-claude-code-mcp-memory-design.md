@@ -318,7 +318,7 @@ Implementation:
 | New tests  | `packages/claude-code-mcp/test/{instructions,prompts,resources,session-prompt-tool,hook-init,tool-profile,tool-descriptions}.test.ts`                                       |
 | New tests  | `packages/core/test/prompt-builder.test.ts` (pure-function unit tests moved here)                                                                                           |
 | Modified   | `packages/core/src/i18n/{en,zh}.ts` (add `prompt.memory.commands.*` keys)                                                                                                   |
-| Docs       | `docs/host-claude-code.md`, `README.md`, `README.zh-CN.md`, `CHANGELOG.md`                                                                                                  |
+| Docs       | `docs/host-claude-code.md`, `README.md`, `README.zh.md`, `CHANGELOG.md`                                                                                                  |
 
 Total: ~10 new files, ~5 modified files.
 

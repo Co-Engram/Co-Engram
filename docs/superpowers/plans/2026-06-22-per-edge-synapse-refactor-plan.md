@@ -641,7 +641,7 @@ v1 描述三件套(content.md / meta.yaml / synapses.yaml),全部失效。重写
 - 如有 CLI 命令变化(如 `co-engram doctor` 新命令)
 - MCP 配置无变化(内部存储透明)
 
-### 7.11 更新:`README.md` / `README.zh-CN.md`
+### 7.11 更新:`README.md` / `README.zh.md`
 
 - Quickstart 示例:展示人类可读路径(非 hash)
 - Tool count:如新增工具导致总数变化
@@ -682,7 +682,7 @@ v1 描述三件套(content.md / meta.yaml / synapses.yaml),全部失效。重写
 
 ```bash
 # 文档内链接检查
-grep -rn '\]\(' docs/ README.md README.zh-CN.md | grep -E '\.md\)' | while read line; do
+grep -rn '\]\(' docs/ README.md README.zh.md | grep -E '\.md\)' | while read line; do
   path=$(echo "$line" | sed -E 's/.*\]\(([^)]+)\).*/\1/')
   # 检查链接目标存在
 done

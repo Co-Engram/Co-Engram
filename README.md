@@ -10,7 +10,7 @@
     <a href="https://github.com/Co-Engram/Co-Engram/stargazers"><img src="https://img.shields.io/github/stars/Co-Engram/Co-Engram?style=flat&color=yellow" alt="GitHub stars"></a>
   </p>
   <p><b>Memories that behave like a brain</b> — they strengthen with use, fade when wrong, and verify themselves. Plain Markdown in Git, for AI agents and teams.</p>
-  <p>English | <a href="./README.zh-CN.md">中文</a></p>
+  <p>English | <a href="./README.zh.md">中文</a></p>
 </div>
 
 Co-Engram is a self-evolving memory system for AI agents and teams. Unlike traditional vector stores that only retrieve, Co-Engram models memory after the brain: engrams strengthen with use, weaken when they fail, consolidate during sleep, and verify themselves through metacognition.
@@ -266,9 +266,9 @@ No one has time to curate a knowledge base. The maintenance engine is **enabled 
 Light and Deep are **zero-intervention** — the engine reads usage statistics from the engram frontmatter, applies mathematical models (RPE, freshness-based forgetting, Hebbian plasticity), and writes back updated fields. **REM runs its analysis automatically, but its upgrade / refute / pattern-abstraction / synapse-operation suggestions are presented as proposals on the Proposals page, applied only after you approve them**, so the system never rewrites your memory unconfirmed. See [docs/maintenance-engine.md](./docs/maintenance-engine.md) for the math.
 
 REM uses a **hybrid trigger** — activity-driven first, time-based fallback: at the end of each light tick the engine sums the `importance` of engrams created since the last REM run, and once it reaches `maintenance.remActivityThreshold` (default `12`, roughly 20 new memories × 0.6) REM is triggered early, so a burst of new memories gets consolidated within minutes instead of waiting a full interval. A debounce window of `maintenance.remMinIntervalMs` (default 12 h) keeps expensive REM runs apart. Set `remActivityThreshold: 0` to fall back to pure time-based triggering.
-#### REM deep thought and night thinking (2026-08, off by default)
+#### REM deep thought and night thinking (2026-08, on by default after blind-eval calibration)
 
-When event signals justify it, REM additionally runs a **deep-thought step** with three thinking modes — *integration* (cross-context themes), *retrospective* (AAR causal chains over failed memories), and *inspiration* (structure-mapping across deliberately distant domains) — material selected by spreading activation over the memory graph. Every draft passes mechanical validation plus an **independent critic** before becoming a `rem-insight` proposal (max 5 per run); time-fallback REM runs skip it entirely with zero LLM calls. Enable via `maintenance.remInsight.enabled: true` (kept off until blind-evaluation calibration).
+When event signals justify it, REM additionally runs a **deep-thought step** with three thinking modes — *integration* (cross-context themes), *retrospective* (AAR causal chains over failed memories), and *inspiration* (structure-mapping across deliberately distant domains) — material selected by spreading activation over the memory graph. Every draft passes mechanical validation plus an **independent critic** before becoming a `rem-insight` proposal (max 5 per run); time-fallback REM runs skip it entirely with zero LLM calls. On by default after 2026-08-16 blind-eval calibration (84-95% genuine-insight rate); set `maintenance.remInsight.enabled: false` to turn it off.
 
 **Night thinking** is the flagship feature built on top: seed a question in chat (`incubation_create`), the viewer's **Night Lab** tab, or CLI; the agent thinks one round every night (or immediately on demand), with full dream-history feedback and duplicate detection. Insights surface as proposals — plans, traces and external calls are fully transparent, web research is off by default (per-entry opt-in), and accepted insights invite a resolve ritual ("did it answer your question?"). On Claude Code, scheduled rounds run a headless `claude -p` L2 session with read-only tool grants; see [docs/maintenance-engine.md](./docs/maintenance-engine.md).
 
