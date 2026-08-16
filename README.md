@@ -10,7 +10,7 @@
     <a href="https://github.com/Co-Engram/Co-Engram/stargazers"><img src="https://img.shields.io/github/stars/Co-Engram/Co-Engram?style=flat&color=yellow" alt="GitHub stars"></a>
   </p>
   <p><b>Memories that behave like a brain</b> — they strengthen with use, fade when wrong, and verify themselves. Plain Markdown in Git, for AI agents and teams.</p>
-  <p>English | <a href="./README.zh-CN.md">中文</a></p>
+  <p>English | <a href="./README.zh.md">中文</a></p>
 </div>
 
 Co-Engram is a self-evolving memory system for AI agents and teams. Unlike traditional vector stores that only retrieve, Co-Engram models memory after the brain: engrams strengthen with use, weaken when they fail, consolidate during sleep, and verify themselves through metacognition.

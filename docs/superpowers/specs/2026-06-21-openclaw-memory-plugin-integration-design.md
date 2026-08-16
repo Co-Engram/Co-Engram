@@ -160,7 +160,7 @@ co-engram 已有 proposal 机制,功能重叠。YAGNI。
 | `packages/core/src/maintenance/engine.ts`       | light stage 调用 prompt-signals 统计                                |
 | `packages/core/src/index.ts`                    | 导出新模块                                                          |
 | `docs/host-openclaw.md`                         | 文档更新                                                            |
-| `README.md` / `README.zh-CN.md`                 | 配置表更新                                                          |
+| `README.md` / `README.zh.md`                 | 配置表更新                                                          |
 | `CHANGELOG.md`                                  | 记录变更                                                            |
 
 ## 验证方法
