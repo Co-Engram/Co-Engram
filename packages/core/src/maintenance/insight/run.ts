@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { critique } from "./critic.js";
+import { computeModeCalibration } from "./activity.js";
 import {
   buildAliasMap,
   buildModePrompt,
@@ -75,6 +76,15 @@ export interface DeepThoughtReport {
   readonly rejectReasons?: readonly string[];
   /** 消融对照(spec §九):主路径 vs baseline 子图重叠节点数(有模式执行时才统计) */
   readonly ablation?: { readonly subgraphNodes: number; readonly baselineNodes: number; readonly overlapNodes: number };
+  /** 模式校准因子明细(第二刀:accept 洞察模式分布,运维/校准审计用) */
+  readonly modeCalibration?: ReadonlyArray<{
+    readonly mode: string;
+    readonly factor: number;
+    readonly samples: number;
+    readonly acceptRate: number;
+  }>;
+  /** 窗口活动数据覆盖的 engram 数(0/缺省 = 无数据源,活动维度退化二值) */
+  readonly activityEngrams?: number;
 }
 
 /** 顶层入口(REM metacognition 之后调用) */
@@ -85,6 +95,11 @@ export async function runDeepThought(deps: {
   readonly lastRemAt: string | null;
   readonly config: RemInsightConfig;
   readonly incubator?: IncubationSource;
+  /**
+   * 窗口活动计数(engramId → 检索增量 + 加权 audit 事件数,第二刀)。
+   * engine 组装传入;缺省时 activityOf 退化二值(与既有行为兼容)。
+   */
+  readonly windowActivity?: ReadonlyMap<string, number>;
 }): Promise<DeepThoughtReport> {
   const config: Required<RemInsightConfig> = {
     enabled: deps.config.enabled ?? DEFAULT_REM_INSIGHT.enabled,
@@ -126,10 +141,13 @@ export async function runDeepThought(deps: {
       reason: p.dismissReason,
       sourceIds: p.payload?.remSourceIds ?? [],
     }));
+  // 模式强度长期校准(第二刀):rem-insight 提案的 accept/dismiss 模式分布
+  const modeCalibration = computeModeCalibration(deps.proposalEngine.listAll());
   const signals = computeModeSignals(deps.repository, {
     lastRemAt: deps.lastRemAt,
     hasActiveIncubation: active.length > 0,
     dismissedInsights,
+    modeCalibration,
   });
   // 一期兜底 REM(无事件信号)→ 深度思考整体跳过,零 LLM 调用(spec §三)
   if (signals.every((s) => s.strength <= 0)) return empty("no-mode-signals");
@@ -167,6 +185,9 @@ export async function runDeepThought(deps: {
         lastRemAt: deps.lastRemAt,
         maxNodes: config.maxSubgraphNodes,
         ...(seedFilter ? { seedFilter } : {}),
+        ...(deps.windowActivity && deps.windowActivity.size > 0
+          ? { activityByEngram: deps.windowActivity }
+          : {}),
         ...(incubation
           ? {
               // 孵化条目经 incubator 单独执行(Task incubator);REM 自动灵感
@@ -274,6 +295,19 @@ export async function runDeepThought(deps: {
     mechanicalRejected,
     ...(rejectReasons.length ? { rejectReasons } : {}),
     ...(ablation ? { ablation } : {}),
+    ...(modeCalibration.size > 0
+      ? {
+          modeCalibration: [...modeCalibration.entries()].map(([mode, c]) => ({
+            mode,
+            factor: c.factor,
+            samples: c.samples,
+            acceptRate: Math.round(c.acceptRate * 1e4) / 1e4,
+          })),
+        }
+      : {}),
+    ...(deps.windowActivity && deps.windowActivity.size > 0
+      ? { activityEngrams: deps.windowActivity.size }
+      : {}),
   };
 }
 

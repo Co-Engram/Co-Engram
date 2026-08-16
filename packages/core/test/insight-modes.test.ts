@@ -268,3 +268,41 @@ describe("审批反馈:被拒洞察进复盘", () => {
     expect(buildModePrompt("integration", EMPTY_SUB, { dismissedInsights: dismissed })).not.toContain("dismissed reason");
   });
 });
+
+describe("模式长期校准(第二刀:accept 洞察模式分布)", () => {
+  it("strength × factor 后夹回 [0,1];detail 暴露因子与样本数", () => {
+    make("A", ["x"]);
+    const noCal = computeModeSignals(repo, { lastRemAt: null, hasActiveIncubation: false });
+    const cal = computeModeSignals(repo, {
+      lastRemAt: null,
+      hasActiveIncubation: false,
+      modeCalibration: new Map([
+        ["integration", { factor: 1.3, samples: 8, acceptRate: 1 }],
+      ]),
+    });
+    const raw = noCal.find((s) => s.mode === "integration")!;
+    const boosted = cal.find((s) => s.mode === "integration")!;
+    expect(boosted.strength).toBeCloseTo(Math.min(1, raw.strength * 1.3), 9);
+    expect(boosted.strength).toBeLessThanOrEqual(1);
+    expect(boosted.detail.calibrationFactor).toBe(1.3);
+    expect(boosted.detail.calibrationSamples).toBe(8);
+    // 未校准的模式 detail 默认 factor=1 / samples=0
+    expect(cal.find((s) => s.mode === "inspiration")!.detail.calibrationFactor).toBe(1);
+    expect(cal.find((s) => s.mode === "inspiration")!.detail.calibrationSamples).toBe(0);
+  });
+
+  it("冷启动 factor=1 不改变强度", () => {
+    make("A", ["x"]);
+    const noCal = computeModeSignals(repo, { lastRemAt: null, hasActiveIncubation: false });
+    const cal = computeModeSignals(repo, {
+      lastRemAt: null,
+      hasActiveIncubation: false,
+      modeCalibration: new Map([
+        ["integration", { factor: 1, samples: 2, acceptRate: 1 }],
+      ]),
+    });
+    expect(cal.find((s) => s.mode === "integration")!.strength).toBe(
+      noCal.find((s) => s.mode === "integration")!.strength,
+    );
+  });
+});

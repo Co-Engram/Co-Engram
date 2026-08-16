@@ -92,6 +92,59 @@ export const INSIGHT_LIMITS: Readonly<{
   inFlightTtlMs: 30 * 60_000,
 };
 
+/**
+ * 窗口活动事件权重(2026-08-16 第二刀:审计日志进 REM 输入)。
+ * audit action → 权重;external-edit(update + metadata.source)取 EXTERNAL_EDIT_WEIGHT。
+ * 不进白名单:create(新编码已是种子)、propose/dismiss(非 engram 活动)、
+ * merge_*、forget、purge 等生命周期、skill_*、maintenance_run。
+ */
+export const ACTIVITY_EVENT_WEIGHTS: Readonly<Record<string, number>> = {
+  reinforce: 1.5,
+  accept: 1.5,
+  importance_update: 1.0,
+  report_failure: 1.0,
+  contradicted: 1.0,
+  update: 1.0,
+  learning_loop_success: 1.0,
+  learning_loop_partial: 1.0,
+  learning_loop_failure: 1.0,
+};
+
+/** external-edit(用户手动编辑 .md,内容级 hash 判定)= 最强意图信号 */
+export const EXTERNAL_EDIT_WEIGHT = 2.0;
+
+/** 活动分数半饱和点:窗口内 3 次活动 ≈ 0.5(与模式信号 saturate 一致) */
+export const ACTIVITY_SATURATION_K = 3;
+
+/** REM 检索快照(.co-engram/rem-state.json):下轮 diff 得窗口检索增量 */
+export interface RemRetrievalSnapshot {
+  readonly writtenAt: string;
+  readonly retrievalCounts: Readonly<Record<string, number>>;
+}
+
+/** 模式强度长期校准(被 accept 洞察的模式分布,全历史维度) */
+export interface ModeCalibration {
+  /** 乘性因子,clamp [MODE_CALIBRATION.floor, ceiling];冷启动 = 1 */
+  readonly factor: number;
+  /** 样本量(accepted + dismissed);< minSamples 时 factor = 1 */
+  readonly samples: number;
+  readonly acceptRate: number;
+}
+
+/**
+ * 校准参数(无文献初值,§九校准预留)。acceptRate=0.5 为中性点
+ * (factor=1)要求 ceiling = 2 - floor,调整常量时保持该关系。
+ */
+export const MODE_CALIBRATION: Readonly<{
+  readonly minSamples: number;
+  readonly floor: number;
+  readonly ceiling: number;
+}> = {
+  minSamples: 5,
+  floor: 0.7,
+  ceiling: 1.3,
+};
+
 /** 每日排程时刻格式(锚点调度用);m[1]=时、m[2]=分(anchorOn 解析用) */
 export const SCHEDULE_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 

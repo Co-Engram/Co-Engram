@@ -12,7 +12,8 @@
  */
 
 import type { EngramRepository } from "../../storage/repository.js";
-import { SPREAD_PARAMS, TRUTH_FACTOR, type InsightSubgraph, type SubgraphEdge, type SubgraphNode } from "./types.js";
+import { ACTIVITY_SATURATION_K, SPREAD_PARAMS, TRUTH_FACTOR, type InsightSubgraph, type SubgraphEdge, type SubgraphNode } from "./types.js";
+import { saturate } from "./activity.js";
 
 /** 子图构建选项 */
 export interface BuildSubgraphOpts {
@@ -24,6 +25,11 @@ export interface BuildSubgraphOpts {
   readonly seedFilter?: (id: string) => boolean;
   /** 显式种子(孵化条目 seedEngramIds),绕过 seedFilter */
   readonly extraSeeds?: readonly string[];
+  /**
+   * 窗口活动计数(engramId → 检索增量 + 加权 audit 事件数,2026-08-16 第二刀)。
+   * 提供时 activityOf 连续化(saturate);缺省退化现状二值(测试/最小部署)。
+   */
+  readonly activityByEngram?: ReadonlyMap<string, number>;
 }
 
 /** 归一化到 [0,1];全等时返回 0.5(避免单种子/无区分度时归零) */
@@ -120,8 +126,18 @@ function isEventSeed(
   );
 }
 
-/** activity 增量初值:窗口内有更新 = 1,否则 0(待校准;新鲜度维度由 updatedAt 承载) */
-function activityOf(fact: NodeFact, lastRemAt: string | null): number {
+/**
+ * activity 增量(第二刀连续化):窗口活动计数(检索增量 + 加权事件)经
+ * saturate(k=3,3 次 ≈ 0.5)映射 [0,1];无窗口数据时退化现状二值
+ * (窗口内有更新 = 1,否则 0)。新鲜度维度由 updatedAt 承载,不在此重复。
+ */
+function activityOf(
+  fact: NodeFact,
+  lastRemAt: string | null,
+  activityByEngram?: ReadonlyMap<string, number>,
+): number {
+  const count = activityByEngram?.get(fact.id);
+  if (count !== undefined) return saturate(count, ACTIVITY_SATURATION_K);
   if (lastRemAt === null) return 1;
   return fact.updatedAt > lastRemAt || fact.createdAt > lastRemAt ? 1 : 0;
 }
@@ -161,7 +177,9 @@ export function buildSubgraph(
 
   // ---- 种子 activation(先归一化再加权,spec §三)----
   const impNorm = minMax(seedFacts.map((f) => f.importance * truthFactorOf(f.verificationStatus)));
-  const actNorm = minMax(seedFacts.map((f) => activityOf(f, opts.lastRemAt)));
+  const actNorm = minMax(
+    seedFacts.map((f) => activityOf(f, opts.lastRemAt, opts.activityByEngram)),
+  );
   const activation = new Map<string, number>();
   seedFacts.forEach((f, i) => {
     activation.set(

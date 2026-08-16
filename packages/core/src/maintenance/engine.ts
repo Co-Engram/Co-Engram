@@ -48,6 +48,7 @@ import {
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
 import { runDeepThought, scanInsightDecay } from "./insight/run.js";
+import { collectWindowActivity, writeRemState } from "./insight/activity.js";
 import { DEFAULT_REM_INSIGHT } from "./insight/types.js";
 import {
   writeStageState,
@@ -517,6 +518,20 @@ export class MaintenanceEngine {
       //     机械校验 + 独立 critic → rem-insight 提案(每轮硬上限 5 条)。
       //     一期兜底 REM(无事件信号)整体跳过、零 LLM 调用;enabled 默认 false
       //     (spec §九:人工盲评校准后才可默认开启)。单模式失败不阻塞 REM。
+      //     窗口活动数据(第二刀:审计日志进 REM 输入):audit 白名单事件加权 +
+      //     检索快照 diff → 种子 activityOf 连续化。数据源缺失任一退化,不阻塞。
+      const windowActivity = (() => {
+        try {
+          return collectWindowActivity({
+            repository: this.deps.repository,
+            ...(this.deps.auditLog ? { auditLog: this.deps.auditLog } : {}),
+            ...(this.deps.dataRoot ? { dataRoot: this.deps.dataRoot } : {}),
+            since: lastRemState?.stages.rem?.lastRunAt ?? null,
+          });
+        } catch {
+          return undefined;
+        }
+      })();
       let deepThought: import("./insight/run.js").DeepThoughtReport | undefined;
       try {
         deepThought = await runDeepThought({
@@ -526,6 +541,9 @@ export class MaintenanceEngine {
           lastRemAt: lastRemState?.stages.rem?.lastRunAt ?? null,
           config: this.resolvedConfig.remInsight,
           ...(this.deps.incubator ? { incubator: this.deps.incubator } : {}),
+          ...(windowActivity && windowActivity.size > 0
+            ? { windowActivity }
+            : {}),
         });
       } catch {
         // 深度思考失败不阻塞 REM 主流程
@@ -567,6 +585,12 @@ export class MaintenanceEngine {
         sourceCount: Array.isArray(p.sourceIds) ? p.sourceIds.length : 0,
         sourceIds: Array.isArray(p.sourceIds) ? [...p.sourceIds] : [],
       }));
+
+      // 第二刀:REM 完成写检索快照,下轮 diff 得窗口检索增量(失败静默,
+      // 快照是派生数据;崩溃不写 → 下轮窗口变长,单调方向安全)
+      if (this.deps.dataRoot) {
+        writeRemState(this.deps.dataRoot, this.deps.repository);
+      }
 
       return {
         downstreamReport: {

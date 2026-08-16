@@ -268,7 +268,7 @@ Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取�
 REM 采用**混合触发**——活动量优先、时间兜底:每轮 light 结束时,引擎累加自上次 REM 以来新增 engram 的 `importance`,达到 `maintenance.remActivityThreshold`(默认 `12`,约 20 条新记忆 × 0.6)即提前触发 REM,让批量新增的记忆在几分钟内得到综合,而不是等满一个间隔。防抖窗口 `maintenance.remMinIntervalMs`(默认 12 小时)保证两次昂贵的 REM 不连跑。设 `remActivityThreshold: 0` 可退回纯时间触发。
 #### REM 深度思考与夜思(2026-08,盲评校准后默认开启)
 
-事件信号成立时,REM 会额外运行**深度思考步骤**,含三个思维模式 —— *整合*(跨情境主题)、*复盘*(对失败记忆的 AAR 因果链)、*灵感*(刻意选远域做结构映射)—— 选材由记忆图上的扩散激活完成。每条草稿先过机械校验,再经**独立 critic** 评审,才成为 `rem-insight` 提案(每轮最多 5 条);纯时间兜底的 REM 整体跳过、零 LLM 调用。2026-08-16 盲评校准后默认开启(真洞察率 84-95%);设 `maintenance.remInsight.enabled: false` 可关闭。
+事件信号成立时,REM 会额外运行**深度思考步骤**,含三个思维模式 —— *整合*(跨情境主题)、*复盘*(对失败记忆的 AAR 因果链)、*灵感*(刻意选远域做结构映射)—— 选材由记忆图上的扩散激活完成。选材的种子活动权重纳入审计日志中的检索热度与外部编辑频率,各模式强度也按该模式历史洞察的采纳情况长期校准。每条草稿先过机械校验,再经**独立 critic** 评审,才成为 `rem-insight` 提案(每轮最多 5 条);纯时间兜底的 REM 整体跳过、零 LLM 调用。2026-08-16 盲评校准后默认开启(真洞察率 84-95%);设 `maintenance.remInsight.enabled: false` 可关闭。
 
 **夜思**是构建其上的核心差异化功能:在对话(`incubation_create`)、viewer「夜思实验室」页或 CLI 播种一个问题,Agent 每夜替你想一轮(也可立即触发),带完整梦境史回灌与重复检测。洞察以提案呈现 —— 计划、轨迹与外部调用完全透明,联网默认关闭(按条目开启),accept 洞察后有 resolve 仪式(「是否回答了你的问题?」)。Claude Code 端定时轮次以只读工具授权运行无头 `claude -p` L2 会话;详见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 

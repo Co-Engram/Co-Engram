@@ -13,13 +13,18 @@ import {
   GENERIC_DOMAIN_TAGS,
   type DeepThoughtMode,
   type InsightSubgraph,
+  type ModeCalibration,
   type ModeSignal,
 } from "./types.js";
+import { saturate } from "./activity.js";
 
-/** 饱和归一:x/(x+k),k 为半饱和点(初值 3:3 个事件 ≈ 0.5) */
-function saturate(x: number, k = 3): number {
-  if (x <= 0) return 0;
-  return x / (x + k);
+/**
+ * 历史质量校准:strength × factor 后夹回 [0,1](factor 由 accept 分布派生,
+ * 见 activity.computeModeCalibration)。factor 缺失(冷启动/无数据)不干预。
+ */
+function calibrateStrength(raw: number, cal: ModeCalibration | undefined): number {
+  if (!cal) return raw;
+  return Math.min(1, raw * cal.factor);
 }
 
 /** active engram digest(与 spread.ts 同源查询;SQLite 主路径批量,无 N+1) */
@@ -70,6 +75,8 @@ export function computeModeSignals(
     readonly hasActiveIncubation: boolean;
     /** 自 lastRemAt 起被 dismiss 的 rem-insight 提案(系统复盘自己的产出) */
     readonly dismissedInsights?: readonly DismissedInsight[];
+    /** 各模式长期校准因子(accept 洞察的模式分布,2026-08-16 第二刀) */
+    readonly modeCalibration?: ReadonlyMap<DeepThoughtMode, ModeCalibration>;
   },
 ): ModeSignal[] {
   const digests = activeDigests(repo);
@@ -91,16 +98,22 @@ export function computeModeSignals(
     }
   }
   const maxSameDomainNew = Math.max(0, ...domainNewCount.values());
+  const calIntegration = opts.modeCalibration?.get("integration");
   const integration: ModeSignal = {
     mode: "integration",
-    strength: Math.min(
-      1,
-      0.6 * saturate(newSynapses.length) + 0.4 * saturate(maxSameDomainNew),
+    strength: calibrateStrength(
+      Math.min(
+        1,
+        0.6 * saturate(newSynapses.length) + 0.4 * saturate(maxSameDomainNew),
+      ),
+      calIntegration,
     ),
     detail: {
       newSynapses: newSynapses.length,
       sameDomainNew: maxSameDomainNew,
       newEngrams: newEngrams.length,
+      calibrationFactor: calIntegration?.factor ?? 1,
+      calibrationSamples: calIntegration?.samples ?? 0,
     },
   };
 
@@ -115,13 +128,19 @@ export function computeModeSignals(
   // 审批反馈(2026-08-16):洞察被 dismiss = 最直接的人工质量否决 ——
   // 比失败使用更早到达的负信号,纳入复盘强度(系统复盘自己的产出)
   const dismissed = opts.dismissedInsights ?? [];
+  const calRetrospective = opts.modeCalibration?.get("retrospective");
   const retrospective: ModeSignal = {
     mode: "retrospective",
-    strength: saturate(failing.length + newlyRefuted + dismissed.length),
+    strength: calibrateStrength(
+      saturate(failing.length + newlyRefuted + dismissed.length),
+      calRetrospective,
+    ),
     detail: {
       failingEngrams: failing.length,
       newlyRefuted,
       dismissedInsights: dismissed.length,
+      calibrationFactor: calRetrospective?.factor ?? 1,
+      calibrationSamples: calRetrospective?.samples ?? 0,
     },
   };
 
@@ -138,12 +157,15 @@ export function computeModeSignals(
     // 孵化条目占据灵感模式最高优先级槽:强度提升保证入 top-K 首位
     inspirationStrength = Math.min(1, inspirationStrength + 0.5);
   }
+  const calInspiration = opts.modeCalibration?.get("inspiration");
   const inspiration: ModeSignal = {
     mode: "inspiration",
-    strength: inspirationStrength,
+    strength: calibrateStrength(inspirationStrength, calInspiration),
     detail: {
       crossDomainNew: crossDomainNew.length,
       hasActiveIncubation: opts.hasActiveIncubation ? 1 : 0,
+      calibrationFactor: calInspiration?.factor ?? 1,
+      calibrationSamples: calInspiration?.samples ?? 0,
     },
   };
 

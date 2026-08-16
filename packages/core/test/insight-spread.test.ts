@@ -158,6 +158,36 @@ describe("buildSubgraph:扩散与剪枝", () => {
     );
   });
 
+  it("activityByEngram 连续化(第二刀):窗口活动高的种子 activation 更高", () => {
+    const hot = make("hot", ["t"], 0.5);
+    const cold = make("cold", ["t"], 0.5);
+    const sub = buildSubgraph(repo, {
+      lastRemAt: PAST,
+      maxNodes: 30,
+      activityByEngram: new Map([
+        [hot.id, 9], // saturate(9,3) = 0.75
+        [cold.id, 1], // saturate(1,3) = 0.25
+      ]),
+    });
+    const byTitle = new Map(sub.nodes.map((n) => [n.title, n]));
+    // importance 相同 → impNorm 全 0.5;actNorm: hot=1, cold=0
+    expect(byTitle.get("hot")!.activation).toBeCloseTo(0.5 * 0.5 + 0.5 * 1, 5);
+    expect(byTitle.get("cold")!.activation).toBeCloseTo(0.5 * 0.5 + 0.5 * 0, 5);
+    expect(byTitle.get("hot")!.activation).toBeGreaterThan(
+      byTitle.get("cold")!.activation,
+    );
+  });
+
+  it("activityByEngram 缺省 → 退化现状二值(兼容既有行为)", () => {
+    const a = make("a", ["t"], 0.5);
+    const b = make("b", ["t"], 0.5);
+    const sub = buildSubgraph(repo, { lastRemAt: PAST, maxNodes: 30 });
+    const byTitle = new Map(sub.nodes.map((n) => [n.title, n]));
+    // 无窗口数据:二值路径,两个新记忆 activity 均 = 1 → norm 全 0.5
+    expect(byTitle.get("a")!.activation).toBeCloseTo(0.5 * 0.5 + 0.5 * 0.5, 5);
+    expect(byTitle.get("b")!.activation).toBeCloseTo(0.5 * 0.5 + 0.5 * 0.5, 5);
+  });
+
   it("globalStats 含 topTags 与真值分布", () => {
     make("A", ["x", "y"]);
     make("B", ["x"]);
