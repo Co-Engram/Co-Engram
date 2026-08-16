@@ -62,7 +62,7 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,
-  // REM 深度思考(enabled 默认 false —— 人工盲评校准后才可默认开启,spec §九)
+  // REM 深度思考(2026-08-16 盲评校准后默认开启:真洞察率 84-95%)
   remInsight: DEFAULT_REM_INSIGHT,
 };
 

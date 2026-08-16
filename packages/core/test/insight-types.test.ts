@@ -28,7 +28,7 @@ describe("insight types and mode registry", () => {
   });
 
   it("默认参数与 spec 冻结初值一致(enabled 默认 false,盲评校准后才可默认开启)", () => {
-    expect(DEFAULT_REM_INSIGHT.enabled).toBe(false);
+    expect(DEFAULT_REM_INSIGHT.enabled).toBe(true);
     expect(DEFAULT_REM_INSIGHT.modesPerRun).toBe(2);
     expect(DEFAULT_REM_INSIGHT.criticThreshold).toBe(0.6);
     expect(DEFAULT_REM_INSIGHT.maxSubgraphNodes).toBe(30);

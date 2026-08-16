@@ -92,7 +92,7 @@ Beyond mechanical evaluation (metacognition scoring, similarity clustering), REM
 
 Each run picks the top-K modes by signal strength (default 2; an active night-thinking entry pins inspiration to the top slot). Material selection is **seed-oriented spreading activation** over the memory graph (new / reactivated / reconnected nodes as seeds, two hops with decay, ~30-node subgraph cap) — a different layer from the five-factor query scoring, which stays query-oriented. An importance-ranked neighborhood baseline is computed alongside for ablation measurement.
 
-**Time-fallback REM runs skip deep thought entirely** (zero LLM calls): a quiet repository never burns tokens. The whole pipeline is **off by default** (`maintenance.remInsight.enabled: false`) until the critic threshold and prompts are calibrated via human blind evaluation.
+**Time-fallback REM runs skip deep thought entirely** (zero LLM calls): a quiet repository never burns tokens. The pipeline is **on by default** (2026-08-16 blind-eval calibration: 84-95% genuine-insight rate, 46/52 judged genuine); set `maintenance.remInsight.enabled: false` to turn it off.
 
 Three-stage validation applies to every insight:
 

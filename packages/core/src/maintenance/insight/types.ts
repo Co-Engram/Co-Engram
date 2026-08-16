@@ -28,7 +28,10 @@ export const GENERIC_DOMAIN_TAGS: ReadonlySet<string> = new Set([
 
 /** maintenance.remInsight 配置(config 键 maintenance.remInsight.*) */
 export interface RemInsightConfig {
-  /** 默认 false:spec §九 —— 人工盲评校准 critic 阈值与 prompt 后才可默认开启 */
+  /**
+   * 默认 true(2026-08-16 盲评校准后开启:真洞察率 84-95%,52 条人工判定
+   * 46 真洞察/4 牵强/2 复述;兜底 = 每轮 ≤5 限流 + 机械校验 + 提案全审批)
+   */
   readonly enabled?: boolean;
   /** 每轮 REM 按信号强度选 top-K 模式执行(默认 2,初值待校准) */
   readonly modesPerRun?: number;
@@ -42,7 +45,7 @@ export interface RemInsightConfig {
 
 /** RemInsightConfig 的全字段解析默认值 */
 export const DEFAULT_REM_INSIGHT: Readonly<Required<RemInsightConfig>> = {
-  enabled: false,
+  enabled: true,
   modesPerRun: 2,
   criticThreshold: 0.6,
   maxSubgraphNodes: 30,
