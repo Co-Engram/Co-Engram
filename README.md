@@ -75,7 +75,7 @@ For detailed configuration, see [docs/host-openclaw.md](./docs/host-openclaw.md)
 dsh plugin --profile <name> add @co-engram/dsh
 ```
 
-That's all — the package ships a `dsh.bundle` patch, so the plugin activates as a profile layer with zero manual config. All 38 tools register under bare names (`engram_search`, …) and a `memory:co-engram` prompt section injects live signals (top tags / skills / path overview) at every prompt assembly. Shares the same data repo as the Claude Code and OpenClaw hosts via a process lock.
+That's all — the package ships a `dsh.bundle` patch, so the plugin activates as a profile layer with zero manual config. All 40 tools register under bare names (`engram_search`, …) and a `memory:co-engram` prompt section injects live signals (top tags / skills / path overview) at every prompt assembly. Shares the same data repo as the Claude Code and OpenClaw hosts via a process lock.
 
 For detailed configuration, see [docs/host-dsh.md](./docs/host-dsh.md).
 
@@ -271,6 +271,15 @@ REM uses a **hybrid trigger** — activity-driven first, time-based fallback: at
 When event signals justify it, REM additionally runs a **deep-thought step** with three thinking modes — *integration* (cross-context themes), *retrospective* (AAR causal chains over failed memories), and *inspiration* (structure-mapping across deliberately distant domains) — material selected by spreading activation over the memory graph. Seed activity within that selection weighs retrieval hotness and external edits from the audit log, and each mode's strength is calibrated by the acceptance history of its own past insights. Every draft passes mechanical validation plus an **independent critic** before becoming a `rem-insight` proposal (max 5 per run); time-fallback REM runs skip it entirely with zero LLM calls. On by default after 2026-08-16 blind-eval calibration (84-95% genuine-insight rate); set `maintenance.remInsight.enabled: false` to turn it off.
 
 **Night thinking** is the flagship feature built on top: seed a question in chat (`incubation_create`), the viewer's **Night Lab** tab, or CLI; the agent thinks one round every night (or immediately on demand), with full dream-history feedback and duplicate detection. Insights surface as proposals — plans, traces and external calls are fully transparent, web research is off by default (per-entry opt-in), and accepted insights invite a resolve ritual ("did it answer your question?"). On Claude Code, scheduled rounds run a headless `claude -p` L2 session with read-only tool grants; see [docs/maintenance-engine.md](./docs/maintenance-engine.md).
+
+##### Night-thinking cadence and the daemon
+
+- **One round per day, anchored to a time of day**: each entry runs one round per day, anchored at 00:00 local time by default; the "Schedule" control on the entry card rewrites it per entry (`HH:mm`).
+- **Missed rounds catch up automatically**: if no process is alive at the anchor time (sessions closed, daemon exited), the round is not lost — the first maintenance tick of the next live process (the next session, or after the daemon starts) catches up due rounds. The "Scheduler" indicator in the Night Lab header shows live whether a process is alive (the lock-holding session or the daemon; a heartbeat within 90 s counts as running).
+- **On-time execution**: to run exactly at the anchor time, a process must be alive then — Claude Code runs in single-daemon mode by default (one shared long-lived daemon for all sessions, auto-exits after 30 min idle, disable via `CO_ENGRAM_DAEMON`), so keeping one Claude Code session open is enough; OpenClaw has no such daemon and follows the plugin process. "Run now" triggers a round at any time.
+- **Interim drafts and concluding**: every round automatically produces an interim answer draft (click the entry card to read it); once it has thought enough, "Conclude" synthesizes the final answer at any time.
+- **Per-round resources**: each round draws on the full memory graph + activity log + skill library; web research is off by default and must be explicitly enabled per entry at creation.
+- **Behavior change**: a newly created entry no longer runs at creation — the first round waits for the first anchor time, or a manual "Run now".
 
 
 ### Access the web viewer

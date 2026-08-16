@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 夜思实验室(Incubation)
+
+- **锚点时刻制调度**:默认每日 00:00,可按条目改写(`HH:mm`);错过自动补跑(原滚动 24h 间隔移除)。
+- **阶段草稿与收束**:每轮自动生成阶段性回答草稿;新增「收束」生成最终回答(`finalAnswer`)。
+- **空转诊断**:每轮时间线新增诊断计数(草稿数/重复/校验/评审/llmClient 缺失)。
+- **轮次资源最大化**:全记忆图谱 + 行为日志 + 技能库(联网调研默认关闭,按条目显式开启)。
+- **viewer**:卡片显示下一轮预计时间、点击查看草案、排程编辑、机理简述、调度器状态。
+- **行为变更**:新建条目等首个排程时刻或手动触发(不再创建即跑)。
+- **新工具**:`incubation_conclude` / `incubation_update`。
+
 ### Added
 
 - **Audit log feeds REM inputs(`@co-engram/core`)**: Seed activity weight in spreading activation is now continuous instead of binary — window activity = retrieval hotness (snapshot diff against `.co-engram/rem-state.json`, zero audit growth) plus weighted whitelisted audit events (external edit ×2, reinforce/accept ×1.5). Mode strengths gain a long-term calibration factor derived from the accept/dismiss distribution of `rem-insight` proposals per mode (clamped to ±30%, cold start under 5 samples stays neutral); `DeepThoughtReport` now exposes `modeCalibration`/`activityEngrams` for ops auditing. Includes a fix found by real-library verification: the action whitelist must be pushed down into `AuditLog.query` — real libraries are 99.98% high-frequency `noise_filtered` entries, and without the pushdown early-window whitelist events were evicted from the query's ring buffer.

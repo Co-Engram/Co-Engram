@@ -966,7 +966,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.incubations.webOptIn": "允许联网调研",
   "viewer.incubations.webOptInHint": "允许夜思联网查资料：问题摘要将发送至搜索引擎；关闭则完全离线思考",
   "viewer.incubations.createBtn": "播种",
-  "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM（可能消耗较多 token）。L2 会话过程（计划/轨迹）全部透明可查；联网调研默认开启，可按条目关闭。",
+  "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM（可能消耗较多 token）。L2 会话过程（计划/轨迹）全部透明可查；联网调研默认关闭，创建时按条目显式开启（开启后问题与摘要级内容会发送至搜索引擎）。",
   "viewer.incubations.inFlightTip": "该条目正在夜思中，完成后可再次运行",
   "viewer.incubations.lastRound": "最近一轮（R${round} · ${trigger}）",
   "viewer.incubations.lastRoundNone": "本轮无文字摘要，过程见下方时间线",

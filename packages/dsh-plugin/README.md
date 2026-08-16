@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 [Co-Engram](https://github.com/Co-Engram/Co-Engram) team memory for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) — a native Cordis plugin.
 
-- **38 memory tools on `ctx.tools`** with bare names (`engram_search`, `engram_create`, …) — same tool set as the Claude Code host.
+- **40 memory tools on `ctx.tools`** with bare names (`engram_search`, `engram_create`, …) — same tool set as the Claude Code host.
 - **Dynamic `memory:co-engram` prompt section** (order 120): top tags, skill catalog, path overview and pending-proposal count are re-evaluated at **every** prompt assembly — write a memory and the next message already reflects it.
 - **Process-lock coexistence**: shares the same dataRoot with the Claude Code (MCP) and OpenClaw hosts; background maintenance and the web viewer run on a single elected holder.
 
