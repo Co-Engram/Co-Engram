@@ -31,6 +31,7 @@ import {
   buildProtocol,
   synthesizeAnswerDraft,
   synthesizeFinalAnswer,
+  NO_SURVIVOR_MARKER,
 } from "./night-thinking.js";
 import type {
   InsightDraft,
@@ -94,6 +95,8 @@ export interface IncubationEntry {
   readonly concludedAt?: string;
   /** 连续全撞循环计数(≥2 → paused) */
   readonly consecutiveVetoed?: number;
+  /** resolve(false) 的显式续孵标记:期间 normalize 不做 suggested-resolve 自动翻转(用户裁决主权);新一轮 report 落盘时清除 */
+  readonly resumedAt?: string;
 }
 
 /** incubator 对 proposalEngine 的结构依赖 */
@@ -241,8 +244,10 @@ export class Incubator {
         out = { ...out, status: "active", inFlightAt: undefined, inFlightBy: undefined };
       }
     }
-    // resolve 仪式(spec §四):accept 洞察 → suggested-resolve
-    if (out.status === "active" && out.rounds > 0) {
+    // resolve 仪式(spec §四):accept 洞察 → suggested-resolve。
+    // resumedAt = 用户显式「继续孵化」(resolve false):自动翻转让位于用户
+    // 裁决;下一轮 report() 清除标记后建议重新武装(新一轮证据出现)。
+    if (out.status === "active" && out.rounds > 0 && !out.resumedAt) {
       const hasAccepted = out.timeline.some((t) =>
         t.proposalEntityIds.some(
           (id) => this.deps.proposalEngine.findProposalByEntityId(id)?.status === "accepted",
@@ -299,12 +304,16 @@ export class Incubator {
     const updated: IncubationEntry = {
       ...target,
       status: answered ? "resolved" : "active",
+      // 显式续孵标记:answered=false 时用户拒绝 suggested-resolve 建议,
+      // normalize 的自动翻转让位于用户裁决,直到下一轮 report() 清除
+      ...(answered ? {} : { resumedAt: this.now() }),
     };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
     return updated;
   }
 
-  /** 改写排程时刻(仅非 in-flight;SCHEDULE_RE 校验;写前重读合并) */
+  /** 改写排程时刻(仅非 in-flight;SCHEDULE_RE 校验;同步读改写,无 await
+   *  窗口故无需写前重读(与 create/resolve/pause 同保护级别)) */
   updateSchedule(id: string, schedule: string): IncubationEntry {
     if (!SCHEDULE_RE.test(schedule)) {
       throw new Error(`invalid schedule "${schedule}" (expect HH:mm)`);
@@ -341,6 +350,12 @@ export class Incubator {
     const fresh = this.read();
     const freshIdx = fresh.findIndex((e) => e.id === id);
     if (freshIdx === -1) throw new Error(`incubation ${id} not found`);
+    // await 窗口内复查:锚点到期/手动 run 可能已合法 acquireInFlight 拿锁开跑,
+    // 不复查会用开头快照整文件覆写,把 in-flight 态打回 suggested-resolve →
+    // 双轮并发 + 本轮 finalAnswer 随后被 report() 回滚。
+    if (fresh[freshIdx]!.status === "in-flight") {
+      throw new Error(`incubation ${id} in-flight — conclude after the round finishes`);
+    }
     const freshStatus = fresh[freshIdx]!.status;
     const status =
       freshStatus === "resolved" || freshStatus === "paused" ? freshStatus : "suggested-resolve";
@@ -419,7 +434,7 @@ export class Incubator {
       });
       if (t.summaries.length === 0) {
         lines.push(
-          `- Round ${t.round}(${t.trigger}): (no insight survived validation)${t.note ? ` ${t.note}` : ""}`,
+          `- Round ${t.round}(${t.trigger}): ${NO_SURVIVOR_MARKER}${t.note ? ` ${t.note}` : ""}`,
         );
       }
     }
@@ -683,6 +698,8 @@ export class Incubator {
       consecutiveVetoed: consecutive,
       inFlightAt: undefined,
       inFlightBy: undefined,
+      // 新一轮证据落盘:清除续孵标记(accept 建议 re-arm,normalize 重新可翻转)
+      resumedAt: undefined,
     };
     // 写前重读合并:report 中途有 await(critic/综合走 LLM),若仍基于开头
     // 快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中用户

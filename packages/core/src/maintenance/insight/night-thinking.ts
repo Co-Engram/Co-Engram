@@ -17,6 +17,13 @@ import { parseDrafts } from "./run.js";
 import type { NightThinkingReport, NightThinkingTask } from "./types.js";
 
 /**
+ * 零存活轮标记(共享契约常量):生产端 dreamHistoryFor(incubator.ts)在
+ * 零存活轮的梦境史行里渲染它,消费端 synthesizeFinalAnswer 靠它判定空态。
+ * 两端必须引用同一常量,禁止手写串 —— 漂移会导致空态诚实性指令失配。
+ */
+export const NO_SURVIVOR_MARKER = "(no insight survived validation)";
+
+/**
  * 固化协议(spec §四 L2 主路径):协议固化在 incubation_run 返回的结构化
  * 指令中,不依赖 agent 自觉;incubation_report 是唯一写回路径。
  */
@@ -168,7 +175,7 @@ export async function synthesizeFinalAnswer(
   const lines = dreamHistory.split("\n").filter((l) => l.trim());
   const empty =
     lines.length === 0 ||
-    lines.every((l) => l.includes("(no insight survived validation)"));
+    lines.every((l) => l.includes(NO_SURVIVOR_MARKER));
   const prompt = [
     "You are writing the FINAL ANSWER for an incubated question, based only on the dream history below.",
     "Audience: the user who planted the question. Language: match the question's language.",
