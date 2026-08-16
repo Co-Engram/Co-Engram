@@ -1,6 +1,6 @@
 {
   "name": "@co-engram/dsh",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Co-Engram team memory plugin for DeepSeek Harness (dsh): native Cordis tools + dynamic prompt-signals injection.",
   "license": "MIT",
   "author": "Yang Yang <yang.yang29@zte.com.cn>",
