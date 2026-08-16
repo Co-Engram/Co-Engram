@@ -239,12 +239,10 @@ async function renderGraphInner(container) {
           group: n.kind,
           color: {
             background: nodeColor,
-            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离。
-            // 2026-08 用户反馈:点击选中变「带外圈的颜色」很难看 ——
-            // highlight/hover 与普通态完全一致,点击不再变色。
             border: stageBg(),
-            highlight: { background: nodeColor, border: stageBg() },
-            hover: { background: nodeColor, border: stageBg() }
+            // 字符串形式(非对象):hover/highlight = 填充色,强制覆盖 vis 默认
+            highlight: nodeColor,
+            hover: nodeColor
           },
           size,
           // DEMO .nlabel:paint-order stroke 纸色 halo(vis 用 strokeWidth/strokeColor 等价实现)
@@ -315,8 +313,8 @@ async function renderGraphInner(container) {
     //   1. vis 默认 borderWidthSelected=6:选中时描边 2.5→6 加粗成环 → 与普通态同宽
     //   2. highlight 色(batches 前已与普通态对齐)
     // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观
-    nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false }, chosen: false },
-    edges: { smooth: { type: 'continuous' }, chosen: false, selectionWidth: 1 },
+    nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false } },
+    edges: { smooth: { type: 'continuous' }, selectionWidth: 1 },
     // 大规模图(1000+ 节点)物理引擎优化(2026-07):
     //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
     //      1000 节点级别单步模拟快 5-10×
@@ -340,7 +338,7 @@ async function renderGraphInner(container) {
         fit: true
       }
     },
-    interaction: { hover: true, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: state.hoverHl }
+    interaction: { hover: false, selectable: false, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: state.hoverHl }
   };
 
   const network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, options);
@@ -555,22 +553,66 @@ async function renderGraphInner(container) {
     })));
   });
   network.on('click', (params) => {
-    // 优先处理边点击(突触详情)
-    if (params.edges && params.edges.length > 0 && (!params.nodes || params.nodes.length === 0)) {
-      const edgeId = params.edges[0];
+    // selectable:false → params.nodes/edges 为空,手动检测点击位置
+    let nodeId = params.nodes?.[0] || null;
+    let edgeId = params.edges?.[0] || null;
+    if (!nodeId && !edgeId && params.pointer?.DOM) {
+      const dom = params.pointer.DOM;
+      nodeId = network.getNodeAt(dom);
+      if (!nodeId) edgeId = network.getEdgeAt(dom);
+    }
+    if (edgeId) {
       const edge = edgesDataset.get(edgeId);
       if (edge && edge._raw) {
         CO_ENGRAM_SYNAPSES.open(edge._raw.id);
       }
       return;
     }
-    if (!params.nodes || params.nodes.length === 0) {
-      // 点空白:取消高亮
-      resetHighlight();
+    if (nodeId) {
+      focusNode(nodeId);
+      // vis bug:内部选中逻辑会重置节点颜色为默认值(dataset 不变但 options 变)
+      // → 强制恢复 vis 内部节点的颜色
+      const raw = graph.nodes.find(n => n.id === nodeId);
+      if (raw) {
+        const c = nodeColorFor(raw);
+        const vn = network.body.nodes[nodeId];
+        if (vn && vn.options && vn.options.color) {
+          vn.options.color.background = c;
+          vn.options.color.border = stageBg();
+          if (typeof vn.options.color.highlight === 'object') {
+            vn.options.color.highlight.background = c;
+            vn.options.color.highlight.border = stageBg();
+          }
+          if (typeof vn.options.color.hover === 'object') {
+            vn.options.color.hover.background = c;
+            vn.options.color.hover.border = stageBg();
+          }
+        }
+      }
       return;
     }
-    const id = params.nodes[0];
-    focusNode(id);
+    // 点空白:关闭检查器 + 恢复可能被 vis 重置的节点颜色
+    resetHighlight();
+    for (const nid of Object.keys(network.body.nodes)) {
+      const vn = network.body.nodes[nid];
+      const rawN = graph.nodes.find(n => n.id === nid);
+      if (vn && vn.options && vn.options.color && rawN) {
+        const c = nodeColorFor(rawN);
+        if (vn.options.color.background !== c) {
+          vn.options.color.background = c;
+          vn.options.color.border = stageBg();
+          if (typeof vn.options.color.highlight === 'object') {
+            vn.options.color.highlight.background = c;
+            vn.options.color.highlight.border = stageBg();
+          }
+          if (typeof vn.options.color.hover === 'object') {
+            vn.options.color.hover.background = c;
+            vn.options.color.hover.border = stageBg();
+          }
+        }
+      }
+    }
+    network.redraw();
   });
 
   function resetHighlight() {
@@ -769,7 +811,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
       const c = raw ? nodeColorFor(raw) : n.color;
-      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: stageBg() }, hover: { background: c, border: stageBg() } } };
+      return { id: n.id, color: { background: c, border: stageBg(), highlight: c, hover: c } };
     }));
     renderLegend();
     queueRefreshOverlay();
