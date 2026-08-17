@@ -504,7 +504,7 @@ export class Incubator {
       seedDigests,
       dreamHistory: this.dreamHistoryFor(id),
       resourceHints: collectResourceHints(this.deps.dataRoot),
-      protocol: buildProtocol(),
+      protocol: buildProtocol(this.deps.repository.currentLanguage),
     };
   }
 
@@ -672,7 +672,7 @@ export class Incubator {
       // fail-closed:无 llmClient 即无独立 critic → 不出提案
       // (静默 continue:llmClientMissing 已由 diagnosis 字段表达)
       if (!this.deps.llmClient) continue;
-      const score = await critique(this.deps.llmClient, d, sub, d.mode);
+      const score = await critique(this.deps.llmClient, d, sub, d.mode, this.deps.repository.currentLanguage);
       if (!score || score.overall < threshold) {
         criticRejected += 1;
         rejectReasons.push(

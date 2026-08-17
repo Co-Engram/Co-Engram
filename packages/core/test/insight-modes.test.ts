@@ -8,6 +8,7 @@ import { EngramRepository } from "../src/storage/repository.js";
 import type { Synapse } from "../src/types/synapse.js";
 import {
   buildModePrompt,
+  insightLanguageDirective,
   buildNightThinkingL1Prompt,
   computeModeSignals,
   inspirationSeedFilter,
@@ -304,5 +305,30 @@ describe("模式长期校准(第二刀:accept 洞察模式分布)", () => {
     expect(cal.find((s) => s.mode === "integration")!.strength).toBe(
       noCal.find((s) => s.mode === "integration")!.strength,
     );
+  });
+});
+
+// ============================================================
+// 洞察产出语言指令(2026-08-18 修复:洞察草稿此前无语言约束,LLM 落英文)
+// ============================================================
+describe("insightLanguageDirective(洞察语言约束)", () => {
+  it("zh:要求全部洞察字段用简体中文", () => {
+    expect(insightLanguageDirective("zh")).toContain("Simplified Chinese");
+  });
+
+  it("en:要求全部洞察字段用英文", () => {
+    expect(insightLanguageDirective("en")).toContain("in English");
+  });
+
+  it("buildModePrompt 缺省 language=zh 注入指令;显式 en 注入英文指令", () => {
+    const zh = buildModePrompt("integration", EMPTY_SUB);
+    expect(zh).toContain(insightLanguageDirective("zh"));
+    const en = buildModePrompt("integration", EMPTY_SUB, { language: "en" });
+    expect(en).toContain(insightLanguageDirective("en"));
+  });
+
+  it("buildNightThinkingL1Prompt 注入语言指令(缺省 zh)", () => {
+    const prompt = buildNightThinkingL1Prompt("问题", "(no seeds)", "");
+    expect(prompt).toContain(insightLanguageDirective("zh"));
   });
 });

@@ -19,7 +19,8 @@ import { join } from "node:path";
 
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
-import { buildNightThinkingL1Prompt } from "./modes.js";
+import type { Language } from "../../i18n/types.js";
+import { buildNightThinkingL1Prompt, insightLanguageDirective } from "./modes.js";
 import { parseDrafts } from "./run.js";
 import type { NightThinkingReport, NightThinkingTask } from "./types.js";
 
@@ -133,9 +134,11 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    actually read. Insights with empty, invented, or non-engram sourceIds are
    rejected by the citation gate before review.`;
 
-/** 组装协议文本(2026-08-17 起受控联网:只读检索允许,隐私边界固化;无开关) */
-export function buildProtocol(): string {
-  return CONTEMPLATION_PROTOCOL;
+/** 组装协议文本(2026-08-17 起受控联网:只读检索允许,隐私边界固化;无开关)。
+ * language 注入洞察产出语言指令(2026-08-18:L2 无头会话此前无语言约束,
+ * 洞察草稿系统性落英文)。 */
+export function buildProtocol(language: Language = "zh"): string {
+  return CONTEMPLATION_PROTOCOL + "\n" + insightLanguageDirective(language);
 }
 
 /**
@@ -162,6 +165,7 @@ export function createL1Executor(
         task.question,
         seedText || "(no seeds)",
         task.dreamHistory,
+        repo.currentLanguage,
       );
       const raw = await llm.complete(prompt, { temperature: 0.5, maxTokens: 131072, timeoutMs: 600_000 });
       const insights = parseDrafts(raw, "inspiration")

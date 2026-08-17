@@ -269,6 +269,30 @@ export function insightEntityId(
   return `rem-insight:${hash}`;
 }
 
+/**
+ * rem-insight 提案的「样本引用」= 来源记忆标题(≤3 条)。
+ *
+ * 2026-08-18 修复:此前硬编码 [引擎调试串 `mode=… critic=…`, criticRationale
+ * 截断] —— 内部指标泄漏到用户可见的「N 条样本」计数(假样本),critic 分也
+ * 因此在卡片上以裸串形式出现。来源标题才是用户审批时关心的「依据」;
+ * criticScore 等机器指标由 payload 字段承载,不进 sampleQuotes。
+ */
+function insightSourceTitles(
+  repo: EngramRepository,
+  sourceIds: readonly string[],
+): string[] {
+  const titles: string[] = [];
+  for (const id of sourceIds) {
+    if (titles.length >= 3) break;
+    try {
+      titles.push(repo.readEngram(id).title);
+    } catch {
+      // 来源记忆可能已删除/不可读,跳过(不占名额,继续收下一条)
+    }
+  }
+  return titles;
+}
+
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
 export const EXTERNAL_MARKDOWN_PROPOSAL_PREFIX = "ext:";
 
@@ -937,10 +961,7 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
-      sampleQuotes: [
-        `mode=${input.mode} type=${input.insightType} critic=${input.criticScore.toFixed(2)}`,
-        input.criticRationale.slice(0, 120),
-      ],
+      sampleQuotes: insightSourceTitles(this.repository, input.sourceIds),
       centroidExcerpt: input.title.slice(0, 80),
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
@@ -1915,6 +1936,49 @@ export class ProposalEngine {
 
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
+
+    // —— 库级幂等(2026-08-17 修复 am purge-复活 bug,与 proposeSkill 印迹级幂等同构) ——
+    // am 的 accept 产物 = 库内 engram(memory-sync 引擎注入 title=slug、domainTags
+    // 含来源类别 tag),比「proposal 行存在性」更强且耐 purgeAccepted:此前只查
+    // 行级幂等,viewer「清空已接受」物理删掉 accepted 行后,新 session 的
+    // AutoMemoryWatcher 重扫库外源 .md(持续存在)会重新提议(2026-08-17 实证:
+    // am:co-engram-deploy-hotfix purge 后复活为 pending)。库内已有同 title+tag
+    // 产物时:无 proposal 行 → 不新建;存量 pending 复活行 → 自愈对齐为
+    // accepted(acceptedEngramId=现有 engram id,audit 留 selfHealed 痕迹)。
+    // caller 未声明 domainTags → 降级为旧行为(仅行级幂等)。
+    // engram_delete 删掉产物后同 slug 重扫会重新提议 —— 合理复活。
+    if (nonEmpty(normalized.domainTags)) {
+      const engramHit = this.findEngramByTitleAndTags(
+        normalized.title,
+        normalized.domainTags,
+      );
+      if (engramHit) {
+        if (existing?.status === "pending") {
+          this.writeProposals(
+            proposals.map((p) =>
+              p.entityId === entityId
+                ? {
+                    ...p,
+                    status: "accepted" as const,
+                    acceptedEngramId: engramHit.id,
+                  }
+                : p,
+            ),
+          );
+          this.auditLog.append({
+            actor: "system",
+            action: "propose",
+            metadata: {
+              entityId,
+              source: "auto-memory",
+              slug: input.slug,
+              selfHealed: "engram-exists",
+            },
+          });
+        }
+        return "no-change";
+      }
+    }
 
     if (existing?.status === "accepted") {
       return "no-change";
@@ -3152,6 +3216,24 @@ export class ProposalEngine {
       if (hits >= 2) return true;
     }
     return false;
+  }
+
+  /**
+   * 库级查重:按 title + domainTags 全包含查找 engram(listEngrams 轻量投影,
+   * 零额外 IO)。auto-memory 库级幂等键用 —— am 产物 title=slug、domainTags
+   * 含来源类别 tag(memory-sync 引擎注入),耐 purgeAccepted;title 可被用户改
+   * (改后弱一致:复活一次,二次 accept 修复),可接受的权衡。
+   */
+  private findEngramByTitleAndTags(
+    title: string,
+    tags: readonly string[],
+  ): { readonly id: string } | undefined {
+    for (const entry of this.repository.listEngrams()) {
+      if (entry.title !== title) continue;
+      const entryTags = entry.domainTags ?? [];
+      if (tags.every((t) => entryTags.includes(t))) return entry;
+    }
+    return undefined;
   }
 
   private readClusters(): TopicCluster[] {

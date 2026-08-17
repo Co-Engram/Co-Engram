@@ -2150,13 +2150,28 @@ window.CO_ENGRAM_PROPOSALS = {
   /**
    * 卡片紧凑来源行(在 meta chip 行之后、previewClip 之前)。
    * 按 source 分模板;conversation 含时间范围 + 次数;external/auto-memory 含文件标识。
-   * rem-* 走专属卡片,调用方已 continue 跳过,不进本函数。
+   * rem-insight / rem-pattern 走通用卡片(其余 rem-* 有专属卡片 continue 跳过),
+   * 来源行只给可读标签 + 时间 —— 专属标识已由卡片 chip 行(💡深度洞察 / 🌙)呈现,
+   * 不再重复原始 source 串,也不套对话聚类模板(2026-08-18 修复误标)。
    */
   _sourceLine(p) {
     const T = CO_ENGRAM_T;
     const src = p.source || 'conversation';
     const occ = p.occurrences || 0;
     const times = T.t('viewer.proposals.sourceLine.times');
+    // REM 产物标签(rem-synapse/tag-refresh/verification 有专属卡片,此处为防御性兜底)
+    const REM_SOURCE_LABEL_KEY = {
+      'rem-insight': 'remInsight',
+      'rem-pattern': 'remPattern',
+      'rem-synapse': 'remSynapse',
+      'rem-tag-refresh': 'remTagRefresh',
+      'rem-verification': 'remVerification',
+    };
+    if (REM_SOURCE_LABEL_KEY[src]) {
+      const ts = p.lastSeenAt || p.createdAt || '';
+      return '<div class="proposal-source-line">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.' + REM_SOURCE_LABEL_KEY[src]))
+        + (ts ? ' · ' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(ts)) : '') + '</div>';
+    }
     // DEMO g2-proposals .src:来源彩色小徽标(ext=蓝/conv=紫/auto=中性/skill=琥珀),
     // 后接来源明细(路径/时间窗/次数),不再用 emoji 前缀。
     const badge = (cls) => '<span class="src-badge ' + cls + '">' + CO_ENGRAM.escapeHtml(src) + '</span>';
@@ -2202,6 +2217,7 @@ window.CO_ENGRAM_PROPOSALS = {
       + (p.slug ? '(' + p.slug + ')' : '');
     else if (src === 'rem-pattern') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remPattern');
     else if (src === 'rem-verification') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remVerification');
+    else if (src === 'rem-insight') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remInsight');
     else if (src === 'skill') sourceLabel = T.t('viewer.proposals.why.sourceLabel.skill')
       + (p.sourcePath ? '(' + p.sourcePath + ')' : '');
     else sourceLabel = T.t('viewer.proposals.why.sourceLabel.conversation');
@@ -2215,6 +2231,7 @@ window.CO_ENGRAM_PROPOSALS = {
     else if (src === 'auto-memory') why = T.t('viewer.proposals.why.necessity.autoMemory');
     else if (src === 'rem-pattern') why = T.t('viewer.proposals.why.necessity.remPattern');
     else if (src === 'rem-verification') why = T.t('viewer.proposals.why.necessity.remVerification');
+    else if (src === 'rem-insight') why = T.t('viewer.proposals.why.necessity.remInsight');
     else if (src === 'skill') why = T.t('viewer.proposals.why.necessity.skill');
     else why = sampleN
       ? T.t('viewer.proposals.why.necessity.conversation', { n: sampleN })
@@ -2594,6 +2611,10 @@ window.CO_ENGRAM_PROPOSALS = {
         const cardClick = ' style="cursor:pointer;border-left:3px solid ' + kindColor + '" onclick="CO_ENGRAM_PROPOSALS.open(\\'' + CO_ENGRAM.escapeHtml(p.entityId) + '\\')"'
           + (p.status === 'pending' ? ' data-entity-id="' + CO_ENGRAM.escapeHtml(p.entityId) + '"' : '');
         const sampleCount = (p.sampleQuotes || []).length;
+        // 「N 条样本」语义仅对话聚类成立(sampleQuotes=对话片段);REM 产物的
+        // sampleQuotes 是来源记忆标题,occurrences 是引擎重跑计数 —— 都不是
+        // 「样本」,不显示该 chip(2026-08-18 修复假计数)。
+        const sampleChipVisible = sampleCount && !(p.source || '').startsWith('rem-');
         // rem-pattern 专属标识(dreaming 提炼的新模式记忆):梦境标识 + 提炼置信度 + 来源数
         var isRemPattern = p.source === 'rem-pattern';
         var rpConf = (p.payload && typeof p.payload.remConfidence === 'number') ? p.payload.remConfidence : 0;
@@ -2616,7 +2637,7 @@ window.CO_ENGRAM_PROPOSALS = {
         var riHasInc = !!(p.payload && p.payload.incubationId);
         var remInsightChips = isRemInsight
           ? '<span class="chip insight-chip">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.badge')) + '</span>'
-            + '<span class="chip critic-' + (riScore >= 0.7 ? 'hi' : (riScore >= 0.5 ? 'mid' : 'lo')) + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">critic ' + riScore.toFixed(2) + '</span>'
+            + '<span class="chip critic-' + (riScore >= 0.7 ? 'hi' : (riScore >= 0.5 ? 'mid' : 'lo')) + '" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticTip')) + '">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.criticChip', { score: riScore.toFixed(2) })) + '</span>'
             + (riHasInc ? '<span class="chip moon-chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.insight.incubationTip')) + '">🌙</span>' : '')
           : '';
         // payload.domainTags(若有)+ occurrences/sample chip
@@ -2636,7 +2657,7 @@ window.CO_ENGRAM_PROPOSALS = {
           + skillChip
           + '<span class="chip kind-' + meta.kind + '"' + CO_ENGRAM.tip('kind.' + meta.kind) + '>' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>'
           + '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.occurrences', { n: p.occurrences || 0 })) + '">⚡ ' + (p.occurrences || 0) + '</span>'
-          + (sampleCount ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
+          + (sampleChipVisible ? '<span class="chip" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.card.samples', { n: sampleCount })) + '">💬 ' + sampleCount + '</span>' : '')
           + (p.createdAt ? '<span title="' + CO_ENGRAM.escapeHtml(p.createdAt) + '">' + CO_ENGRAM.relativeTime(p.createdAt) + '</span>' : '')
           + (p.payload && p.payload.visibility ? CO_ENGRAM.renderVisibilityBadge(p.payload.visibility) : '')
           + '</div>';

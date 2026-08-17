@@ -41,6 +41,11 @@ const WHITELIST: readonly string[] = [
   "packages/claude-code-mcp/src/resources.ts",
   // LLM 字典 selector —— 这就是用语言选字典,本质不是 i18n key
   "packages/core/src/tools/llm-descriptions.ts",
+  // LLM 洞察 prompt 语言 selector(2026-08-18):insightLanguageDirective 按语言
+  // 选 prompt 指令文本,输入对象是 LLM 不是 UI,不适用 i18n key
+  "packages/core/src/maintenance/insight/modes.ts",
+  // LLM critic 评审理由语言 selector(2026-08-18),同上
+  "packages/core/src/maintenance/insight/critic.ts",
 ];
 
 const SCAN_DIRS: readonly string[] = [

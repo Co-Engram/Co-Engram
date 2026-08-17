@@ -216,6 +216,7 @@ export async function runDeepThought(deps: {
       }
 
       const prompt = buildModePrompt(mode, subgraph, {
+        language: deps.repository.currentLanguage,
         ...(incubation
           ? {
               incubation: {
@@ -253,7 +254,7 @@ export async function runDeepThought(deps: {
           rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: ${v.reason}`);
           continue;
         }
-        const score = await critique(deps.llmClient, draft, subgraph, mode);
+        const score = await critique(deps.llmClient, draft, subgraph, mode, deps.repository.currentLanguage);
         if (!score || score.overall < config.criticThreshold) {
           criticRejected += 1;
           rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: critic=${score ? score.overall.toFixed(2) : "null"} < ${config.criticThreshold}`);

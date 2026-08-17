@@ -10,6 +10,7 @@ import {
   collectResourceHints,
   CONTEMPLATION_PROTOCOL,
 } from "../src/maintenance/insight/night-thinking.js";
+import { insightLanguageDirective } from "../src/maintenance/insight/modes.js";
 
 describe("resourceHints 与协议 Resource mandate", () => {
   it("collectResourceHints 只返回存在的文件", () => {
@@ -58,7 +59,9 @@ describe("resourceHints 与协议 Resource mandate", () => {
     expect(incubator.buildTask(e.id).resourceHints).toEqual([join(dir, "maintenance-state.json")]);
   });
 
-  it("buildProtocol 无参输出完整协议(2026-08-17 起纯本地,无联网开关)", () => {
-    expect(buildProtocol()).toBe(CONTEMPLATION_PROTOCOL);
+  it("buildProtocol 无参输出完整协议(2026-08-17 起纯本地,无联网开关);2026-08-18 起追加洞察语言指令", () => {
+    // 协议主体不变 + 语言指令后缀(默认 zh;L2 无头会话此前无语言约束,洞察落英文)
+    expect(buildProtocol()).toBe(CONTEMPLATION_PROTOCOL + "\n" + insightLanguageDirective("zh"));
+    expect(buildProtocol("en")).toBe(CONTEMPLATION_PROTOCOL + "\n" + insightLanguageDirective("en"));
   });
 });

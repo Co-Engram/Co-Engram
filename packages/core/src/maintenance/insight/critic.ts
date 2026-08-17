@@ -12,6 +12,7 @@
  */
 
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
+import type { Language } from "../../i18n/types.js";
 import type { CriticScore, DeepThoughtMode, InsightDraft, InsightSubgraph } from "./types.js";
 import { serializeSubgraph } from "./modes.js";
 
@@ -55,6 +56,7 @@ export async function critique(
   draft: InsightDraft,
   sub: InsightSubgraph,
   mode: DeepThoughtMode,
+  language: Language = "zh",
 ): Promise<CriticScore | null> {
   const prompt = [
     "You are an independent critic reviewing ONE candidate insight produced by another model.",
@@ -84,6 +86,9 @@ export async function critique(
     "  mode): if the cross-domain mapping matches surface words instead of relational roles, consistency",
     "  must be <= 0.4.",
     "overall = your holistic judgment (do not just average; you may veto).",
+    language === "zh"
+      ? "Write the rationale field in Simplified Chinese (简体中文); technical terms may remain in English."
+      : "Write the rationale field in English.",
     "Return ONLY a JSON object: {\"evidenceSufficiency\":n,\"novelty\":n,\"actionability\":n,\"consistency\":n,\"overall\":n,\"rationale\":\"...\"}",
   ]
     .filter((l) => l !== "")
