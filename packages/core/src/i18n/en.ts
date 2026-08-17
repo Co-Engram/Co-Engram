@@ -941,7 +941,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.proposals.tip":
     "Candidate memories implicitly captured but not yet approved; accept to promote to a real engram, dismiss to discard",
   "viewer.tab.merges.tip":
-    "Team memory merges: deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
+    "Deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
   "viewer.tab.audit.tip":
     "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
   "viewer.tab.maintenance.tip":
@@ -1027,7 +1027,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.health.tip":
     "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
   "viewer.tab.config.tip":
-    "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
+    "dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
   "viewer.tab.help.tip":
     "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
 

@@ -932,7 +932,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.proposals.tip":
     "隐式捕获但尚未审批的候选记忆;接受则转为正式 engram,驳回则丢弃",
   "viewer.tab.merges.tip":
-    "团队记忆合并:相似记忆去重、矛盾记忆(contradicts)三阶段解决工作流",
+    "相似记忆去重、矛盾记忆(contradicts)三阶段解决工作流",
   "viewer.tab.audit.tip":
     "记忆变更时间线:创建/更新/删除/强化/矛盾解决的历史记录",
   "viewer.tab.maintenance.tip":
@@ -1017,7 +1017,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
   "viewer.tab.config.tip":
-    "配置:dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
+    "dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
   "viewer.tab.help.tip":
     "使用说明:概念释义、端口与 dataRoot、Claude Code 与 OpenClaw 双宿主说明",
 
