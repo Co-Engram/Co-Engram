@@ -109,11 +109,11 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
     `  question itself and summary-level content may leave the machine.`,
     ``,
     task.protocol.replace(
-      "call the tool `ponder_report` exactly once",
-      "return the report object as your final answer in the exact JSON shape below (you have no ponder_report tool in this headless session)",
+      "call the tool `ponder_report` with a JSON object",
+      "return the report object as your final answer in the exact JSON shape below (you have no ponder_report tool in this headless session — and no repair loop either: if the closure check finds open gaps, this run finalizes as degraded, so mine ALL required resources in this single pass)",
     ),
     ``,
-    `Final answer: ONLY the JSON object {"answer":"<non-empty answer text — REQUIRED>","insights":[...],"plan":[...],"trace":[...],"resourcesUsed":{...}} — no prose outside it.`,
+    `Final answer: ONLY the JSON object {"answer":"<non-empty answer text — REQUIRED>","insights":[...],"plan":[...],"trace":[...],"resourcesUsed":{...},"requirements":[...]} — no prose outside it.`,
   ].join("\n");
 }
 

@@ -53,9 +53,31 @@ import type {
 } from "./types.js";
 import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
 import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
+import {
+  advanceGaps,
+  checkRequirements,
+  digestEvidence,
+  gapHash,
+  isSeedOnlySources,
+} from "./gap-check.js";
+import type { ToolCallEvent } from "../../signals/types.js";
+import type { PonderGap, PonderRequirement, PonderRunState } from "./types.js";
 
-/** 条目状态:queued(已提问)→ thinking(深思中,TTL 崩溃回收)→ done(已出报告) */
-export type IncubationStatus = "queued" | "thinking" | "done";
+/**
+ * 条目状态(Phase1 PDCA 扩展,2026-08-18):
+ * queued(已提问)→ thinking(深思中)→ verifying(报告校验中,瞬态)
+ *   → done(全闭合终束)| repairing(有缺口,等修复 report → verifying → …)
+ * repairing/verifying 超时(复用 TTL)未闭合 → done + degraded(触顶终束)。
+ */
+export type IncubationStatus = "queued" | "thinking" | "verifying" | "repairing" | "done";
+
+/** degraded 终束成因(预算触顶 / TTL 超时 / 执行中断) */
+export interface IncubationDegraded {
+  readonly at: string;
+  readonly reason: "repair-budget-exhausted" | "gap-budget-exhausted" | "ttl-expired" | "aborted";
+  /** 未闭合缺口描述(审批面置顶展示) */
+  readonly unclosedGaps: readonly string[];
+}
 
 /** 深思时间线单次记录(同一时间线,内部 round 序号供提案实体 id;UI 按时间戳呈现) */
 export interface IncubationTimelineEvent {
@@ -85,6 +107,18 @@ export interface IncubationTimelineEvent {
   readonly answer?: string;
   readonly answerError?: string;
   readonly note?: string;
+  /** PDCA 修复回路信息(Phase1;每次 report 落一条) */
+  readonly pdca?: {
+    /** 修复 report 次序(主报告 = 0) */
+    readonly repairRound: number;
+    /** 校验后仍开放的阻塞缺口(描述摘要;hash 见 entry.run) */
+    readonly openGaps: readonly string[];
+    /** 本轮复核闭合的需求数 */
+    readonly closedThisRound: number;
+    readonly degraded: boolean;
+    /** 本轮 deferred 的超额新缺口(不阻塞;留痕) */
+    readonly deferred?: readonly string[];
+  };
 }
 
 export interface IncubationEntry {
@@ -100,11 +134,15 @@ export interface IncubationEntry {
   /** 最新一次深思的回答(= timeline 最后一项的 answer) */
   readonly answer?: string;
   readonly answerError?: string;
-  /** thinking 瞬态字段(TTL 30min 回收) */
+  /** thinking/verifying/repairing 瞬态字段(TTL 30min 回收) */
   readonly thinkingAt?: string;
   readonly thinkingBy?: string;
   /** 连续全撞循环计数(诊断信号) */
   readonly consecutiveVetoed?: number;
+  /** 当前 run 的 PDCA 状态(修复轮之间持久化;终束清除) */
+  readonly run?: PonderRunState;
+  /** degraded 终束标记(run 级;洞察提案隔离依据;再思时清除) */
+  readonly degraded?: IncubationDegraded;
 }
 
 /** incubator 对 proposalEngine 的结构依赖 */
@@ -121,11 +159,27 @@ export interface IncubatorProposalSink {
     readonly criticRationale: string;
     readonly incubationId?: string;
     readonly round?: number;
+    /** PDCA:run 未闭合时提案带 provisional degraded 标(终态落定时翻转) */
+    readonly degraded?: {
+      readonly provisional: boolean;
+      readonly unclosedGaps: readonly string[];
+    };
   }): boolean;
   listAll(): readonly ProposalLike[];
   findProposalByEntityId(
     entityId: string,
   ): { readonly status?: string; readonly dismissReason?: string } | undefined;
+  /** PDCA:run 终态落定时改写本 run 提案的隔离标(正常=解除;degraded=固化) */
+  setInsightClosureState(
+    entityIds: readonly string[],
+    degraded: { readonly provisional: boolean; readonly unclosedGaps: readonly string[] } | undefined,
+  ): void;
+}
+
+/** PDCA 证据面(宿主注入;结构 = SignalSink 的 flush + snapshot 窄化) */
+export interface PonderEvidenceSource {
+  flush(): Promise<void> | void;
+  snapshot(): readonly ToolCallEvent[];
 }
 
 export interface IncubatorDeps {
@@ -146,6 +200,14 @@ export interface IncubatorDeps {
     }): unknown;
   };
   readonly now?: () => string;
+  /**
+   * PDCA 证据源(Phase1):引擎侧调用流水快照(不消费 drain 队列)。
+   * 缺省(未注入/旧部署)→ 闭合校验降级为「清单仅展示 + 种子源检查」,
+   * 审计如实标注 pdca=evidence-off。
+   */
+  readonly signalEvidence?: PonderEvidenceSource;
+  /** 修复 report 次数上限(clamp [1,10];缺省 INSIGHT_LIMITS.maxRepairRounds) */
+  readonly repairRoundLimit?: number;
 }
 
 const INCUBATIONS_FILE = "incubations.json";
@@ -293,7 +355,13 @@ export class Incubator {
     // 状态映射
     let status: IncubationStatus;
     const legacy = e.status as string;
-    if (legacy === "thinking" || legacy === "queued" || legacy === "done") {
+    if (
+      legacy === "thinking" ||
+      legacy === "queued" ||
+      legacy === "done" ||
+      legacy === "verifying" ||
+      legacy === "repairing"
+    ) {
       status = legacy;
     } else if (legacy === "in-flight") {
       status = "thinking";
@@ -309,10 +377,31 @@ export class Incubator {
     const thinkingBy = (e.thinkingBy ?? (typeof raw.inFlightBy === "string" ? (raw.inFlightBy as string) : undefined)) as
       | string
       | undefined;
-    if (status === "thinking" && thinkingAt) {
+    // PDCA 修复回路瞬态(verifying/repairing)TTL 过期 → 视为修复失败,
+    // done + degraded(ttl-expired),未闭合缺口随 run 记录落盘(审批面可见)
+    let degraded = e.degraded;
+    let run = e.run;
+    if (
+      (status === "thinking" || status === "verifying" || status === "repairing") &&
+      thinkingAt
+    ) {
       // 用注入时钟(与写入同源),防测试/模拟时钟与真实时钟混用导致瞬态被误回收
       if (parseAt(this.now()) - parseAt(thinkingAt) > INSIGHT_LIMITS.inFlightTtlMs) {
-        status = rounds > 0 ? "done" : "queued";
+        if (status === "thinking") {
+          status = rounds > 0 ? "done" : "queued";
+        } else {
+          // verifying/repairing:run 已开始(报告已交或修复中),超时按修复失败收束
+          const unclosed = (run?.gaps ?? [])
+            .filter((g) => g.state === "open")
+            .map((g) => g.description);
+          degraded = {
+            at: this.now(),
+            reason: "ttl-expired",
+            unclosedGaps: unclosed,
+          };
+          run = undefined;
+          status = "done";
+        }
       }
     }
     const lastRunAt =
@@ -329,9 +418,14 @@ export class Incubator {
       timeline,
       ...(answer !== undefined ? { answer } : {}),
       ...(e.answerError !== undefined ? { answerError: e.answerError } : {}),
-      ...(status === "thinking" && thinkingAt
-        ? { thinkingAt, ...(thinkingBy ? { thinkingBy } : {}) }
+      ...(status === "thinking" || status === "verifying" || status === "repairing"
+        ? {
+            ...(thinkingAt ? { thinkingAt } : {}),
+            ...(thinkingBy ? { thinkingBy } : {}),
+            ...(run ? { run } : {}),
+          }
         : {}),
+      ...(degraded ? { degraded } : {}),
       ...(e.consecutiveVetoed !== undefined ? { consecutiveVetoed: e.consecutiveVetoed } : {}),
     };
   }
@@ -398,8 +492,12 @@ export class Incubator {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status === "thinking") {
-      throw new Error(`incubation ${id} thinking — delete after the run finishes`);
+    if (
+      target.status === "thinking" ||
+      target.status === "verifying" ||
+      target.status === "repairing"
+    ) {
+      throw new Error(`incubation ${id} in progress (${target.status}) — delete after the run finishes`);
     }
     this.write(entries.filter((e) => e.id !== id));
     this.deps.auditLog?.append({
@@ -417,7 +515,7 @@ export class Incubator {
   // thinking 原子标记(跨进程互斥)
   // ============================================================
 
-  /** queued/done 均可开跑(再思);审计记 run_start */
+  /** queued/done 均可开跑(再思);审计记 run_start;新 run 清旧 run/degraded 标 */
   acquireThinking(id: string, by: string): boolean {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
@@ -428,6 +526,8 @@ export class Incubator {
       status: "thinking",
       thinkingAt: this.now(),
       thinkingBy: by,
+      // degraded 是 run 级标记:再思开启新 run,旧标记随之失效
+      ...(target.degraded ? { degraded: undefined } : {}),
     };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
     this.deps.auditLog?.append({
@@ -441,11 +541,34 @@ export class Incubator {
   releaseThinking(id: string): void {
     const entries = this.read();
     this.write(
-      entries.map((e) =>
-        e.id === id && e.status === "thinking"
-          ? { ...e, status: e.rounds > 0 ? "done" : "queued", thinkingAt: undefined, thinkingBy: undefined }
-          : e,
-      ),
+      entries.map((e) => {
+        if (e.id !== id) return e;
+        if (e.status === "thinking") {
+          // run 未产出报告:回退可跑状态(与旧语义一致)
+          return {
+            ...e,
+            status: e.rounds > 0 ? "done" : "queued",
+            thinkingAt: undefined,
+            thinkingBy: undefined,
+          };
+        }
+        if (e.status === "verifying" || e.status === "repairing") {
+          // PDCA:报告已交、修复中断(执行器抛错/进程退出)—— 按修复失败
+          // 收束为 degraded done,未闭合缺口留档;执行者可再思重跑。
+          const unclosed = (e.run?.gaps ?? [])
+            .filter((g) => g.state === "open")
+            .map((g) => g.description);
+          return {
+            ...e,
+            status: "done" as const,
+            thinkingAt: undefined,
+            thinkingBy: undefined,
+            run: undefined,
+            degraded: { at: this.now(), reason: "aborted" as const, unclosedGaps: unclosed },
+          };
+        }
+        return e;
+      }),
     );
   }
 
@@ -604,7 +727,15 @@ export class Incubator {
 
   /**
    * 唯一写回路径(L2 agent 的 ponder_report / L1 内部共用):
-   * 机械校验 + 独立 critic + 循环检测 + rounds+1 + timeline + 落盘。
+   * PDCA 闭合校验(Phase1)→ 机械校验 + 独立 critic + 循环检测 + timeline。
+   *
+   * 状态机:thinking(主报告)/ verifying|repairing(修复轮)进入 → 先落
+   * verifying(瞬态,TTL 回收)→ 校验三分支:
+   * - 全闭合 → done(提案隔离标解除);
+   * - 有阻塞缺口且预算未耗尽 → repairing,缺口清单随返回,执行者修复后
+   *   全量重报(修复 report ≤ repairRoundLimit 次);
+   * - 预算触顶(修复轮用尽 / 累计缺口超限)→ done + degraded,本 run
+   *   提案固化隔离标(默认不进审批队列,viewer 置顶未闭合清单)。
    *
    * 回答:M1 —— L2 报告自带 answer 时直接采用(执行现场生产);否则用
    * synthesizeAnswerDraft 兜底(L1 路径),失败记 answerError,不降级拼接。
@@ -619,12 +750,95 @@ export class Incubator {
     /** 执行档位(审计;agent 现场执行视为 L2) */
     readonly level?: "L1" | "L2";
     readonly durationMs?: number;
-  }): Promise<{ proposals: number; cycleVetoed: boolean; entry: IncubationEntry }> {
+  }): Promise<{
+    proposals: number;
+    cycleVetoed: boolean;
+    entry: IncubationEntry;
+    /** PDCA:repairing 时随返回的开放缺口(执行者修复目标) */
+    readonly openGaps: readonly PonderGap[];
+    /** PDCA:本次是否 degraded 终束 */
+    readonly degraded: boolean;
+    /** PDCA:本次 report 的修复轮序(主报告 = 0) */
+    readonly repairRound: number;
+    /** PDCA:超额被 deferred 的新缺口描述 */
+    readonly deferredGaps: readonly string[];
+  }> {
     const entries = this.read();
     const idx = entries.findIndex((e) => e.id === input.incubationId);
     if (idx === -1) throw new Error(`incubation ${input.incubationId} not found`);
     const entry = entries[idx]!;
-    const nextRound = entry.rounds + 1;
+    if (entry.status === "queued" || entry.status === "done") {
+      throw new Error(
+        `incubation ${input.incubationId} has no active run (status=${entry.status}) — call ponder_run first`,
+      );
+    }
+    // 落 verifying 瞬态(校验中;崩溃由 TTL 回收)。thinkingAt 保留:
+    // 既是证据时间窗起点也是 TTL 基准。
+    this.write(entries.map((e) => (e.id === entry.id ? { ...e, status: "verifying" } : e)));
+
+    // ---- PDCA 闭合校验(Phase1:清单自报、证据事实化) ----
+    const level = input.level ?? "L2";
+    const evidenceAvailable = !!this.deps.signalEvidence && !!entry.thinkingAt;
+    const runState: PonderRunState = entry.run ?? {
+      startedAt: entry.thinkingAt ?? this.now(),
+      reports: 0,
+      repairReports: 0,
+      gaps: [],
+    };
+    // 主报告判定:本 run 还没有成功落盘过 report(reports=0 覆盖崩溃重试:
+    // verifying 入口但 timeline 未写成 → 仍是主报告,rounds 递增)
+    const isMainReport = runState.reports === 0;
+    const nextRound = isMainReport ? entry.rounds + 1 : entry.rounds;
+    let events: readonly ToolCallEvent[] = [];
+    if (evidenceAvailable) {
+      // flush 把 sink 缓冲(≤5s/50条)落盘,snapshot 读取不消费 drain 队列
+      await this.deps.signalEvidence!.flush();
+      const since = parseAt(entry.thinkingAt!) - 5_000; // flush 延迟容差
+      events = this.deps.signalEvidence!.snapshot().filter((e) => e.at >= since);
+    }
+    const digest = digestEvidence(events);
+    const reqCheck = checkRequirements(input.report.requirements, digest, {
+      level,
+      evidenceAvailable,
+    });
+    if (reqCheck.reject) {
+      this.deps.auditLog?.append({
+        actor: input.actor,
+        action: "contemplation_gap_check",
+        metadata: { id: entry.id, rejected: reqCheck.reject },
+      });
+      // 整单退回(瞒报/零盘点):不进修复回路,修正清单后重报。
+      // 状态停在 verifying(重报入口仍判定为主报告/修复轮)。
+      throw new Error(`report rejected by closure check: ${reqCheck.reject}`);
+    }
+    const advanced = advanceGaps(runState.gaps, reqCheck.current);
+    const repairReports = isMainReport ? 0 : runState.repairReports + 1;
+    const repairLimit = Math.max(
+      1,
+      Math.min(10, this.deps.repairRoundLimit ?? INSIGHT_LIMITS.maxRepairRounds),
+    );
+    const blocking = advanced.blocking;
+    // 终束只能由预算耗尽触发(P3:重报不是终束理由)
+    const repairExhausted = blocking && repairReports >= repairLimit;
+    const gapBudgetExhausted = blocking && advanced.totalBudgetExhausted;
+    const finalize = !blocking || repairExhausted || gapBudgetExhausted;
+    const openGapDescs = advanced.gaps
+      .filter((g) => g.state === "open")
+      .map((g) => g.description);
+    let degradedFinal: IncubationDegraded | undefined;
+    if (finalize && blocking) {
+      degradedFinal = {
+        at: this.now(),
+        reason: gapBudgetExhausted ? "gap-budget-exhausted" : "repair-budget-exhausted",
+        unclosedGaps: openGapDescs,
+      };
+    }
+    // run 未闭合期间提案带隔离标;终态落定时翻转(见本函数尾)
+    const proposalDegraded = degradedFinal
+      ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
+      : !finalize
+        ? { provisional: true, unclosedGaps: openGapDescs }
+        : undefined;
 
     // ---- 循环检测:与过往每次洞察摘要逐一对比(整体 blob 会被稀释,
     //      逐条对比才能稳定命中),Jaccard ≥ dreamJaccard → 该条作废 ----
@@ -645,6 +859,16 @@ export class Incubator {
     const allVetoed =
       input.report.insights.length > 0 && vetoed === input.report.insights.length;
 
+    // ---- 种子源检查(P2 零增量拦截):种子是起点提示不是边界,洞察
+    //      sourceIds 全部来自任务包种子 = 没有为问题开采任何新证据 ----
+    const seedIdSet = new Set<string>(entry.seedEngramIds);
+    if (entry.seedEngramIds.length === 0) {
+      // 兜底种子引擎可复算(确定性 FTS;repo 只读协议下结果稳定)
+      for (const s of searchFallbackSeeds(this.deps.repository, entry.question)) {
+        seedIdSet.add(s.id);
+      }
+    }
+
     // ---- 机械校验 + 独立 critic → rem-insight 提案(捕获即时成提案) ----
     const summaries: string[] = [];
     const entityIds: string[] = [];
@@ -657,6 +881,15 @@ export class Incubator {
     /** 逐条拒因(title 前缀 + reason;诊断可达性:计数区分不了成因) */
     const rejectReasons: string[] = [];
     for (const d of survived) {
+      // 种子源拦截先于引用闭合:全引种子 = 零增量开采,过了 validate 也是
+      // 形式合规的表演(subgraph 由 sourceIds 自身构造,引用闭合恒真)
+      if (isSeedOnlySources(d.sourceIds, seedIdSet)) {
+        validateRejected += 1;
+        rejectReasons.push(
+          `[seed-only] ${d.title.slice(0, 40)}: all sourceIds come from the task seeds — mine the graph beyond the starting hints`,
+        );
+        continue;
+      }
       const sub = this.subgraphFor(d);
       const v = validateInsightDraft(
         d,
@@ -693,6 +926,7 @@ export class Incubator {
         criticRationale: score.rationale,
         incubationId: entry.id,
         round: nextRound,
+        ...(proposalDegraded ? { degraded: proposalDegraded } : {}),
       });
       if (ok) {
         summaries.push(d.title);
@@ -732,7 +966,7 @@ export class Incubator {
       }
     }
 
-    // ---- session 推进 + timeline 落盘(单次执行语义:report 写回即 done) ----
+    // ---- session 推进 + timeline 落盘 ----
     const consecutive = allVetoed ? (entry.consecutiveVetoed ?? 0) + 1 : 0;
     const note = allVetoed ? "all insights vetoed as duplicates" : undefined;
     const diagnosis = {
@@ -758,17 +992,41 @@ export class Incubator {
         ...(answer ? { answer } : {}),
         ...(answerError ? { answerError } : {}),
         ...(note ? { note } : {}),
+        pdca: {
+          repairRound: repairReports,
+          openGaps: openGapDescs.slice(0, 10),
+          closedThisRound: reqCheck.current.filter((g) => g.state === "closed").length,
+          degraded: !!degradedFinal,
+          ...(advanced.deferredThisRound.length
+            ? { deferred: advanced.deferredThisRound }
+            : {}),
+        },
       },
     ];
+    const nextRunState: PonderRunState | undefined = finalize
+      ? undefined
+      : {
+          ...runState,
+          reports: runState.reports + 1,
+          repairReports,
+          gaps: advanced.gaps,
+        };
     const updated: IncubationEntry = {
       ...entry,
-      status: "done",
+      status: finalize ? "done" : "repairing",
       rounds: nextRound,
       lastRunAt: this.now(),
       timeline,
       consecutiveVetoed: consecutive,
-      thinkingAt: undefined,
-      thinkingBy: undefined,
+      // repairing 保留 thinkingAt/thinkingBy(证据窗口与 TTL 基准);done 清除
+      ...(finalize
+        ? { thinkingAt: undefined, thinkingBy: undefined, run: undefined }
+        : {
+            ...(entry.thinkingAt ? { thinkingAt: entry.thinkingAt } : {}),
+            ...(entry.thinkingBy ? { thinkingBy: entry.thinkingBy } : {}),
+            run: nextRunState,
+          }),
+      ...(degradedFinal ? { degraded: degradedFinal } : { degraded: undefined }),
       ...(answer ? { answer } : { answer: undefined }),
       ...(answerError ? { answerError } : { answerError: undefined }),
     };
@@ -779,13 +1037,40 @@ export class Incubator {
     const freshIdx = fresh.findIndex((x) => x.id === entry.id);
     if (freshIdx === -1) {
       // 本条目被并发删除:放弃写入(不复活已删条目),返回本轮计算结果
-      return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: updated };
+      return {
+        proposals: entityIds.length,
+        cycleVetoed: allVetoed,
+        entry: updated,
+        openGaps: advanced.gaps.filter((g) => g.state === "open"),
+        degraded: !!degradedFinal,
+        repairRound: repairReports,
+        deferredGaps: advanced.deferredThisRound,
+      };
     }
-    const finalEntry: IncubationEntry = { ...updated, status: "done" };
+    const finalEntry: IncubationEntry = { ...updated, status: updated.status };
     const next = [...fresh];
     next[freshIdx] = finalEntry;
+    // 终态落定:本 run 全部提案的隔离标翻转(正常终束解除;degraded 固化)。
+    // 本 run 的提案 = timeline 中 round=nextRound 的全部事件(主报告 + 修复轮)
+    if (finalize && entityIds.length + timeline.filter((t) => t.round === nextRound).length > 0) {
+      const runEntityIds = [
+        ...entry.timeline
+          .filter((t) => t.round === nextRound)
+          .flatMap((t) => [...t.proposalEntityIds]),
+        ...entityIds,
+      ];
+      if (runEntityIds.length > 0) {
+        this.deps.proposalEngine.setInsightClosureState(
+          runEntityIds,
+          degradedFinal
+            ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
+            : undefined,
+        );
+      }
+    }
     // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
-    // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达)。
+    // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达);pdca
+    // 记修复回路状态(Phase1)。
     this.deps.auditLog?.append({
       actor: input.actor,
       action: "contemplation_run_done",
@@ -799,10 +1084,27 @@ export class Incubator {
         drafts: input.report.insights.length,
         diagnosis,
         ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
+        pdca: {
+          evidenceAvailable,
+          repairRound: repairReports,
+          openGaps: openGapDescs.length,
+          gapsTotal: advanced.gaps.length,
+          deferred: advanced.deferredThisRound.length,
+          degraded: !!degradedFinal,
+          ...(degradedFinal ? { degradedReason: degradedFinal.reason } : {}),
+        },
       },
     });
     this.write(next);
-    return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: finalEntry };
+    return {
+      proposals: entityIds.length,
+      cycleVetoed: allVetoed,
+      entry: finalEntry,
+      openGaps: advanced.gaps.filter((g) => g.state === "open"),
+      degraded: !!degradedFinal,
+      repairRound: repairReports,
+      deferredGaps: advanced.deferredThisRound,
+    };
   }
 
   /** 资源申报清洗:engram id 逐个试读(repo 存在才留);skills/logs 去空去重;web 按 query 清洗去重 */

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added(2026-08-18 沉思 PDCA Phase1:闭合事实化 + 修复回路)
+
+- **沉思闭合校验与修复回路(清单自报、证据事实化)**:沉思报告的过程证据此前是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可全引)—— 形式合规的表演即可全绿。Phase1 落地最小 PDCA 骨架:`ponder_report` 新增 `requirements` 需求清单(L2 引擎侧必填),closed 的 engrams/skills 条目由引擎用本次 run 的调用流水(`signals.jsonl` 时间窗快照,不消费维护 drain 队列)机械复核 `evidence.ids` —— **假闭合**(自报已读但流水无证据)、**瞒报**(有调用不报清单/清单缺失)、**零盘点**(run 内零 engram/skill 读调用)整单或逐条拦截;**零增量**拦截(洞察 sourceIds 全来自任务包种子 → 拒该洞察)。状态机扩展 `verifying`(校验瞬态)/`repairing`(带缺口清单退回执行者,修复后全量重报)。硬限制引擎强制(业界基准参数,`maintenance.remInsight.repairRounds` 可配置 [1,10]):修复 report ≤ 6、单次新缺口 ≤ 3(超额 deferred)、累计缺口 ≤ 10;**重报语义反转** —— 同哈希缺口重报计修复失败(连续 2 次强制升级 logic-needed),终束只能由预算耗尽触发。触顶 → **degraded 终束**:条目落「降级收束」标记与未闭合清单,洞察提案固化隔离标、默认不进审批队列(viewer 提案中心新增置顶「隔离区」展示未闭合清单,可在「全部」视图裁决);正常终束自动解除隔离。L1 与未注入证据源的部署降级跳过(审计标注 `evidenceAvailable=false`)。审计新增 `contemplation_gap_check`;三宿主(claude-code-mcp/openclaw-plugin/dsh-plugin)注入同进程证据源。文档、帮助栏与 viewer 文案中英同步。
+
 ### Fixed(2026-08-16 loop r12-r33 修复工程)
 
 - **doctor×rem 字段 schema 互毁止血(`@co-engram/core`)**:`validateFrontmatter` 的 knownFields 曾是一份独立硬编码清单,缺 `updatedBy`/`visibility`/`sourceType`/`status` 四个契约字段——rem 管线写入的合法字段被 doctor autoFix 判为 unknown field 删除,两个维护子系统在字段层互相销毁产出(rem 写 → doctor 删 → rem 再写震荡)。现从 `ENGRAM_FIELD_MAP.en` 派生单一事实源:序列化会写出的字段就是校验认识的字段,新加字段只需改 map 一处。

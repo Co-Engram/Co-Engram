@@ -109,6 +109,7 @@ export async function runDeepThought(deps: {
     maxSubgraphNodes:
       deps.config.maxSubgraphNodes ?? DEFAULT_REM_INSIGHT.maxSubgraphNodes,
     webResearch: deps.config.webResearch ?? DEFAULT_REM_INSIGHT.webResearch,
+    repairRounds: deps.config.repairRounds ?? DEFAULT_REM_INSIGHT.repairRounds,
   };
   const empty = (reason: string): DeepThoughtReport => ({
     skipped: true,

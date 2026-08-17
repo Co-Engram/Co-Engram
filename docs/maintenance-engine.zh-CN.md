@@ -104,14 +104,25 @@ flowchart TB
 
 核心差异化功能:*提出一个问题,围绕它做一次全资源盘点式深度思考 —— 调用全部记忆图谱、行为日志、技能库、联网检索与宿主可用的 MCP 工具,本地记忆只读不写,深思一次出一份报告。*(2026-08-17 重设计,原「夜思」多轮梦境模型移除;同日晚间恢复受控联网检索并纳入 MCP 工具)
 
-条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选重点记忆(`seedEngramIds`,留空自动全库检索)、三态状态(`queued → thinking → done`)与完整深思时间线。入口:对话(`ponder_create`)、viewer「沉思」页、CLI。旧五态数据在读取时自动归一化迁移(无迁移脚本);条目上限 50 条(达限拒绝创建并列出最老已答条目引导删除,不自动清理)。
+条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选重点记忆(`seedEngramIds`,留空自动全库检索)、五态状态(`queued → thinking → verifying → repairing → done`)与完整深思时间线。入口:对话(`ponder_create`)、viewer「沉思」页、CLI。旧数据(含更早的五态命名)在读取时自动归一化迁移(无迁移脚本);条目上限 50 条(达限拒绝创建并列出最老已答条目引导删除,不自动清理)。
 
 执行双级:
 
 - **L2 Agent 编排(主路径)** —— 一次完整 agent 会话,按固化协议执行:能力盘点 → 全资源开采(记忆图谱多角度检索 / 行为日志 Read / skill_list+skill_get / 受控联网检索)→ PLAN → 只读执行 → **写回答(answer,执行现场生产,主体交付物)** → 经 `ponder_report` 唯一写回路径回写(含 `resourcesUsed` 资源申报,支撑 viewer「依据」区;engram id 过试读清洗,编造即剔)。定时/调度场景与 viewer 异步任务 spawn 无头 `claude -p` 会话(实现收敛在 core,三宿主共用);对话入口由当前会话按 `ponder_run` 返回的固化协议现场执行。
 - **L1 基线(兜底)** —— 单次 LLM 远距类比,仅宿主无 agent runtime 或环境无 claude CLI(spawn ENOENT)时使用,审计如实标注 level。**L2 其余失败(超时/解析/非零退出)显式报错,不再静默降级**(2026-08-17 修复:静默降级曾让用户长期吃到 L1 产物而无从知晓)。
 
-**提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断)/ run_fail / delete`。
+**提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断、PDCA 状态)/ run_fail / delete / gap_check`。
+
+### 闭合校验与修复回路(PDCA,2026-08-18)
+
+沉思机制的核心信任问题:过程证据曾是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可直接全引)—— 形式合规的表演即可全绿。Phase1 落地「**清单自报、证据事实化**」:清单仍由执行者在 `ponder_report` 的 `requirements` 字段提交(逐条:资源类型 / 描述 / 必要性 logic-needed·helpful / 闭合状态 / 事实锚点 `evidence.ids`),但每个闭合声明由引擎用**调用流水**(`.co-engram/signals.jsonl`,按本次 run 的时间窗过滤;快照读取,不消费维护引擎的 drain 队列)机械复核:
+
+- **假闭合拦截**:closed 的 engrams/skills 条目,`evidence.ids` 中每个 id 必须真实出现在流水(检索命中或 engram_get/skill_get 直读),否则判缺口(`evidence-mismatch`),run 转入 `repairing` 并把缺口清单随工具返回 —— 执行者补做后**全量重报**,直至闭合;
+- **瞒报拦截**:流水里有 engram/skill 读调用而清单未报对应条目(或清单整体缺失)→ 整单拒绝;run 内零 engram/skill 读调用(完全偏废)同样整单拒绝;
+- **零增量拦截**:洞察 sourceIds 全部来自任务包种子(用户指定 ∪ 引擎兜底检索)→ 该洞察拒绝 —— 种子是起点提示不是边界;
+- **logs/web/mcp 类型**:引擎无观测面(WebSearch/宿主技能/Read 不经 co-engram 工具层),closed 仅作展示(unverified);但报进清单又持续悬置同样阻塞终束 —— 不打算做的资源不要报进清单。
+
+硬限制(引擎强制,参数对齐业界基准,`maintenance.remInsight.repairRounds` 可配置 [1,10]):修复 report ≤ 6 次;单次新增缺口 ≤ 3(超额部分 deferred 不计闭合目标);单 run 累计唯一缺口 ≤ 10。**重报语义反转**:同哈希缺口重报 = 修复失败计数(连续 2 次强制升级为 logic-needed),不是终束理由 —— **终束只能由预算耗尽触发**。触顶(修复轮用尽 / 缺口总量超限 / TTL 30 分钟超时)→ **degraded 终束**:条目落「降级收束」标记与未闭合清单,本 run 洞察提案固化隔离标,**默认不进审批队列**(viewer 提案中心置顶「隔离区」展示未闭合清单,可在「全部」视图裁决)。正常终束(全闭合)自动解除隔离标。L1 与未注入证据源的部署降级跳过闭合校验(审计如实标注 `evidenceAvailable=false`)。
 
 **执行边界(硬约束)**:本地记忆仓库与文件只读不写;联网仅限只读检索(2026-08-17 恢复受控联网:白名单含 WebSearch/WebFetch,协议允许对业界趋势/对手动态/基准等外部事实做联网取证)——**隐私边界固化在协议里:记忆原文不出域,仅问题本身与摘要级内容可随检索出域**;L2 prompt 只携带种子摘要级内容(不带记忆原文)。**MCP 工具同为沉思资源**(协议要求盘点宿主连接的其他 MCP server 并按需取用只读能力,MCP 使用记入轨迹):agent 模式(现场会话)天然可达;headless 无头会话从严,默认仅白名单,宿主可经 `readOnlyMcpServers` 配置按 server 粒度显式放行(不做 `mcp__*` 通配,防连写工具一并放行)。viewer 完整展示回答、洞察提案、过程(计划/轨迹)、诊断与依据(实际读取的记忆/技能/日志/联网检索)—— 过程透明是信任来源。
 

@@ -953,6 +953,10 @@ async function routeApi(
     const cursor = url.searchParams.get("cursor") ?? undefined;
 
     const all = ctx.proposalEngine.listAll();
+    // PDCA(P4):degraded run 的洞察提案默认不进审批队列 —— pending 默认
+    // 排除带 payload.degraded 的(provisional 修复中 / 固化隔离),另以
+    // quarantined 通道随响应返回,前端置顶展示未闭合清单。status=all 仍可见。
+    const isDegraded = (p: (typeof all)[number]) => !!(p.payload as { degraded?: unknown } | undefined)?.degraded;
     const result = paginateWithCursor({
       items: all,
       getSortKey: (p) => p.lastSeenAt,
@@ -960,7 +964,12 @@ async function routeApi(
       descending: true,
       limit,
       cursor,
-      filter: status === "all" ? undefined : (p) => p.status === status,
+      filter:
+        status === "all"
+          ? undefined
+          : status === "pending"
+            ? (p) => p.status === status && !isDegraded(p)
+            : (p) => p.status === status,
     });
 
     // statusCounts:让前端按钮显示「已采纳(N) / 已驳回(N) / 全部(N)」。
@@ -968,12 +977,34 @@ async function routeApi(
     // 而 result 只反应当前 status filter 下的当前页。
     const statusCounts = ctx.proposalEngine.statusCounts();
 
+    // 隔离提案摘要(置顶展示):pending 且带 degraded 标的洞察提案
+    const quarantined =
+      status === "pending"
+        ? all
+            .filter((p) => p.status === "pending" && isDegraded(p))
+            .map((p) => {
+              const payload = p.payload as
+                | {
+                    title?: string;
+                    degraded?: { provisional: boolean; unclosedGaps: readonly string[] };
+                  }
+                | undefined;
+              return {
+                entityId: p.entityId,
+                title: payload?.title ?? p.centroidExcerpt,
+                provisional: payload?.degraded?.provisional ?? false,
+                unclosedGaps: [...(payload?.degraded?.unclosedGaps ?? [])],
+              };
+            })
+        : [];
+
     respondJson(res, 200, {
       results: result.results,
       total: result.total,
       nextCursor: result.nextCursor,
       enabled: true,
       statusCounts,
+      ...(quarantined.length ? { quarantined } : {}),
     });
     return;
   }

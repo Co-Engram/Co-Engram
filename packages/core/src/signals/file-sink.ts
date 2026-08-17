@@ -97,6 +97,25 @@ export class FileSignalSink implements SignalSink {
   drain(): readonly ToolCallEvent[] {
     // 同步 flush 缓冲，再读取整个文件
     this.flushSync();
+    const events = this.readAll();
+    // 清空文件
+    writeFileSync(this.filePath, "", "utf8");
+    return events;
+  }
+
+  /**
+   * 快照读取(PDCA 闭合证据用,2026-08-18):flush 缓冲后读全部事件,
+   * **不截断文件** —— 与 drain 的消费语义不同,维护引擎的信号消费不受
+   * 影响。同进程内 flush+read 均为同步调用,不会与 drain 交错;跨进程
+   * drain 竞态窗口为维护周期级(小时)vs 沉思 run(分钟),已知限制。
+   */
+  snapshot(): readonly ToolCallEvent[] {
+    this.flushSync();
+    return this.readAll();
+  }
+
+  /** 读全文件解析为事件(drain/snapshot 共用;文件不存在或空 → []) */
+  private readAll(): ToolCallEvent[] {
     if (!existsSync(this.filePath)) return [];
     const raw = readFileSync(this.filePath, "utf8").trim();
     if (raw === "") return [];
@@ -110,8 +129,6 @@ export class FileSignalSink implements SignalSink {
         // 跳过损坏行（部分写入）
       }
     }
-    // 清空文件
-    writeFileSync(this.filePath, "", "utf8");
     return events;
   }
 
@@ -207,9 +224,13 @@ export class MemorySignalSink implements SignalSink {
     return this.events.length;
   }
 
-  /** 查看当前缓冲（不消费） */
+  /** 查看当前缓冲（不消费）;与 FileSignalSink.snapshot 对齐(PDCA 证据契约) */
   peek(): readonly ToolCallEvent[] {
     return [...this.events];
+  }
+
+  snapshot(): readonly ToolCallEvent[] {
+    return this.peek();
   }
 }
 

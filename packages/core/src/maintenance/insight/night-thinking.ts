@@ -108,7 +108,7 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    The answer text MUST be delivered as the "answer" string field of the
    report JSON in step 6 — a report without a non-empty "answer" is
    considered incomplete.
-6. REPORT — call the tool \`ponder_report\` exactly once with a JSON object
+6. REPORT — call the tool \`ponder_report\` with a JSON object
    ("answer" is REQUIRED — never omit it, never leave it empty):
    { "incubationId": "<id>", "report": { "answer": "<your answer text>",
      "insights": [ <insight drafts> ],
@@ -118,7 +118,12 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
        "skills": [<skill names you actually used>],
        "logs": [<paths you actually read>],
        "web": [{"query": "<search query or URL>",
-         "purpose": "<what question it answered>"}] } } }
+         "purpose": "<what question it answered>"}] },
+     "requirements": [ {"resourceType": "engrams|skills|logs|web|mcp",
+       "description": "<what resource this run needs and why>",
+       "necessity": "logic-needed|helpful",
+       "closed": true|false,
+       "evidence": {"ids": [<ids you actually called>]} } ] } }
    Each insight draft: { "type": "theme|lesson|analogy|hypothesis", "title",
    "summary", "content", "sourceIds": [...], "domainTags": [...], "reason",
    "aar": {...} (lesson only) }. Insights are captured immediately — do not
@@ -126,13 +131,33 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    thinking sessions; deepen or pivot.
    EVIDENCE ANCHORING (hard gate): every insight's sourceIds must contain ONLY
    real engram ids from the memory repo — the path-like ids returned by
-   engram_search / engram_get / seed digests — at least one per insight.
+   engram_search / engram_get / seed digests — at least one per insight,
+   and NOT all from the seed digests (seed-only insights are rejected — the
+   seeds are starting hints, not the boundary; mine beyond them).
    Findings from other resources (source code, behavioral logs) are valuable
    evidence but are NOT valid sourceIds: cite them inside content (e.g.
    "verified in repo source / log") and mention them in reason.
    resourcesUsed.engrams follows the same rule: list only real engram ids you
    actually read. Insights with empty, invented, or non-engram sourceIds are
-   rejected by the citation gate before review.`;
+   rejected by the citation gate before review.
+   REQUIREMENTS CLOSURE (hard gate, engine-side): the "requirements" list is
+   MANDATORY for agent-run reports. The engine cross-checks it against the
+   tool-call stream it observed for this run: (a) a closed engrams/skills
+   requirement must carry evidence.ids that the engine actually saw being
+   called — self-declared closure without real calls is rejected as a gap;
+   (b) if the engine observed engram/skill calls but the list declares no
+   corresponding entry (or the list is missing), the whole report is rejected;
+   (c) a run with zero engram/skill read calls is rejected outright.
+   logs/web/mcp closure cannot be engine-verified — declare them honestly.
+   GAP REPAIR LOOP: if the report comes back with an "openGaps" list, the run
+   is NOT finished — the entry stays in repair state. Mine the missing
+   resources, then call \`ponder_report\` AGAIN with a FULL updated report
+   (answer + insights + full requirements list; already-closed items stay
+   closed with their evidence). Re-declaring the same gap twice escalates it
+   to logic-needed; the repair budget is limited (a handful of re-reports) —
+   exhausting it finalizes the run as degraded (its insight proposals are
+   quarantined from the approval queue). Repair promptly instead of
+   re-submitting the same unchanged list.`;
 
 /** 组装协议文本(2026-08-17 起受控联网:只读检索允许,隐私边界固化;无开关)。
  * language 注入洞察产出语言指令(2026-08-18:L2 无头会话此前无语言约束,

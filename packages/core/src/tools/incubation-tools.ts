@@ -257,11 +257,23 @@ export const incubationReportTool: Tool<
     readonly status: string;
     readonly hasAnswer: boolean;
     readonly note?: string;
+    /** PDCA:repairing 时非空 —— 修复目标(资源类型+描述+成因),修复后全量重报 */
+    readonly openGaps?: ReadonlyArray<{
+      readonly resourceType: string;
+      readonly description: string;
+      readonly necessity: string;
+      readonly reason?: string;
+    }>;
+    /** PDCA:本次是否 degraded 终束(预算触顶;提案隔离,审批面置顶未闭合清单) */
+    readonly degraded?: boolean;
+    /** PDCA:本次 report 的修复轮序(主报告 = 0) */
+    readonly repairRound?: number;
+    readonly nextAction?: string;
   }
 > = {
   name: "ponder_report",
   description:
-    "沉思回写(L2 agent 的唯一写回路径):把一次深思的结构化产出写回——回答 answer(执行现场生产,主体交付物)/洞察 insights/计划 plan/轨迹 trace/资源使用申报 resourcesUsed(实际读取的记忆/使用的技能/读取的日志)。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(不直接创建记忆,用户 accept 才落盘);深思次数+1、写入时间线;重复洞察(与深思史 Jaccard ≥ 0.65)本次作废(计数保留为诊断信号)。",
+    "沉思回写(L2 agent 的唯一写回路径):把一次深思的结构化产出写回——回答 answer(执行现场生产,主体交付物)/洞察 insights/计划 plan/轨迹 trace/资源使用申报 resourcesUsed/需求清单 requirements(逐条声明资源需求与闭合状态)。闭合校验引擎事实化:closed 的 engrams/skills 条目用本次 run 的调用流水复核(evidence.ids 必须真实调用过),瞒报或零盘点整单拒绝。有未闭合缺口时返回 openGaps 并保持 repairing —— 修复开采后全量重报;重报同一缺口两次会强制升级为逻辑必需,预算耗尽则以 degraded 终束(洞察提案隔离)。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案;重复洞察(与深思史 Jaccard ≥ 0.65)本次作废。",
   inputSchema: IncubationReportInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationReportInputSchema>>(IncubationReportInputSchema, input);
@@ -289,6 +301,26 @@ export const incubationReportTool: Tool<
       status: r.entry.status,
       hasAnswer: !!r.entry.answer,
       ...(last?.note ? { note: last.note } : {}),
+      ...(r.openGaps.length
+        ? {
+            openGaps: r.openGaps.map((g) => ({
+              resourceType: g.resourceType,
+              description: g.description,
+              necessity: g.necessity,
+              ...(g.reason ? { reason: g.reason } : {}),
+            })),
+          }
+        : {}),
+      ...(r.repairRound > 0 || r.degraded ? { repairRound: r.repairRound } : {}),
+      ...(r.degraded ? { degraded: true } : {}),
+      ...(r.entry.status === "repairing"
+        ? {
+            nextAction:
+              "run NOT finalized: mine the resources behind each open gap, then call ponder_report AGAIN with a FULL updated report (requirements list re-declared in full; closed items keep their evidence ids)",
+          }
+        : r.degraded
+          ? { nextAction: "run finalized as degraded (repair budget exhausted) — insight proposals are quarantined from the default approval queue" }
+          : undefined),
     };
   },
 };

@@ -672,10 +672,23 @@ export const EngramDismissProposalInputSchema = z.object({
 // ============================================================
 
 /** proposal source enum 复用 */
+/**
+ * proposal source 枚举(与 ProposalSource TS 类型对齐)。
+ *
+ * 2026-08-18 补齐 REM 来源:此前只枚举 4 值,rem-synapse/rem-pattern 等 REM 提案
+ * 无法通过 engram_dismiss_proposals_by_filter 按 source 批量清理(95 条积压只能
+ * 逐条 dismiss)。accept batch(EngramAcceptProposalsBySourceInputSchema)用独立
+ * 窄 enum(仅 auto-memory/external-markdown/skill),不受本枚举扩展影响。
+ */
 const ProposalSourceSchema = z.enum([
   "conversation",
   "auto-memory",
   "external-markdown",
+  "rem-verification",
+  "rem-pattern",
+  "rem-synapse",
+  "rem-tag-refresh",
+  "rem-insight",
   "skill",
 ]);
 
@@ -926,6 +939,28 @@ export const IncubationReportInputSchema = z
           skills: z.array(z.string().min(1)),
           logs: z.array(z.string().min(1)),
         })
+        .optional(),
+      /**
+       * 需求清单(PDCA Phase1,L2 引擎侧必填):逐条声明本次深思需要的
+       * 资源与闭合状态。closed 的 engrams/skills 条目由引擎用调用流水
+       * 复核(evidence.ids 必须真实调用过);瞒报/零盘点整单拒绝;有
+       * 未闭合缺口时 report 被退回,修复后全量重报。
+       */
+      requirements: z
+        .array(
+          z
+            .object({
+              resourceType: z.enum(["engrams", "skills", "logs", "web", "mcp"]),
+              description: z.string().min(1).max(500),
+              necessity: z.enum(["logic-needed", "helpful"]),
+              closed: z.boolean(),
+              evidence: z
+                .object({ ids: z.array(z.string().min(1)).max(50) })
+                .optional(),
+            })
+            .strict(),
+        )
+        .max(50)
         .optional(),
     }),
   })

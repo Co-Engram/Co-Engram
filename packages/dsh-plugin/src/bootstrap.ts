@@ -186,6 +186,9 @@ export async function createDshRuntime(
         ...(auditLog ? { auditLog } : {}),
         executor: createHeadlessExecutor(),
         processLock,
+        // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+        // 不消费 drain 队列)
+        signalEvidence: signalSink,
       })
     : undefined;
 

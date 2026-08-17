@@ -2540,6 +2540,8 @@ div.vis-tooltip {
 .inc-st.st-done { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
 .inc-st.st-flight { color: #B45309; background: #FDF3E3; }
 .inc-st.st-dim { color: var(--fg-dim); background: var(--chip-bg); }
+/* PDCA degraded(2026-08-18):带缺口收束的 run —— 与隔离警示条同色系(琥珀警示) */
+.inc-st.st-degraded { color: #8a6d00; background: #FBF0D9; border: 1px solid #E0A800; }
 .inc-hatched { font-size: 0.72rem; color: var(--fg-dim); }
 .inc-job { margin-bottom: 0.4rem; font-size: 0.8rem; }
 /* thinking 过程(呼吸点 + 阶段说明) */

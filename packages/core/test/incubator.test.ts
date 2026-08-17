@@ -93,6 +93,16 @@ function draftJson(title: string, sources: readonly string[], type = "theme"): s
   ]);
 }
 
+/** PDCA(Phase1):report 仅接受激活 run(thinking 起);helper = acquire + report */
+async function reportSession(
+  incubator: Incubator,
+  incubationId: string,
+  input: Omit<Parameters<Incubator["report"]>[0], "incubationId">,
+): Promise<Awaited<ReturnType<Incubator["report"]>>> {
+  incubator.acquireThinking(incubationId, "test");
+  return incubator.report({ ...input, incubationId });
+}
+
 function reportOf(
   insightsJson: string,
   extra: Partial<NightThinkingReport> = {},
@@ -139,8 +149,7 @@ describe("CRUD 与持锁写", () => {
     const e = incubator.create({ question: "删除语义问题?" });
     incubator.acquireThinking(e.id, "test");
     expect(() => incubator.delete(e.id)).toThrow(/thinking/);
-    await incubator.report({
-      incubationId: e.id,
+    await reportSession(incubator, e.id, {
       report: reportOf(draftJson("洞察一", [a.id])),
       trigger: "manual",
       actor: "test",
@@ -279,8 +288,7 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
   it("L2 answer 缺省 → llmClient 综合兜底;answer 落条目与 timeline", async () => {
     const a = makeSource("来源D");
     const e = incubator.create({ question: "兜底问题?" });
-    await incubator.report({
-      incubationId: e.id,
+    await reportSession(incubator, e.id, {
       report: reportOf(draftJson("洞察五", [a.id])),
       trigger: "manual", actor: "test", level: "L2",
     });
@@ -292,8 +300,7 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
   it("resourcesUsed:真实 engram id 保留,编造 id 剔除;skills/logs 去空;web 面按 query 清洗去重", async () => {
     const a = makeSource("来源E");
     const e = incubator.create({ question: "依据问题?" });
-    await incubator.report({
-      incubationId: e.id,
+    await reportSession(incubator, e.id, {
       report: reportOf(draftJson("洞察六", [a.id]), {
         resourcesUsed: {
           engrams: [a.id, "编造/id-不存在"],
@@ -320,8 +327,7 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
   it("全假 resourcesUsed → 清洗为空,不落 timeline 字段", async () => {
     const a = makeSource("来源F");
     const e = incubator.create({ question: "全假依据?" });
-    await incubator.report({
-      incubationId: e.id,
+    await reportSession(incubator, e.id, {
       report: reportOf(draftJson("洞察七", [a.id]), {
         resourcesUsed: { engrams: ["假/id"], skills: [], logs: [] },
       }),
@@ -334,13 +340,11 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
     const a = makeSource("来源G");
     const b = makeSource("来源G2", ["域乙"]);
     const e = incubator.create({ question: "循环检测?" });
-    await incubator.report({
-      incubationId: e.id,
+    await reportSession(incubator, e.id, {
       report: reportOf(draftJson("完全相同的洞察标题", [a.id, b.id])),
       trigger: "manual", actor: "test", level: "L2", durationMs: 1234,
     });
-    const r2 = await incubator.report({
-      incubationId: e.id,
+    const r2 = await reportSession(incubator, e.id, {
       report: reportOf(draftJson("完全相同的洞察标题", [a.id, b.id])),
       trigger: "manual", actor: "test",
     });
@@ -356,8 +360,7 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
     const a = makeSource("来源H");
     const e = incubator.create({ question: "再思问题?" });
     for (let i = 0; i < 12; i += 1) {
-      await incubator.report({
-        incubationId: e.id,
+      await reportSession(incubator, e.id, {
         report: reportOf(draftJson(`洞察 ${i} ${Math.random()}`, [a.id])),
         trigger: "manual", actor: "test",
       });
@@ -386,8 +389,7 @@ describe("条目上限与 REM 消费", () => {
     const a = makeSource("来源I");
     const e1 = incubator.create({ question: "还没思的问题?" });
     const e2 = incubator.create({ question: "已经思过的问题?" });
-    await incubator.report({
-      incubationId: e2.id,
+    await reportSession(incubator, e2.id, {
       report: reportOf(draftJson("洞察八", [a.id])),
       trigger: "manual", actor: "test",
     });

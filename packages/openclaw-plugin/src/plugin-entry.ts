@@ -294,6 +294,15 @@ export function createCoEngramContext(
             ...(auditLog ? { auditLog } : {}),
             ...(llmClient ? { llmClient } : {}),
             executor: createHeadlessExecutor(),
+            // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+            // 不消费 drain 队列)
+            signalEvidence: signalSink,
+            ...(fullConfig.maintenanceConfig?.remInsight?.repairRounds
+              ? {
+                  repairRoundLimit:
+                    fullConfig.maintenanceConfig.remInsight.repairRounds,
+                }
+              : {}),
           }),
         }
       : {}),

@@ -41,6 +41,7 @@ function makeIncubator(
       proposeInsight: () => true,
       listAll: () => [],
       findProposalByEntityId: () => undefined,
+      setInsightClosureState: () => {},
     },
     dataRoot,
     ...(opts.llmComplete ? { llmClient: { complete: opts.llmComplete } as never } : {}),
@@ -52,10 +53,20 @@ function makeIncubator(
 const reportOf = (insights: unknown[]): NightThinkingReport =>
   ({ insights, plan: [], trace: [] }) as NightThinkingReport;
 
+/** PDCA(Phase1):report 仅接受激活 run(thinking 起);create 后直接开跑 */
+function createRunning(
+  incubator: Incubator,
+  question = "测试问题ABC",
+): ReturnType<Incubator["create"]> {
+  const e = incubator.create({ question });
+  incubator.acquireThinking(e.id, "test");
+  return e;
+}
+
 describe("report() diagnosis 计数", () => {
   it("llmClient 缺失 → llmClientMissing=true,校验拒(引用缺失)计数", async () => {
     const { incubator } = makeIncubator();
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({
       incubationId: e.id,
       report: reportOf([{ mode: "inspiration", type: "theme", title: "t", summary: "s", content: "c", sourceIds: ["missing-id"], domainTags: [], reason: "r" }]),
@@ -78,7 +89,7 @@ describe("report() diagnosis 计数", () => {
         return '{"overall":0.9,"rationale":"x"}';
       },
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({
       incubationId: e.id,
       report: reportOf([{ mode: "inspiration", type: "theme", title: "t2", summary: "s2", content: "c2", sourceIds: ["missing-id"], domainTags: [], reason: "r" }]),
@@ -96,7 +107,7 @@ describe("report() diagnosis 计数", () => {
       readableSources: true,
       llmComplete: async () => '{"overall":0.1,"rationale":"weak"}',
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({
       incubationId: e.id,
       report: reportOf([{ mode: "inspiration", type: "theme", title: "t3", summary: "s3", content: "c3", sourceIds: ["src-1", "src-2"], domainTags: [], reason: "r" }]),
@@ -115,7 +126,7 @@ describe("report() diagnosis 计数", () => {
       readableSources: true,
       llmComplete: async () => '{"overall":0.9,"rationale":"ok"}',
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({
       incubationId: e.id,
       report: reportOf([{ mode: "inspiration", type: "theme", title: "跨域共性主题", summary: "s4", content: "c4", sourceIds: ["src-1", "src-2"], domainTags: [], reason: "r" }]),
@@ -131,7 +142,7 @@ describe("report() diagnosis 计数", () => {
 
   it("空报告 drafts=0", async () => {
     const { incubator } = makeIncubator();
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "scheduled", actor: "test" });
     expect(r.entry.timeline.at(-1)?.diagnosis).toMatchObject({ drafts: 0, llmClientMissing: true });
   });
@@ -140,7 +151,7 @@ describe("report() diagnosis 计数", () => {
 describe("report() answer(不降级,失败报错)", () => {
   it("llmClient 缺失 → answerError,无草稿", async () => {
     const { incubator } = makeIncubator();
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const last = r.entry.timeline.at(-1);
     expect(last?.answer).toBeUndefined();
@@ -149,14 +160,14 @@ describe("report() answer(不降级,失败报错)", () => {
 
   it("综合成功 → answer 为 LLM 输出", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "阶段结论:方向 A 成立。" });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(r.entry.timeline.at(-1)?.answer).toBe("阶段结论:方向 A 成立。");
   });
 
   it("综合调用失败 → answerError 含原因,不生成伪草稿", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => { throw new Error("boom"); } });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const last = r.entry.timeline.at(-1);
     expect(last?.answer).toBeUndefined();
@@ -165,7 +176,7 @@ describe("report() answer(不降级,失败报错)", () => {
 
   it("空输出 → answerError", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "   " });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(r.entry.timeline.at(-1)?.answerError).toBeTruthy();
   });
@@ -180,7 +191,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
         return "阶段结论。";
       },
     });
-    const e = incubator.create({ question: "如何让知识自然生长?" });
+    const e = createRunning(incubator, "如何让知识自然生长?");
     await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("## Question");
@@ -202,7 +213,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
         return "阶段结论。";
       },
     });
-    const e = incubator.create({ question: "如何让知识自然生长?" });
+    const e = createRunning(incubator, "如何让知识自然生长?");
     // 第 1 轮:1 条草稿通过 validate + critic → 成案
     const r1 = await incubator.report({
       incubationId: e.id,
@@ -220,6 +231,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
 
     // 第 2 轮:零成案 → 综合看到第 1 轮梦境史(dreamHistoryFor 生效)+ 空态占位
     prompts.length = 0;
+    incubator.acquireThinking(e.id, "test");
     await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "scheduled", actor: "test" });
     const synth2 = prompts.find((p) => p.includes("writing the ANSWER"));
     expect(synth2).toBeDefined();
@@ -230,7 +242,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
 
   it("综合输出 5000 字符 → answer 截断至 4000", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "结".repeat(5000) });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(r.entry.timeline.at(-1)?.answer).toHaveLength(4000);
   });
@@ -254,7 +266,7 @@ describe("report() 写前重读合并(并发与用户裁决保留)", () => {
         return "阶段结论:本轮完成。";
       },
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const onDisk = incubator.get(e.id)!;
     // 单次执行语义:report 写回即 done(思考瞬态不残留)
@@ -272,7 +284,7 @@ describe("report() 写前重读合并(并发与用户裁决保留)", () => {
         return "阶段结论。";
       },
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     expect(incubator.get(e.id)).toBeUndefined(); // 未复活已删条目
     expect(r.entry.rounds).toBe(1); // 仍返回本轮计算结果
@@ -288,7 +300,7 @@ describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修�
         return "阶段结论。";
       },
     });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const report = {
       insights: [{ mode: "inspiration", type: "theme", title: "t9", summary: "s9", content: "c9", sourceIds: ["missing-id"], domainTags: [], reason: "r" }],
       plan: [],
@@ -318,7 +330,7 @@ describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修�
 
   it("零拒因零轨迹 → 两个可选字段均省略(旧 JSON 形状不变)", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "阶段结论。" });
-    const e = incubator.create({ question: "测试问题ABC" });
+    const e = createRunning(incubator, "测试问题ABC");
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const last = r.entry.timeline.at(-1);
     expect(last?.trace).toBeUndefined();

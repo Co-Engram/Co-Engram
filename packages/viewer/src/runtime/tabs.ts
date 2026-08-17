@@ -2411,6 +2411,27 @@ window.CO_ENGRAM_PROPOSALS = {
     let html = '<div class="filter-bar">' + buttons
       + '<span class="chip">已加载 ' + items.length + ' / 共 ' + total + (hasMore ? ' · ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.pager.hasMoreHint', { n: total - items.length })) : '') + '</span>'
       + batchBtns + purgeBtn + purgeAcceptedBtn + '</div>';
+
+    // PDCA(P4)隔离区置顶:degraded run 的洞察提案不进默认审批队列,但必须
+    // 可见 —— 每条附未闭合缺口清单,用户知情后可在「全部」视图裁决。
+    const quarantined = (lastResp && lastResp.quarantined) || [];
+    if (currentStatus === 'pending' && quarantined.length) {
+      html += '<details class="inc-fold" open style="border:1px solid #E0A800;background:rgba(224,168,0,.06);border-radius:8px;padding:.6rem .9rem;margin:.6rem 0">'
+        + '<summary style="color:#8a6d00;font-weight:600">⚠ ' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.quarantined.title', { n: quarantined.length })) + '</summary>'
+        + '<div style="font-size:.82rem;color:var(--fg-muted);margin:.4rem 0">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.quarantined.hint')) + '</div>'
+        + quarantined.map(q =>
+            '<div style="border-top:1px dashed var(--border);padding:.45rem 0">'
+            + '<div style="font-weight:600">' + CO_ENGRAM.escapeHtml(String(q.title || q.entityId)) + '</div>'
+            + '<div style="font-size:.8rem;margin-top:.2rem">'
+            + (q.provisional
+                ? '<span class="chip" style="color:#B58900">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.quarantined.provisional')) + '</span> '
+                : '<span class="chip" style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.quarantined.degraded')) + '</span> ')
+            + '<b>' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.quarantined.unclosed')) + '</b>'
+            + (q.unclosedGaps || []).map(g => '<div style="margin:.15rem 0 0 1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('')
+            + '</div></div>'
+          ).join('')
+        + '</details>';
+    }
     if (!items.length) {
       // pending 用 emptyHint（「系统在后台观察」教育性提示）；其他 tab 用 empty 反映 filter（如「没有 已采纳 提案」），避免 emptyHint 在 accepted/dismissed 下暗示「新提案会出现在这里」造成误导。
       const emptyText = currentStatus === 'pending'
@@ -4972,9 +4993,9 @@ window.CO_ENGRAM_CONTEMPLATION = {
         }
       }
     }
-    // thinking 态自动刷新(30s):完成后状态/报告自行流转
+    // thinking/verifying/repairing 态自动刷新(30s):完成后状态/报告自行流转
     if (CO_ENGRAM_CONTEMPLATION._incPollTimer) { clearInterval(CO_ENGRAM_CONTEMPLATION._incPollTimer); CO_ENGRAM_CONTEMPLATION._incPollTimer = null; }
-    if ((payload.items || []).some(x => x.status === 'thinking')) {
+    if ((payload.items || []).some(x => x.status === 'thinking' || x.status === 'verifying' || x.status === 'repairing')) {
       CO_ENGRAM_CONTEMPLATION._incPollTimer = setInterval(function() {
         const root = document.getElementById('contemplation-content');
         const panel = root ? root.closest('.tab-panel') : null;
@@ -4995,17 +5016,27 @@ window.CO_ENGRAM_CONTEMPLATION = {
     const T = CO_ENGRAM_T;
     const statusKey = 'viewer.contemplation.status.' + e.status;
     const statusLabel = T.t(statusKey) !== statusKey ? T.t(statusKey) : e.status;
-    // 纸面主题状态色:done=青绿 / thinking=琥珀 / queued=灰
-    const stClass = e.status === 'done' ? 'st-done' : (e.status === 'thinking' ? 'st-flight' : 'st-dim');
+    // 纸面主题状态色:done=青绿 / thinking·verifying·repairing=琥珀(进行中) / queued=灰
+    const inFlight = e.status === 'thinking' || e.status === 'verifying' || e.status === 'repairing';
+    const stClass = e.status === 'done' ? (e.degraded ? 'st-degraded' : 'st-done') : (inFlight ? 'st-flight' : 'st-dim');
     let html = '<div class="card inc-card" id="inc-card-' + CO_ENGRAM.escapeHtml(e.id) + '">'
       + '<div class="inc-card-head">'
       + '<div class="card-title" style="cursor:pointer" onclick="CO_ENGRAM_CONTEMPLATION.toggleReport(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">' + CO_ENGRAM.escapeHtml(e.question) + '</div>'
       + '<span class="chip inc-st ' + stClass + '">' + CO_ENGRAM.escapeHtml(statusLabel) + '</span>'
+      + (e.degraded ? '<span class="chip inc-st st-degraded" title="' + CO_ENGRAM.escapeHtml((e.degraded.unclosedGaps || []).join('\\n')) + '">⚠ ' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.degradedBadge')) + '</span>' : '')
       + '</div>'
       + '<div class="card-meta">'
       + (e.lastRunAt ? '<span class="inc-hatched" title="' + CO_ENGRAM.escapeHtml(e.lastRunAt) + '">' + CO_ENGRAM.relativeTime(e.lastRunAt) + '</span>' : '<span class="inc-hatched">' + CO_ENGRAM.relativeTime(e.createdAt || '') + '</span>')
       + (e.rounds > 1 ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.historySummary', { n: e.rounds - 1 })) + '</span>' : '')
       + '</div>'
+      // degraded 终束警示:触顶收束 + 未闭合清单(P4:勤奋与懒散必须验收差分)
+      + (e.degraded
+        ? '<div class="inc-progress" style="border-color:#E0A800;background:rgba(224,168,0,.06)">'
+          + '<span>⚠ ' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.degradedReason.' + (e.degraded.reason || 'repair-budget-exhausted'))) + '</span>'
+          + '<div style="font-size:.8rem;margin-top:.2rem"><b>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.degradedUnclosed')) + '</b>'
+          + (e.degraded.unclosedGaps || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('')
+          + '</div></div>'
+        : '')
       // thinking 过程信息(消除信息焦虑):开始时间 + 阶段说明
       + (e.status === 'thinking'
         ? '<div class="inc-progress">'
@@ -5015,12 +5046,12 @@ window.CO_ENGRAM_CONTEMPLATION = {
           + '</div>'
         : '')
       + '<div id="inc-job-' + CO_ENGRAM.escapeHtml(e.id) + '" class="inc-job"></div>'
-      // thinking 态:仅一个置灰删除(域层拒绝,此处置灰防误解;DEMO 同款)
-      + (e.status === 'thinking'
+      // 进行中态(thinking/verifying/repairing):仅一个置灰删除(域层拒绝,此处置灰防误解;DEMO 同款)
+      + (inFlight
         ? '<div class="inc-card-acts"><button class="btn mini secondary disabled" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.thinkingCantDelete')) + '">🗑 ' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.deleteBtn')) + '</button></div>'
         : '');
 
-    if (e.status !== 'thinking') {
+    if (!inFlight) {
       // 回答预览(done:两行截断,点击展开;queued:无报告)
       if (e.answer) {
         html += '<div class="inc-prev" onclick="CO_ENGRAM_CONTEMPLATION.toggleReport(\\'' + CO_ENGRAM.escapeHtml(e.id) + '\\')">'
@@ -5123,6 +5154,16 @@ window.CO_ENGRAM_CONTEMPLATION = {
         + ((last.diagnosis.rejectReasons || []).length
           ? '<ul class="inc-trace-list">' + last.diagnosis.rejectReasons.map(r => '<li>' + CO_ENGRAM.escapeHtml(r) + '</li>').join('') + '</ul>' : '')
         + '</details>';
+    }
+    // ④b 闭合校验(PDCA Phase1):修复轮次/开放缺口/本轮闭合数/degraded
+    if (last && last.pdca && (last.pdca.repairRound > 0 || (last.pdca.openGaps || []).length || last.pdca.degraded || last.pdca.closedThisRound > 0)) {
+      h += '<div class="inc-sec-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.section.pdca')) + '</div>'
+        + '<ul class="inc-ins-list">'
+        + (last.pdca.repairRound > 0 ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.repairRound', { n: last.pdca.repairRound })) + '</li>' : '')
+        + (last.pdca.closedThisRound > 0 ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.closedThisRound', { n: last.pdca.closedThisRound })) + '</li>' : '')
+        + ((last.pdca.openGaps || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.openGaps')) + (last.pdca.openGaps || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
+        + (last.pdca.degraded ? '<li style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.degradedFinal')) + '</li>' : '')
+        + '</ul>';
     }
     // ⑤ 历史深思(此前各次,时间戳标识;无「第几夜」概念)
     const hist = tl.slice(0, -1);
@@ -5311,7 +5352,7 @@ window.CO_ENGRAM_HELP = {
         + '<ol>' + [T.t('viewer.help.stateUnverified'), T.t('viewer.help.statePlausible'), T.t('viewer.help.stateProbable'), T.t('viewer.help.stateVerified'), T.t('viewer.help.stateRefuted')].map(x => '<li>' + x + '</li>').join('') + '</ol>')
       + refSection(T.t('viewer.help.contemplationTitle'),
         p(T.t('viewer.help.contemplationDesc'))
-        + li([T.t('viewer.help.contemplation.pace'), T.t('viewer.help.contemplation.answer'), T.t('viewer.help.contemplation.rethink'), T.t('viewer.help.contemplation.limits')]))
+        + li([T.t('viewer.help.contemplation.pace'), T.t('viewer.help.contemplation.answer'), T.t('viewer.help.contemplation.closure'), T.t('viewer.help.contemplation.rethink'), T.t('viewer.help.contemplation.limits')]))
       + refSection(T.t('viewer.help.moreTitle'),
         p(T.t('viewer.help.evolutionTitle'))
         + '<ol>' + [T.t('viewer.help.evo1'), T.t('viewer.help.evo2'), T.t('viewer.help.evo3'), T.t('viewer.help.evo4'), T.t('viewer.help.evo5'), T.t('viewer.help.evo6')].map(x => '<li>' + x + '</li>').join('') + '</ol>'

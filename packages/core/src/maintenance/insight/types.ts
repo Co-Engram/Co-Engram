@@ -41,6 +41,11 @@ export interface RemInsightConfig {
   readonly maxSubgraphNodes?: number;
   /** REM 深思联网能力开关(默认 off;当前无下游消费,保留配置位) */
   readonly webResearch?: boolean;
+  /**
+   * PDCA 修复 report 次数上限(Phase1;默认 INSIGHT_LIMITS.maxRepairRounds=6,
+   * 引擎 clamp [1,10];业界基准 open-deep-research max_researcher_iterations)
+   */
+  readonly repairRounds?: number;
 }
 
 /** RemInsightConfig 的全字段解析默认值 */
@@ -50,6 +55,7 @@ export const DEFAULT_REM_INSIGHT: Readonly<Required<RemInsightConfig>> = {
   criticThreshold: 0.6,
   maxSubgraphNodes: 30,
   webResearch: false,
+  repairRounds: 6,
 };
 
 /**
@@ -76,17 +82,35 @@ export const SPREAD_PARAMS: Readonly<{
  * - jaccardDup:与已有 pattern/insight 的内容查重阈值(≥ 即丢弃)
  * - dreamJaccard:夜思回灌循环检测阈值(新洞察与历史 ≥ 即本轮作废)
  * - inFlightTtlMs:in-flight 锁过期时间(进程崩溃后自动回收)
+ *
+ * PDCA 修复回路(Phase1,2026-08-18;参数对齐业界基准,见 engram
+ * 01M08950SRAHWPZ6FDZPAZR9EQ v6):
+ * - maxRepairRounds:修复 report 次数上限(open-deep-research
+ *   max_researcher_iterations 同源;宿主可经配置在 [1,10] 覆盖)
+ * - maxNewGapsPerReport:单次 report 新增缺口上限,超出部分 deferred
+ *   (不计闭合目标、只留痕)—— 防「报一堆新缺口拖延收束」
+ * - maxTotalGapsPerRun:单 run 累计唯一缺口上限,触顶 → degraded 终束
+ * - gapReopenEscalation:同哈希缺口连续重报次数阈值,达到 → 强制升级
+ *   logic-needed(P3:重报 = 修复失败信号,不是无增量终束理由)
  */
 export const INSIGHT_LIMITS: Readonly<{
   readonly maxProposalsPerRun: number;
   readonly jaccardDup: number;
   readonly dreamJaccard: number;
   readonly inFlightTtlMs: number;
+  readonly maxRepairRounds: number;
+  readonly maxNewGapsPerReport: number;
+  readonly maxTotalGapsPerRun: number;
+  readonly gapReopenEscalation: number;
 }> = {
   maxProposalsPerRun: 5,
   jaccardDup: 0.65,
   dreamJaccard: 0.65,
   inFlightTtlMs: 30 * 60_000,
+  maxRepairRounds: 6,
+  maxNewGapsPerReport: 3,
+  maxTotalGapsPerRun: 10,
+  gapReopenEscalation: 2,
 };
 
 /**
@@ -256,6 +280,66 @@ export interface NightThinkingResourcesUsed {
   readonly web?: readonly WebResourceUsed[];
 }
 
+// ============================================================
+// PDCA 修复回路(Phase1,2026-08-18):清单自报、证据事实化
+// ============================================================
+
+/** 沉思资源类型(需求清单的归类维度;闭合可观测性按类型区分) */
+export type PonderResourceType = "engrams" | "skills" | "logs" | "web" | "mcp";
+
+/** 需求必要性:logic-needed(不闭合即缺口)/ helpful(可能有帮助) */
+export type PonderNecessity = "logic-needed" | "helpful";
+
+/**
+ * 沉思需求清单条目(Phase1 折中:清单由执行者自报,闭合证据由引擎事实化)。
+ *
+ * - closed 的 engrams/skills 条目会被引擎用本次 run 的调用流水
+ *   (signals.jsonl,时间窗 [thinkingAt, now])机械复核:evidence.ids
+ *   里每个 id 必须真实出现在流水(retrievedEngramIds ∪ engram_get 的
+ *   input.id / skill_get·skill_invoke 的 input.id),否则判假闭合缺口。
+ * - logs/web/mcp 引擎无观测面(WebSearch/宿主 Skill/Read 不经 co-engram
+ *   工具层),closed 仅作展示(unverified),不参与事实化闭合判定。
+ * - 流水里有 engram/skill 读调用而清单未报对应条目 → 整单拒绝(瞒报拦截)。
+ */
+export interface PonderRequirement {
+  readonly resourceType: PonderResourceType;
+  /** 需求描述:这项资源为什么是本问题需要的(闭合目标声明) */
+  readonly description: string;
+  readonly necessity: PonderNecessity;
+  /** 执行者自报闭合状态(引擎仅对可观测类型复核) */
+  readonly closed: boolean;
+  /** 事实锚点:真实调用过的 id(engrams=读过的 engram id;skills=skill id) */
+  readonly evidence?: { readonly ids?: readonly string[] };
+}
+
+/** 引擎侧缺口记录(跨修复轮持久化;哈希 = 资源类型 + 归一化描述) */
+export interface PonderGap {
+  readonly hash: string;
+  readonly resourceType: PonderResourceType;
+  readonly description: string;
+  /** 升级后可能高于自报(P3:连续重报强制升级 logic-needed) */
+  readonly necessity: PonderNecessity;
+  /** open=未闭合 / closed=已闭合(流水复核通过)/ deferred=超额不计闭合目标 */
+  readonly state: "open" | "closed" | "deferred";
+  /** 同哈希重报次数(修复失败信号;≥ gapReopenEscalation → 强制升级) */
+  readonly reopens: number;
+  /** 缺口成因:evidence-mismatch(自报闭合但流水无证据)/ unclosed(自报未闭合) */
+  readonly reason?: "evidence-mismatch" | "unclosed" | "deferred-over-budget";
+  /** 引擎不可观测类型的未闭合项(展示用,不阻塞终束) */
+  readonly engineUnverified?: boolean;
+}
+
+/** 单次深思 run 的 PDCA 状态(acquireThinking 起、终束落定止;再思重置) */
+export interface PonderRunState {
+  readonly startedAt: string;
+  /** 成功落盘的 report 次数(主报告计 1;0 = 主报告尚未成,timeline 未写) */
+  readonly reports: number;
+  /** 修复 report 次数(首次 report 不计) */
+  readonly repairReports: number;
+  /** 生命周期累计唯一缺口(含已闭合/deferred;预算分母) */
+  readonly gaps: readonly PonderGap[];
+}
+
 /** 沉思任务包(core 只定义契约,不绑宿主;纯本地只读执行) */
 export interface NightThinkingTask {
   readonly incubationId: string;
@@ -286,6 +370,13 @@ export interface NightThinkingReport {
   readonly plan: readonly NightThinkingPlanStep[];
   readonly trace: readonly NightThinkingTraceStep[];
   readonly resourcesUsed?: NightThinkingResourcesUsed;
+  /**
+   * 需求清单(PDCA Phase1,L2 必填):本次深思判断需要的全部资源,逐条
+   * 声明必要性/闭合状态/事实锚点。引擎用调用流水复核 closed 声明(假闭合
+   * → 缺口)并交叉检查瞒报;有未闭合缺口时 report 被退回(gap list 随
+   * 返回),修复后全量重报,直至闭合或预算触顶(degraded 终束)。
+   */
+  readonly requirements?: readonly PonderRequirement[];
 }
 
 /** L2 Agent 编排执行器契约(宿主提供 agent runtime;claude-code = headless spawn) */

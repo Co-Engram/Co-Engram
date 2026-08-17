@@ -349,6 +349,12 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         ...(config.llmClient ? { llmClient: config.llmClient } : {}),
         executor: createHeadlessExecutor(),
         processLock,
+        // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+        // 不消费 drain 队列)+ 修复轮上限(可配置,clamp [1,10])
+        signalEvidence: signalSink,
+        ...(config.maintenanceConfig?.remInsight?.repairRounds
+          ? { repairRoundLimit: config.maintenanceConfig.remInsight.repairRounds }
+          : {}),
       })
     : undefined;
 
