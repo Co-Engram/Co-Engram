@@ -972,6 +972,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
 
   // ===== 夜思实验室(spec §四/§六) =====
   "viewer.tab.incubations": "夜思实验室",
+  "viewer.tab.experimentalSuffix": "实验特性",
   "viewer.tab.incubations.tip": "睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察",
   "viewer.proposals.insight.badge": "深度洞察",
   "viewer.proposals.insight.mode.integration": "整合模式",

@@ -94,7 +94,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
     ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), false],
     ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), false],
-    ["incubations", t(language, "viewer.tab.incubations"), t(language, "viewer.tab.incubations.tip"), false],
+    ["incubations", t(language, "viewer.tab.incubations") + `<sup class="tab-exp">${t(language, "viewer.tab.experimentalSuffix")}</sup>`, t(language, "viewer.tab.incubations.tip"), false],
   ] as const;
 
   // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)

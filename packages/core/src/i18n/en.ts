@@ -982,6 +982,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
 
   // ===== Night-thinking lab (spec §4/§6) =====
   "viewer.tab.incubations": "Night Lab",
+  "viewer.tab.experimentalSuffix": "Beta",
   "viewer.tab.incubations.tip": "Feed a question before sleep; the agent thinks overnight; harvest insights on waking",
   "viewer.proposals.insight.badge": "Deep insight",
   "viewer.proposals.insight.mode.integration": "Integration mode",

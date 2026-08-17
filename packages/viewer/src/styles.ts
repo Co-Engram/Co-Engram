@@ -260,6 +260,15 @@ body {
   vertical-align: middle;
 }
 .tab-badge[hidden] { display: none; }
+/* 夜思实验室 tab 的「实验特性」后缀:小字号弱化文字(用户要求,非徽标样式) */
+.tab-exp {
+  margin-left: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: var(--fg-dim);
+  vertical-align: 0.45em;
+  letter-spacing: 0.02em;
+}
 @keyframes tab-badge-pulse {
   0%, 100% { box-shadow: none; }
   50%      { box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18); }
