@@ -360,14 +360,17 @@ body {
    4 位数「印迹检索」把 min-content 撑爆,第五格「技能调用」错落掉行。改 grid auto-fit
    等分:常规宽度恒五格单行,窄容器整卡降列(不再半行错落);格子内边距同步收窄。 */
 .ov-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
-.ov-kpi { padding: 0 1.05rem; border-right: 1px solid var(--border); cursor: pointer; }
+.ov-kpi { padding: 0 0.85rem; border-right: 1px solid var(--border); cursor: pointer; }
 .ov-kpi:first-child { padding-left: 0; }
 .ov-kpi:last-child { border-right: none; }
 .ov-kpi:hover .ov-kpi-value { color: var(--accent); }
-.ov-kpi-value { font-size: 1.45rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; font-variant-numeric: tabular-nums; }
+/* 2026-08 二轮:大数字 1.45→1.2rem + up 0.78→0.7rem —— 五格等分后每格内容区仅
+   ~120px,「1930 本周检索 ↑728」在 1.45rem 下必折行;缩小后 4 位数常态单行,
+   up 文案同步去掉领域词(「本周检索」→「本周」,语义由格子标签承载)。 */
+.ov-kpi-value { font-size: 1.2rem; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; font-variant-numeric: tabular-nums; }
 .ov-kpi-label { font-size: 0.72rem; color: var(--fg-dim); }
 .ov-kpi-sub { font-size: 0.68rem; color: var(--fg-dim); margin-top: 1px; }
-.ov-up { color: var(--accent); font-size: 0.78rem; font-weight: 600; }
+.ov-up { color: var(--accent); font-size: 0.7rem; font-weight: 600; }
 .ov-pulse-h { font-size: 0.78rem; font-weight: 700; color: var(--fg-muted); border-top: 1px solid var(--border); margin-top: 0.8rem; padding-top: 0.7rem; margin-bottom: 0.5rem; display: flex; align-items: baseline; gap: 0.5rem; }
 .ov-pulse-h small { font-weight: 400; color: var(--fg-dim); font-size: 0.68rem; margin-left: auto; }
 .ov-pulse { display: flex; align-items: flex-end; gap: 3px; height: 50px; }
