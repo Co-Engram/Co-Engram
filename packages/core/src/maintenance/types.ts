@@ -290,6 +290,14 @@ export interface MaintenanceReport {
   readonly rpeUpdates?: number;
   /** light 阶段关闭的观察窗口数（sweepExpired） */
   readonly windowsClosed?: number;
+  /**
+   * light 阶段被行为信号自动关闭的观察窗口数(2026-08-17)。
+   *
+   * 区别于 windowsClosed(超时→inconclusive):这是 RPE 净聚合达标后
+   * closeAsEffective/closeAsFailure 的自动闭环,是「知识→有效使用」
+   * 转化率的自动回填通道指标。
+   */
+  readonly windowsClosedBySignal?: number;
   /** light 阶段是否刷新了 prompt-signals.json */
   readonly promptSignalsUpdated?: boolean;
   /**

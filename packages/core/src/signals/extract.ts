@@ -135,10 +135,18 @@ export const repeatedGetRule: SignalRule = {
 };
 
 /**
- * 规则 2：engram_get 后跟 file_edit / bash / git_commit 等动作
+ * 规则 2：engram_get 后跟落地动作
  *
  * 含义：从"读"变成"做",有落地证据
  * weight: +0.8（强正）
+ *
+ * 动作分两类:
+ *   - 宿主侧动作(file_edit / bash / git_commit ...):依赖宿主把自身工具调用
+ *     上报进信号流。MCP 工具边界下宿主动作不可见(2026-08-17 实证:get_then_action
+ *     在生产 10 天零触发),保留集合以待宿主 hook 接入;
+ *   - 边界内落地动作(synapse_create / engram_create / engram_update /
+ *     engram_synthesize):读走记忆后用知识建立关联/产出新记忆/综合多条,
+ *     是 co-engram 工具流内最强的"使用完成"证据。
  */
 export const getFollowedByActionRule: SignalRule = {
   name: "get_then_action",
@@ -146,6 +154,7 @@ export const getFollowedByActionRule: SignalRule = {
   match(events, options) {
     const windowSize = options?.windowSize ?? DEFAULT_WINDOW_SIZE;
     const actionTools = new Set([
+      // 宿主侧动作(需宿主上报,当前 MCP 边界下不可见)
       "file_edit",
       "file_write",
       "bash",
@@ -153,6 +162,11 @@ export const getFollowedByActionRule: SignalRule = {
       "git_push",
       "edit_file",
       "write_file",
+      // 边界内落地动作(知识被消费的直接证据)
+      "synapse_create",
+      "engram_create",
+      "engram_update",
+      "engram_synthesize",
     ]);
     const signals: BehavioralSignal[] = [];
 
@@ -195,6 +209,12 @@ export const getFollowedByActionRule: SignalRule = {
  * weight: +0.4（弱正）
  *
  * 注意：这是"沉默的满意"信号,容易误判（可能只是没继续做）。weight 较弱。
+ *
+ * 2026-08-17 修正:移除「前一个事件是 engram_search 则跳过」的排除。
+ * 原排除理由(会被 get_then_immediate_search 捕获)不成立——那条规则要求
+ * get **之后**出现 search,与 prior=search 且后续安静的模式不相交;排除条件
+ * 实际杀死的恰恰是最健康的 search→get→安静干活 模式(生产 10 天正信号
+ * 近零的直接原因之一)。
  */
 export const getFollowedByNoSearchRule: SignalRule = {
   name: "get_no_resimilar_search",
@@ -214,10 +234,6 @@ export const getFollowedByNoSearchRule: SignalRule = {
       // 后续 windowSize 内没有 engram_search
       const hasSearch = followUps.some((f) => f.toolName === "engram_search");
       if (hasSearch) continue;
-
-      // 前一个事件也不能是同 id 的 search（否则会被 get_then_immediate_search 规则捕获）
-      const prior = events[i - 1];
-      if (prior && prior.toolName === "engram_search") continue;
 
       for (const id of ids) {
         const dedupeKey = `${id}@${i}`;

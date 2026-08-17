@@ -185,6 +185,9 @@ function extractReportSummary(
   if (report.windowsClosed !== undefined) {
     summary.windowsClosed = report.windowsClosed;
   }
+  if (report.windowsClosedBySignal !== undefined) {
+    summary.windowsClosedBySignal = report.windowsClosedBySignal;
+  }
   if (report.promptSignalsUpdated !== undefined) {
     summary.promptSignalsUpdated = report.promptSignalsUpdated;
   }

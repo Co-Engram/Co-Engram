@@ -15,6 +15,7 @@ import {
 } from "../src/maintenance/index.js";
 import type { MaintenanceReport } from "../src/maintenance/index.js";
 import { AuditLog } from "../src/observability/audit-log.js";
+import { EffectivenessTracker } from "../src/observability/effectiveness-tracker.js";
 import { createDreamingScheduler } from "../src/dreaming/scheduler.js";
 
 let tmpDir: string;
@@ -494,5 +495,131 @@ describe("MaintenanceEngine - 审计日志回归", () => {
     // 整个 audit.jsonl 应该为空 —— maintenance 阶段触发不写,下游任务在本测试也未触发
     const all = auditLog.query({ limit: 1000 });
     expect(all.length).toBe(0);
+  });
+});
+
+// ============================================================
+// 行为信号 → 观察窗口自动闭环 (2026-08-17)
+// ============================================================
+
+describe("MaintenanceEngine - 行为信号关观察窗口", () => {
+  it("强正信号(get→synapse_create)→ closeAsEffective + windowsClosedBySignal=1", async () => {
+    const auditLog = new AuditLog(tmpDir);
+    const tracker = new EffectivenessTracker(tmpDir, auditLog);
+    const id = setupEngramWithScore(0.5);
+    tracker.openWindow({
+      engramId: id,
+      query: "test",
+      score: 0.9,
+      kinds: ["fact"],
+    });
+
+    sink.append(
+      makeEvent({ toolName: "engram_get", retrievedEngramIds: [id], at: 1 }),
+    );
+    sink.append(
+      makeEvent({
+        toolName: "synapse_create",
+        input: { from: id, to: "other", kind: "extends" },
+        at: 2,
+      }),
+    );
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+      effectivenessTracker: tracker,
+    });
+    const report = await engine.runLight();
+
+    // get_then_action(+0.8)≥ +0.6 → 自动有效闭环
+    expect(report.rpeUpdates).toBe(1);
+    expect(report.windowsClosedBySignal).toBe(1);
+    const report2 = tracker.effectiveness(id);
+    expect(report2.effective).toBe(1);
+    expect(tracker.listOpen()).toHaveLength(0);
+  });
+
+  it("强负信号(synapse_create kind=contradicts)→ closeAsFailure", async () => {
+    const auditLog = new AuditLog(tmpDir);
+    const tracker = new EffectivenessTracker(tmpDir, auditLog);
+    const id = setupEngramWithScore(0.5);
+    tracker.openWindow({
+      engramId: id,
+      query: "test",
+      score: 0.9,
+      kinds: ["fact"],
+    });
+
+    sink.append(
+      makeEvent({
+        toolName: "synapse_create",
+        input: { from: "other", to: id, kind: "contradicts" },
+        at: 1,
+      }),
+    );
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+      effectivenessTracker: tracker,
+    });
+    const report = await engine.runLight();
+
+    // contradicts_created(-0.8)≤ -0.6 → 失败闭环
+    expect(report.windowsClosedBySignal).toBe(1);
+    expect(tracker.listOpen()).toHaveLength(0);
+  });
+
+  it("弱正信号(单条 +0.4)不关窗——阈值语义与显式 reinforce 对齐", async () => {
+    const auditLog = new AuditLog(tmpDir);
+    const tracker = new EffectivenessTracker(tmpDir, auditLog);
+    const id = setupEngramWithScore(0.5);
+    tracker.openWindow({
+      engramId: id,
+      query: "test",
+      score: 0.9,
+      kinds: ["fact"],
+    });
+
+    // 单条 get 后安静:get_no_resimilar_search = +0.4 < 0.6 → 不关窗
+    sink.append(
+      makeEvent({ toolName: "engram_get", retrievedEngramIds: [id], at: 1 }),
+    );
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+      effectivenessTracker: tracker,
+    });
+    const report = await engine.runLight();
+
+    expect(report.signalsProcessed).toBe(1);
+    expect(report.windowsClosedBySignal).toBe(0);
+    expect(tracker.listOpen()).toHaveLength(1);
+  });
+
+  it("无 open 窗口时强正信号只计数 RPE,不误报关窗", async () => {
+    const auditLog = new AuditLog(tmpDir);
+    const tracker = new EffectivenessTracker(tmpDir, auditLog);
+    const id = setupEngramWithScore(0.5);
+    // 不 openWindow
+
+    sink.append(
+      makeEvent({ toolName: "engram_get", retrievedEngramIds: [id], at: 1 }),
+    );
+    sink.append(
+      makeEvent({ toolName: "bash", at: 2 }),
+    );
+
+    const engine = new MaintenanceEngine({
+      repository: repo,
+      signalSink: sink,
+      effectivenessTracker: tracker,
+    });
+    const report = await engine.runLight();
+
+    expect(report.rpeUpdates).toBe(1);
+    expect(report.windowsClosedBySignal).toBe(0);
   });
 });

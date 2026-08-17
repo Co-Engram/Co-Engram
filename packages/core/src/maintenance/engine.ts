@@ -64,6 +64,19 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import type { DoctorReport } from "../types/repository-types.js";
 
 /**
+ * 行为信号自动关观察窗口的净聚合权重阈值(2026-08-17)。
+ *
+ * 背景:观察窗口此前只能被显式 engram_reinforce 关闭,日常会话不调反馈
+ * 工具 → 96%+ 窗口超时沦为 inconclusive,「有效使用」被系统性低估。
+ * 现在 light 阶段把 RPE 聚合结果接回窗口:
+ *   - 净 weight ≥ +0.6(强规则命中或多条弱正叠加)→ closeAsEffective
+ *   - 净 weight ≤ -0.6(强负证据)→ closeAsFailure
+ * 与显式 reinforce 的语义对齐;单条 +0.4 沉默满意不足以关窗。
+ */
+export const SIGNAL_CLOSE_EFFECTIVE_THRESHOLD = 0.6;
+export const SIGNAL_CLOSE_FAILURE_THRESHOLD = -0.6;
+
+/**
  * Maintenance Engine
  *
  * 使用：
@@ -125,6 +138,8 @@ export class MaintenanceEngine {
 
       let signalsProcessed = 0;
       let rpeUpdates = 0;
+      // 行为信号自动关闭的观察窗口数(区别于 sweepExpired 的超时关闭)
+      let windowsClosedBySignal = 0;
       // 收集 RPE 实际强化的 engram(供 viewer 展示 Light 的实际效果,可点击跳详情)
       const lightModified: { engramId: string; delta: number }[] = [];
 
@@ -163,6 +178,22 @@ export class MaintenanceEngine {
           );
           rpeUpdates += 1;
           lightModified.push({ engramId, delta: effectiveness });
+
+          // 行为信号→观察窗口闭环:净聚合达到强正/强负阈值时自动关窗,
+          // 让「有效使用」不再依赖显式 reinforce 上报(阈值语义见常量注释)。
+          if (this.deps.effectivenessTracker) {
+            try {
+              const closed =
+                agg.sum >= SIGNAL_CLOSE_EFFECTIVE_THRESHOLD
+                  ? this.deps.effectivenessTracker.closeAsEffective(engramId)
+                  : agg.sum <= SIGNAL_CLOSE_FAILURE_THRESHOLD
+                    ? this.deps.effectivenessTracker.closeAsFailure(engramId)
+                    : false;
+              if (closed) windowsClosedBySignal += 1;
+            } catch {
+              // 关窗失败不阻塞 light
+            }
+          }
         }
       }
 
@@ -225,11 +256,13 @@ export class MaintenanceEngine {
         signalsProcessed,
         rpeUpdates,
         windowsClosed,
+        windowsClosedBySignal,
         promptSignalsUpdated,
         downstreamReport: {
           signalsProcessed,
           rpeUpdates,
           windowsClosed,
+          windowsClosedBySignal,
           promptSignalsUpdated,
           lightModified,
         },
@@ -818,6 +851,7 @@ export class MaintenanceEngine {
       signalsProcessed: body.signalsProcessed,
       rpeUpdates: body.rpeUpdates,
       windowsClosed: body.windowsClosed,
+      windowsClosedBySignal: body.windowsClosedBySignal,
       promptSignalsUpdated: body.promptSignalsUpdated,
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
