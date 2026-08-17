@@ -118,8 +118,14 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const governanceTabButtons = governanceTabs.map(navButton).join("\n      ");
   const adminTabButtons = adminTabs
     .map(
-      ([id, label, tip, icon]) =>
-        `<button data-tab="${id}" class="tab side-admin-btn" title="${tip.replace(/"/g, "&quot;")}"><svg class="side-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#${icon}"/></svg><span class="sr-only">${label}</span></button>`,
+      ([id, label, tip, icon]) => {
+        // 图标入口悬停说明带按钮名(用户 2026-08 要求):「名字 · 说明」——
+        // 仅图标无文字,tooltip 首词让用户不必猜图形含义。
+        // tip 本身以名字开头时(如 merges「团队记忆合并:…」/ config「配置:…」)
+        // 不再重复拼名字。
+        const titled = tip.startsWith(label) ? tip : label + " · " + tip;
+        return `<button data-tab="${id}" class="tab side-admin-btn" title="${titled.replace(/"/g, "&quot;")}"><svg class="side-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#${icon}"/></svg><span class="sr-only">${label}</span></button>`;
+      },
     )
     .join("\n        ");
 
