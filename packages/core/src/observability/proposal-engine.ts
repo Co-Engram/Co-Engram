@@ -33,6 +33,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
+import { readEngramIndex } from "../storage/engram-index.js";
 import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
@@ -187,6 +188,16 @@ export interface ProposalPayload {
   readonly incubationId?: string;
   /** rem-insight 专用:夜思轮次(entityId 防撞车的关键成分) */
   readonly insightRound?: number;
+  /**
+   * rem-insight 专用(PDCA Phase1):产出该洞察的 run 未全闭合 → 提案隔离。
+   * provisional=true(修复中,终态未定)/ false(degraded 终束固化);
+   * unclosedGaps=未闭合缺口描述(viewer 审批面置顶展示)。正常终束时
+   * 引擎调 setInsightClosureState 解除(删除本字段)。
+   */
+  readonly degraded?: {
+    readonly provisional: boolean;
+    readonly unclosedGaps: readonly string[];
+  };
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -933,6 +944,11 @@ export class ProposalEngine {
     readonly criticRationale: string;
     readonly incubationId?: string;
     readonly round?: number;
+    /** PDCA:run 未闭合时提案带 provisional degraded 标(终态落定时翻转) */
+    readonly degraded?: {
+      readonly provisional: boolean;
+      readonly unclosedGaps: readonly string[];
+    };
   }): boolean {
     const entityId = insightEntityId(
       input.mode,
@@ -945,7 +961,9 @@ export class ProposalEngine {
 
     if (existing?.status === "accepted") return false;
     // 已 pending 的同案(同 mode+incubationId+round+sources)不重写、返回 false:
-    // 让调用方(runner 限流计数 / incubator 循环检测)以返回值区分「新提案」
+    // 让调用方(runner 限流计数 / incubator 循环检测)以返回值区分「新提案」。
+    // 例外:仅隔离标变化(同 run 修复轮终态翻转)由 setInsightClosureState
+    // 单独处理,不经 proposeInsight。
     if (existing?.status === "pending") return false;
     if (
       existing?.status === "dismissed" &&
@@ -989,6 +1007,7 @@ export class ProposalEngine {
           ? { incubationId: input.incubationId }
           : {}),
         ...(input.round !== undefined ? { insightRound: input.round } : {}),
+        ...(input.degraded !== undefined ? { degraded: input.degraded } : {}),
       },
     };
 
@@ -998,6 +1017,36 @@ export class ProposalEngine {
     ];
     this.writeProposals(updated);
     return true;
+  }
+
+  /**
+   * PDCA(Phase1):run 终态落定时翻转本 run 提案的隔离标。
+   * degraded=undefined → 解除隔离(删除 payload.degraded,恢复正常审批);
+   * degraded={provisional:false,...} → 固化(degraded 终束)。
+   * 只改 pending 提案(accepted/dismissed 已有用户裁决,不回写)。
+   */
+  setInsightClosureState(
+    entityIds: readonly string[],
+    degraded:
+      | { readonly provisional: boolean; readonly unclosedGaps: readonly string[] }
+      | undefined,
+  ): void {
+    if (entityIds.length === 0) return;
+    const ids = new Set(entityIds);
+    const proposals = this.readProposals();
+    let changed = false;
+    const updated = proposals.map((p) => {
+      if (!ids.has(p.entityId) || p.status !== "pending") return p;
+      changed = true;
+      if (!p.payload) return p;
+      if (degraded) {
+        return { ...p, payload: { ...p.payload, degraded } };
+      }
+      // 解除隔离:剔除 degraded 键(readonly payload 用解构重建)
+      const { degraded: _dropped, ...rest } = p.payload;
+      return { ...p, payload: rest };
+    });
+    if (changed) this.writeProposals(updated);
   }
 
   proposeTagRefresh(input: {
@@ -2129,6 +2178,50 @@ export class ProposalEngine {
 
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
+
+    // —— 库级幂等(2026-08-18 修复 ext purge-复活 bug,与 proposeSkill/am 库级幂等同构) ——
+    // 幂等键 = sourcePath 已在 engram-index(已原地纳管)。此前只查提案行:
+    // purgeAccepted 物理删 accepted 行后,任何一轮 scanForExternalMarkdown /
+    // proposeBareMarkdownAsync 重扫都会对同一 .md 重新提议。实证(2026-08-16):
+    // ext:a15d7b705bc4d9d4 在 purge 后 3 秒复活,二次 accept 产生新 engram——
+    // 根因是旧版 accept 异地 create(adoptOrPromoteEngramAt 引入前),原 .md
+    // 永久 orphan,scan 的 knownPaths 防线从未生效,仅靠 accepted 行静默压制。
+    // 本检查是 scan 防线(repository 层 knownPaths)的引擎级镜像 —— 纵深防御,
+    // 覆盖 scan 时序/index 读取异常等绕过路径。存量 pending 复活行自愈为
+    // accepted(acceptedEngramId=index entry id,audit 留 selfHealed 痕迹)。
+    // engram_delete 删掉 entry 后同 sourcePath 重扫会重新提议 —— 合理复活。
+    // 用 readEngramIndex 纯函数(与 scanForExternalMarkdown 同款)而非
+    // repository.listEngramIndex —— 后者走 getIndex,index 缺失时会触发
+    // rebuildIndex 把外部合法 engram 灌入 index,绕过提案审批防线。
+    const ingested = Array.from(
+      readEngramIndex(this.dataRoot).entries.values(),
+    ).find((e) => e.path === input.sourcePath);
+    if (ingested) {
+      if (existing?.status === "pending") {
+        this.writeProposals(
+          proposals.map((p) =>
+            p.entityId === entityId
+              ? {
+                  ...p,
+                  status: "accepted" as const,
+                  acceptedEngramId: ingested.id,
+                }
+              : p,
+          ),
+        );
+        this.auditLog.append({
+          actor: "system",
+          action: "propose",
+          metadata: {
+            entityId,
+            source: "external-markdown",
+            sourcePath: input.sourcePath,
+            selfHealed: "ingested-path",
+          },
+        });
+      }
+      return "no-change";
+    }
 
     if (existing?.status === "accepted") {
       return "no-change";
