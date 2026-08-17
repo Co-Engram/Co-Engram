@@ -1193,6 +1193,15 @@ async function routeApi(
         question: body.question,
         ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
       });
+      // 落盘验证:non-holder viewer 的持锁写被跳过(防 lost-update 架构),
+      // 此时创建只存在于内存 —— 显式 503 而非假 201 + 异步 job not found
+      // (E2E 实测发现:旧版此处为静默丢条目,新版创建即跑会显式炸 job error)
+      if (!ctx.incubator.get(entry.id)) {
+        respondJson(res, 503, {
+          error: "viewer is read-only in this deployment (non-holder process) — create contemplations from the holder viewer or in chat",
+        });
+        return;
+      }
       const jobId = startContemplationJob(entry.id);
       respondJson(res, 201, { entry, jobId });
     } catch (err) {

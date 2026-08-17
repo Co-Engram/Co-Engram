@@ -152,6 +152,23 @@ describe("沉思 API", () => {
     expect(nf.status).toBe(404);
   });
 
+  it("non-holder viewer:持锁写被跳过 → 创建落盘验证 503(不假 201 + 异步 job 炸)", async () => {
+    const ctx = makeCtx({ fakeExecutor: true });
+    const nonHolder = new Incubator({
+      repository: ctx.repository,
+      proposalEngine: ctx.proposalEngine,
+      dataRoot: tmpDir,
+      processLock: { isHolder: false },
+    });
+    const j = await start({ ...ctx, incubator: nonHolder });
+    const r = await j("/api/contemplations", "POST", { question: "非 holder 创建问题?" });
+    expect(r.status).toBe(503);
+    expect(String(r.json.error)).toContain("read-only");
+    // 盘上无条目(列表为空,无幽灵)
+    const list = await j("/api/contemplations");
+    expect(list.json.items).toHaveLength(0);
+  });
+
   it("incubator 未注入 → 503 enabled=false", async () => {
     const ctx = makeCtx();
     const j = await start({ ...ctx, incubator: undefined } as never);
