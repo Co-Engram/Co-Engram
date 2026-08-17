@@ -75,7 +75,11 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    evidence you collected during EXECUTE. This is the primary deliverable:
    direct, specific, and in the same language as the question. Do not pad
    with generalities — cite which memories / logs / skills support each claim.
-6. REPORT — call the tool \`ponder_report\` exactly once with a JSON object:
+   The answer text MUST be delivered as the "answer" string field of the
+   report JSON in step 6 — a report without a non-empty "answer" is
+   considered incomplete.
+6. REPORT — call the tool \`ponder_report\` exactly once with a JSON object
+   ("answer" is REQUIRED — never omit it, never leave it empty):
    { "incubationId": "<id>", "report": { "answer": "<your answer text>",
      "insights": [ <insight drafts> ],
      "plan": [ {"step": "...", "capability": "..."} ],

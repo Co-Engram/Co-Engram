@@ -96,7 +96,7 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
       "return the report object as your final answer in the exact JSON shape below (you have no ponder_report tool in this headless session)",
     ),
     ``,
-    `Final answer: ONLY the JSON object {"answer":"...","insights":[...],"plan":[...],"trace":[...],"resourcesUsed":{...}} — no prose outside it.`,
+    `Final answer: ONLY the JSON object {"answer":"<non-empty answer text — REQUIRED>","insights":[...],"plan":[...],"trace":[...],"resourcesUsed":{...}} — no prose outside it.`,
   ].join("\n");
 }
 
