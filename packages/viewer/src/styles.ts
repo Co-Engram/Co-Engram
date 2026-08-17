@@ -356,8 +356,11 @@ body {
   padding: 1rem 1.25rem 0.9rem;
   margin-bottom: 0.9rem;
 }
-.ov-kpi-row { display: flex; flex-wrap: wrap; }
-.ov-kpi { padding: 0 1.6rem; border-right: 1px solid var(--border); cursor: pointer; min-width: 118px; }
+/* 2026-08 KPI 换行修复:flex-wrap 在 960~1280 视口(概览主列被压到 354~610px)会因
+   4 位数「印迹检索」把 min-content 撑爆,第五格「技能调用」错落掉行。改 grid auto-fit
+   等分:常规宽度恒五格单行,窄容器整卡降列(不再半行错落);格子内边距同步收窄。 */
+.ov-kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+.ov-kpi { padding: 0 1.05rem; border-right: 1px solid var(--border); cursor: pointer; }
 .ov-kpi:first-child { padding-left: 0; }
 .ov-kpi:last-child { border-right: none; }
 .ov-kpi:hover .ov-kpi-value { color: var(--accent); }

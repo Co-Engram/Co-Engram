@@ -2700,10 +2700,22 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
       } else if (e.action === "skill_invoke") {
         if (e.ts >= weekAgoIso) weeklySkillInvocations++;
         continue;
-      } else if (m.target === "synapse") {
+      } else if (
+        m.target === "synapse" ||
+        (m.source === "rem-synapse" && m.appliedAction === "create")
+      ) {
         type = "synapse";
-        id = String(m.synapseId ?? e.engramId ?? "");
-        if (e.action === "create" && e.ts >= weekAgoIso && id) {
+        // target=synapse 路径有真 synapseId;夜思 accept 路径只有提案 entityId,
+        // 用作去重键即可(一提案一 accept,数量语义不受影响)
+        id = String(m.synapseId ?? m.entityId ?? e.engramId ?? "");
+        // 周新增突触 = 直接 create + 夜思提案 accept 落地(appliedAction=create)。
+        // 旧口径漏掉 accept 路径:夜思批量采纳的突触不计入「本周 ↑N」(2026-08 修复)
+        if (
+          (e.action === "create" ||
+            (e.action === "accept" && m.appliedAction === "create")) &&
+          e.ts >= weekAgoIso &&
+          id
+        ) {
           weekSynapses.add(id);
         }
       } else {
@@ -2840,12 +2852,18 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
         .get() as { n: number }
     )?.n ?? 0;
 
-  // 2. bySynapseKind / totalSynapses:走 graph.json 缓存(避免 collectAllSynapses 47s)
+  // 2. bySynapseKind / totalSynapses:SQLite 实时聚合(写路径同步维护 synapses 表,
+  //    CASCADE 跟随 engram 删除)。旧口径读 graph.json 缓存 —— 重建只挂在 viewer 的
+  //    5 个写路由上,MCP 工具(synapse_create 等)写入不触发重建,首页「记忆突触
+  //    总数」要滞留到下次维护期才更新(2026-08 用户报告)。graph 缓存仍保留给
+  //    topContributors 的 synapse createdBy 聚合用。
   const graph = readGraphCache(ctx);
   let totalSynapses = 0;
-  for (const edge of graph.edges) {
-    bySynapseKind[edge.kind] = (bySynapseKind[edge.kind] ?? 0) + 1;
-    totalSynapses++;
+  for (const r of db
+    .prepare(`SELECT kind, count(*) AS n FROM synapses GROUP BY kind`)
+    .all() as { kind: string; n: number }[]) {
+    bySynapseKind[r.kind] = r.n;
+    totalSynapses += r.n;
   }
 
   // 3. topTags(SQLite ORDER BY count DESC LIMIT 10)

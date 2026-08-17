@@ -1560,6 +1560,58 @@ describe("守护 · Bug 3: topContributors 合计 engram + synapse 作者", () =
       expect(sumTotal).toBe(5); // alice 1 + bob 1 + carol 1 + dave 2
     });
   });
+
+  it("totalSynapses 实时反映新突触(repository 层写入,不依赖 graph.json 重建)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    const b = ctx.repository.createEngram({
+      title: "B", content: "b", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    // 2026-08 修复回归:MCP 工具(synapse_create 等)走 repository 层写入,不经过
+    // viewer 写路由 → 不触发 graph.json 重建;旧口径读 graph.json(此场景不存在)
+    // → totalSynapses 恒 0。新口径 SQLite 聚合,写入后立即可见。
+    ctx.repository.addOutgoingSynapse(
+      a.id,
+      makeSynapse(a.id, b.id, "extends"),
+    );
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      expect(data.totalSynapses).toBe(1);
+      expect(data.bySynapseKind.extends).toBe(1);
+    });
+  });
+
+  it("weeklyNewSynapses 计入夜思提案 accept 落地的突触(rem-synapse)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    // 2026-08 修复回归:夜思批量采纳产生的突触只落 accept + source=rem-synapse +
+    // appliedAction=create 审计事件,旧口径只认 action=create + target=synapse,
+    // 这些突触不计入「本周 ↑N」。
+    ctx.auditLog?.append({
+      actor: "user",
+      action: "accept",
+      engramId: a.id,
+      metadata: {
+        entityId: "rem-synapse:add:0001",
+        via: "viewer-batch",
+        source: "rem-synapse",
+        appliedAction: "create",
+      },
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      expect(data.weeklyNewSynapses).toBe(1);
+    });
+  });
 });
 
 describe("守护 · Bug 4: topTags sum > totalEngrams 是合法多对多语义", () => {
