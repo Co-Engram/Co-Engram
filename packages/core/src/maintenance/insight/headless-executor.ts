@@ -135,12 +135,18 @@ export function parseHeadlessReport(raw: string): NightThinkingReport {
   const parsed = JSON.parse(body.slice(start, end + 1)) as Partial<NightThinkingReport> & {
     resourcesUsed?: NightThinkingResourcesUsed;
   };
-  if (!Array.isArray(parsed.insights)) {
-    throw new Error("headless executor: report missing insights array");
+  // 2026-08-17 新契约:answer 是主体交付物 —— insights/plan/trace 缺失按空
+  // 数组容错(E2E 实测:answer 强化后 agent 有概率输出精简 JSON 丢数组,
+  // 旧「missing insights array」硬拒会把已交付的 answer 一并丢弃)。
+  // answer 与 insights 双缺才是坏报告。
+  const hasAnswer = typeof parsed.answer === "string" && parsed.answer.trim().length > 0;
+  const hasInsights = Array.isArray(parsed.insights);
+  if (!hasAnswer && !hasInsights) {
+    throw new Error("headless executor: report has neither answer nor insights array");
   }
   return {
-    ...(typeof parsed.answer === "string" && parsed.answer.trim() ? { answer: parsed.answer } : {}),
-    insights: parsed.insights,
+    ...(hasAnswer ? { answer: parsed.answer } : {}),
+    insights: hasInsights ? parsed.insights! : [],
     plan: Array.isArray(parsed.plan) ? parsed.plan : [],
     trace: Array.isArray(parsed.trace) ? parsed.trace : [],
     ...(parsed.resourcesUsed ? { resourcesUsed: parsed.resourcesUsed } : {}),

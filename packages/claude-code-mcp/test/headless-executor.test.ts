@@ -95,9 +95,15 @@ describe("parseHeadlessReport", () => {
     expect(r.resourcesUsed?.engrams).toEqual(["01A"]);
   });
 
-  it("垃圾输出 → 抛错(上层降级 L1)", () => {
+  it("垃圾输出 → 抛错;answer 与 insights 双缺 → 抛错", () => {
     expect(() => parseHeadlessReport("no json here")).toThrow();
     expect(() => parseHeadlessReport(JSON.stringify({ type: "result", result: "{not-json" }))).toThrow();
+    // 新契约:answer 是主体 —— insights 缺失容错为空数组,answer 保留;
+    // 两者双缺才是坏报告
+    const answerOnly = parseHeadlessReport(JSON.stringify({ type: "result", result: '{"answer":"只有回答"}' }));
+    expect(answerOnly.answer).toBe("只有回答");
+    expect(answerOnly.insights).toEqual([]);
+    expect(() => parseHeadlessReport(JSON.stringify({ type: "result", result: '{"plan":[]}' }))).toThrow(/neither/);
   });
 });
 
