@@ -5035,7 +5035,7 @@ window.CO_ENGRAM_CONTEMPLATION = {
   hasEvidence(e) {
     const last = (e.timeline || []).at(-1);
     return !!(last && last.resourcesUsed
-      && ((last.resourcesUsed.engrams || []).length || (last.resourcesUsed.skills || []).length || (last.resourcesUsed.logs || []).length));
+      && ((last.resourcesUsed.engrams || []).length || (last.resourcesUsed.skills || []).length || (last.resourcesUsed.logs || []).length || (last.resourcesUsed.web || []).length));
   },
 
   evidenceHtml(e) {
@@ -5057,6 +5057,12 @@ window.CO_ENGRAM_CONTEMPLATION = {
     if ((r.logs || []).length) {
       h += '<div class="inc-ev-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.evidence.logs', { n: r.logs.length })) + '</div>'
         + r.logs.map(l => '<div class="inc-log-row"><code>' + CO_ENGRAM.escapeHtml(l) + '</code></div>').join('');
+    }
+    if ((r.web || []).length) {
+      h += '<div class="inc-ev-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.evidence.web', { n: r.web.length })) + '</div>'
+        + r.web.map(w => '<div class="inc-log-row"><code>' + CO_ENGRAM.escapeHtml(CO_ENGRAM_CONTEMPLATION.clip(w.query || '', 120))
+          + (w.purpose ? '<small> — ' + CO_ENGRAM.escapeHtml(CO_ENGRAM_CONTEMPLATION.clip(w.purpose, 120)) + '</small>' : '')
+          + '</code></div>').join('');
     }
     return h + '</div>';
   },

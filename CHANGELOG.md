@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **沉思资源扩展:受控联网检索 + 宿主技能应用 + MCP 工具纳入(2026-08-17)**:沉思协议 RESOURCE MANDATE 新增三条资源线——①联网检索(问题涉及业界趋势/对手动态/基准等外部事实时联网取证,替代纯记忆推测;隐私边界固化在协议:记忆原文不出域,仅问题与摘要级内容可随检索出域;headless 白名单补 WebSearch/WebFetch);②宿主技能(除 co-engram 技能印迹外,盘点并应用宿主的研究/结构化思维类技能,记入轨迹);③MCP 工具(盘点宿主连接的其他 MCP server 并按需取用只读能力,如 codegraph 核实代码主张;agent 模式天然可达,headless 经 `readOnlyMcpServers` 按 server 粒度显式放行,不做 `mcp__*` 通配防写工具混入)。同时补强既有资源线的结构性缺口:突触图谱遍历(高价值命中沿 synapse 扩展证据网)、技能效用统计(utility/invocationCount/retentionStage 本身即行为证据)、`engram_audit_query` 记忆修改史取证(headless 白名单同步补入)。`resourcesUsed` 资源申报新增 `web` 面(`{query, purpose}`,清洗去重落盘),viewer 依据区同步渲染「联网检索」;文档/帮助栏/工具描述中英同步。此前(同日凌晨重设计)联网线曾被整体移除,本次按用户反馈以更轻的结构恢复——不复活 opt-in 开关/UI 开关/externalCalls 三层旧机制。
 - **`engram_update.updatedBy` 署名契约对齐 `engram_create.createdBy`**:LLM 传入值不再透传落盘(此前机器标签如 `claude-code` 会写进 frontmatter「更新者」),统一由宿主 git 身份决定;schema 仍接受该字段以向后兼容。表达自动化情境请用 `encodingContext`。
 
 ### 夜思实验室(Incubation)

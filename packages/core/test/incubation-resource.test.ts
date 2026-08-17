@@ -35,12 +35,13 @@ describe("resourceHints 与协议 Resource mandate", () => {
     expect(CONTEMPLATION_PROTOCOL).toContain("real engram ids from the memory repo");
     expect(CONTEMPLATION_PROTOCOL).toContain("NOT valid sourceIds");
     expect(CONTEMPLATION_PROTOCOL).toContain("rejected by the citation gate");
-    // 2026-08-17:资源申报(「依据」区)+ 本地执行边界 + 回答在执行现场生产
+    // 2026-08-17:资源申报(「依据」区)+ 受控联网边界 + 回答在执行现场生产
     expect(CONTEMPLATION_PROTOCOL).toContain("resourcesUsed");
-    expect(CONTEMPLATION_PROTOCOL).toContain("LOCAL ONLY");
+    expect(CONTEMPLATION_PROTOCOL).toContain("Web research");
+    expect(CONTEMPLATION_PROTOCOL).toContain("never send raw memory content");
     expect(CONTEMPLATION_PROTOCOL).toContain("ANSWER —");
-    // 联网线已移除:协议不含 WebSearch
-    expect(CONTEMPLATION_PROTOCOL).not.toContain("WebSearch");
+    // web 申报面(依据区第四面):{query, purpose}
+    expect(CONTEMPLATION_PROTOCOL).toContain("\"web\":");
   });
 
   it("buildTask 携带 resourceHints", () => {

@@ -128,9 +128,9 @@ describe("执行语义", () => {
     expect(r.status).toBe("thinking");
     expect(r.task.protocol).toContain("CONTEMPLATION PROTOCOL");
     expect(r.task.protocol).toContain("ponder_report");
-    expect(r.task.protocol).toContain("LOCAL ONLY");
-    // 联网线已移除:协议不含 WebSearch 字样
-    expect(r.task.protocol).not.toContain("WebSearch");
+    // 2026-08-17 受控联网:协议允许只读联网检索 + 隐私边界 + web 申报面
+    expect(r.task.protocol).toContain("Web research");
+    expect(r.task.protocol).toContain("never send raw memory content");
     // 条目 thinking 中再 run → LOCK_BUSY
     await expect(registry.get("ponder_run")!.execute({ id: created.id }, ctx)).rejects.toThrow(/深思/);
   });

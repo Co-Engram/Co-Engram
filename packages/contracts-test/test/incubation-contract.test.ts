@@ -62,9 +62,10 @@ describe("contemplation contract: claude-code-mcp ≡ openclaw-plugin", () => {
     expect(c.CONTEMPLATION_PROTOCOL).toBeDefined();
     expect(c.buildProtocol).toBeDefined();
     const protocol = (c as unknown as { buildProtocol: () => string }).buildProtocol();
-    // 2026-08-17:纯本地执行(无联网开关分支),回答与资源申报入契约
+    // 2026-08-17:受控联网(隐私边界固化)+ MCP/技能/突触资源 + web 申报面
     expect(protocol).toContain("CONTEMPLATION PROTOCOL");
-    expect(protocol).toContain("LOCAL ONLY");
+    expect(protocol).toContain("Web research");
+    expect(protocol).toContain("never send raw memory content");
     expect(protocol).toContain("resourcesUsed");
     expect(protocol).toContain("ponder_report");
   });
@@ -84,9 +85,10 @@ describe("contemplation contract: claude-code-mcp ≡ openclaw-plugin", () => {
     const c = core as unknown as Record<string, unknown>;
     expect(c.createHeadlessExecutor).toBeDefined();
     expect(c.READONLY_ALLOWED_TOOLS).toBeDefined();
-    // 纯本地白名单:不含联网与写工具
+    // 只读白名单:受控联网(WebSearch/WebFetch)放行,写工具一律不给
     const allowed = (c.READONLY_ALLOWED_TOOLS as readonly string[]).join(",");
-    expect(allowed).not.toContain("WebSearch");
+    expect(allowed).toContain("WebSearch");
+    expect(allowed).toContain("WebFetch");
     expect(allowed).not.toContain("engram_create");
   });
 });

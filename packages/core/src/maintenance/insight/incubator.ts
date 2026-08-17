@@ -49,6 +49,7 @@ import type {
   NightThinkingTask,
   NightThinkingExecutor,
   NightThinkingResourcesUsed,
+  WebResourceUsed,
 } from "./types.js";
 import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
 import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
@@ -804,7 +805,7 @@ export class Incubator {
     return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: finalEntry };
   }
 
-  /** 资源申报清洗:engram id 逐个试读(repo 存在才留);skills/logs 去空去重 */
+  /** 资源申报清洗:engram id 逐个试读(repo 存在才留);skills/logs 去空去重;web 按 query 清洗去重 */
   private sanitizeResources(
     r: NightThinkingResourcesUsed | undefined,
   ): NightThinkingResourcesUsed | undefined {
@@ -820,8 +821,22 @@ export class Incubator {
     });
     const skills = [...new Set((r.skills ?? []).filter((s): s is string => typeof s === "string" && !!s))];
     const logs = [...new Set((r.logs ?? []).filter((l): l is string => typeof l === "string" && !!l))];
-    if (engrams.length === 0 && skills.length === 0 && logs.length === 0) return undefined;
-    return { engrams, skills, logs };
+    const webMap = new Map<string, WebResourceUsed>();
+    for (const w of Array.isArray(r.web) ? r.web : []) {
+      if (!w || typeof w.query !== "string" || !w.query.trim()) continue;
+      const key = w.query.trim().slice(0, 300);
+      if (!webMap.has(key)) webMap.set(key, w); // 同报告内重复申报:保留首条
+    }
+    const web = [...webMap.values()].map((w) => ({
+      query: w.query.trim().slice(0, 300),
+      ...(typeof w.purpose === "string" && w.purpose.trim()
+        ? { purpose: w.purpose.trim().slice(0, 300) }
+        : {}),
+    }));
+    if (engrams.length === 0 && skills.length === 0 && logs.length === 0 && web.length === 0) {
+      return undefined;
+    }
+    return { engrams, skills, logs, ...(web.length ? { web } : {}) };
   }
 
   /** 由 sourceIds 构造最小校验子图(节点来自 repo;不存在者由引用闭合拒绝) */

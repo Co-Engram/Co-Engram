@@ -289,7 +289,7 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
     expect(entry.timeline[0]!.answer).toBe("兜底综合回答");
   });
 
-  it("resourcesUsed:真实 engram id 保留,编造 id 剔除;skills/logs 去空", async () => {
+  it("resourcesUsed:真实 engram id 保留,编造 id 剔除;skills/logs 去空;web 面按 query 清洗去重", async () => {
     const a = makeSource("来源E");
     const e = incubator.create({ question: "依据问题?" });
     await incubator.report({
@@ -299,6 +299,12 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
           engrams: [a.id, "编造/id-不存在"],
           skills: ["图谱页配置", ""],
           logs: [join(tmpDir, ".co-engram", "audit.jsonl")],
+          web: [
+            { query: "agent os benchmark 2026", purpose: "外部基准取证" },
+            { query: "agent os benchmark 2026", purpose: "重复项" },
+            { query: "  " },
+            { query: 42 as unknown as string },
+          ],
         },
       }),
       trigger: "manual", actor: "test",
@@ -307,6 +313,8 @@ describe("report 写回(M1 answer / 资源申报 / 循环检测 / run_done 审�
     expect(ru.engrams).toEqual([a.id]);
     expect(ru.skills).toEqual(["图谱页配置"]);
     expect(ru.logs).toHaveLength(1);
+    // web 面:去重(按 query)、剔空/非字符串 query;purpose 保留
+    expect(ru.web).toEqual([{ query: "agent os benchmark 2026", purpose: "外部基准取证" }]);
   });
 
   it("全假 resourcesUsed → 清洗为空,不落 timeline 字段", async () => {

@@ -243,10 +243,17 @@ export interface NightThinkingTraceStep {
  * 申报实际读取的记忆 / 使用的技能 / 读取的日志。engram id 走引用闭合校验
  * (不真实即拒)——依据不是 agent 的自我表述,而是过闸的可核验清单。
  */
+/** 联网检索申报(受控联网线,2026-08-17):query=搜索词或 URL,purpose=回答了什么 */
+export interface WebResourceUsed {
+  readonly query: string;
+  readonly purpose?: string;
+}
+
 export interface NightThinkingResourcesUsed {
   readonly engrams: readonly string[];
   readonly skills: readonly string[];
   readonly logs: readonly string[];
+  readonly web?: readonly WebResourceUsed[];
 }
 
 /** 沉思任务包(core 只定义契约,不绑宿主;纯本地只读执行) */

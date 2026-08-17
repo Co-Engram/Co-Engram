@@ -7,10 +7,11 @@
  * 协议原文,两份复制品漏改一份即 L2 静默失效)。
  *
  * 隐私与安全硬约束:
- * - allowedTools 只读白名单(engram 检索/技能发现/本地 Read),不含任何写
- *   工具,不含 WebSearch/WebFetch(2026-08-17 联网线整体移除,纯本地执行)
+ * - allowedTools 只读白名单(engram 检索/技能发现/本地 Read/WebSearch/
+ *   WebFetch 受控联网检索),不含任何写工具
  * - prompt 只携带种子摘要级内容(task.seedDigests 由 core 脱敏组装,不带
- *   记忆原文)
+ *   记忆原文);隐私边界固化在 prompt 与协议中——记忆原文不出域,仅问题与
+ *   摘要级内容可随检索出域
  *
  * @module @co-engram/core/maintenance/insight
  */
@@ -24,16 +25,19 @@ import type {
   NightThinkingTask,
 } from "./types.js";
 
-/** 只读白名单:检索/读取/技能发现;任何写工具(engram_create 等)一律不给 */
+/** 只读白名单:检索/读取/技能发现/受控联网检索;任何写工具(engram_create 等)一律不给 */
 export const READONLY_ALLOWED_TOOLS: readonly string[] = [
   "mcp__co-engram__engram_search",
   "mcp__co-engram__engram_get",
   "mcp__co-engram__engram_list",
   "mcp__co-engram__engram_list_paths",
+  "mcp__co-engram__engram_audit_query",
   "mcp__co-engram__skill_list",
   "mcp__co-engram__skill_get",
   "Skill",
   "Read",
+  "WebSearch",
+  "WebFetch",
 ];
 
 export interface HeadlessExecutorOptions {
@@ -41,6 +45,14 @@ export interface HeadlessExecutorOptions {
   readonly claudeBin?: string;
   readonly maxTurns?: number;
   readonly timeoutMs?: number;
+  /**
+   * 额外放行的只读 MCP server 名单(按 server 粒度,如 ["codegraph"])。
+   * 协议已把「宿主可用 MCP 工具」纳入沉思资源;agent 模式(现场会话)天然
+   * 可达全部 MCP,headless 无头会话从严:默认仅白名单内工具,宿主可经此
+   * 配置显式放行确信只读的 MCP server(拼 "mcp__<server>" 允许项)。
+   * 不做 mcp__* 通配 —— 会连 co-engram 自身的写工具一并放进无头会话。
+   */
+  readonly readOnlyMcpServers?: readonly string[];
   /** cwd(默认 process.cwd()) */
   readonly cwd?: string;
   /**
@@ -89,7 +101,12 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
       ? [`## Previous thinking sessions (deepen or pivot, do not repeat)`, task.dreamHistory, ``]
       : []),
     `## Execution boundary`,
-    `- All execution is LOCAL and READ-ONLY: do not make any network call.`,
+    `- The memory repo and local files are READ-ONLY: do not write or modify anything.`,
+    `- Web research (WebSearch / WebFetch) is ALLOWED as read-only external`,
+    `  evidence — use it when the question involves external facts (industry`,
+    `  trends, competitors, benchmarks, latest versions).`,
+    `- PRIVACY: never send raw memory content to external services; only the`,
+    `  question itself and summary-level content may leave the machine.`,
     ``,
     task.protocol.replace(
       "call the tool `ponder_report` exactly once",
@@ -103,15 +120,22 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
 export function buildHeadlessArgs(
   task: NightThinkingTask,
   maxTurns: number,
+  readOnlyMcpServers: readonly string[] = [],
 ): readonly string[] {
   void task;
+  const allowed = [
+    ...READONLY_ALLOWED_TOOLS,
+    ...readOnlyMcpServers
+      .filter((s) => typeof s === "string" && s.trim())
+      .map((s) => `mcp__${s.trim()}`),
+  ];
   return [
     "--output-format",
     "json",
     "--max-turns",
     String(maxTurns),
     "--allowedTools",
-    READONLY_ALLOWED_TOOLS.join(","),
+    allowed.join(","),
   ];
 }
 
@@ -165,10 +189,11 @@ export function createHeadlessExecutor(
   const maxTurns = opts.maxTurns ?? DEFAULT_MAX_TURNS;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const run = opts.spawnFn ?? defaultSpawn;
+  const readOnlyMcpServers = opts.readOnlyMcpServers ?? [];
 
   return {
     async execute(task: NightThinkingTask): Promise<NightThinkingReport> {
-      const flags = buildHeadlessArgs(task, maxTurns);
+      const flags = buildHeadlessArgs(task, maxTurns, readOnlyMcpServers);
       const prompt = buildHeadlessPrompt(task);
       const { stdout, code, stderr } = await Promise.race([
         run(bin, ["-p", prompt, ...flags]),

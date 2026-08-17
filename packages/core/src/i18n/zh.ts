@@ -325,7 +325,7 @@ export const zh = {
 何时不调用:无不一致;看具体 engram 用 engram_get。
 
 返回:时间戳、计数、自动修复数、待审核数、issues[](kind/path/message/autoFixed)。`,
-  "tool.ponder_create.agent": `提出一个沉思问题:围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志与技能库,纯本地只读执行,深思一次出一份报告(回答 + 洞察提案)。
+  "tool.ponder_create.agent": `提出一个沉思问题:围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志、技能库、联网检索与宿主可用的 MCP 工具,本地只读不写,深思一次出一份报告(回答 + 洞察提案)。
 
 何时调用:
 - 用户说"帮我沉思 X""深想一下这个问题""围绕 X 做一次深度思考"等沉思意图
@@ -950,7 +950,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.insight.criticTip": "独立 critic 评审分(机器主观初值,非客观真值)",
   "viewer.proposals.insight.incubationTip": "源自沉思",
   "viewer.contemplation.title": "沉思",
-  "viewer.contemplation.intro": "提出一个问题，围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志与技能库，深思一次、出一份报告。全程本地只读执行。",
+  "viewer.contemplation.intro": "提出一个问题，围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志、技能库、联网检索与可用的 MCP 工具，深思一次、出一份报告。记忆库全程只读，联网仅限只读检索（记忆原文不出域）。",
   "viewer.contemplation.createTitle": "想清楚什么？",
   "viewer.contemplation.questionPlaceholder": "想清楚什么？描述你的问题，越具体越好……",
   "viewer.contemplation.seedPlaceholder": "重点记忆 id，可选（留空自动全库检索）",
@@ -994,6 +994,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.contemplation.evidence.engrams": "读取的记忆（${n}，点击打开）",
   "viewer.contemplation.evidence.skills": "使用的技能（${n}）",
   "viewer.contemplation.evidence.logs": "读取的日志（${n}）",
+  "viewer.contemplation.evidence.web": "联网检索（${n}）",
   "viewer.contemplation.diagnosis.drafts": "草稿 ${n} 条",
   "viewer.contemplation.diagnosis.dup": "重复剔除 ${n}",
   "viewer.contemplation.diagnosis.validate": "引用校验拒 ${n}",
@@ -1007,7 +1008,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.insightStats.acceptance": "采纳率 ${v}",
   "viewer.maintenance.insightStats.laterUse": "后续使用率 ${v}",
   "viewer.help.contemplationTitle": "沉思（Contemplation）",
-  "viewer.help.contemplationDesc": "<strong>沉思</strong>：在「沉思」页提出一个问题，系统围绕它做一次<strong>全资源盘点式深度思考</strong>——调用全部记忆图谱、行为日志与技能库，纯本地只读执行，深思一次出一份报告。",
+  "viewer.help.contemplationDesc": "<strong>沉思</strong>：在「沉思」页提出一个问题，系统围绕它做一次<strong>全资源盘点式深度思考</strong>——调用全部记忆图谱、行为日志、技能库、联网检索与可用的 MCP 工具，记忆库全程只读、记忆原文不出域，深思一次出一份报告。",
   "viewer.help.contemplation.pace": "提问即深思：提交后立即开始（也可在对话里直接说「帮我沉思这个问题」）；可能耗时较久，可离开页面，完成后自动出报告。",
   "viewer.help.contemplation.answer": "报告以<strong>回答</strong>为主体；洞察以提案呈现，审批后才落为记忆；计划、轨迹与拒因在「过程」「诊断」折叠区完全透明。",
   "viewer.help.contemplation.rethink": "对已答条目可「再思一次」——回灌全部过往深思史重新盘点；「依据」按钮展示本次实际读取的记忆、使用的技能与日志。",

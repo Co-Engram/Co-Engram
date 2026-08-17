@@ -6,8 +6,10 @@
  * 无 agent runtime 时使用 —— 不与 L2 并存竞争预算。
  *
  * 沉思定位:围绕一个问题做一次全资源盘点式深度思考——调用全部记忆图谱、
- * 行为日志与技能库,纯本地只读执行,深思一次出一份报告(回答 + 洞察提案 +
- * 过程 + 资源申报)。
+ * 行为日志、技能库、受控联网检索与宿主可用的 MCP 工具,深思一次出一份
+ * 报告(回答 + 洞察提案 + 过程 + 资源申报)。本地记忆仓库只读不写;联网
+ * 仅限只读检索(问题与摘要级内容可出域,记忆原文不出域,隐私边界固化在
+ * 协议里)。
  *
  * @module @co-engram/core/maintenance/insight
  */
@@ -56,25 +58,52 @@ export function collectResourceHints(dataRoot: string): string[] {
  */
 export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
 1. CAPABILITY INVENTORY — enumerate your available read-only capabilities
-   (installed skills, engram_search, repository reading, local file Read).
+   (installed skills — both co-engram skill imprints and host-runtime
+   skills; engram_search; repository reading; local file Read; any
+   web search / fetch tools; and any other MCP tools your host exposes
+   beyond co-engram's own).
 2. RESOURCE MANDATE — mine ALL available resources before planning:
    - Full memory graph: engram_search from multiple angles (keywords,
      synonyms, upstream/downstream concepts); survey engram_list_paths.
      Do NOT limit yourself to the seed digests.
+   - Synapse graph: for high-value hits, follow their synapses (engram_get
+     with tier="synapses") to pull in structurally related memories —
+     extends isolated hits into an evidence web (extends / derives_from /
+     contradicts links often surface what plain search misses).
    - Behavioral logs: paths in task.resourceHints are local log/state files
      you may Read; ground improvement-type questions in real usage evidence
-     (retrieval counts, failed uses).
-   - Installed skills: enumerate via skill_list; read relevant ones via
-     skill_get and apply their methodology.
+     (retrieval counts, failed uses). For "how did this memory come to be /
+     who reinforced or contradicted it" questions, use engram_audit_query.
+   - Skills: enumerate co-engram imprints via skill_list; read the relevant
+     ones via skill_get and APPLY their methodology. Their utility stats
+     (utility / invocationCount / retentionStage) are themselves behavioral
+     evidence of whether the toolchain is being used effectively. Also
+     inventory host-runtime skills (research / structured-thinking /
+     analysis) and apply one when the question is analysis-heavy. Record
+     which skill you applied in the trace.
+   - Web research: when the host provides search/fetch tools and the
+     question involves external facts (industry trends, competitor moves,
+     benchmarks, latest versions), search the web to ground the answer in
+     current external evidence instead of memory-only speculation.
+   - MCP tools: inventory the other MCP servers connected to your host
+     (code search / code graphs, document readers, data APIs, ...) and use
+     their read-only capabilities as evidence sources when relevant —
+     e.g. a code-graph MCP to verify claims against the actual codebase.
+     Prefer calls that cannot mutate external state; record which MCP tool
+     served which step in the trace.
 3. PLAN — decide the steps: what to examine, which capability for each step,
    what question each step answers. Keep it small (3-6 steps).
 4. EXECUTE — run the plan with READ-ONLY actions only. Record what you did
-   and what you found at each step. Do NOT write or modify anything.
-   LOCAL ONLY: do not make any network call.
+   and what you found at each step. Do NOT write or modify anything in the
+   memory repo or local files. Web research (search engines, URL fetch) is
+   ALLOWED as a read-only action when the host provides such tools.
+   PRIVACY: never send raw memory content to external services; only the
+   question itself and summary-level content may leave the machine.
 5. ANSWER — write the answer to the question yourself, grounded in the
    evidence you collected during EXECUTE. This is the primary deliverable:
    direct, specific, and in the same language as the question. Do not pad
-   with generalities — cite which memories / logs / skills support each claim.
+   with generalities — cite which memories / logs / skills / web sources
+   support each claim.
    The answer text MUST be delivered as the "answer" string field of the
    report JSON in step 6 — a report without a non-empty "answer" is
    considered incomplete.
@@ -86,7 +115,9 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
      "trace": [ {"step": "...", "action": "...", "detail": "..."} ],
      "resourcesUsed": { "engrams": [<real ids of memories you actually read>],
        "skills": [<skill names you actually used>],
-       "logs": [<paths you actually read>] } } }
+       "logs": [<paths you actually read>],
+       "web": [{"query": "<search query or URL>",
+         "purpose": "<what question it answered>"}] } } }
    Each insight draft: { "type": "theme|lesson|analogy|hypothesis", "title",
    "summary", "content", "sourceIds": [...], "domainTags": [...], "reason",
    "aar": {...} (lesson only) }. Insights are captured immediately — do not
@@ -102,7 +133,7 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    actually read. Insights with empty, invented, or non-engram sourceIds are
    rejected by the citation gate before review.`;
 
-/** 组装协议文本(2026-08-17 起纯本地执行,无联网开关) */
+/** 组装协议文本(2026-08-17 起受控联网:只读检索允许,隐私边界固化;无开关) */
 export function buildProtocol(): string {
   return CONTEMPLATION_PROTOCOL;
 }

@@ -332,7 +332,7 @@ WHEN TO CALL:
 WHEN NOT TO CALL: no inconsistency; for a specific engram use engram_get.
 
 RETURNS: timestamps, counts, autoFixesApplied, pendingManualReview, issues[] (kind/path/message/autoFixed).`,
-  "tool.ponder_create.agent": `Ask a contemplation question: one full-resource-inventory deep think around it — the entire memory graph, behavioral logs and skill library, fully local and read-only, one report per run (answer + insight proposals).
+  "tool.ponder_create.agent": `Ask a contemplation question: one full-resource-inventory deep think around it — memory graph, behavioral logs, skills, web research and MCP tools; the memory repo stays read-only, one report per run (answer + insight proposals).
 
 WHEN TO CALL:
 - The user says "think this through for me" / "deep-dive this question" / "contemplate X"
@@ -960,7 +960,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.insight.criticTip": "Independent critic score (machine-subjective initial value, not ground truth)",
   "viewer.proposals.insight.incubationTip": "From a contemplation",
   "viewer.contemplation.title": "Contemplation",
-  "viewer.contemplation.intro": "Ask a question and think it through once with a full resource inventory — the entire memory graph, behavioral logs and skill library. One report per run. Fully local and read-only.",
+  "viewer.contemplation.intro": "Ask a question and think it through once with a full resource inventory — the entire memory graph, behavioral logs, skill library, web research and available MCP tools. One report per run. The memory repo stays read-only; web research is read-only and never leaks raw memory content.",
   "viewer.contemplation.createTitle": "What would you like to think through?",
   "viewer.contemplation.questionPlaceholder": "What would you like to think through? Describe your question — the more specific, the better…",
   "viewer.contemplation.seedPlaceholder": "Focus memory ids, optional (blank = full-library search)",
@@ -1004,6 +1004,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.contemplation.evidence.engrams": "Memories read (${n}, click to open)",
   "viewer.contemplation.evidence.skills": "Skills used (${n})",
   "viewer.contemplation.evidence.logs": "Logs read (${n})",
+  "viewer.contemplation.evidence.web": "Web research (${n})",
   "viewer.contemplation.diagnosis.drafts": "${n} drafts",
   "viewer.contemplation.diagnosis.dup": "${n} duplicates vetoed",
   "viewer.contemplation.diagnosis.validate": "${n} rejected by citation gate",
@@ -1017,7 +1018,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.insightStats.acceptance": "Acceptance ${v}",
   "viewer.maintenance.insightStats.laterUse": "Later-use ${v}",
   "viewer.help.contemplationTitle": "Contemplation",
-  "viewer.help.contemplationDesc": "<strong>Contemplation</strong>: ask a question on the Contemplation page; the system does one <strong>full-resource-inventory deep think</strong> around it — the entire memory graph, behavioral logs and skill library, fully local and read-only, one report per run.",
+  "viewer.help.contemplationDesc": "<strong>Contemplation</strong>: ask a question on the Contemplation page; the system does one <strong>full-resource-inventory deep think</strong> around it — the entire memory graph, behavioral logs, skill library, web research and available MCP tools; the memory repo stays read-only and raw memory content never leaves the machine, one report per run.",
   "viewer.help.contemplation.pace": "Asking starts the think immediately (you can also just say \"help me think this through\" in a chat); it may take a while — leave the page freely, the report appears when done.",
   "viewer.help.contemplation.answer": "The report is anchored by the <strong>answer</strong>; insights surface as proposals and land as memories only after approval; plan, trace and reject reasons are fully transparent in the Process/Diagnosis folds.",
   "viewer.help.contemplation.rethink": "Answered entries can be re-thought (\"Think again\" feeds back all previous sessions); the Evidence button shows the memories read, skills used and logs touched this run.",
