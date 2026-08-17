@@ -92,15 +92,17 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const governanceTabs = [
     ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip"), true],
     ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
-    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), false],
-    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), false],
     ["incubations", t(language, "viewer.tab.incubations") + `<sup class="tab-exp">${t(language, "viewer.tab.experimentalSuffix")}</sup>`, t(language, "viewer.tab.incubations.tip"), false],
   ] as const;
 
-  // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)
+  // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)。
+  // 2026-08:审计/回收站按用户要求从治理区移到左栏底部(与合并/健康同为图标入口,
+  // 图标复用 DEMO 定稿 i-clock / i-trash)
   const adminTabs = [
     ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip"), "i-merge"],
     ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip"), "i-pulse"],
+    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), "i-clock"],
+    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), "i-trash"],
     ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip"), "i-gear"],
     ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip"), "i-help"],
   ] as const;
@@ -128,6 +130,8 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <symbol id="i-pulse" viewBox="0 0 16 16"><path d="M1.5 8h3L6.5 4l2.5 8 1.5-4h3"/></symbol>
     <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M12.5 3.5l-1.4 1.4M4.9 11.1l-1.4 1.4"/></symbol>
     <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.3 6.3A1.8 1.8 0 1 1 8 8.7v.8"/><circle cx="8" cy="11.4" r="0.4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2.2 1.5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></symbol>
   </svg>`;
 
   return `<!DOCTYPE html>
