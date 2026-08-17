@@ -1,18 +1,26 @@
 /**
- * 夜思孵化器(spec §四)—— incubations.json 侧车 + Dormio 协议 + 双级执行。
+ * 沉思孵化器(2026-08-17 重设计)—— incubations.json 侧车 + 固化协议 + 双级执行。
+ *
+ * 沉思定位:围绕一个问题做一次全资源盘点式深度思考(记忆图谱 + 行为日志 +
+ * 技能库,纯本地只读),深思一次出一份报告。状态机三态:queued → thinking →
+ * done;不区分第几夜(timeline 内部保留 session 序号供提案实体 id 连续性,
+ * UI 按时间戳呈现历史)。
  *
  * 设计要点:
- * - **从 runRem 解耦**:REM 只是调度来源之一;即时触发(对话/viewer/CLI)与
- *   独立日调度(light tick,锚点时刻制每日一轮)都是独立调用方
+ * - **从 runRem 解耦**:REM 只是消费方之一(queued 条目供 REM 灵感合并种子);
+ *   即时触发(对话/viewer)是独立调用方,无排程
  * - **incubations.json 持锁写**:与 maintenance-state 同款模式,仅 processLock
  *   holder 落盘,防多进程 lost-update
- * - **in-flight 原子标记**:跨进程互斥(REM 进程/即时触发/CLI 共用),TTL 30min
- *   过期自动回收,防 rounds 双计与梦境史互相覆盖
- * - **incubation_report 是 L2 唯一写回路径**:机械校验 + 独立 critic →
- *   rem-insight 提案(entityId 纳入轮次);捕获即时成提案,不等不攒
- * - **回灌迭代**:每轮 prompt 携带完整梦境史;循环检测(Jaccard ≥ 0.65 本轮
- *   作废;连续 2 轮全撞 → paused「孵化空间已充分探索」);默认 5 轮上限,
- *   无 accept 到限 → paused + 提示用户裁决
+ * - **thinking 原子标记**:跨进程互斥,TTL 30min 过期回收(跑过→done,未跑→queued)
+ * - **ponder_report 是 L2 唯一写回路径**:机械校验 + 独立 critic → rem-insight
+ *   提案(entityId 纳入 session 序号);捕获即时成提案,不等不攒
+ * - **回答必出**:L2 的 answer 由执行现场生产(agent 手握全部盘点上下文);
+ *   缺省时综合层兜底(L1 路径),失败记 answerError,不拼接伪回答
+ * - **资源申报**:L2 申报 resourcesUsed(记忆/技能/日志),engram id 逐个试读
+ *   清洗 —— 编造 id 不进「依据」区
+ * - **条目上限 50**(create 拒绝并列出最老 10 条已答条目引导删除,不自动清理
+ *   —— 删除属用户裁决);深思史回灌上限 10 次(prompt 长度保护)
+ * - **审计**:contemplation_create / run_start / run_done / run_fail / delete
  *
  * @module @co-engram/core/maintenance/insight
  */
@@ -33,7 +41,6 @@ import {
   collectSeedDigests,
   buildProtocol,
   synthesizeAnswerDraft,
-  synthesizeFinalAnswer,
   NO_SURVIVOR_MARKER,
 } from "./night-thinking.js";
 import type {
@@ -41,50 +48,41 @@ import type {
   NightThinkingReport,
   NightThinkingTask,
   NightThinkingExecutor,
+  NightThinkingResourcesUsed,
 } from "./types.js";
-import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS, SCHEDULE_RE } from "./types.js";
+import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
 import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
 
-/** 孵化条目状态:lifecycle + in-flight 瞬态(崩溃后 TTL 回收) */
-export type IncubationStatus =
-  | "active"
-  | "in-flight"
-  | "suggested-resolve"
-  | "resolved"
-  | "paused";
+/** 条目状态:queued(已提问)→ thinking(深思中,TTL 崩溃回收)→ done(已出报告) */
+export type IncubationStatus = "queued" | "thinking" | "done";
 
-/** 夜思时间线单夜记录(同一时间线,trigger 区分手动/调度) */
+/** 深思时间线单次记录(同一时间线,内部 round 序号供提案实体 id;UI 按时间戳呈现) */
 export interface IncubationTimelineEvent {
   readonly at: string;
   readonly trigger: "manual" | "scheduled";
   readonly round: number;
-  /** 本夜洞察摘要(捕获即记;accept/dismiss 状态经提案实时解析) */
+  /** 本次洞察摘要(捕获即记;accept/dismiss 状态经提案实时解析) */
   readonly summaries: readonly string[];
   readonly proposalEntityIds: readonly string[];
-  /** 本夜外部调用数(审计留痕计数) */
-  readonly externalCallCount: number;
-  /** 空转诊断:各关计数(spec §三) */
+  /** 空转诊断:各关计数 */
   readonly diagnosis?: {
     readonly drafts: number;
     readonly dupVetoed: number;
     readonly validateRejected: number;
     readonly criticRejected: number;
     readonly llmClientMissing: boolean;
-    /**
-     * 逐条拒绝原因(title 前缀 + reason;validate/critic 两关)。
-     * 2026-08-16 机制缺陷修复:只有计数无法区分「引用闭合拒」的具体成因
-     * (no sourceIds / 不在库 / 非 engram 来源),事后诊断不可达。
-     */
+    /** 逐条拒绝原因(title 前缀 + reason;validate/critic 两关) */
     readonly rejectReasons?: readonly string[];
   };
-  /**
-   * 执行层轨迹摘要(step: action — detail,每条截断,上限保护)。
-   * 过程可观测:零存活轮里执行层的实质工作(资源盘点/调研)不再蒸发。
-   */
+  /** 执行层轨迹摘要(step: action — detail,每条截断,上限保护) */
   readonly trace?: readonly string[];
-  /** 本轮阶段性回答草稿(LLM 真实综合;失败则记 answerDraftError,无降级拼接) */
-  readonly answerDraft?: string;
-  readonly answerDraftError?: string;
+  /** 思考计划摘要(step — capability,上限保护;报告「过程」区) */
+  readonly plan?: readonly string[];
+  /** 资源使用申报(「依据」区数据源;engram id 已过试读清洗) */
+  readonly resourcesUsed?: NightThinkingResourcesUsed;
+  /** 本次深思的回答(L2 执行现场生产;L1 由综合层兜底补写) */
+  readonly answer?: string;
+  readonly answerError?: string;
   readonly note?: string;
 }
 
@@ -93,24 +91,19 @@ export interface IncubationEntry {
   readonly question: string;
   readonly seedEngramIds: readonly string[];
   readonly status: IncubationStatus;
+  /** 内部 session 序号(insightEntityId 依赖;UI 不呈现「第几次」) */
   readonly rounds: number;
-  /** 联网调研 opt-in(默认 false;GUI 明示) */
-  readonly webResearchOptIn: boolean;
-  /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00" */
-  readonly schedule?: string;
   readonly createdAt: string;
-  readonly lastHatchedAt: string | null;
+  readonly lastRunAt: string | null;
   readonly timeline: readonly IncubationTimelineEvent[];
-  /** in-flight 瞬态字段(TTL 30min 回收) */
-  readonly inFlightAt?: string;
-  readonly inFlightBy?: string;
-  /** 收束产物(incubation_conclude;幂等可重生成) */
-  readonly finalAnswer?: string;
-  readonly concludedAt?: string;
-  /** 连续全撞循环计数(诊断信号保留;单次执行语义下不再驱动 paused) */
+  /** 最新一次深思的回答(= timeline 最后一项的 answer) */
+  readonly answer?: string;
+  readonly answerError?: string;
+  /** thinking 瞬态字段(TTL 30min 回收) */
+  readonly thinkingAt?: string;
+  readonly thinkingBy?: string;
+  /** 连续全撞循环计数(诊断信号) */
   readonly consecutiveVetoed?: number;
-  /** resolve(false) 的显式续孵标记:期间 normalize 不做 suggested-resolve 自动翻转(用户裁决主权);新一轮 report 落盘时清除 */
-  readonly resumedAt?: string;
 }
 
 /** incubator 对 proposalEngine 的结构依赖 */
@@ -140,7 +133,7 @@ export interface IncubatorDeps {
   readonly dataRoot: string;
   /** L1 兜底 + critic 评审用 */
   readonly llmClient?: LlmClient;
-  /** L2 执行器(宿主注入);缺省降级 L1 */
+  /** L2 执行器(宿主注入);缺省走 L1(宿主无 agent runtime) */
   readonly executor?: NightThinkingExecutor;
   readonly processLock?: { readonly isHolder?: boolean };
   readonly auditLog?: {
@@ -156,20 +149,22 @@ export interface IncubatorDeps {
 
 const INCUBATIONS_FILE = "incubations.json";
 
+/** 条目硬上限:达限创建被拒,列出最老 10 条已答条目引导删除(不自动清理) */
+const MAX_ENTRIES = 50;
+/** 创建接近上限时 UI 预警的阈值 */
+const ENTRY_WARN_THRESHOLD = 45;
+/** 深思史回灌上限(prompt 长度保护;更早历史保留可见,不删) */
+const HISTORY_CAP = 10;
+
 function incubationsPath(dataRoot: string): string {
   return join(dataRoot, ".co-engram", INCUBATIONS_FILE);
 }
 
 /**
  * 种子空兜底(缺陷 D,2026-08-17):seedEngramIds 为空时用问题文本对全库做
- * FTS 检索(buildFtsIndex/searchFts,与 engram_search 同源底层)取 top-K
- * active 记忆作为运行时种子。
- *
- * 此前种子为空 → 任务包零记忆上下文:L2 靠协议自觉检索尚可救,L1(无工具
- * 单次调用)的草稿必然 "no sourceIds" 被引用闭合全灭(2026-08-16 重放实测
- * 7/7 全灭)。兜底让每一轮至少携带可引用的真实 engram。检索命中为零(库中
- * 确无相关记忆)时返回空 —— 此时 L1 仍会全灭,但拒因/轨迹可见,综合层会
- * 如实归因而非误导。
+ * FTS 检索取摘要级种子(用户没指定重点时给 L2 一个起点;协议仍要求全图谱
+ * 盘点,种子只是提示不是边界)。索引不可用(损坏 / 测试 fake repo)时降级为
+ * 无种子,不阻塞执行。
  */
 function searchFallbackSeeds(
   repo: EngramRepository,
@@ -180,8 +175,6 @@ function searchFallbackSeeds(
   try {
     lines = collectDigestLines(repo).filter((l) => l.status === "active");
   } catch {
-    // 索引不可用(损坏 / 测试 fake repo):兜底 best-effort,失败降级为无
-    // 种子(回到旧行为),不阻塞轮次执行
     return [];
   }
   if (lines.length === 0) return [];
@@ -210,44 +203,6 @@ function searchFallbackSeeds(
 
 function parseAt(iso: string): number {
   return new Date(iso).getTime();
-}
-
-/** 解析 "HH:mm" → date 当日该时刻(本地时区);不合法值回落 00:00 */
-function anchorOn(date: Date, schedule: string): Date {
-  const m = SCHEDULE_RE.exec(schedule);
-  const h = m ? Number(m[1]) : 0;
-  const min = m ? Number(m[2]) : 0;
-  const d = new Date(date);
-  d.setHours(h, min, 0, 0);
-  return d;
-}
-
-/**
- * 下一个排程锚点(> lastHatchedAt ?? createdAt);仅 active 可调度(单次执行
- * 语义:跑完即 suggested-resolve 待裁决 → null;resolve(false) 回 active 后恢复)。
- *
- * `now` 不参与计算,仅与 `isDue` 签名对称;返回值可能落在过去(待补跑信号,
- * 由展示层判定)。
- */
-export function computeNextRunAt(entry: IncubationEntry, now: Date = new Date()): string | null {
-  if (entry.status !== "active") return null;
-  const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
-  // 最坏情形:last 恰在当日锚点后 → 次日锚点必 > last,两轮足够
-  for (let i = 0; i < 2; i += 1) {
-    const day = new Date(last);
-    day.setDate(day.getDate() + i);
-    const anchor = anchorOn(day, entry.schedule ?? "00:00");
-    if (anchor > last) return anchor.toISOString();
-  }
-  return null;
-}
-
-/** 锚点 due 判定(spec §四,红队修正 R4):now ≥ 今日锚点 && 今日锚点 > (last ?? createdAt) */
-export function isDue(entry: IncubationEntry, now: Date = new Date()): boolean {
-  if (entry.status !== "active") return false;
-  const last = new Date(entry.lastHatchedAt ?? entry.createdAt);
-  const anchor = anchorOn(now, entry.schedule ?? "00:00");
-  return now >= anchor && anchor > last;
 }
 
 /**
@@ -282,9 +237,8 @@ export class Incubator {
       return [];
     }
     if (!Array.isArray(parsed)) return [];
-    const nowMs = parseAt(this.now());
     return (parsed as IncubationEntry[])
-      .map((e) => this.normalize(e, nowMs))
+      .map((e) => this.normalize(e))
       .filter((e): e is IncubationEntry => e !== null);
   }
 
@@ -296,29 +250,89 @@ export class Incubator {
     writeFileSync(path, JSON.stringify(entries, null, 2) + "\n", "utf8");
   }
 
-  /** 状态归一化:in-flight 过期回收 + accept 后 suggested-resolve */
-  private normalize(e: IncubationEntry, nowMs: number): IncubationEntry | null {
+  /**
+   * 读时归一化(2026-08-17 重设计的迁移层,无迁移脚本):
+   * - 旧五态 → 三态:active(+rounds>0)/suggested-resolve/resolved/paused →
+   *   done;active(rounds=0)→ queued;in-flight → thinking(TTL 过期按
+   *   rounds 归 done/queued)
+   * - 旧字段丢弃:schedule / webResearchOptIn / resumedAt / concludedAt;
+   *   finalAnswer → answer 兜底;lastHatchedAt → lastRunAt;
+   *   inFlightAt/inFlightBy → thinkingAt/thinkingBy
+   * - timeline 旧事件:answerDraft → answer、answerDraftError → answerError
+   *   (历史深思的回答呈现兼容);externalCallCount 等联网线字段丢弃
+   */
+  private normalize(e: IncubationEntry): IncubationEntry | null {
     if (!e || typeof e.id !== "string" || typeof e.question !== "string") return null;
-    let out = e;
-    out = { ...out, schedule: out.schedule ?? "00:00" };
-    if (out.status === "in-flight") {
-      const at = out.inFlightAt ? parseAt(out.inFlightAt) : 0;
-      if (nowMs - at > INSIGHT_LIMITS.inFlightTtlMs) {
-        out = { ...out, status: "active", inFlightAt: undefined, inFlightBy: undefined };
+    const rounds = e.rounds ?? 0;
+    const raw = e as unknown as Record<string, unknown>;
+    const timeline = Array.isArray(e.timeline)
+      ? e.timeline.map((t) => {
+          const ev = t as Record<string, unknown>;
+          return {
+            ...t,
+            ...(typeof ev.answerDraft === "string" && ev.answer === undefined
+              ? { answer: ev.answerDraft }
+              : {}),
+            ...(typeof ev.answerDraftError === "string" && ev.answerError === undefined
+              ? { answerError: ev.answerDraftError }
+              : {}),
+          } as IncubationTimelineEvent;
+        })
+      : [];
+    const answer =
+      typeof e.answer === "string"
+        ? e.answer
+        : typeof raw.finalAnswer === "string"
+          ? (raw.finalAnswer as string)
+          : timeline.length
+            ? ([...timeline].reverse().find((t) => typeof t.answer === "string")?.answer as
+                | string
+                | undefined)
+            : undefined;
+    // 状态映射
+    let status: IncubationStatus;
+    const legacy = e.status as string;
+    if (legacy === "thinking" || legacy === "queued" || legacy === "done") {
+      status = legacy;
+    } else if (legacy === "in-flight") {
+      status = "thinking";
+    } else if (legacy === "resolved" || legacy === "paused" || legacy === "suggested-resolve") {
+      status = "done";
+    } else {
+      status = rounds > 0 ? "done" : "queued";
+    }
+    // thinking TTL 过期回收:跑过的回 done,没跑过的回 queued
+    const thinkingAt = (e.thinkingAt ?? (typeof raw.inFlightAt === "string" ? (raw.inFlightAt as string) : undefined)) as
+      | string
+      | undefined;
+    const thinkingBy = (e.thinkingBy ?? (typeof raw.inFlightBy === "string" ? (raw.inFlightBy as string) : undefined)) as
+      | string
+      | undefined;
+    if (status === "thinking" && thinkingAt) {
+      // 用注入时钟(与写入同源),防测试/模拟时钟与真实时钟混用导致瞬态被误回收
+      if (parseAt(this.now()) - parseAt(thinkingAt) > INSIGHT_LIMITS.inFlightTtlMs) {
+        status = rounds > 0 ? "done" : "queued";
       }
     }
-    // resolve 仪式(spec §四):accept 洞察 → suggested-resolve。
-    // resumedAt = 用户显式「继续孵化」(resolve false):自动翻转让位于用户
-    // 裁决;下一轮 report() 清除标记后建议重新武装(新一轮证据出现)。
-    if (out.status === "active" && out.rounds > 0 && !out.resumedAt) {
-      const hasAccepted = out.timeline.some((t) =>
-        t.proposalEntityIds.some(
-          (id) => this.deps.proposalEngine.findProposalByEntityId(id)?.status === "accepted",
-        ),
-      );
-      if (hasAccepted) out = { ...out, status: "suggested-resolve" };
-    }
-    return out;
+    const lastRunAt =
+      e.lastRunAt ??
+      (typeof raw.lastHatchedAt === "string" ? (raw.lastHatchedAt as string) : null);
+    return {
+      id: e.id,
+      question: e.question,
+      seedEngramIds: Array.isArray(e.seedEngramIds) ? e.seedEngramIds : [],
+      status,
+      rounds,
+      createdAt: e.createdAt ?? this.now(),
+      lastRunAt,
+      timeline,
+      ...(answer !== undefined ? { answer } : {}),
+      ...(e.answerError !== undefined ? { answerError: e.answerError } : {}),
+      ...(status === "thinking" && thinkingAt
+        ? { thinkingAt, ...(thinkingBy ? { thinkingBy } : {}) }
+        : {}),
+      ...(e.consecutiveVetoed !== undefined ? { consecutiveVetoed: e.consecutiveVetoed } : {}),
+    };
   }
 
   // ============================================================
@@ -328,26 +342,36 @@ export class Incubator {
   create(input: {
     readonly question: string;
     readonly seedEngramIds?: readonly string[];
-    readonly webResearchOptIn?: boolean;
-    readonly schedule?: string;
   }): IncubationEntry {
-    // 域层对称校验:与 updateSchedule 同一 SCHEDULE_RE,防工具层漏检脏值落盘
-    if (input.schedule !== undefined && !SCHEDULE_RE.test(input.schedule)) {
-      throw new Error(`invalid schedule "${input.schedule}" (expect HH:mm)`);
+    const entries = this.read();
+    if (entries.length >= MAX_ENTRIES) {
+      // 不自动清理:删除属用户裁决。列出最老 10 条已答条目引导删除。
+      const oldestDone = entries
+        .filter((e) => e.status === "done")
+        .sort((a, b) => parseAt(a.lastRunAt ?? a.createdAt) - parseAt(b.lastRunAt ?? b.createdAt))
+        .slice(0, 10)
+        .map((e) => `- ${e.id} · ${e.question.slice(0, 60)}`)
+        .join("\n");
+      throw new Error(
+        `contemplation limit reached (${entries.length}/${MAX_ENTRIES}) — delete oldest answered entries first. Oldest done entries:\n${oldestDone}`,
+      );
     }
     const entry: IncubationEntry = {
       id: `inc-${randomUUID().slice(0, 12)}`,
       question: input.question.trim(),
       seedEngramIds: [...(input.seedEngramIds ?? [])],
-      status: "active",
+      status: "queued",
       rounds: 0,
-      webResearchOptIn: input.webResearchOptIn ?? false,
-      schedule: input.schedule ?? "00:00",
       createdAt: this.now(),
-      lastHatchedAt: null,
+      lastRunAt: null,
       timeline: [],
     };
-    this.write([...this.read(), entry]);
+    this.write([...entries, entry]);
+    this.deps.auditLog?.append({
+      actor: "user",
+      action: "contemplation_create",
+      metadata: { id: entry.id, questionPreview: entry.question.slice(0, 120) },
+    });
     return entry;
   }
 
@@ -359,166 +383,81 @@ export class Incubator {
     return this.read().find((e) => e.id === id);
   }
 
-  /** resolve 仪式:answered=true → resolved(梦境链保留);false → 继续 active */
-  resolve(id: string, answered: boolean): IncubationEntry {
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    const updated: IncubationEntry = {
-      ...target,
-      status: answered ? "resolved" : "active",
-      // 显式续孵标记:answered=false 时用户拒绝 suggested-resolve 建议,
-      // normalize 的自动翻转让位于用户裁决,直到下一轮 report() 清除
-      ...(answered ? {} : { resumedAt: this.now() }),
-    };
-    this.write(entries.map((e) => (e.id === id ? updated : e)));
-    return updated;
-  }
-
-  /** 改写排程时刻(仅非 in-flight;SCHEDULE_RE 校验;同步读改写,无 await
-   *  窗口故无需写前重读(与 create/resolve/pause 同保护级别)) */
-  updateSchedule(id: string, schedule: string): IncubationEntry {
-    if (!SCHEDULE_RE.test(schedule)) {
-      throw new Error(`invalid schedule "${schedule}" (expect HH:mm)`);
-    }
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status === "in-flight") {
-      throw new Error(`incubation ${id} in-flight — update schedule after the round finishes`);
-    }
-    const updated: IncubationEntry = { ...target, schedule };
-    this.write(entries.map((e) => (e.id === id ? updated : e)));
-    return updated;
-  }
-
-  /** 收束:综合全部梦境史出最终回答,置 suggested-resolve(幂等,可重复收束) */
-  async conclude(id: string): Promise<IncubationEntry> {
-    if (!this.deps.llmClient) {
-      throw new Error("conclude unavailable: no llmClient injected");
-    }
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status === "in-flight") {
-      throw new Error(`incubation ${id} in-flight — conclude after the round finishes`);
-    }
-    const finalAnswer = await synthesizeFinalAnswer(
-      this.deps.llmClient,
-      target.question,
-      this.dreamHistoryFor(id),
-    );
-    // 写前重读合并(同 report() 模式):LLM await 窗口内的并发写不回滚;
-    // 若用户已把条目 resolve 成 resolved(或 paused),保留用户裁决,仅落 finalAnswer。
-    const fresh = this.read();
-    const freshIdx = fresh.findIndex((e) => e.id === id);
-    if (freshIdx === -1) throw new Error(`incubation ${id} not found`);
-    // await 窗口内复查:锚点到期/手动 run 可能已合法 acquireInFlight 拿锁开跑,
-    // 不复查会用开头快照整文件覆写,把 in-flight 态打回 suggested-resolve →
-    // 双轮并发 + 本轮 finalAnswer 随后被 report() 回滚。
-    if (fresh[freshIdx]!.status === "in-flight") {
-      throw new Error(`incubation ${id} in-flight — conclude after the round finishes`);
-    }
-    const freshStatus = fresh[freshIdx]!.status;
-    const status =
-      freshStatus === "resolved" || freshStatus === "paused" ? freshStatus : "suggested-resolve";
-    const updated: IncubationEntry = {
-      ...fresh[freshIdx]!,
-      finalAnswer,
-      concludedAt: this.now(),
-      status,
-    };
-    const next = [...fresh];
-    next[freshIdx] = updated;
-    this.deps.auditLog?.append({
-      actor: "user",
-      action: "incubation_conclude",
-      metadata: {
-        incubationId: id,
-        finalAnswerPreview: finalAnswer.slice(0, 200),
-      },
-    });
-    this.write(next);
-    return updated;
-  }
-
-  pause(id: string): IncubationEntry {
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    const updated: IncubationEntry = { ...target, status: "paused" };
-    this.write(entries.map((e) => (e.id === id ? updated : e)));
-    this.deps.auditLog?.append({
-      actor: "user",
-      action: "incubation_pause",
-      metadata: { incubationId: id },
-    });
-    return updated;
+  /** 条目上限元信息(viewer 预警用) */
+  limitInfo(): { readonly total: number; readonly max: number; readonly warnAt: number } {
+    return { total: this.read().length, max: MAX_ENTRIES, warnAt: ENTRY_WARN_THRESHOLD };
   }
 
   /**
-   * 删除条目(生命周期终点;in-flight 拒绝,同 updateSchedule 保护)。
+   * 删除条目(生命周期终点;thinking 态拒绝)。
    * 语义:删条目不删提案 —— 提案本体在 proposalEngine,走各自 accept/dismiss
-   * 裁决流;梦境史(timeline)随条目一并移除。
+   * 裁决流;深思历史(timeline)随条目一并移除。
    */
   delete(id: string): void {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status === "in-flight") {
-      throw new Error(`incubation ${id} in-flight — delete after the round finishes`);
+    if (target.status === "thinking") {
+      throw new Error(`incubation ${id} thinking — delete after the run finishes`);
     }
     this.write(entries.filter((e) => e.id !== id));
     this.deps.auditLog?.append({
       actor: "user",
-      action: "incubation_delete",
+      action: "contemplation_delete",
       metadata: {
-        incubationId: id,
-        question: target.question.slice(0, 120),
+        id,
+        questionPreview: target.question.slice(0, 120),
+        sessions: target.rounds,
       },
     });
   }
 
   // ============================================================
-  // in-flight 原子标记(跨进程互斥)
+  // thinking 原子标记(跨进程互斥)
   // ============================================================
 
-  acquireInFlight(id: string, by: string): boolean {
+  /** queued/done 均可开跑(再思);审计记 run_start */
+  acquireThinking(id: string, by: string): boolean {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status !== "active" && target.status !== "suggested-resolve") return false;
+    if (target.status !== "queued" && target.status !== "done") return false;
     const updated: IncubationEntry = {
       ...target,
-      status: "in-flight",
-      inFlightAt: this.now(),
-      inFlightBy: by,
+      status: "thinking",
+      thinkingAt: this.now(),
+      thinkingBy: by,
     };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
+    this.deps.auditLog?.append({
+      actor: "system",
+      action: "contemplation_run_start",
+      metadata: { id, by, session: target.rounds + 1 },
+    });
     return true;
   }
 
-  releaseInFlight(id: string): void {
+  releaseThinking(id: string): void {
     const entries = this.read();
     this.write(
       entries.map((e) =>
-        e.id === id && e.status === "in-flight"
-          ? { ...e, status: "active", inFlightAt: undefined, inFlightBy: undefined }
+        e.id === id && e.status === "thinking"
+          ? { ...e, status: e.rounds > 0 ? "done" : "queued", thinkingAt: undefined, thinkingBy: undefined }
           : e,
       ),
     );
   }
 
   // ============================================================
-  // 梦境史(回灌组装)与任务包
+  // 深思史(回灌组装)与任务包
   // ============================================================
 
-  /** 完整梦境史:过往洞察摘要 + accept/dismiss 理由(spec §四回灌迭代) */
+  /** 深思史(最近 HISTORY_CAP 次):过往洞察摘要 + accept/dismiss 理由(回灌防重复) */
   dreamHistoryFor(id: string): string {
     const entry = this.get(id);
     if (!entry) return "";
     const lines: string[] = [];
-    for (const t of entry.timeline) {
+    for (const t of entry.timeline.slice(-HISTORY_CAP)) {
       const dispositions = t.proposalEntityIds.map((pid) => {
         const p = this.deps.proposalEngine.findProposalByEntityId(pid);
         if (!p) return "";
@@ -529,21 +468,21 @@ export class Incubator {
         return " [pending]";
       });
       t.summaries.forEach((s, i) => {
-        lines.push(`- Round ${t.round}(${t.trigger}): ${s}${dispositions[i] ?? ""}`);
+        lines.push(`- Session ${t.round}(${t.trigger}): ${s}${dispositions[i] ?? ""}`);
       });
       if (t.summaries.length === 0) {
         lines.push(
-          `- Round ${t.round}(${t.trigger}): ${NO_SURVIVOR_MARKER}${t.note ? ` ${t.note}` : ""}`,
+          `- Session ${t.round}(${t.trigger}): ${NO_SURVIVOR_MARKER}${t.note ? ` ${t.note}` : ""}`,
         );
       }
     }
     return lines.join("\n");
   }
 
-  /** active 条目(供 REM 灵感模式合并;结构满足 MaintenanceDeps.incubator) */
+  /** queued 条目(供 REM 灵感模式合并;还没深思过的问题最有价值) */
   activeEntries(): ReadonlyArray<{ id: string; question: string; dreamHistory: string }> {
     return this.read()
-      .filter((e) => e.status === "active")
+      .filter((e) => e.status === "queued")
       .map((e) => ({
         id: e.id,
         question: e.question,
@@ -551,7 +490,7 @@ export class Incubator {
       }));
   }
 
-  /** 组装 L2 任务包(incubation_run 工具返回;脱敏:种子摘要级内容) */
+  /** 组装 L2 任务包(ponder_run 工具返回;脱敏:种子摘要级内容) */
   buildTask(id: string): NightThinkingTask {
     const entry = this.get(id);
     if (!entry) throw new Error(`incubation ${id} not found`);
@@ -563,17 +502,21 @@ export class Incubator {
       question: entry.question,
       seedDigests,
       dreamHistory: this.dreamHistoryFor(id),
-      webResearchOptIn: entry.webResearchOptIn,
       resourceHints: collectResourceHints(this.deps.dataRoot),
-      protocol: buildProtocol(entry.webResearchOptIn),
+      protocol: buildProtocol(),
     };
   }
 
   // ============================================================
-  // 执行(L2 主路径 / L1 降级)+ 唯一写回路径
+  // 执行(L2 主路径 / L1 无 executor 兜底)+ 唯一写回路径
   // ============================================================
 
-  /** 即时/调度执行入口:executor(L2)→ L1 降级;不与 L2 并存竞争预算 */
+  /**
+   * 即时执行入口(viewer 异步 job / CLI)。
+   * M2(2026-08-17):**不再静默降级** —— L2 执行失败显式抛错(run_fail 审计),
+   * 唯一例外是 spawn ENOENT(环境无 claude CLI,一次性配置问题):降级 L1 并
+   * 在 run_done 审计如实标注 level=L1-env。无 executor(宿主未注入)走 L1。
+   */
   async incubateOnce(
     id: string,
     trigger: "manual" | "scheduled",
@@ -585,19 +528,20 @@ export class Incubator {
   }> {
     const entry = this.get(id);
     if (!entry) throw new Error(`incubation ${id} not found`);
-    if (entry.status !== "active" && entry.status !== "suggested-resolve") {
+    if (entry.status !== "queued" && entry.status !== "done") {
       throw new Error(`incubation ${id} not runnable (status=${entry.status})`);
     }
-    if (!this.acquireInFlight(id, `incubateOnce:${trigger}`)) {
-      throw new Error(`incubation ${id} already in-flight`);
+    if (!this.acquireThinking(id, `incubateOnce:${trigger}`)) {
+      throw new Error(`incubation ${id} already thinking`);
     }
+    const startedAt = Date.now();
     const task = this.buildTask(id);
     // 种子空兜底留痕(缺陷 D):显式种子为空但任务包拿到了种子 → 记审计,
-    // audit_query / viewer 可区分「本轮种子来自兜底检索」与「用户指定」
+    // audit 查询 / viewer 可区分「本轮种子来自兜底检索」与「用户指定」
     if (entry.seedEngramIds.length === 0 && task.seedDigests.length > 0) {
       this.deps.auditLog?.append({
         actor: "system",
-        action: "night_thinking_seed_fallback",
+        action: "contemplation_seed_fallback",
         metadata: {
           incubationId: id,
           seeded: task.seedDigests.length,
@@ -612,8 +556,13 @@ export class Incubator {
         try {
           report = await this.deps.executor.execute(task);
           level = "L2";
-        } catch {
-          // L2 失败 → 降级 L1(不阻塞交付)
+        } catch (err) {
+          // spawn ENOENT = 环境无 claude CLI(配置缺失,非本轮失败):
+          // 降级 L1 让沉思仍可用,审计如实标注;其余失败(超时/解析/非零
+          // 退出)显式抛错 —— 静默降级曾让用户长期吃 L1 产物而无从知晓。
+          const isEnoent =
+            err instanceof Error && /ENOENT/i.test(err.message);
+          if (!isEnoent) throw err;
           report = await this.runL1(task);
           level = "L1";
         }
@@ -625,11 +574,21 @@ export class Incubator {
         incubationId: id,
         report,
         trigger,
-        actor: `night-thinking-${level}`,
+        actor: `contemplation-${level}`,
+        level,
+        durationMs: Date.now() - startedAt,
       });
       return { ...result, level };
     } catch (err) {
-      this.releaseInFlight(id);
+      this.releaseThinking(id);
+      this.deps.auditLog?.append({
+        actor: "system",
+        action: "contemplation_run_fail",
+        metadata: {
+          id,
+          errorPreview: (err instanceof Error ? err.message : String(err)).slice(0, 200),
+        },
+      });
       throw err;
     }
   }
@@ -643,9 +602,11 @@ export class Incubator {
   }
 
   /**
-   * 唯一写回路径(L2 agent 的 incubation_report / L1 内部共用):
+   * 唯一写回路径(L2 agent 的 ponder_report / L1 内部共用):
    * 机械校验 + 独立 critic + 循环检测 + rounds+1 + timeline + 落盘。
    *
+   * 回答:M1 —— L2 报告自带 answer 时直接采用(执行现场生产);否则用
+   * synthesizeAnswerDraft 兜底(L1 路径),失败记 answerError,不降级拼接。
    * critic 遵循第一关语义:独立第二次调用、fail-closed(无 llmClient /
    * 不可解析 / 低于阈值 → 不出提案)。
    */
@@ -654,6 +615,9 @@ export class Incubator {
     readonly report: NightThinkingReport;
     readonly trigger: "manual" | "scheduled";
     readonly actor: string;
+    /** 执行档位(审计;agent 现场执行视为 L2) */
+    readonly level?: "L1" | "L2";
+    readonly durationMs?: number;
   }): Promise<{ proposals: number; cycleVetoed: boolean; entry: IncubationEntry }> {
     const entries = this.read();
     const idx = entries.findIndex((e) => e.id === input.incubationId);
@@ -661,21 +625,7 @@ export class Incubator {
     const entry = entries[idx]!;
     const nextRound = entry.rounds + 1;
 
-    // 外部调用审计(viewer 可查)
-    for (const call of input.report.externalCalls) {
-      this.deps.auditLog?.append({
-        actor: "system",
-        action: "night_thinking_external_call",
-        metadata: {
-          incubationId: entry.id,
-          tool: call.tool,
-          purpose: call.purpose,
-          at: call.at,
-        },
-      });
-    }
-
-    // ---- 循环检测:与过往每轮洞察摘要逐一对比(整体 blob 会被稀释,
+    // ---- 循环检测:与过往每次洞察摘要逐一对比(整体 blob 会被稀释,
     //      逐条对比才能稳定命中),Jaccard ≥ dreamJaccard → 该条作废 ----
     const pastSummaries = entry.timeline.flatMap((t) => [...t.summaries]);
     const survived: InsightDraft[] = [];
@@ -697,8 +647,8 @@ export class Incubator {
     // ---- 机械校验 + 独立 critic → rem-insight 提案(捕获即时成提案) ----
     const summaries: string[] = [];
     const entityIds: string[] = [];
-    /** 综合证据面:成案草稿的「标题 — 摘要」。timeline.summaries 仍只存
-     * title(既有契约 + Jaccard 语料不变),仅综合调用拿到更宽的证据面。 */
+    /** 综合证据面:成案草稿的「标题 — 摘要」(timeline.summaries 仍只存
+     * title(Jaccard 语料不变),仅兜底综合拿到更宽的证据面) */
     const draftEvidence: string[] = [];
     const threshold = DEFAULT_REM_INSIGHT.criticThreshold;
     let validateRejected = 0;
@@ -750,54 +700,40 @@ export class Incubator {
       }
     }
 
-    // ---- 阶段综合(spec §五:不降级,失败报错)----
-    // dreamHistoryFor 此时读盘仍是旧 timeline(新事件尚未落盘)→ 天然「至上一轮」
-    // 执行语境(2026-08-16 机制缺陷修复):轨迹/外调 purpose/逐条拒因注入综合
-    // 输入 —— 零存活轮的综合层不再对执行层的工作一无所知,归因锚定真实证据。
+    // ---- 资源申报清洗(「依据」区):engram id 逐个试读,编造 id 不落盘 ----
+    const resourcesUsed = this.sanitizeResources(input.report.resourcesUsed);
+
+    // ---- 回答(M1:执行现场 answer 优先,综合层兜底) ----
+    // dreamHistoryFor 此时读盘仍是旧 timeline(新事件尚未落盘)→ 天然「至上一次」
     const traceSummary = input.report.trace
-      .slice(0, 20)
+      .slice(0, 40)
       .map((t) => `${t.step}: ${t.action} — ${t.detail}`.slice(0, 160));
-    const externalPurposes = input.report.externalCalls.map((c) =>
-      `${c.tool}: ${c.purpose.slice(0, 120)}`,
-    );
-    let answerDraft: string | undefined;
-    let answerDraftError: string | undefined;
-    if (!this.deps.llmClient) {
-      answerDraftError = "llmClient unavailable";
-    } else {
-      try {
-        // 证据面取「标题 — 摘要」:draftEvidence 与 summaries 在同一 if(ok)
-        // 分支共同 push、长度恒相等,零成案时二者同为空(综合端渲染空态占位),
-        // 故直接传 draftEvidence 即等价于「有成案用标题+摘要、零成案退回
-        // title 列表」的语义,无需再写 length 回退分支。
-        answerDraft = await synthesizeAnswerDraft(
-          this.deps.llmClient,
-          entry.question,
-          this.dreamHistoryFor(entry.id),
-          draftEvidence,
-          {
-            rejectReasons,
-            traceSummary,
-            externalPurposes,
-          },
-        );
-      } catch (err) {
-        answerDraftError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+    const planSummary = input.report.plan
+      .slice(0, 10)
+      .map((p) => `${p.step} — ${p.capability}`.slice(0, 160));
+    let answer: string | undefined = input.report.answer?.trim() || undefined;
+    let answerError: string | undefined;
+    if (!answer) {
+      if (!this.deps.llmClient) {
+        answerError = "llmClient unavailable";
+      } else {
+        try {
+          answer = await synthesizeAnswerDraft(
+            this.deps.llmClient,
+            entry.question,
+            this.dreamHistoryFor(entry.id),
+            draftEvidence,
+            { rejectReasons, traceSummary },
+          );
+        } catch (err) {
+          answerError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+        }
       }
     }
 
-    // ---- 轮次推进 + timeline 落盘(单次执行语义)----
-    // 排程时刻是「单次任务的启动时刻」:跑完任意一轮 → suggested-resolve,
-    // 完成后待用户裁决,不再自动续夜。再来一次只有两条路:手动「立即夜思」,
-    // 或 resolve(false) 回 active 等下个锚点。consecutiveVetoed 仍逐轮计数
-    // (dup 检测语料/诊断信号保留),但不再驱动自动 paused。
+    // ---- session 推进 + timeline 落盘(单次执行语义:report 写回即 done) ----
     const consecutive = allVetoed ? (entry.consecutiveVetoed ?? 0) + 1 : 0;
     const note = allVetoed ? "all insights vetoed as duplicates" : undefined;
-    // 轮前已落的用户裁决(paused/resolved)保留;其余(in-flight/active)一律待裁决
-    const status: IncubationStatus =
-      entry.status === "paused" || entry.status === "resolved"
-        ? entry.status
-        : "suggested-resolve";
     const diagnosis = {
       drafts: input.report.insights.length,
       dupVetoed: vetoed,
@@ -814,62 +750,78 @@ export class Incubator {
         round: nextRound,
         summaries,
         proposalEntityIds: entityIds,
-        externalCallCount: input.report.externalCalls.length,
         diagnosis,
+        ...(planSummary.length ? { plan: planSummary } : {}),
         ...(traceSummary.length ? { trace: traceSummary } : {}),
-        ...(answerDraft ? { answerDraft } : {}),
-        ...(answerDraftError ? { answerDraftError } : {}),
+        ...(resourcesUsed ? { resourcesUsed } : {}),
+        ...(answer ? { answer } : {}),
+        ...(answerError ? { answerError } : {}),
         ...(note ? { note } : {}),
       },
     ];
     const updated: IncubationEntry = {
       ...entry,
-      status,
+      status: "done",
       rounds: nextRound,
-      lastHatchedAt: this.now(),
+      lastRunAt: this.now(),
       timeline,
       consecutiveVetoed: consecutive,
-      inFlightAt: undefined,
-      inFlightBy: undefined,
-      // 新一轮证据落盘:清除续孵标记(accept 建议 re-arm,normalize 重新可翻转)
-      resumedAt: undefined,
+      thinkingAt: undefined,
+      thinkingBy: undefined,
+      ...(answer ? { answer } : { answer: undefined }),
+      ...(answerError ? { answerError } : { answerError: undefined }),
     };
     // 写前重读合并:report 中途有 await(critic/综合走 LLM),若仍基于开头
-    // 快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中用户
-    // pause/resolve 裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
+    // 快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中用户删除等
+    // 裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
     const fresh = this.read();
     const freshIdx = fresh.findIndex((x) => x.id === entry.id);
     if (freshIdx === -1) {
       // 本条目被并发删除:放弃写入(不复活已删条目),返回本轮计算结果
       return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: updated };
     }
-    const freshEntry = fresh[freshIdx]!;
-    const finalEntry: IncubationEntry = {
-      ...updated,
-      status:
-        freshEntry.status === "paused" || freshEntry.status === "resolved"
-          ? freshEntry.status
-          : status,
-    };
+    const finalEntry: IncubationEntry = { ...updated, status: "done" };
     const next = [...fresh];
     next[freshIdx] = finalEntry;
-    // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata(audit.jsonl
-    // 按行 JSON.stringify,天然支持嵌套);草稿仅记 200 字预览防爆噪。
+    // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
+    // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达)。
     this.deps.auditLog?.append({
       actor: input.actor,
-      action: "incubation_round",
+      action: "contemplation_run_done",
       metadata: {
-        incubationId: entry.id,
+        id: entry.id,
         round: nextRound,
         trigger: input.trigger,
+        level: input.level ?? "L2",
+        ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
         proposals: entityIds.length,
         drafts: input.report.insights.length,
         diagnosis,
-        ...(answerDraft ? { answerDraftPreview: answerDraft.slice(0, 200) } : {}),
+        ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
       },
     });
     this.write(next);
     return { proposals: entityIds.length, cycleVetoed: allVetoed, entry: finalEntry };
+  }
+
+  /** 资源申报清洗:engram id 逐个试读(repo 存在才留);skills/logs 去空去重 */
+  private sanitizeResources(
+    r: NightThinkingResourcesUsed | undefined,
+  ): NightThinkingResourcesUsed | undefined {
+    if (!r) return undefined;
+    const engrams = [...new Set(r.engrams ?? [])].filter((id) => {
+      if (typeof id !== "string" || !id) return false;
+      try {
+        this.deps.repository.readEngram(id);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    const skills = [...new Set((r.skills ?? []).filter((s): s is string => typeof s === "string" && !!s))];
+    const logs = [...new Set((r.logs ?? []).filter((l): l is string => typeof l === "string" && !!l))];
+    if (engrams.length === 0 && skills.length === 0 && logs.length === 0) return undefined;
+    return { engrams, skills, logs };
   }
 
   /** 由 sourceIds 构造最小校验子图(节点来自 repo;不存在者由引用闭合拒绝) */
@@ -899,35 +851,5 @@ export class Incubator {
       }
     }
     return { nodes, edges: [], globalStats: { source: "incubation" } };
-  }
-
-  // ============================================================
-  // 独立日调度(锚点时刻制,active 条目每日 schedule 时刻一轮,不依赖 REM 节拍)
-  // ============================================================
-
-  async runDue(
-    now: string = this.now(),
-  ): Promise<{ ran: readonly string[]; skipped: readonly string[] }> {
-    const nowDate = new Date(parseAt(now));
-    // spec §四(锚点时刻制):active 条目每日在 schedule 锚点时刻(默认 00:00
-    // 本地)跑一轮;错过锚点(无进程)→ 下一 tick 补跑;新建条目等首个锚点
-    // 或手动触发;锚点前手动跑过(昨夜)不消耗当日锚点,锚点后手动跑过
-    // (last ≥ 今日锚点)则当日不再自动。
-    const active = this.read().filter((e) => e.status === "active");
-    const ran: string[] = [];
-    const skipped: string[] = [];
-    for (const e of active) {
-      if (!isDue(e, nowDate)) {
-        skipped.push(e.id);
-        continue;
-      }
-      try {
-        await this.incubateOnce(e.id, "scheduled");
-        ran.push(e.id);
-      } catch {
-        skipped.push(e.id);
-      }
-    }
-    return { ran, skipped };
   }
 }

@@ -94,9 +94,9 @@ describe("种子空兜底(buildTask,缺陷 D)", () => {
     await expect(
       incubator.incubateOnce(e.id, "manual"),
     ).rejects.toThrow();
-    const entry = audits.find((a) => a.action === "night_thinking_seed_fallback");
+    const entry = audits.find((a) => a.action === "contemplation_seed_fallback");
     expect(entry?.metadata).toMatchObject({ incubationId: e.id, seeded: expect.any(Number) });
     // 释放 in-flight(LLM 缺失抛错路径已由 catch 内 releaseInFlight 处理,无残留)
-    expect(incubator.get(e.id)?.inFlightAt).toBeUndefined();
+    expect(incubator.get(e.id)?.thinkingAt).toBeUndefined();
   });
 });

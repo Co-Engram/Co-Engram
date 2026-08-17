@@ -337,8 +337,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         })
       : undefined;
 
-  // 夜思孵化器(spec §四):L2 headless 执行器(claude -p,PoC 已验证)+
-  // L1 降级由 Incubator 内部处理。提案引擎缺位(最小部署)时夜思不可用。
+  // 沉思孵化器(2026-08-17 重设计):L2 headless 执行器(实现收敛在 core);
+  // L2 失败显式报错(M2),仅 spawn ENOENT(环境无 claude CLI)降级 L1。
+  // 提案引擎缺位(最小部署)时沉思不可用。
   const incubator = proposalEngine
     ? new Incubator({
         repository,
@@ -464,8 +465,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 2: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(skillRepository ? { skillRepository } : {}),
-          // 夜思独立日调度(锚点时刻制,spec §四):light tick 触发;
-          // active 条目每日 schedule 时刻一轮(默认 00:00),错过补跑
+          // 沉思孵化器(2026-08-17 重设计):REM 灵感模式消费 queued 条目;
+          // 深思由提问动作触发,无排程(旧锚点日调度已移除)
           ...(incubator ? { incubator } : {}),
         },
         config.maintenanceConfig ?? {},

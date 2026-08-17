@@ -335,13 +335,13 @@ export function buildNightThinkingL1Prompt(question: string, seeds: string, drea
   if (dreamHistory.trim().length > 0) {
     parts.push(
       "",
-      "## Dream history (previous rounds — deepen or pivot, do not repeat)",
+      "## Previous thinking sessions (deepen or pivot, do not repeat)",
       dreamHistory,
     );
   }
   parts.push(
     "",
-    "You are the baseline night-thinking engine. Think about the task above using the seed memories below.",
+    "You are the baseline contemplation engine (this host has no agent runtime). Think about the task above using the seed memories below.",
     "Deliberately connect across domains with low surface similarity, mapping relational structure.",
     "",
     seeds,

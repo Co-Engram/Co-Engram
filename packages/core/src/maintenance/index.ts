@@ -16,5 +16,21 @@ export { runDeepThought, scanInsightDecay } from "./insight/run.js";
 export { validateInsightDraft } from "./insight/validate.js";
 export { critique } from "./insight/critic.js";
 export { parseDrafts } from "./insight/run.js";
-export { NIGHT_THINKING_PROTOCOL, buildProtocol, createL1Executor, collectSeedDigests } from "./insight/night-thinking.js";
+export {
+  CONTEMPLATION_PROTOCOL,
+  buildProtocol,
+  createL1Executor,
+  collectSeedDigests,
+  collectResourceHints,
+  synthesizeAnswerDraft,
+  NO_SURVIVOR_MARKER,
+} from "./insight/night-thinking.js";
+export {
+  createHeadlessExecutor,
+  buildHeadlessArgs,
+  buildHeadlessPrompt,
+  parseHeadlessReport,
+  READONLY_ALLOWED_TOOLS,
+} from "./insight/headless-executor.js";
+export type { HeadlessExecutorOptions } from "./insight/headless-executor.js";
 export { insightEntityId } from "../observability/proposal-engine.js";

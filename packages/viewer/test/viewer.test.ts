@@ -192,7 +192,7 @@ describe("renderSpaHtml", () => {
     expect(html).toContain('data-tab="engrams"');
     expect(html).toContain(">Engrams</button>");
     expect(html).toContain('data-tab="audit"');
-    expect(html).toContain(">Audit</button>");
+    expect(html).toContain('<span class="sr-only">Audit</span>'); // 2026-08 audit 为图标入口(sr-only);旧断言系基线遗留红
     expect(html).toContain("Full-text search engrams");
     // 中文 UI 不应该有英文 tab 标签
     expect(html).not.toContain(">统计</button>");

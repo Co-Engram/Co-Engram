@@ -50,7 +50,7 @@ function makeIncubator(
 }
 
 const reportOf = (insights: unknown[]): NightThinkingReport =>
-  ({ insights, plan: [], trace: [], externalCalls: [] }) as NightThinkingReport;
+  ({ insights, plan: [], trace: [] }) as NightThinkingReport;
 
 describe("report() diagnosis 计数", () => {
   it("llmClient 缺失 → llmClientMissing=true,校验拒(引用缺失)计数", async () => {
@@ -87,7 +87,7 @@ describe("report() diagnosis 计数", () => {
     });
     expect(r.entry.timeline.at(-1)?.diagnosis?.validateRejected).toBe(1);
     expect(r.entry.timeline.at(-1)?.diagnosis?.llmClientMissing).toBe(false);
-    // validate 拒后短路:critic 不被触达;有 llmClient 时仅 answerDraft 综合产生 1 次调用
+    // validate 拒后短路:critic 不被触达;有 llmClient 时仅 answer 综合产生 1 次调用
     expect(llmCalls).toBe(1);
   });
 
@@ -137,37 +137,37 @@ describe("report() diagnosis 计数", () => {
   });
 });
 
-describe("report() answerDraft(不降级,失败报错)", () => {
-  it("llmClient 缺失 → answerDraftError,无草稿", async () => {
+describe("report() answer(不降级,失败报错)", () => {
+  it("llmClient 缺失 → answerError,无草稿", async () => {
     const { incubator } = makeIncubator();
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const last = r.entry.timeline.at(-1);
-    expect(last?.answerDraft).toBeUndefined();
-    expect(last?.answerDraftError).toBe("llmClient unavailable");
+    expect(last?.answer).toBeUndefined();
+    expect(last?.answerError).toBe("llmClient unavailable");
   });
 
-  it("综合成功 → answerDraft 为 LLM 输出", async () => {
+  it("综合成功 → answer 为 LLM 输出", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "阶段结论:方向 A 成立。" });
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
-    expect(r.entry.timeline.at(-1)?.answerDraft).toBe("阶段结论:方向 A 成立。");
+    expect(r.entry.timeline.at(-1)?.answer).toBe("阶段结论:方向 A 成立。");
   });
 
-  it("综合调用失败 → answerDraftError 含原因,不生成伪草稿", async () => {
+  it("综合调用失败 → answerError 含原因,不生成伪草稿", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => { throw new Error("boom"); } });
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const last = r.entry.timeline.at(-1);
-    expect(last?.answerDraft).toBeUndefined();
-    expect(last?.answerDraftError).toContain("boom");
+    expect(last?.answer).toBeUndefined();
+    expect(last?.answerError).toContain("boom");
   });
 
-  it("空输出 → answerDraftError", async () => {
+  it("空输出 → answerError", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "   " });
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
-    expect(r.entry.timeline.at(-1)?.answerDraftError).toBeTruthy();
+    expect(r.entry.timeline.at(-1)?.answerError).toBeTruthy();
   });
 });
 
@@ -185,7 +185,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain("## Question");
     expect(prompts[0]).toContain("如何让知识自然生长?");
-    expect(prompts[0]).toContain("(no previous rounds)");
+    expect(prompts[0]).toContain("(no previous sessions)");
     expect(prompts[0]).toContain("(none survived this round)");
   });
 
@@ -211,7 +211,7 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
       actor: "test",
     });
     expect(r1.proposals).toBe(1);
-    const synth1 = prompts.find((p) => p.includes("WORKING ANSWER DRAFT"));
+    const synth1 = prompts.find((p) => p.includes("writing the ANSWER"));
     expect(synth1).toBeDefined();
     // 证据面 = 「标题 — 摘要」(不再是纯 title),以 "- " 前缀成行
     expect(synth1).toContain("- 跨域共性主题 — 两域共享结构");
@@ -221,18 +221,18 @@ describe("report() 综合输入契约(证据面 / 梦境史 / 截断)", () => {
     // 第 2 轮:零成案 → 综合看到第 1 轮梦境史(dreamHistoryFor 生效)+ 空态占位
     prompts.length = 0;
     await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "scheduled", actor: "test" });
-    const synth2 = prompts.find((p) => p.includes("WORKING ANSWER DRAFT"));
+    const synth2 = prompts.find((p) => p.includes("writing the ANSWER"));
     expect(synth2).toBeDefined();
-    expect(synth2).toContain("Round 1(manual): 跨域共性主题");
-    expect(synth2).not.toContain("(no previous rounds)");
+    expect(synth2).toContain("Session 1(manual): 跨域共性主题");
+    expect(synth2).not.toContain("(no previous sessions)");
     expect(synth2).toContain("(none survived this round)");
   });
 
-  it("综合输出 5000 字符 → answerDraft 截断至 4000", async () => {
+  it("综合输出 5000 字符 → answer 截断至 4000", async () => {
     const { incubator } = makeIncubator({ llmComplete: async () => "结".repeat(5000) });
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
-    expect(r.entry.timeline.at(-1)?.answerDraft).toHaveLength(4000);
+    expect(r.entry.timeline.at(-1)?.answer).toHaveLength(4000);
   });
 });
 
@@ -245,38 +245,24 @@ describe("report() 写前重读合并(并发与用户裁决保留)", () => {
     writeFileSync(path, JSON.stringify(raw, null, 2) + "\n", "utf8");
   };
 
-  it("轮中用户 pause(并发改盘)→ 落盘保留 paused,timeline 仍追加本轮", async () => {
+  it("轮中并发抢跑(改盘 status=thinking)→ 落盘 done(report 完成即 done),timeline 仍追加本轮", async () => {
     const { incubator, dataRoot } = makeIncubator({
       llmComplete: async () => {
         overwriteDisk(dataRoot, (x) => {
-          x.status = "paused";
+          x.status = "thinking";
         });
-        return "阶段结论:保留用户裁决。";
+        return "阶段结论:本轮完成。";
       },
     });
     const e = incubator.create({ question: "测试问题ABC" });
     const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
     const onDisk = incubator.get(e.id)!;
-    expect(onDisk.status).toBe("paused"); // 用户裁决优先,未被轮末覆写回 active
-    expect(r.entry.status).toBe("paused");
+    // 单次执行语义:report 写回即 done(思考瞬态不残留)
+    expect(onDisk.status).toBe("done");
+    expect(r.entry.status).toBe("done");
     expect(onDisk.rounds).toBe(1); // 轮次与 timeline 仍推进
     expect(onDisk.timeline).toHaveLength(1);
-    expect(onDisk.timeline.at(-1)?.answerDraft).toBe("阶段结论:保留用户裁决。");
-  });
-
-  it("轮中用户 resolve(并发改盘 status=resolved)→ 落盘保留 resolved", async () => {
-    const { incubator, dataRoot } = makeIncubator({
-      llmComplete: async () => {
-        overwriteDisk(dataRoot, (x) => {
-          x.status = "resolved";
-        });
-        return "阶段结论。";
-      },
-    });
-    const e = incubator.create({ question: "测试问题ABC" });
-    const r = await incubator.report({ incubationId: e.id, report: reportOf([]), trigger: "manual", actor: "test" });
-    expect(incubator.get(e.id)?.status).toBe("resolved");
-    expect(r.entry.status).toBe("resolved");
+    expect(onDisk.timeline.at(-1)?.answer).toBe("阶段结论:本轮完成。");
   });
 
   it("轮中条目被并发删除 → 放弃写入,不复活条目", async () => {
@@ -294,7 +280,7 @@ describe("report() 写前重读合并(并发与用户裁决保留)", () => {
 });
 
 describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修复)", () => {
-  it("trace 摘要与外部调研 purpose 落 timeline,并注入 answerDraft 综合输入", async () => {
+  it("trace 摘要落 timeline 并注入 answer 综合输入;资源申报假 id 清洗", async () => {
     const prompts: string[] = [];
     const { incubator } = makeIncubator({
       llmComplete: async (p: string) => {
@@ -310,7 +296,7 @@ describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修�
         { step: "survey", action: "engram_search", detail: "co-engram 相关记忆 21 条" },
         { step: "verify", action: "codegraph_explore", detail: "audit rotation 实现核实" },
       ],
-      externalCalls: [{ tool: "WebSearch", purpose: "业界记忆评测趋势调研", at: "2026-08-16T13:00:00.000Z" }],
+      resourcesUsed: { engrams: ["missing-id"], skills: [], logs: [] },
     } as unknown as NightThinkingReport;
     const r = await incubator.report({ incubationId: e.id, report, trigger: "scheduled", actor: "test" });
     // timeline:轨迹摘要(截断格式)+ 拒因
@@ -320,11 +306,12 @@ describe("report() 执行语境落盘与综合注入(2026-08-16 机制缺陷修�
       "verify: codegraph_explore — audit rotation 实现核实",
     ]);
     expect(last?.diagnosis?.rejectReasons?.[0]).toContain("[validate] t9");
-    // answerDraft 综合输入:轨迹 / 外调 purpose / 拒因三节都要在
+    // 依据清洗:编造 engram id(missing-id 不在库)→ 不落 resourcesUsed
+    expect(last?.resourcesUsed).toBeUndefined();
+    // answer 综合输入:轨迹 / 拒因两节都要在
     const synth = prompts.at(-1)!;
     expect(synth).toContain("## This round's execution trace");
     expect(synth).toContain("engram_search — co-engram 相关记忆 21 条");
-    expect(synth).toContain("External research performed: [WebSearch: 业界记忆评测趋势调研]");
     expect(synth).toContain("## This round's rejection reasons");
     expect(synth).toContain("[validate] t9");
   });

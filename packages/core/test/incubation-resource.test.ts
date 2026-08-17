@@ -8,7 +8,7 @@ import { Incubator } from "../src/maintenance/insight/incubator.js";
 import {
   buildProtocol,
   collectResourceHints,
-  NIGHT_THINKING_PROTOCOL,
+  CONTEMPLATION_PROTOCOL,
 } from "../src/maintenance/insight/night-thinking.js";
 
 describe("resourceHints 与协议 Resource mandate", () => {
@@ -22,19 +22,25 @@ describe("resourceHints 与协议 Resource mandate", () => {
   });
 
   it("协议含 RESOURCE MANDATE(全记忆/日志/技能三指令)", () => {
-    expect(NIGHT_THINKING_PROTOCOL).toContain("RESOURCE MANDATE");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("Do NOT limit yourself to the seed digests");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("skill_list");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("task.resourceHints");
+    expect(CONTEMPLATION_PROTOCOL).toContain("RESOURCE MANDATE");
+    expect(CONTEMPLATION_PROTOCOL).toContain("Do NOT limit yourself to the seed digests");
+    expect(CONTEMPLATION_PROTOCOL).toContain("skill_list");
+    expect(CONTEMPLATION_PROTOCOL).toContain("task.resourceHints");
   });
 
-  it("协议含 EVIDENCE ANCHORING 硬门(sourceIds 只认记忆库 engram id)", () => {
-    // 2026-08-16 机制缺陷修复:全资源盘点的证据(codegraph/日志/web)不是
+  it("协议含 EVIDENCE ANCHORING 硬门 + resourcesUsed 申报(依据区契约)", () => {
+    // 2026-08-16 机制缺陷修复:全资源盘点的证据(codegraph/日志)不是
     // 合法 sourceIds,引用闭合只认 repo engram —— 协议必须显式引导 LLM 锚定
-    expect(NIGHT_THINKING_PROTOCOL).toContain("EVIDENCE ANCHORING");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("real engram ids from the memory repo");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("NOT valid sourceIds");
-    expect(NIGHT_THINKING_PROTOCOL).toContain("rejected by\n   the citation gate");
+    expect(CONTEMPLATION_PROTOCOL).toContain("EVIDENCE ANCHORING");
+    expect(CONTEMPLATION_PROTOCOL).toContain("real engram ids from the memory repo");
+    expect(CONTEMPLATION_PROTOCOL).toContain("NOT valid sourceIds");
+    expect(CONTEMPLATION_PROTOCOL).toContain("rejected by the citation gate");
+    // 2026-08-17:资源申报(「依据」区)+ 本地执行边界 + 回答在执行现场生产
+    expect(CONTEMPLATION_PROTOCOL).toContain("resourcesUsed");
+    expect(CONTEMPLATION_PROTOCOL).toContain("LOCAL ONLY");
+    expect(CONTEMPLATION_PROTOCOL).toContain("ANSWER —");
+    // 联网线已移除:协议不含 WebSearch
+    expect(CONTEMPLATION_PROTOCOL).not.toContain("WebSearch");
   });
 
   it("buildTask 携带 resourceHints", () => {
@@ -51,8 +57,7 @@ describe("resourceHints 与协议 Resource mandate", () => {
     expect(incubator.buildTask(e.id).resourceHints).toEqual([join(dir, "maintenance-state.json")]);
   });
 
-  it("buildProtocol 输出仍含隐私开关", () => {
-    expect(buildProtocol(false)).toContain("DISABLED");
-    expect(buildProtocol(true)).toContain("ALLOWED");
+  it("buildProtocol 无参输出完整协议(2026-08-17 起纯本地,无联网开关)", () => {
+    expect(buildProtocol()).toBe(CONTEMPLATION_PROTOCOL);
   });
 });

@@ -1,14 +1,15 @@
 /**
- * 夜思(Overnight Thinking)工具面 —— incubation_*(spec §四/§七)。
+ * 沉思(Contemplation)工具面 —— ponder_*(2026-08-17 重设计)。
  *
- * 9 工具:create / run / list / resolve / report / conclude / update /
- * pause / delete。
- * incubation_report 是 L2 agent 的**唯一写回路径**(经 incubator.report:
- * 机械校验 + 独立 critic → rem-insight 提案);incubation_run 的 agent 模式
- * 返回固化协议的结构化指令(盘点→plan→执行→按格式 report),不依赖 agent
- * 自觉。incubation_conclude 收束出 finalAnswer(仍由用户经 resolve 裁决);
- * incubation_update 改写每日排程时刻;incubation_pause 暂停自动排程;
- * incubation_delete 删除条目本体(提案与审计保留)。
+ * 5 工具:create / run / list / report / delete。原 incubation_* 的
+ * resolve / conclude / update / pause 随多轮梦境状态机一并移除(沉思 =
+ * 提问即深思的一次性任务,三态 queued→thinking→done,无排程无仪式)。
+ *
+ * ponder_report 是 L2 agent 的**唯一写回路径**(经 incubator.report:机械
+ * 校验 + 独立 critic → rem-insight 提案);ponder_run 的 agent 模式返回固化
+ * 协议的结构化指令(盘点→plan→执行→answer→report),不依赖 agent 自觉。
+ *
+ * 文案红线:工具描述不出现宿主名(不绑定 Claude Code / OpenClaw)。
  *
  * @module @co-engram/core/tools
  */
@@ -16,15 +17,11 @@
 import { z } from "zod";
 
 import {
-  IncubationConcludeInputSchema,
   IncubationCreateInputSchema,
   IncubationDeleteInputSchema,
   IncubationListInputSchema,
-  IncubationPauseInputSchema,
   IncubationReportInputSchema,
-  IncubationResolveInputSchema,
   IncubationRunInputSchema,
-  IncubationUpdateInputSchema,
 } from "./schemas.js";
 import type { Tool, ToolContext } from "./tool.js";
 import { validateInput } from "./tool.js";
@@ -34,7 +31,6 @@ import {
   isEngramToolError,
   notFoundError,
 } from "./error-schema.js";
-import { computeNextRunAt } from "../maintenance/insight/incubator.js";
 import type {
   Incubator,
   IncubationTimelineEvent,
@@ -46,60 +42,69 @@ function requireIncubator(ctx: ToolContext): Incubator {
   if (!ctx.incubator) {
     throw configError(
       "ctx.incubator",
-      "Incubator is not injected into ToolContext — host adapter must wire it during bootstrap (night-thinking unavailable in this deployment).",
+      "Incubator is not injected into ToolContext — host adapter must wire it during bootstrap (contemplation unavailable in this deployment).",
     );
   }
   return ctx.incubator;
 }
 
 /**
- * list 工具的 timeline 摘要:轻量字段全保留,answerDraft 仅最近 2 轮全文
+ * list 工具的 timeline 摘要:轻量字段全保留,answer 仅最近 2 次全文
  * (agent 上下文预算;viewer 走域层取全文,不受此限)。
  */
 function summarizeTimeline(
   tl: readonly IncubationTimelineEvent[],
 ): readonly IncubationTimelineEvent[] {
-  const keepDraftFrom = Math.max(0, tl.length - 2);
+  const keepAnswerFrom = Math.max(0, tl.length - 2);
   return tl.map((t, i) => {
-    const { answerDraft, ...rest } = t;
-    return i >= keepDraftFrom ? t : rest;
+    const { answer, ...rest } = t;
+    return i >= keepAnswerFrom ? t : rest;
   });
 }
 
 /**
- * conclude/update 的域层错误转译:incubator 域层抛裸 Error(不依赖工具契约),
- * 三类可预期失败按文案转成 EngramToolError,让 agent 拿到可读的 code/message
- * 而非一律 INTERNAL;其余错误原样上抛(不吞未知失败)。
+ * 域层错误转译:incubator 域层抛裸 Error(不依赖工具契约),四类可预期
+ * 失败按文案转成 EngramToolError,让 agent 拿到可读的 code/message 而非
+ * 一律 INTERNAL;其余错误原样上抛(不吞未知失败)。
  */
-function translateIncubationError(err: unknown, id: string): unknown {
+function translateContemplationError(err: unknown, id: string): unknown {
   if (!(err instanceof Error) || isEngramToolError(err)) return err;
   const msg = err.message;
   if (/not found/.test(msg)) {
     return notFoundError(
-      "Incubation",
+      "Contemplation",
       id,
-      "Use incubation_list to find the correct incubation id.",
+      "Use ponder_list to find the correct contemplation id.",
     );
   }
-  if (/in-flight/.test(msg)) {
-    // LOCK_BUSY 是契约里唯一 retryable 语义的 code;in-flight 锁随轮次结束或 TTL 回收释放。
+  if (/thinking|already/.test(msg)) {
+    // LOCK_BUSY 是契约里唯一 retryable 语义的 code;thinking 锁随本次深思
+    // 结束或 TTL 回收释放。
     return new EngramToolError({
       code: "LOCK_BUSY",
-      message: `incubation ${id} 本轮夜思进行中,结束后或 TTL 30min 回收后可重试`,
+      message: `沉思 ${id} 正在深思中,结束后或 TTL 30min 回收后可重试`,
       resourceId: id,
       retryable: true,
       retryAfterMs: 30 * 60 * 1000,
-      suggestion: "等本轮夜思结束(in-flight TTL 30 分钟自动回收)后重试同一调用。",
+      suggestion: "等本次深思结束(thinking TTL 30 分钟自动回收)后重试同一调用。",
+    });
+  }
+  if (/limit reached/.test(msg)) {
+    return new EngramToolError({
+      code: "VALIDATION",
+      message: msg,
+      resourceId: id,
+      suggestion: "用 ponder_delete 删除最老的已答条目后再提问。",
     });
   }
   if (/llmClient/.test(msg)) {
-    return configError("llmClient", "llmClient 未注入,收束不可用");
+    return configError("llmClient", "llmClient 未注入,沉思执行不可用");
   }
   return err;
 }
 
 // ============================================================
-// incubation_create
+// ponder_create
 // ============================================================
 
 export const incubationCreateTool: Tool<
@@ -108,37 +113,33 @@ export const incubationCreateTool: Tool<
     id: string;
     status: string;
     question: string;
-    rounds: number;
-    schedule: string;
-    nextRunAt: string | null;
   }
 > = {
-  name: "incubation_create",
+  name: "ponder_create",
   description:
-    "创建一个夜思(overnight thinking)孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。问题为自由文本(可比记忆更丰富);可选 seedEngramIds 指定种子记忆。webResearchOptIn 默认 false —— 联网调研需按条目显式开启,开启后问题摘要会发送至搜索引擎(创建前应向用户确认)。每日排程时刻 schedule 为 HH:mm(本地时间,默认 00:00);仅 active 态返回下一锚点时间 nextRunAt,其余状态(含 suggested-resolve/paused/resolved)返回 null。",
+    "提出一个沉思问题:围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志与技能库,纯本地只读执行,深思一次出一份报告(回答 + 洞察提案)。问题为自由文本(可比记忆更丰富);可选 seedEngramIds 指定重点记忆(留空自动全库检索)。创建后条目为 queued,配合 ponder_run 执行(对话场景当前会话现场执行;界面/异步场景走 auto)。条目上限 50。",
   inputSchema: IncubationCreateInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationCreateInputSchema>>(IncubationCreateInputSchema, input);
-    const incubator = requireIncubator(ctx);
-    const entry = incubator.create({
-      question: parsed.question,
-      ...(parsed.seedEngramIds ? { seedEngramIds: parsed.seedEngramIds } : {}),
-      webResearchOptIn: parsed.webResearchOptIn ?? false,
-      ...(parsed.schedule ? { schedule: parsed.schedule } : {}),
-    });
-    return {
-      id: entry.id,
-      status: entry.status,
-      question: entry.question,
-      rounds: entry.rounds,
-      schedule: entry.schedule ?? "00:00",
-      nextRunAt: computeNextRunAt(entry),
-    };
+    try {
+      const incubator = requireIncubator(ctx);
+      const entry = incubator.create({
+        question: parsed.question,
+        ...(parsed.seedEngramIds ? { seedEngramIds: parsed.seedEngramIds } : {}),
+      });
+      return {
+        id: entry.id,
+        status: entry.status,
+        question: entry.question,
+      };
+    } catch (err) {
+      throw translateContemplationError(err, "");
+    }
   },
 };
 
 // ============================================================
-// incubation_run
+// ponder_run
 // ============================================================
 
 export const incubationRunTool: Tool<
@@ -146,7 +147,7 @@ export const incubationRunTool: Tool<
   | {
       readonly mode: "agent";
       readonly incubationId: string;
-      readonly status: "in-flight";
+      readonly status: "thinking";
       readonly task: import("../maintenance/insight/types.js").NightThinkingTask;
     }
   | {
@@ -159,9 +160,9 @@ export const incubationRunTool: Tool<
       readonly rounds: number;
     }
 > = {
-  name: "incubation_run",
+  name: "ponder_run",
   description:
-    "立即执行一轮夜思。mode=agent(默认,对话入口):标记 in-flight 并返回固化协议任务包 —— 你(当前会话 agent)按协议执行「能力盘点→PLAN→只读执行→调 incubation_report 回写」,协议已固化在返回指令中,不依赖自觉。mode=auto(viewer/CLI 异步任务与日调度):直接跑 L2 headless 执行器,不可用自动降级 L1 单次远距类比,同步返回结果。条目已 in-flight 时报错(TTL 30min 过期自动回收);paused 条目需先 incubation_resolve(id, false) 恢复 active 才可运行;resolved 条目不可再跑。",
+    "执行一次深思。mode=agent(默认,对话入口):标记 thinking 并返回固化协议任务包 —— 你(当前会话 agent)按协议执行「能力盘点→全资源开采(记忆图谱/行为日志/技能库)→PLAN→只读执行→写回答→调 ponder_report 回写」,协议已固化在返回指令中,不依赖自觉。mode=auto(界面/CLI 异步任务):直接跑 headless 执行器(失败显式报错),同步返回结果。queued 与 done 条目均可执行(done = 再思一次,回灌全部过往深思史防重复);条目 thinking 中报错(TTL 30min 过期自动回收)。",
   inputSchema: IncubationRunInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationRunInputSchema>>(IncubationRunInputSchema, input);
@@ -179,46 +180,25 @@ export const incubationRunTool: Tool<
           rounds: r.entry.rounds,
         };
       }
-      // agent 模式:先查生命周期状态再抢 in-flight 锁 —— paused/resolved 直接走
-      // acquireInFlight 只会拿到 false,报错被误归因为「已在执行中」而非真因。
-      const entry = incubator.get(parsed.id);
-      if (!entry) {
-        // 裸 Error 交转译层 → NOT_FOUND(与 conclude/update/pause/delete 同款契约)
-        throw new Error(`incubation ${parsed.id} not found`);
-      }
-      if (entry.status === "paused") {
-        throw new EngramToolError({
-          code: "VALIDATION",
-          message: `incubation ${parsed.id} 已暂停(paused),不可立即夜思`,
-          resourceId: parsed.id,
-          suggestion: "先调用 incubation_resolve(id, answered=false) 恢复 active,再运行 incubation_run。",
-        });
-      }
-      if (entry.status === "resolved") {
-        throw new EngramToolError({
-          code: "VALIDATION",
-          message: `incubation ${parsed.id} 已归档(resolved),不可立即夜思`,
-          resourceId: parsed.id,
-          suggestion: "该条目已 resolve 归档(梦境时间线保留);如需重启请重新播种问题。",
-        });
-      }
+      // agent 模式:直接抢 thinking 锁 —— 状态不可运行的报错由域层语义给出
+      //(thinking 中 = LOCK_BUSY;不存在 = NOT_FOUND)。
       const actor = ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "agent-session";
-      if (!incubator.acquireInFlight(parsed.id, `agent:${actor}`)) {
+      if (!incubator.acquireThinking(parsed.id, `agent:${actor}`)) {
         throw configError(
-          "incubationRun",
-          `incubation ${parsed.id} 已在执行中(in-flight)—— 30 分钟未回写自动回收。`,
+          "ponderRun",
+          `沉思 ${parsed.id} 正在深思中 —— 30 分钟未回写自动回收。`,
         );
       }
       const task = incubator.buildTask(parsed.id);
-      return { mode: "agent", incubationId: parsed.id, status: "in-flight", task };
+      return { mode: "agent", incubationId: parsed.id, status: "thinking", task };
     } catch (err) {
-      throw translateIncubationError(err, parsed.id);
+      throw translateContemplationError(err, parsed.id);
     }
   },
 };
 
 // ============================================================
-// incubation_list
+// ponder_list
 // ============================================================
 
 export const incubationListTool: Tool<
@@ -229,69 +209,42 @@ export const incubationListTool: Tool<
       readonly question: string;
       readonly status: string;
       readonly rounds: number;
-      readonly webResearchOptIn: boolean;
-      readonly schedule: string;
-      readonly lastHatchedAt: string | null;
-      readonly nextRunAt: string | null;
-      readonly timelineRounds: number;
-      /**
-       * 梦境时间线摘要:轻量字段(含空转诊断 diagnosis)全保留,
-       * answerDraft 仅最近 2 轮全文(agent 上下文预算;viewer 走域层取全文)
-       */
+      readonly lastRunAt: string | null;
+      /** 最新一次深思的回答 */
+      readonly answer?: string;
+      /** 深思时间线摘要(轻量字段全保留,answer 仅最近 2 次全文) */
       readonly timeline: readonly IncubationTimelineEvent[];
-      /** 收束产物(incubation_conclude);未收束条目无此字段 */
-      readonly finalAnswer?: string;
     }>;
     readonly total: number;
+    readonly limit: { readonly total: number; readonly max: number; readonly warnAt: number };
   }
 > = {
-  name: "incubation_list",
+  name: "ponder_list",
   description:
-    "列出夜思孵化条目(含 resolved/paused 荣誉记录)。返回 id/问题/状态(active|in-flight|suggested-resolve|resolved|paused)/轮数/联网 opt-in/排程时刻与下一轮预计时间(schedule/nextRunAt)/最近孵化时间/梦境时间线摘要(timeline,轻量字段全保留,answerDraft 仅最近 2 轮)/收束后的最终回答(finalAnswer,未收束无此字段)。仅 active 态条目返回下一锚点时间 nextRunAt,其余状态(含 suggested-resolve/paused/resolved)返回 null。",
+    "列出沉思条目。返回 id/问题/状态(queued|thinking|done)/深思次数/最近深思时间/最新回答(answer)/深思时间线摘要(timeline,轻量字段全保留,answer 仅最近 2 次全文)/条目上限信息(limit:total/max/warnAt)。done 条目可经 ponder_run 再思;thinking 中不可删除。",
   inputSchema: IncubationListInputSchema,
   execute(input, ctx) {
     validateInput<z.infer<typeof IncubationListInputSchema>>(IncubationListInputSchema, input);
-    const entries = requireIncubator(ctx).list();
+    const incubator = requireIncubator(ctx);
+    const entries = incubator.list();
     return {
       items: entries.map((e) => ({
         id: e.id,
         question: e.question,
         status: e.status,
         rounds: e.rounds,
-        webResearchOptIn: e.webResearchOptIn,
-        schedule: e.schedule ?? "00:00",
-        lastHatchedAt: e.lastHatchedAt,
-        nextRunAt: computeNextRunAt(e),
-        timelineRounds: e.timeline.length,
+        lastRunAt: e.lastRunAt,
+        ...(e.answer ? { answer: e.answer } : {}),
         timeline: summarizeTimeline(e.timeline),
-        ...(e.finalAnswer ? { finalAnswer: e.finalAnswer } : {}),
       })),
       total: entries.length,
+      limit: incubator.limitInfo(),
     };
   },
 };
 
 // ============================================================
-// incubation_resolve
-// ============================================================
-
-export const incubationResolveTool: Tool<
-  z.infer<typeof IncubationResolveInputSchema>,
-  { id: string; status: string }
-> = {
-  name: "incubation_resolve",
-  description:
-    "夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve;问用户「是否回答了你的问题」—— 是则 resolved(梦境时间线归档保留),否则(false)条目回 active,下个排程锚点会自动再跑一轮,跑完再次待裁决。",
-  inputSchema: IncubationResolveInputSchema,
-  execute(input, ctx) {
-    const parsed = validateInput<z.infer<typeof IncubationResolveInputSchema>>(IncubationResolveInputSchema, input);
-    const updated = requireIncubator(ctx).resolve(parsed.id, parsed.answered);
-    return { id: updated.id, status: updated.status };
-  },
-};
-
-// ============================================================
-// incubation_report —— L2 唯一写回路径
+// ponder_report —— L2 唯一写回路径
 // ============================================================
 
 export const incubationReportTool: Tool<
@@ -302,19 +255,20 @@ export const incubationReportTool: Tool<
     readonly cycleVetoed: boolean;
     readonly rounds: number;
     readonly status: string;
+    readonly hasAnswer: boolean;
     readonly note?: string;
   }
 > = {
-  name: "incubation_report",
+  name: "ponder_report",
   description:
-    "夜思回写(L2 agent 的唯一写回路径):把一轮夜思的结构化产出(洞察 insights/计划 plan/轨迹 trace/外部调用 externalCalls)写回。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(不直接创建记忆,用户 accept 才落盘);轮次+1、写入时间线;重复洞察(与梦境史 Jaccard ≥ 0.65)本轮作废(计数保留为诊断信号)。",
+    "沉思回写(L2 agent 的唯一写回路径):把一次深思的结构化产出写回——回答 answer(执行现场生产,主体交付物)/洞察 insights/计划 plan/轨迹 trace/资源使用申报 resourcesUsed(实际读取的记忆/使用的技能/读取的日志)。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(不直接创建记忆,用户 accept 才落盘);深思次数+1、写入时间线;重复洞察(与深思史 Jaccard ≥ 0.65)本次作废(计数保留为诊断信号)。",
   inputSchema: IncubationReportInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationReportInputSchema>>(IncubationReportInputSchema, input);
     const actor = ctx.resolveCreatedBy?.() ?? ctx.defaultCreatedBy ?? "agent-session";
     const r = await requireIncubator(ctx).report({
       incubationId: parsed.incubationId,
-      // 夜思产出统一归灵感模式(mode 由系统填充,agent 不自报)
+      // 沉思产出统一归灵感模式(mode 由系统填充,agent 不自报)
       report: {
         ...parsed.report,
         insights: parsed.report.insights.map((d) => ({
@@ -324,6 +278,7 @@ export const incubationReportTool: Tool<
       } as NightThinkingReport,
       trigger: "manual",
       actor,
+      level: "L2",
     });
     const last = r.entry.timeline.at(-1);
     return {
@@ -332,91 +287,23 @@ export const incubationReportTool: Tool<
       cycleVetoed: r.cycleVetoed,
       rounds: r.entry.rounds,
       status: r.entry.status,
+      hasAnswer: !!r.entry.answer,
       ...(last?.note ? { note: last.note } : {}),
     };
   },
 };
 
 // ============================================================
-// incubation_conclude —— 收束(综合全部梦境时间线出最终回答)
-// ============================================================
-
-export const incubationConcludeTool: Tool<
-  z.infer<typeof IncubationConcludeInputSchema>,
-  { id: string; status: string; finalAnswer: string; concludedAt: string }
-> = {
-  name: "incubation_conclude",
-  description:
-    "收束夜思条目:综合全部梦境时间线生成最终回答(finalAnswer)并置 suggested-resolve。幂等可重复(重生成并覆盖);已 resolved/paused 的条目收束会保留原状态,仅重生成 finalAnswer。llmClient 未注入时报错。收束不自动 accept 任何提案;是否已回答仍由用户经 incubation_resolve 裁决。",
-  inputSchema: IncubationConcludeInputSchema,
-  async execute(input, ctx) {
-    const parsed = validateInput<z.infer<typeof IncubationConcludeInputSchema>>(IncubationConcludeInputSchema, input);
-    try {
-      const e = await requireIncubator(ctx).conclude(parsed.id);
-      return { id: e.id, status: e.status, finalAnswer: e.finalAnswer ?? "", concludedAt: e.concludedAt ?? "" };
-    } catch (err) {
-      throw translateIncubationError(err, parsed.id);
-    }
-  },
-};
-
-// ============================================================
-// incubation_update —— 改写每日排程时刻
-// ============================================================
-
-export const incubationUpdateTool: Tool<
-  z.infer<typeof IncubationUpdateInputSchema>,
-  { id: string; schedule: string; nextRunAt: string | null }
-> = {
-  name: "incubation_update",
-  description:
-    "改写夜思条目的每日排程时刻(HH:mm 本地时间,默认 00:00)。仅非 in-flight 态可改。",
-  inputSchema: IncubationUpdateInputSchema,
-  execute(input, ctx) {
-    const parsed = validateInput<z.infer<typeof IncubationUpdateInputSchema>>(IncubationUpdateInputSchema, input);
-    try {
-      const e = requireIncubator(ctx).updateSchedule(parsed.id, parsed.schedule);
-      return { id: e.id, schedule: e.schedule ?? "00:00", nextRunAt: computeNextRunAt(e) };
-    } catch (err) {
-      throw translateIncubationError(err, parsed.id);
-    }
-  },
-};
-
-// ============================================================
-// incubation_pause —— 暂停自动排程(置 paused)
-// ============================================================
-
-export const incubationPauseTool: Tool<
-  z.infer<typeof IncubationPauseInputSchema>,
-  { id: string; status: string; nextRunAt: string | null }
-> = {
-  name: "incubation_pause",
-  description:
-    "暂停夜思条目的自动排程(置 paused,到点不再自动执行)。进行中的夜思轮与收束不受影响;恢复排程用 incubation_resolve(id, false) 置回 active。paused 态无法手动立即夜思(incubation_run 会拒绝),需先恢复。",
-  inputSchema: IncubationPauseInputSchema,
-  execute(input, ctx) {
-    const parsed = validateInput<z.infer<typeof IncubationPauseInputSchema>>(IncubationPauseInputSchema, input);
-    try {
-      const e = requireIncubator(ctx).pause(parsed.id);
-      return { id: e.id, status: e.status, nextRunAt: computeNextRunAt(e) };
-    } catch (err) {
-      throw translateIncubationError(err, parsed.id);
-    }
-  },
-};
-
-// ============================================================
-// incubation_delete —— 删除条目本体(生命周期终点)
+// ponder_delete —— 删除条目(生命周期终点)
 // ============================================================
 
 export const incubationDeleteTool: Tool<
   z.infer<typeof IncubationDeleteInputSchema>,
   { id: string }
 > = {
-  name: "incubation_delete",
+  name: "ponder_delete",
   description:
-    "删除夜思条目本体(生命周期终点;仅非 in-flight 态可删)。已产出的 rem-insight 提案与审计记录保留 —— 提案走各自 accept/dismiss 裁决流,不受删除影响;梦境时间线(timeline)随条目一并移除,不可恢复。",
+    "删除沉思条目本体(生命周期终点;仅非 thinking 态可删)。已产出的 rem-insight 提案与审计记录保留 —— 提案走各自 accept/dismiss 裁决流,不受删除影响;深思历史(timeline)随条目一并移除,不可恢复。",
   inputSchema: IncubationDeleteInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<z.infer<typeof IncubationDeleteInputSchema>>(IncubationDeleteInputSchema, input);
@@ -424,19 +311,15 @@ export const incubationDeleteTool: Tool<
       requireIncubator(ctx).delete(parsed.id);
       return { id: parsed.id };
     } catch (err) {
-      throw translateIncubationError(err, parsed.id);
+      throw translateContemplationError(err, parsed.id);
     }
   },
 };
 
-export const ALL_INCUBATION_TOOLS: readonly Tool[] = [
+export const ALL_PONDER_TOOLS: readonly Tool[] = [
   incubationCreateTool,
   incubationRunTool,
   incubationListTool,
-  incubationResolveTool,
   incubationReportTool,
-  incubationConcludeTool,
-  incubationUpdateTool,
-  incubationPauseTool,
   incubationDeleteTool,
 ];

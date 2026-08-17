@@ -72,6 +72,7 @@ import {
   defaultCachePath,
   SkillRepository,
   Incubator,
+  createHeadlessExecutor,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -281,8 +282,9 @@ export function createCoEngramContext(
     // 动态解析器:每次读 git,改 user.name 无需重启即生效
     resolveCreatedBy: () => detectGitAuthor() ?? userSpecifiedCreatedBy,
     ...(llmClient ? { llmClient } : {}),
-    // 夜思孵化器(spec §四):openclaw 一期降级 L1(headless L2 执行器未接入,
-    // PoC 记录于降级矩阵);即时触发经 incubation_run 同步执行 + GUI 标注差异。
+    // 沉思孵化器(2026-08-17 重设计):M3 —— openclaw 接入 L2 headless 执行器
+    //(与 claude-code-mcp 同款,实现收敛在 core);L2 失败显式报错,仅环境无
+    // claude CLI(ENOENT)时降级 L1(审计标注)。
     ...(proposalEngine
       ? {
           incubator: new Incubator({
@@ -291,6 +293,7 @@ export function createCoEngramContext(
             dataRoot: fullConfig.dataRoot,
             ...(auditLog ? { auditLog } : {}),
             ...(llmClient ? { llmClient } : {}),
+            executor: createHeadlessExecutor(),
           }),
         }
       : {}),

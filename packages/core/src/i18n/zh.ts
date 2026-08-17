@@ -325,88 +325,57 @@ export const zh = {
 何时不调用:无不一致;看具体 engram 用 engram_get。
 
 返回:时间戳、计数、自动修复数、待审核数、issues[](kind/path/message/autoFixed)。`,
-  "tool.incubation_create.agent": `创建夜思(overnight thinking)孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。
+  "tool.ponder_create.agent": `提出一个沉思问题:围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志与技能库,纯本地只读执行,深思一次出一份报告(回答 + 洞察提案)。
 
-WHEN TO CALL:
-- 用户说"晚上帮我想想 X""睡前喂个问题""让 agent 夜里深想"等夜思意图
-- 用户给出一个值得多轮深挖、暂不需要即时答案的问题
+何时调用:
+- 用户说"帮我沉思 X""深想一下这个问题""围绕 X 做一次深度思考"等沉思意图
+- 用户给出一个值得动用全部记忆资产深挖、但不急需即时回答的问题
 
-WHEN NOT TO CALL:
-- 用户要即时答案(直接回答或用 engram_search)
+何时不要调用:
+- 用户要即时答案(直接回答或 engram_search)
 - 一次性琐碎问题
 
-RETURNS: { id, status, question, rounds, schedule, nextRunAt }。schedule 为每日排程时刻(HH:mm 本地时间,默认 00:00);nextRunAt 仅 active 态非空(下一锚点),其余状态(含 suggested-resolve/paused/resolved)为 null;webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
-  "tool.incubation_run.agent": `立即执行一轮夜思。
+返回: { id, status: "queued", question }。条目创建后为 queued,配合 ponder_run 执行(对话场景由你按协议现场执行);可选 seedEngramIds 指定重点记忆(留空自动全库检索);条目上限 50。`,
+  "tool.ponder_run.agent": `执行一次深思(queued 首思 / done 再思)。
 
-WHEN TO CALL:
-- 用户说"现在就想""立即夜思"(对话入口,默认 mode=agent)
-- viewer/CLI 异步任务或日调度(mode=auto)
+何时调用:
+- ponder_create 创建后立即执行(对话场景默认 mode=agent,由你现场按协议执行)
+- 用户对已答条目说"再想一次/换个角度再思"(done 条目回灌全部过往深思史)
 
-WHEN NOT TO CALL:
-- 条目已 in-flight(30 分钟过期自动回收)
+何时不要调用:
+- 条目 thinking 中(LOCK_BUSY,TTL 30min 回收)
 
-RETURNS: mode=agent 时返回固化协议任务包(问题/种子摘要/梦境史/协议)—— 你按「盘点→PLAN→只读执行→incubation_report 回写」现场执行;mode=auto 时同步返回 { level, proposals, cycleVetoed, rounds }。`,
-  "tool.incubation_list.agent": `列出夜思孵化条目。
+返回: mode=agent → { task }(固化协议任务包:盘点→全资源开采→PLAN→只读执行→写回答→ponder_report 回写);mode=auto → { level, proposals, rounds }。`,
+  "tool.ponder_list.agent": `列出沉思条目。
 
-WHEN TO CALL:
-- 用户问"我的夜思条目""孵化到第几夜了""有没有暂停的条目"
+何时调用:
+- 用户问"我沉思过什么/上次深思的结果/条目列表"
+- 需要条目 id 供 run/delete 使用
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。nextRunAt 仅 active 态非空(下一锚点),其余状态(含 suggested-resolve/paused/resolved)为 null。timeline 为梦境时间线摘要(轻量字段全保留,answerDraft 仅最近 2 轮全文);finalAnswer 为收束产物,未收束条目无此字段。`,
-  "tool.incubation_resolve.agent": `夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve,由你问用户「是否回答了你的问题」。
+何时不要调用:
+- 只想要某条报告细节(条目 timeline 已含,无需重复查询)
 
-WHEN TO CALL:
-- 条目 status=suggested-resolve 且用户已表态
+返回: { items: [{ id, question, status(queued|thinking|done), rounds, lastRunAt, answer?, timeline }], total, limit }。timeline 为深思时间线摘要(answer 仅最近 2 次全文)。`,
+  "tool.ponder_report.agent": `沉思回写(L2 agent 的唯一写回路径):把一次深思的结构化产出写回。
 
-RETURNS: { id, status } —— answered=true → resolved(梦境时间线归档保留);false → 条目回 active,下个排程锚点会自动再跑一轮,跑完再次待裁决。`,
-  "tool.incubation_report.agent": `夜思回写(L2 agent 的唯一写回路径)。
+何时调用:
+- 你按 ponder_run 返回的协议执行完全资源盘点后,交回答与洞察(协议第 6 步,恰好一次)
 
-WHEN TO CALL:
-- 你按 incubation_run(agent 模式)返回的协议完成「盘点→PLAN→只读执行」之后,恰好调用一次
+何时不要调用:
+- 协议未执行完(先完成盘点与回答撰写)
+- 非 L2 现场执行路径(auto 模式由引擎内部写回,无需调用)
 
-WHEN NOT TO CALL:
-- 未执行协议就调用;或已回写过本轮
+返回: { incubationId, proposals, cycleVetoed, rounds, status, hasAnswer }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察(与深思史 Jaccard ≥ 0.65)本次作废。`,
+  "tool.ponder_delete.agent": `删除沉思条目本体(生命周期终点;仅非 thinking 态可删)。
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察本轮作废(veto 计数保留为诊断信号)。`,
-  "tool.incubation_conclude.agent": `收束夜思条目：综合全部梦境时间线，由 LLM 生成最终回答（finalAnswer），条目进入 suggested-resolve。
+何时调用:
+- 用户说"删掉这个沉思问题/不要了"
 
-WHEN TO CALL:
-- 条目孵化多轮、洞察累积到值得收束，或用户想要「这个问题的最终答案」
+何时不要调用:
+- 条目 thinking 中(等结束或 TTL 回收)
+- 用户只是想要新报告(用 ponder_run 再思,不必删)
 
-WHEN NOT TO CALL:
-- 条目仍在早期孵化（继续等夜里跑轮）
-- 部署未注入 llmClient（收束直接报错）
-
-RETURNS: { id, status, finalAnswer, concludedAt }。幂等：可重复调用，重生成并覆盖 finalAnswer；已 resolved / paused 的条目收束保留原状态，仅重生成 finalAnswer。收束不自动 accept 任何提案 —— 是否已回答仍由用户经 incubation_resolve 裁决。`,
-  "tool.incubation_update.agent": `改写夜思条目的每日排程时刻。
-
-WHEN TO CALL:
-- 用户说「以后夜里 11 点再想」「改成早上 6 点收洞察」等调整每日跑轮时刻
-
-WHEN NOT TO CALL:
-- 条目本轮 in-flight（仅非 in-flight 态可改；锁随轮次结束或 TTL 30 分钟回收后释放）
-
-RETURNS: { id, schedule, nextRunAt }。schedule 为 HH:mm 本地时间（默认 00:00）；nextRunAt 仅 active 态非空（下一锚点），其余状态（含 suggested-resolve/paused/resolved）为 null。`,
-  "tool.incubation_pause.agent": `暂停夜思条目的自动排程（置 paused，到点不再自动执行）。
-
-WHEN TO CALL:
-- 用户说「这段先别跑了」「暂停这个条目」等暂停意图
-
-WHEN NOT TO CALL:
-- 想恢复时（用 incubation_resolve(id, false) 置回 active）
-- 已 resolve 的归档条目无需暂停（荣誉记录，不参与排程）
-
-RETURNS: { id, status, nextRunAt }。paused 态 nextRunAt 恒为 null（不再排程）；进行中的夜思轮与收束不受影响；paused 态手动立即夜思会被拒绝，需先恢复。`,
-  "tool.incubation_delete.agent": `删除夜思条目本体（生命周期终点）。
-
-WHEN TO CALL:
-- 用户明确说「删掉这个夜思条目」
-- 条目问题已过时、不再需要
-
-WHEN NOT TO CALL:
-- 条目本轮 in-flight（等轮次结束或 TTL 30 分钟回收后再删）
-- 只是不想让它再跑（用 incubation_pause 暂停，保留历史）
-
-RETURNS: { id }。已产出的 rem-insight 提案与审计记录保留（提案走各自 accept/dismiss 裁决流）；梦境时间线随条目一并移除，不可恢复。删除前应向用户确认。`,
+返回: { id }。已产出的 rem-insight 提案与审计记录保留,走各自裁决流;深思历史随条目移除。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
@@ -971,99 +940,78 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.trash.tip": "软删除的印迹与突触;可恢复或彻底清除",
 
   // ===== 夜思实验室(spec §四/§六) =====
-  "viewer.tab.incubations": "夜思实验室",
+  "viewer.tab.contemplation": "沉思",
   "viewer.tab.experimentalSuffix": "实验特性",
-  "viewer.tab.incubations.tip": "睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察",
+  "viewer.tab.contemplation.tip": "提出一个问题，盘点全部记忆、日志与技能，深思一次出报告",
   "viewer.proposals.insight.badge": "深度洞察",
   "viewer.proposals.insight.mode.integration": "整合模式",
   "viewer.proposals.insight.mode.retrospective": "复盘模式",
   "viewer.proposals.insight.mode.inspiration": "灵感模式",
   "viewer.proposals.insight.criticTip": "独立 critic 评审分(机器主观初值,非客观真值)",
-  "viewer.proposals.insight.incubationTip": "源自夜思条目",
-  "viewer.incubations.title": "夜思实验室",
-  "viewer.incubations.intro": "睡前喂一个问题，夜里 Agent 替你深想，醒来收洞察。洞察先成提案，经审批才落为记忆。",
-  "viewer.incubations.createTitle": "播种一个新问题",
-  "viewer.incubations.questionPlaceholder": "你想让 Agent 夜里深想的问题……",
-  "viewer.incubations.seedPlaceholder": "种子记忆 id（可选，逗号分隔）",
-  "viewer.incubations.webOptIn": "允许联网调研",
-  "viewer.incubations.webOptInHint": "允许夜思联网查资料：问题摘要将发送至搜索引擎；关闭则完全离线思考",
-  "viewer.incubations.createBtn": "播种",
-  "viewer.incubations.inFlightTip": "该条目正在夜思中，完成后可再次运行",
-  "viewer.incubations.pauseBtn": "暂停",
-  "viewer.incubations.resumeBtn": "恢复",
-  "viewer.incubations.deleteBtn": "删除",
-  "viewer.incubations.deleteConfirm": "删除该夜思条目？梦境时间线将随条目移除，不可恢复。",
-  "viewer.incubations.deleteKeptNote": "已产出的洞察提案与审计记录会保留，不受影响。",
-  "viewer.incubations.lastRound": "最近一轮（R${round} · ${trigger}）",
-  "viewer.incubations.lastRoundNone": "本轮无文字摘要，过程见下方时间线",
-  "viewer.incubations.inFlightSince": "夜思进行中 · ${t}",
-  "viewer.incubations.inFlightHint": "L2 会话阶段：计划 → 检索阅读 → 批判评审 → 洞察提炼。完成后此处更新梦境时间线，洞察以提案呈现；通常需要几分钟，本页每 30 秒自动刷新。",
-  "viewer.incubations.empty": "还没有孵化条目。播种第一个问题，今晚开始夜思。",
-  "viewer.incubations.filterPlaceholder": "按问题文本过滤条目…",
-  "viewer.incubations.filterNoMatch": "没有匹配的条目",
-  "viewer.incubations.activeFoldSummary": "其余 ${n} 条展开",
-  "viewer.incubations.loadFailed": "加载失败：${err}",
-  "viewer.incubations.unavailable": "当前部署未启用夜思（需注入孵化器）。",
-  "viewer.incubations.status.active": "孵化中",
-  "viewer.incubations.status.in-flight": "正在夜思…",
-  "viewer.incubations.status.suggested-resolve": "待确认：是否回答了你的问题？",
-  "viewer.incubations.status.resolved": "已解决",
-  "viewer.incubations.status.paused": "已暂停",
-  "viewer.incubations.rounds": "第 ${n} 夜",
-  "viewer.incubations.level.L1": "L1 基线思考",
-  "viewer.incubations.level.L2": "L2 Agent 编排",
-  "viewer.incubations.runNow": "立即夜思",
-  "viewer.incubations.running": "夜思进行中……（L2 会话为分钟级，可稍后刷新查看）",
-  "viewer.incubations.jobDone": "完成：${proposals} 条洞察提案，执行级别 ${level}",
-  "viewer.incubations.jobError": "失败：${err}",
-  "viewer.incubations.resolvePrompt": "是否回答了你的问题？",
-  "viewer.incubations.resolveGuidance": "已跑完：收束出结论，或再来一次",
-  "viewer.incubations.resolveYes": "已回答，归档",
-  "viewer.incubations.resolveNo": "还没有，继续孵化",
-  "viewer.incubations.timeline": "梦境时间线",
-  "viewer.incubations.traceSummary": "执行轨迹 ${n} 步",
-  "viewer.incubations.timelineEmpty": "尚无夜思记录",
-  "viewer.incubations.timelineRound": "第 ${round} 夜 · ${trigger}",
-  "viewer.incubations.trigger.manual": "手动",
-  "viewer.incubations.trigger.scheduled": "定时",
-  "viewer.incubations.externalCalls": "外部调用 ${n} 次（审计留痕）",
-  "viewer.incubations.note": "备注：${note}",
+  "viewer.proposals.insight.incubationTip": "源自沉思",
+  "viewer.contemplation.title": "沉思",
+  "viewer.contemplation.intro": "提出一个问题，围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志与技能库，深思一次、出一份报告。全程本地只读执行。",
+  "viewer.contemplation.createTitle": "想清楚什么？",
+  "viewer.contemplation.questionPlaceholder": "想清楚什么？描述你的问题，越具体越好……",
+  "viewer.contemplation.seedPlaceholder": "重点记忆 id，可选（留空自动全库检索）",
+  "viewer.contemplation.createBtn": "深思",
+  "viewer.contemplation.createHint": "提交即开始深思，可能耗时较久，可离开本页，完成后在此出报告。也可以在对话里直接说「帮我沉思这个问题」。",
+  "viewer.contemplation.filterPlaceholder": "按问题过滤…",
+  "viewer.contemplation.filterNoMatch": "没有匹配的问题",
+  "viewer.contemplation.empty": "还没有沉思过问题",
+  "viewer.contemplation.emptySub": "在上面提出第一个问题——围绕它盘点全部记忆、日志与技能，深思一次",
+  "viewer.contemplation.limitWarn": "条目接近上限（${n}/${max}），请先删除旧的已答条目",
+  "viewer.contemplation.status.queued": "排队中",
+  "viewer.contemplation.status.thinking": "深思中",
+  "viewer.contemplation.status.done": "已答",
+  "viewer.contemplation.thinkingSince": "深思开始于 ${t}",
+  "viewer.contemplation.thinkingHint": "正在盘点记忆图谱、行为日志与技能库……深思可能耗时较久，完成后自动出报告，可离开本页",
+  "viewer.contemplation.thinkingCantDelete": "深思中，不可删除",
+  "viewer.contemplation.rethinkBtn": "再思一次",
+  "viewer.contemplation.rethinkConfirm": "再思一次将回灌全部过往深思史，重新盘点全库；已有提案保留。继续？",
+  "viewer.contemplation.evidenceBtn": "依据",
+  "viewer.contemplation.deleteBtn": "删除",
+  "viewer.contemplation.deleteConfirm": "删除这个问题与全部深思历史？已产出的洞察提案保留，可在提案中心裁决。",
+  "viewer.contemplation.running": "深思中…",
+  "viewer.contemplation.jobDone": "深思完成：成案 ${proposals} 条提案",
+  "viewer.contemplation.jobError": "失败：${err}",
+  "viewer.contemplation.loadFailed": "加载失败：${err}",
+  "viewer.contemplation.unavailable": "沉思不可用（部署未注入孵化器）",
+  "viewer.contemplation.answerLabel": "回答：",
+  "viewer.contemplation.answerMissing": "（本次深思未产出回答）",
+  "viewer.contemplation.answerError": "回答生成失败",
+  "viewer.contemplation.answerSkippedNoLlm": "无 LLM 配置，未生成回答",
+  "viewer.contemplation.expandReport": "展开完整报告",
+  "viewer.contemplation.collapseReport": "收起报告",
+  "viewer.contemplation.section.answer": "回答",
+  "viewer.contemplation.section.insights": "洞察提案（去提案中心裁决）",
+  "viewer.contemplation.section.process": "过程",
+  "viewer.contemplation.section.diagnosis": "诊断",
+  "viewer.contemplation.section.history": "历史深思",
+  "viewer.contemplation.planSummary": "思考计划（${n} 步）",
+  "viewer.contemplation.traceSummary": "执行轨迹（${n} 步）",
+  "viewer.contemplation.historySummary": "此前深思过 ${n} 次（回灌防重复）",
+  "viewer.contemplation.evidence.engrams": "读取的记忆（${n}，点击打开）",
+  "viewer.contemplation.evidence.skills": "使用的技能（${n}）",
+  "viewer.contemplation.evidence.logs": "读取的日志（${n}）",
+  "viewer.contemplation.diagnosis.drafts": "草稿 ${n} 条",
+  "viewer.contemplation.diagnosis.dup": "重复剔除 ${n}",
+  "viewer.contemplation.diagnosis.validate": "引用校验拒 ${n}",
+  "viewer.contemplation.diagnosis.critic": "critic 拒 ${n}",
+  "viewer.contemplation.diagnosis.residual": "其余 ${n} 条未成案",
+  "viewer.contemplation.diagnosis.noLlm": "llmClient 未注入：提案评审与回答生成均不可用",
+  "viewer.contemplation.diagnosis.rejectReasons": "拒因明细（${n} 条，点开查看）",
   // 夜思 T10:机理简述 / 调度器状态 / 收束与排程 / 播种反馈 / 诊断人话化
-  "viewer.incubations.explainer.what": "夜思是全资源盘点式深度思考：调用全部记忆图谱、行为日志、你的技能库（联网需按条目开启）围绕问题深思一次。",
-  "viewer.incubations.explainer.how": "到点执行一次：产出洞察草稿，经引用校验、重复检测、独立评审三道闸后成为提案；你 accept/dismiss 的结果会回灌下轮（再次执行时）。",
-  "viewer.incubations.explainer.gain": "每次执行生成阶段性回答草稿（点击卡片查看）；跑完待你裁决：收束出最终回答，或再来一次（手动 / 下个排程锚点）；accept 的洞察进入记忆库。",
-  "viewer.incubations.explainer.budget": "夜思调用外部 LLM（可能消耗较多 token），计划/轨迹全程透明可查；联网开关在播种表单，开启后仅问题与摘要级内容发送至搜索引擎。",
-  "viewer.incubations.schedulerOn": "调度器：运行中（排程将准点执行）",
-  "viewer.incubations.schedulerOff": "调度器：未运行（错过的轮次会在下次会话或 daemon 启动后补跑）",
-  "viewer.incubations.catchUpPending": "待补跑（调度器未运行）",
-  "viewer.incubations.finalAnswer": "最终回答",
-  "viewer.incubations.concludeBtn": "收束出结论",
-  "viewer.incubations.concludeConfirm": "综合全部轮次生成最终回答（约 1-2 分钟，最长可能更久），并进入待 resolve 状态。继续？",
-  "viewer.incubations.concludePendingHint": "请求已超时或中断，收束可能仍在后台进行；稍后刷新此页查看结果，请勿重复点击。",
-  "viewer.incubations.concludeFailed": "收束失败：${msg}",
-  "viewer.incubations.editSchedule": "排程",
-  "viewer.incubations.schedulePrompt": "每日排程时刻（HH:mm，默认 00:00）",
-  "viewer.incubations.scheduleChipTip": "每天此刻自动执行一次夜思（单次长任务）；点 🕐 可改写时刻",
-  "viewer.incubations.sownTip": "已播种。预计 ${time} 执行（或点「立即夜思」）；跑完待你裁决 —— 归档，或再来一次（手动 / 等下个 ${schedule} 锚点）。",
-  "viewer.incubations.draftSkippedNoLlm": "本轮未综合：LLM 通道未配置",
-  "viewer.incubations.diagnosis.drafts": "本轮 ${n} 条草稿",
-  "viewer.incubations.diagnosis.dup": "${n} 条撞重复作废",
-  "viewer.incubations.diagnosis.validate": "${n} 条未过引用校验",
-  "viewer.incubations.diagnosis.critic": "${n} 条未过 critic 评审",
-  "viewer.incubations.diagnosis.residual": "其余 ${n} 条未成案",
-  "viewer.incubations.diagnosis.noLlm": "llmClient 未注入：提案评审与阶段综合均不可用",
-  "viewer.incubations.diagnosis.rejectReasons": "拒因明细（${n} 条，点开查看）",
   "viewer.maintenance.insightStats.title": "洞察质量度量",
   "viewer.maintenance.insightStats.total": "洞察提案 ${n} 条",
   "viewer.maintenance.insightStats.acceptance": "采纳率 ${v}",
   "viewer.maintenance.insightStats.laterUse": "后续使用率 ${v}",
-  "viewer.help.nightThinkingTitle": "夜思（Overnight Thinking）",
-  "viewer.help.nightThinkingDesc": "<strong>夜思</strong>：在「更多 → 夜思实验室」播种一个问题，Agent 每夜深想一轮，洞察以提案呈现，审批后才落为记忆；过程计划与轨迹完全透明。",
-  "viewer.help.incubations.pace": "排程时刻执行一次（默认每日 00:00 本地，卡片「排程」可改）；跑完待你裁决 —— 归档，或选「还没有」授权下个锚点再跑一轮。",
-  "viewer.help.incubations.catchUp": "错过排程（无进程）会在下次会话或 daemon 启动后补跑；页头「调度器」状态实时可见。",
-  "viewer.help.incubations.draft": "每次执行自动生成阶段性回答草稿，点击卡片查看；「收束出结论」随时生成最终回答。",
-  "viewer.help.incubations.runNow": "「立即夜思」可随时手动触发一次；跑完同样待你裁决。",
-  "viewer.help.incubations.resources": "执行资源：全部记忆图谱 + 行为日志 + 你的技能库（联网需按条目开启）。",
+  "viewer.help.contemplationTitle": "沉思（Contemplation）",
+  "viewer.help.contemplationDesc": "<strong>沉思</strong>：在「沉思」页提出一个问题，系统围绕它做一次<strong>全资源盘点式深度思考</strong>——调用全部记忆图谱、行为日志与技能库，纯本地只读执行，深思一次出一份报告。",
+  "viewer.help.contemplation.pace": "提问即深思：提交后立即开始（也可在对话里直接说「帮我沉思这个问题」）；可能耗时较久，可离开页面，完成后自动出报告。",
+  "viewer.help.contemplation.answer": "报告以<strong>回答</strong>为主体；洞察以提案呈现，审批后才落为记忆；计划、轨迹与拒因在「过程」「诊断」折叠区完全透明。",
+  "viewer.help.contemplation.rethink": "对已答条目可「再思一次」——回灌全部过往深思史重新盘点；「依据」按钮展示本次实际读取的记忆、使用的技能与日志。",
+  "viewer.help.contemplation.limits": "条目上限 50 条，接近上限时页面提示，达限需先删除旧的已答条目；历史深思按时间戳呈现。",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
   "viewer.tab.config.tip":

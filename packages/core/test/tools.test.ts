@@ -1489,9 +1489,9 @@ describe("skill_invoke", () => {
 // ============================================================
 
 describe("ToolRegistry", () => {
-  it("列出所有工具（50 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1 + skill CRUD 5 + skill invoke 1 + skill compose 3 + skill related_engram 3 + incubation 9）", () => {
+  it("列出所有工具（46 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1 + skill CRUD 5 + skill invoke 1 + skill compose 3 + skill related_engram 3 + ponder 5[2026-08-17:incubation 9 → 5,砍 resolve/conclude/update/pause]）", () => {
     const reg = createToolRegistry();
-    expect(reg.list().length).toBe(50);
+    expect(reg.list().length).toBe(46);
   });
 
   it("按名查工具", () => {

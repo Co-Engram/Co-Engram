@@ -2511,58 +2511,80 @@ div.vis-tooltip {
 }
 
 /* === 治理页页头 === */
-/* === 夜思实验室(incubations,2026-08 重设计:纸面主题,去内联样式) === */
+/* === 沉思(contemplation,2026-08-17 重设计:提问即深思、一次一份报告) === */
 .inc-sow-card { margin-bottom: 1.1rem; padding: 1rem 1.2rem; }
 .inc-sow-title { margin: 0 0 0.7rem; font-size: 0.92rem; color: var(--accent); font-weight: 700; }
 .inc-form { display: flex; flex-direction: column; gap: 0.6rem; }
 .inc-form textarea {
-  font: inherit; font-size: 0.88rem; width: 100%; resize: vertical;
-  border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem;
-  background: var(--panel-bg, #fff); color: var(--fg); line-height: 1.6;
+  width: 100%; font: inherit; font-size: 0.88rem; line-height: 1.6; resize: vertical;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.75rem;
+  background: var(--bg); color: var(--fg);
 }
 .inc-form textarea:focus { outline: none; border-color: var(--accent); }
 .inc-form-row { display: flex; gap: 0.7rem; align-items: center; flex-wrap: wrap; }
 .inc-form-row input[type=text] {
-  flex: 1; min-width: 240px; font: inherit; font-size: 0.82rem;
-  border: 1px solid var(--border); border-radius: 8px; padding: 0.38rem 0.62rem;
-  background: var(--panel-bg, #fff); color: var(--fg);
+  flex: 1; min-width: 12rem; font: inherit; font-size: 0.8rem;
+  border: 1px solid var(--border); border-radius: 8px; padding: 0.42rem 0.65rem;
+  background: var(--bg); color: var(--fg);
 }
 .inc-form-row input[type=text]:focus { outline: none; border-color: var(--accent); }
-.inc-web-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: var(--fg-muted); white-space: nowrap; }
-.inc-form-actions { display: flex; align-items: center; gap: 0.75rem; }
-.inc-form-actions .hint { font-size: 0.72rem; color: var(--fg-dim); }
+.inc-form-actions { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.inc-form-actions .hint { flex-basis: 100%; font-size: 0.72rem; color: var(--fg-dim); }
+.inc-limit-warn { margin-top: 0.5rem; font-size: 0.75rem; color: #B45309; background: #FDF3E3; border: 1px solid rgba(180, 83, 9, 0.2); border-radius: 8px; padding: 0.4rem 0.6rem; }
 .inc-empty { text-align: center; padding: 2.4rem 0; color: var(--fg-dim); font-size: 0.85rem; }
 .inc-empty .icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
+.inc-empty-sub { font-size: 0.78rem; margin-top: 0.3rem; }
 .inc-card { margin-bottom: 0.8rem; padding: 0.95rem 1.1rem; }
 .inc-card-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.45rem; }
 .inc-card-head .card-title { flex: 1; min-width: 0; margin: 0; }
-.inc-st.st-active { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
+.inc-st.st-done { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
 .inc-st.st-flight { color: #B45309; background: #FDF3E3; }
-.inc-st.st-resolve { color: #7163C4; background: #EFEDF8; }
 .inc-st.st-dim { color: var(--fg-dim); background: var(--chip-bg); }
 .inc-hatched { font-size: 0.72rem; color: var(--fg-dim); }
 .inc-job { margin-bottom: 0.4rem; font-size: 0.8rem; }
-/* in-flight 过程信息:呼吸点 + 开始时间 + 阶段说明 */
+/* thinking 过程(呼吸点 + 阶段说明) */
 .inc-progress { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.45rem; padding: 0.5rem 0.7rem; background: #FDF3E3; border: 1px solid rgba(180, 83, 9, 0.2); border-radius: 8px; font-size: 0.78rem; color: #B45309; }
 .inc-progress-dot { width: 8px; height: 8px; border-radius: 50%; background: #B45309; align-self: center; animation: inc-breath 1.6s ease-in-out infinite; }
 @keyframes inc-breath { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .inc-progress-dot { animation: none; } }
 .inc-progress-hint { flex-basis: 100%; color: #8B857B; font-size: 0.72rem; line-height: 1.5; }
-.btn.mini.disabled, .btn.disabled { opacity: 0.45; cursor: not-allowed; }
 .inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
-.inc-last-round { margin-top: 0.45rem; padding: 0.5rem 0.7rem; background: var(--chip-bg, #F0EDE7); border-radius: 8px; font-size: 0.78rem; }
-.inc-last-round .ilr-h { font-weight: 600; color: var(--fg-muted); font-size: 0.72rem; margin-bottom: 0.25rem; }
-.inc-last-round .ilr-s { color: var(--fg); line-height: 1.55; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inc-last-round .ilr-s.ilr-none { color: var(--fg-dim); font-style: italic; }
-.inc-timeline { margin-top: 0.6rem; }
-.inc-timeline summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }
-.inc-timeline ul { padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.6; margin: 0.4rem 0 0; }
-.inc-archived, .inc-fold { margin-top: 0.9rem; }
-.inc-archived summary, .inc-fold summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
-/* 夜思 T10:机理简述块 / 调度器状态 / nextRunAt chip / 草案区 / 播种反馈 */
-.inc-explainer { margin: 8px 0 12px; padding: 10px 12px; border-left: 3px solid var(--accent); font-size: 0.85rem; color: var(--fg-muted); display: grid; gap: 4px; }
-/* 预算提示第四行(2026-08 单次执行改版:并入 explainer 的小字,替代旧 .inc-notice 横幅) */
-.inc-explainer-note { font-size: 0.75rem; color: var(--fg-dim); line-height: 1.55; }
+.btn.mini.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
+.btn.mini.primary:hover { background: var(--accent); opacity: 0.9; }
+/* 回答预览(两行截断,点击展开报告) */
+.inc-prev {
+  margin-top: 0.5rem; padding: 0.5rem 0.7rem; background: var(--chip-bg, #F0EDE7); border-radius: 8px;
+  font-size: 0.8rem; color: var(--fg-muted); line-height: 1.55; cursor: pointer;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.inc-prev b { color: var(--fg); }
+.inc-prev:hover { background: var(--border); }
+/* 完整报告 */
+.inc-report { margin-top: 0.7rem; border-top: 1px dashed var(--border); padding-top: 0.7rem; }
+.inc-sec-h { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: var(--fg-dim); margin: 0.8rem 0 0.35rem; }
+.inc-report .inc-sec-h:first-child { margin-top: 0; }
+.inc-answer { font-size: 0.88rem; line-height: 1.8; color: var(--fg); }
+.inc-answer.none { color: var(--fg-dim); font-style: italic; font-size: 0.8rem; }
+.inc-ins-list { margin: 0; padding-left: 1.1rem; font-size: 0.84rem; line-height: 1.7; }
+.inc-fold-sm { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 0.4rem; background: var(--card-bg, var(--bg)); }
+.inc-fold-sm summary { padding: 0.42rem 0.7rem; font-size: 0.76rem; color: var(--fg-muted); cursor: pointer; }
+.inc-fold-sm summary:hover { color: var(--fg); }
+.inc-trace-list { margin: 0; padding: 0.2rem 0.7rem 0.5rem 1.6rem; font-size: 0.76rem; color: var(--fg-muted); line-height: 1.65; }
+.inc-hist-row { display: grid; grid-template-columns: 8.5rem 1fr; gap: 0.6rem; padding: 0.4rem 0.7rem; background: var(--chip-bg, #F0EDE7); border-radius: 8px; margin-bottom: 0.35rem; }
+.inc-hist-at { font-size: 0.72rem; color: var(--fg-dim); font-variant-numeric: tabular-nums; padding-top: 0.1rem; }
+.inc-hist-body { font-size: 0.78rem; color: var(--fg-muted); line-height: 1.55; }
+/* 依据区(资源明细:记忆/技能/日志) */
+.inc-evidence { margin-top: 0.6rem; border-top: 1px dashed var(--border); padding-top: 0.6rem; }
+.inc-ev-h { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; color: var(--fg-dim); margin: 0.5rem 0 0.3rem; }
+.inc-evidence .inc-ev-h:first-child { margin-top: 0; }
+.inc-chips { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.inc-chip { font-size: 0.74rem; border: 1px solid var(--border); background: var(--chip-bg, #F0EDE7); border-radius: 999px; padding: 0.1rem 0.6rem; color: var(--fg-muted); cursor: pointer; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inc-chip:hover { border-color: var(--accent); color: var(--accent); }
+.inc-chip.sk { color: #7163C4; background: #EFEDF8; border-color: rgba(113, 99, 196, 0.25); }
+.inc-log-row { font-size: 0.75rem; color: var(--fg-muted); padding: 0.12rem 0; }
+.inc-log-row code { font-size: 0.72rem; background: var(--chip-bg, #F0EDE7); border: 1px solid var(--border); border-radius: 5px; padding: 0 0.4rem; }
+.inc-fold { margin-top: 0.9rem; }
+.inc-fold summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
 /* 条目过滤框(多条目管理):照 .inc-form-row input 纸面样式,整行宽 */
 .inc-filter {
   width: 100%; font: inherit; font-size: 0.82rem;

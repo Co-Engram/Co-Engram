@@ -35,12 +35,12 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 42 (S1 skill CRUD 5 + S3 skill_invoke + S5 skill compose 3 + skill_related_engram 3 + incubation 9)", () => {
-    expect(PROFILE_TOOL_SETS.standard.size).toBe(42);
+  it("standard = 42 (S1 skill CRUD 5 + S3 skill_invoke + S5 skill compose 3 + skill_related_engram 3 + ponder 5(2026-08-17:incubation 9→5))", () => {
+    expect(PROFILE_TOOL_SETS.standard.size).toBe(38);
   });
 
-  it("full = 50 (含 S5 skill compose 3 + skill_related_engram 3 + incubation 9)", () => {
-    expect(PROFILE_TOOL_SETS.full.size).toBe(50);
+  it("full = 50 (含 S5 skill compose 3 + skill_related_engram 3 + ponder 5(2026-08-17:incubation 9→5))", () => {
+    expect(PROFILE_TOOL_SETS.full.size).toBe(46);
   });
 
   // ============================================================
@@ -202,7 +202,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
   it("full 不过滤(返回原数组)", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "full");
-    expect(filtered.length).toBe(50); // full profile 不过滤 = PROFILE_TOOL_SETS.full.size
+    expect(filtered.length).toBe(46); // full profile 不过滤 = PROFILE_TOOL_SETS.full.size
     expect(filtered).toBe(all); // 直接返回原引用
   });
 
@@ -212,10 +212,10 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 42 个(含 incubation 9)", () => {
+  it("standard 过滤到 42 个(含 ponder 5(2026-08-17:incubation 9→5))", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
-    expect(filtered.length).toBe(42);
+    expect(filtered.length).toBe(38);
   });
 
   it("minimal 不含 engram_delete", () => {

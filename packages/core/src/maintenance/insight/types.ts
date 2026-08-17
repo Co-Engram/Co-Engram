@@ -39,7 +39,7 @@ export interface RemInsightConfig {
   readonly criticThreshold?: number;
   /** 扩散激活子图节点上限(默认 30,初值待校准) */
   readonly maxSubgraphNodes?: number;
-  /** 夜思联网能力默认 off(spec §四隐私硬约束;仅孵化条目显式 opt-in 才生效) */
+  /** REM 深思联网能力开关(默认 off;当前无下游消费,保留配置位) */
   readonly webResearch?: boolean;
 }
 
@@ -142,9 +142,6 @@ export const MODE_CALIBRATION: Readonly<{
   ceiling: 1.3,
 };
 
-/** 每日排程时刻格式(锚点调度用);m[1]=时、m[2]=分(anchorOn 解析用) */
-export const SCHEDULE_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
-
 /** verificationStatus → 真值因子(activation 计算用;refuted = 0) */
 export const TRUTH_FACTOR: Readonly<Record<string, number>> = {
   verified: 1.0,
@@ -241,40 +238,47 @@ export interface NightThinkingTraceStep {
   readonly detail: string;
 }
 
-/** 夜思 L2 外部调用申报(联网/外部 LLM;写审计日志,viewer 可查) */
-export interface NightThinkingExternalCall {
-  readonly tool: string;
-  readonly purpose: string;
-  readonly at: string;
+/**
+ * 本轮资源使用申报(「依据」区数据源,2026-08-17 重设计):执行 agent 显式
+ * 申报实际读取的记忆 / 使用的技能 / 读取的日志。engram id 走引用闭合校验
+ * (不真实即拒)——依据不是 agent 的自我表述,而是过闸的可核验清单。
+ */
+export interface NightThinkingResourcesUsed {
+  readonly engrams: readonly string[];
+  readonly skills: readonly string[];
+  readonly logs: readonly string[];
 }
 
-/** 夜思任务包(core 只定义契约,不绑宿主;spec §七) */
+/** 沉思任务包(core 只定义契约,不绑宿主;纯本地只读执行) */
 export interface NightThinkingTask {
   readonly incubationId: string;
   readonly question: string;
-  /** 种子摘要级内容(脱敏:不带记忆原文,spec §四隐私边界) */
+  /** 种子摘要级内容(脱敏:不带记忆原文) */
   readonly seedDigests: ReadonlyArray<{
     readonly id: string;
     readonly title: string;
     readonly summary: string;
     readonly domainTags: readonly string[];
   }>;
-  /** 完整梦境史(过往洞察摘要 + accept/dismiss 理由,回灌迭代) */
+  /** 过往深思史(洞察摘要 + accept/dismiss 理由;再思时回灌防重复) */
   readonly dreamHistory: string;
-  /** 按条目 opt-in 的联网开关(默认 off) */
-  readonly webResearchOptIn: boolean;
-  /** 本地日志/状态文件路径(存在的才列;L2 用已授权 Read 读取,spec §六) */
+  /** 本地日志/状态文件路径(存在的才列;L2 用已授权 Read 读取) */
   readonly resourceHints: readonly string[];
   /** 固化协议:盘点→plan→执行→按格式 report(不依赖 agent 自觉) */
   readonly protocol: string;
 }
 
-/** 夜思回写(incubation_report 是唯一写回路径) */
+/**
+ * 沉思回写(ponder_report 是唯一写回路径)。
+ * answer 由执行现场生产(M1:agent 手握全部盘点上下文);缺省时 core 综合
+ * 层兜底补写(L1 路径 / L2 未交)。
+ */
 export interface NightThinkingReport {
+  readonly answer?: string;
   readonly insights: readonly InsightDraft[];
   readonly plan: readonly NightThinkingPlanStep[];
   readonly trace: readonly NightThinkingTraceStep[];
-  readonly externalCalls: readonly NightThinkingExternalCall[];
+  readonly resourcesUsed?: NightThinkingResourcesUsed;
 }
 
 /** L2 Agent 编排执行器契约(宿主提供 agent runtime;claude-code = headless spawn) */

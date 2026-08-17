@@ -8,7 +8,6 @@
  */
 
 import { z } from "zod";
-import { SCHEDULE_RE } from "../maintenance/insight/types.js";
 import { normalizeUlid } from "./normalization.js";
 
 /**
@@ -847,19 +846,15 @@ export type EngramSynthesizeToolInput = z.infer<
 >;
 
 // ============================================================
-// incubation_*(夜思,spec §四)
+// ponder_*(沉思,2026-08-17 重设计:提问即深思、纯本地、无排程)
 // ============================================================
 
 export const IncubationCreateInputSchema = z
   .object({
-    /** 夜思问题(自由文本,可以比记忆更丰富) */
+    /** 沉思问题(自由文本,可以比记忆更丰富) */
     question: z.string().min(4).max(2000),
-    /** 可选种子记忆 id */
+    /** 可选重点记忆 id(留空自动全库检索;种子是起点提示不是边界) */
     seedEngramIds: z.array(z.string().min(1)).max(20).optional(),
-    /** 联网调研 opt-in(默认 false;开启后问题摘要将发送至搜索引擎) */
-    webResearchOptIn: z.boolean().optional(),
-    /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00" */
-    schedule: z.string().regex(SCHEDULE_RE).optional(),
   })
   .strict();
 
@@ -868,7 +863,8 @@ export const IncubationRunInputSchema = z
     id: z.string().min(1),
     /**
      * agent(默认,对话入口):返回固化协议任务包,当前会话现场执行;
-     * auto(viewer/CLI 异步任务):直接跑 L2 headless / L1 降级,同步返回。
+     * auto(viewer/CLI 异步任务):直接跑 L2 headless(失败显式报错,
+     * 仅环境无 claude CLI 时降级 L1),同步返回。
      */
     mode: z.enum(["agent", "auto"]).optional(),
   })
@@ -876,38 +872,7 @@ export const IncubationRunInputSchema = z
 
 export const IncubationListInputSchema = z.object({}).strict();
 
-export const IncubationResolveInputSchema = z
-  .object({
-    id: z.string().min(1),
-    /** 是否回答了用户的问题:true → resolved;false → 继续 active */
-    answered: z.boolean(),
-  })
-  .strict();
-
-/** incubation_conclude:收束条目,综合全部梦境时间线生成 finalAnswer */
-export const IncubationConcludeInputSchema = z
-  .object({
-    id: z.string().min(1),
-  })
-  .strict();
-
-/** incubation_update:改写每日排程时刻(HH:mm 本地时间,默认 00:00) */
-export const IncubationUpdateInputSchema = z
-  .object({
-    id: z.string().min(1),
-    /** 每日排程时刻 "HH:mm"(本地);缺省 "00:00";仅非 in-flight 态可改 */
-    schedule: z.string().regex(SCHEDULE_RE),
-  })
-  .strict();
-
-/** incubation_pause:暂停条目的自动排程(置 paused) */
-export const IncubationPauseInputSchema = z
-  .object({
-    id: z.string().min(1),
-  })
-  .strict();
-
-/** incubation_delete:删除条目本体(已产出的提案与审计保留) */
+/** ponder_delete:删除条目本体(已产出的提案与审计保留) */
 export const IncubationDeleteInputSchema = z
   .object({
     id: z.string().min(1),
@@ -941,6 +906,8 @@ export const IncubationReportInputSchema = z
   .object({
     incubationId: z.string().min(1),
     report: z.object({
+      /** 回答(M1:执行现场生产;缺省由 core 综合层兜底补写) */
+      answer: z.string().min(1).optional(),
       insights: z.array(InsightDraftSchema),
       plan: z.array(
         z.object({ step: z.string().min(1), capability: z.string().min(1) }),
@@ -952,13 +919,14 @@ export const IncubationReportInputSchema = z
           detail: z.string(),
         }),
       ),
-      externalCalls: z.array(
-        z.object({
-          tool: z.string().min(1),
-          purpose: z.string().min(1),
-          at: z.string().min(1),
-        }),
-      ),
+      /** 资源使用申报(「依据」区;engram id 过试读清洗) */
+      resourcesUsed: z
+        .object({
+          engrams: z.array(z.string().min(1)),
+          skills: z.array(z.string().min(1)),
+          logs: z.array(z.string().min(1)),
+        })
+        .optional(),
     }),
   })
   .strict();

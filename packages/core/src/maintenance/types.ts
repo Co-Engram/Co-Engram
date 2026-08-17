@@ -192,14 +192,11 @@ export interface MaintenanceDeps {
    */
   readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
   /**
-   * 夜思孵化器(可选,结构类型)。REM 灵感模式与 active 条目合并执行;
-   * light 阶段尾部独立日调度(runDue,锚点时刻制:active 条目每日 schedule
-   * 时刻一轮,不依赖 REM 节拍)。
-   * 未注入时深度思考照常跑(无孵化合并),夜思不可用。
+   * 沉思孵化器(可选,结构类型)。REM 灵感模式与 queued 条目合并执行。
+   * 2026-08-17 重设计:沉思为「提问即深思」的一次性任务,无排程,
+   * 维护引擎不再挂载 runDue;未注入时深度思考照常跑(无沉思合并)。
    */
-  readonly incubator?: import("./insight/run.js").IncubationSource & {
-    runDue(): Promise<{ ran: readonly string[]; skipped: readonly string[] }>;
-  };
+  readonly incubator?: import("./insight/run.js").IncubationSource;
 }
 
 /** 默认配置常量 */

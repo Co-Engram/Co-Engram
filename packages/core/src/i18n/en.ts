@@ -332,88 +332,57 @@ WHEN TO CALL:
 WHEN NOT TO CALL: no inconsistency; for a specific engram use engram_get.
 
 RETURNS: timestamps, counts, autoFixesApplied, pendingManualReview, issues[] (kind/path/message/autoFixed).`,
-  "tool.incubation_create.agent": `Create an overnight-thinking (night) incubation entry: feed a question before sleep; the agent thinks deeply overnight; you harvest insights on waking.
+  "tool.ponder_create.agent": `Ask a contemplation question: one full-resource-inventory deep think around it — the entire memory graph, behavioral logs and skill library, fully local and read-only, one report per run (answer + insight proposals).
 
 WHEN TO CALL:
-- User expresses night-thinking intent ("think about X overnight", "feed a question before sleep")
-- User raises a question worth multi-round deep exploration that needs no immediate answer
+- The user says "think this through for me" / "deep-dive this question" / "contemplate X"
+- The user raises a question worth mining the full memory assets, not needing an instant answer
 
 WHEN NOT TO CALL:
-- User wants an immediate answer (answer directly or use engram_search)
+- The user wants an immediate answer (answer directly or use engram_search)
 - One-off trivial questions
 
-RETURNS: { id, status, question, rounds, schedule, nextRunAt }. schedule is the daily run time (HH:mm local, default 00:00); nextRunAt is non-null only for active entries (next anchor), else null. webResearchOptIn defaults to false — confirm before enabling (question summary goes to search engines).`,
-  "tool.incubation_run.agent": `Run one night-thinking round immediately.
+RETURNS: { id, status: "queued", question }. The entry starts queued; pair with ponder_run to execute (in a chat you execute the protocol in-session). Optional seedEngramIds for focus memories (blank = full-library search); entry cap 50.`,
+  "tool.ponder_run.agent": `Run one contemplation (queued first think / done re-think).
 
 WHEN TO CALL:
-- User says "think now" / "run night thinking now" (conversational entry, default mode=agent)
-- Viewer/CLI async job or daily schedule (mode=auto)
+- Right after ponder_create (chat default mode=agent: you execute the fixed protocol in-session)
+- The user says "think again / another angle" on an answered entry (done entries feed back all previous sessions)
 
 WHEN NOT TO CALL:
-- Entry already in-flight (30-min TTL auto-recovery)
+- Entry is thinking (LOCK_BUSY; TTL 30min reclaim)
 
-RETURNS: mode=agent returns the fixed-protocol task package (question / seed digests / dream history / protocol) — execute inventory→plan→read-only work→incubation_report in the current session; mode=auto returns synchronously { level, proposals, cycleVetoed, rounds }.`,
-  "tool.incubation_list.agent": `List night-thinking incubation entries.
-
-WHEN TO CALL:
-- User asks "my night-thinking entries", "which night are we on", "any paused entries"
-
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, schedule, lastHatchedAt, nextRunAt, timelineRounds, timeline, finalAnswer? }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused. nextRunAt is non-null only for active entries (the next anchor) — null in any other status. timeline is a dream-timeline summary (lightweight fields kept in full; answerDraft full text only for the most recent 2 rounds); finalAnswer is the concluded answer, absent for unconcluded entries.`,
-  "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after an insight is accepted the entry becomes suggested-resolve; ask the user "did it answer your question?".
+RETURNS: mode=agent → { task } (fixed-protocol package: inventory → mine all resources → PLAN → read-only execute → write answer → ponder_report); mode=auto → { level, proposals, rounds }.`,
+  "tool.ponder_list.agent": `List contemplation entries.
 
 WHEN TO CALL:
-- Entry status=suggested-resolve and the user has given a verdict
-
-RETURNS: { id, status } — answered=true → resolved (dream timeline archived); false → the entry returns to active and the next scheduled anchor runs another round, which again awaits your verdict.`,
-  "tool.incubation_report.agent": `Night-thinking write-back (the ONLY write path for the L2 agent).
-
-WHEN TO CALL:
-- Exactly once, after you complete inventory→plan→read-only work per the protocol returned by incubation_run (agent mode)
+- The user asks "what have I contemplated / last result / entry list"
+- You need an entry id for run/delete
 
 WHEN NOT TO CALL:
-- Before executing the protocol; or when the round was already reported
+- Only report details are wanted (timeline already carries them)
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round (veto counts remain a diagnostic signal).`,
-  "tool.incubation_conclude.agent": `Conclude a night-thinking entry: synthesize the full dream timeline into a final answer (finalAnswer) and set the entry to suggested-resolve.
-
-WHEN TO CALL:
-- The entry has accumulated enough rounds of insights to wrap up, or the user wants "the final answer to this question"
-
-WHEN NOT TO CALL:
-- Entry is still in early incubation (let nightly rounds continue)
-- Deployment without llmClient injected (conclude fails loudly)
-
-RETURNS: { id, status, finalAnswer, concludedAt }. Idempotent: may be called repeatedly, regenerating and overwriting finalAnswer; already resolved / paused entries keep their status, only finalAnswer is regenerated. Concluding does NOT auto-accept any proposal — whether the question was answered is still decided by the user via incubation_resolve.`,
-  "tool.incubation_update.agent": `Rewrite the daily schedule time of a night-thinking entry.
+RETURNS: { items: [{ id, question, status (queued|thinking|done), rounds, lastRunAt, answer?, timeline }], total, limit }. Timeline digest with answers for the last 2 sessions only.`,
+  "tool.ponder_report.agent": `Contemplation write-back (the only write-back path for the L2 agent).
 
 WHEN TO CALL:
-- User asks to shift the nightly run time ("think at 11pm instead", "move harvest to 6am")
+- After you finish the full-resource inventory per the ponder_run protocol (step 6, exactly once)
 
 WHEN NOT TO CALL:
-- Entry is currently in-flight (schedule can only be rewritten outside a running round; the lock releases when the round ends or after the 30-min TTL recovery)
+- Protocol not finished (complete the inventory and the answer first)
+- Non-L2 paths (auto mode writes back internally)
 
-RETURNS: { id, schedule, nextRunAt }. schedule is HH:mm local time (default 00:00); nextRunAt is non-null only for active entries (the next anchor) — null in any other status (including suggested-resolve/paused/resolved).`,
-  "tool.incubation_pause.agent": `Pause the automatic schedule of a night-thinking entry (sets paused; no more automatic runs when the anchor is due).
+RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, hasAnswer }. Each insight goes through mechanical validation + independent critic into a rem-insight proposal (lands only after user accept); duplicates (Jaccard ≥ 0.65 vs history) are vetoed.`,
+  "tool.ponder_delete.agent": `Delete a contemplation entry (lifecycle end; not while thinking).
 
 WHEN TO CALL:
-- User says "stop running this for now" / "pause this entry"
+- The user says "delete this contemplation"
 
 WHEN NOT TO CALL:
-- To resume (use incubation_resolve(id, false) to set the entry back to active)
-- Resolved (archived) entries need no pause — they never run again
+- Entry is thinking (wait or TTL reclaim)
+- The user just wants a fresh report (use ponder_run)
 
-RETURNS: { id, status, nextRunAt }. nextRunAt is always null while paused (no longer scheduled); an in-flight round and concluding are unaffected; manual immediate night thinking is rejected while paused — resume first.`,
-  "tool.incubation_delete.agent": `Delete a night-thinking entry itself (end of lifecycle).
-
-WHEN TO CALL:
-- User explicitly says "delete this night-thinking entry"
-- The question is outdated and no longer needed
-
-WHEN NOT TO CALL:
-- Entry is currently in-flight (delete after the round ends or the 30-min TTL recovers)
-- Just wants it to stop running (use incubation_pause, which keeps history)
-
-RETURNS: { id }. Already-produced rem-insight proposals and audit records are kept (proposals go through their own accept/dismiss verdict flow); the dream timeline is removed together with the entry, unrecoverable. Confirm with the user before deleting.`,
+RETURNS: { id }. Produced rem-insight proposals and audit records are kept; the thinking history is removed with the entry.`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
@@ -981,99 +950,78 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Soft-deleted engrams and synapses; restore or permanently purge",
 
   // ===== Night-thinking lab (spec §4/§6) =====
-  "viewer.tab.incubations": "Night Lab",
+  "viewer.tab.contemplation": "Contemplation",
   "viewer.tab.experimentalSuffix": "Beta",
-  "viewer.tab.incubations.tip": "Feed a question before sleep; the agent thinks overnight; harvest insights on waking",
+  "viewer.tab.contemplation.tip": "Ask a question; inventory all memories, logs and skills; one deep-thinking report",
   "viewer.proposals.insight.badge": "Deep insight",
   "viewer.proposals.insight.mode.integration": "Integration mode",
   "viewer.proposals.insight.mode.retrospective": "Retrospective mode",
   "viewer.proposals.insight.mode.inspiration": "Inspiration mode",
   "viewer.proposals.insight.criticTip": "Independent critic score (machine-subjective initial value, not ground truth)",
-  "viewer.proposals.insight.incubationTip": "From a night-thinking entry",
-  "viewer.incubations.title": "Night-thinking Lab",
-  "viewer.incubations.intro": "Feed a question before sleep; the agent thinks deeply overnight; harvest insights on waking. Insights become proposals first and only turn into memories after approval.",
-  "viewer.incubations.createTitle": "Seed a new question",
-  "viewer.incubations.questionPlaceholder": "The question you want the agent to think through overnight…",
-  "viewer.incubations.seedPlaceholder": "Seed memory ids (optional, comma-separated)",
-  "viewer.incubations.webOptIn": "Allow web research",
-  "viewer.incubations.webOptInHint": "Allow web research: the question summary is sent to search engines; turn off for fully offline thinking",
-  "viewer.incubations.createBtn": "Seed",
-  "viewer.incubations.inFlightTip": "This entry is currently thinking; run again after it finishes",
-  "viewer.incubations.pauseBtn": "Pause",
-  "viewer.incubations.resumeBtn": "Resume",
-  "viewer.incubations.deleteBtn": "Delete",
-  "viewer.incubations.deleteConfirm": "Delete this night-thinking entry? Its dream timeline is removed with it and cannot be recovered.",
-  "viewer.incubations.deleteKeptNote": "Insight proposals already produced and audit records are kept, unaffected.",
-  "viewer.incubations.lastRound": "Last round (R${round} · ${trigger})",
-  "viewer.incubations.lastRoundNone": "No textual summary this round — see the timeline below",
-  "viewer.incubations.inFlightSince": "Night thinking in progress · ${t}",
-  "viewer.incubations.inFlightHint": "L2 session stages: plan → retrieval reading → critique → insight distillation. The dream timeline updates here on completion and insights surface as proposals; usually takes a few minutes — this page auto-refreshes every 30s.",
-  "viewer.incubations.empty": "No incubation entries yet. Seed your first question and start tonight.",
-  "viewer.incubations.filterPlaceholder": "Filter entries by question text…",
-  "viewer.incubations.filterNoMatch": "No matching entries",
-  "viewer.incubations.activeFoldSummary": "Expand ${n} more",
-  "viewer.incubations.loadFailed": "Failed to load: ${err}",
-  "viewer.incubations.unavailable": "Night thinking is not enabled in this deployment (incubator not injected).",
-  "viewer.incubations.status.active": "Incubating",
-  "viewer.incubations.status.in-flight": "Thinking…",
-  "viewer.incubations.status.suggested-resolve": "Confirm: did it answer your question?",
-  "viewer.incubations.status.resolved": "Resolved",
-  "viewer.incubations.status.paused": "Paused",
-  "viewer.incubations.rounds": "Night ${n}",
-  "viewer.incubations.level.L1": "L1 baseline thinking",
-  "viewer.incubations.level.L2": "L2 agent orchestration",
-  "viewer.incubations.runNow": "Run now",
-  "viewer.incubations.running": "Night thinking in progress… (an L2 session takes minutes; refresh later)",
-  "viewer.incubations.jobDone": "Done: ${proposals} insight proposals, level ${level}",
-  "viewer.incubations.jobError": "Failed: ${err}",
-  "viewer.incubations.resolvePrompt": "Did it answer your question?",
-  "viewer.incubations.resolveGuidance": "Done: conclude the final answer, or run again",
-  "viewer.incubations.resolveYes": "Answered — archive",
-  "viewer.incubations.resolveNo": "Not yet — keep incubating",
-  "viewer.incubations.timeline": "Dream timeline",
-  "viewer.incubations.traceSummary": "Execution trace: ${n} steps",
-  "viewer.incubations.timelineEmpty": "No nights recorded yet",
-  "viewer.incubations.timelineRound": "Night ${round} · ${trigger}",
-  "viewer.incubations.trigger.manual": "manual",
-  "viewer.incubations.trigger.scheduled": "scheduled",
-  "viewer.incubations.externalCalls": "${n} external call(s) (audited)",
-  "viewer.incubations.note": "Note: ${note}",
+  "viewer.proposals.insight.incubationTip": "From a contemplation",
+  "viewer.contemplation.title": "Contemplation",
+  "viewer.contemplation.intro": "Ask a question and think it through once with a full resource inventory — the entire memory graph, behavioral logs and skill library. One report per run. Fully local and read-only.",
+  "viewer.contemplation.createTitle": "What would you like to think through?",
+  "viewer.contemplation.questionPlaceholder": "What would you like to think through? Describe your question — the more specific, the better…",
+  "viewer.contemplation.seedPlaceholder": "Focus memory ids, optional (blank = full-library search)",
+  "viewer.contemplation.createBtn": "Think",
+  "viewer.contemplation.createHint": "Submitting starts the deep thinking immediately. It may take a while — you can leave this page; the report appears here when done. You can also just say 'help me think this through' in a chat.",
+  "viewer.contemplation.filterPlaceholder": "Filter by question…",
+  "viewer.contemplation.filterNoMatch": "No matching questions",
+  "viewer.contemplation.empty": "No contemplations yet",
+  "viewer.contemplation.emptySub": "Ask your first question above — a full inventory of memories, logs and skills, thought through once",
+  "viewer.contemplation.limitWarn": "Near the entry limit (${n}/${max}) — delete old answered entries first",
+  "viewer.contemplation.status.queued": "Queued",
+  "viewer.contemplation.status.thinking": "Thinking",
+  "viewer.contemplation.status.done": "Answered",
+  "viewer.contemplation.thinkingSince": "Thinking since ${t}",
+  "viewer.contemplation.thinkingHint": "Inventorying the memory graph, behavioral logs and skills… thinking may take a while; the report appears automatically when done",
+  "viewer.contemplation.thinkingCantDelete": "Cannot delete while thinking",
+  "viewer.contemplation.rethinkBtn": "Think again",
+  "viewer.contemplation.rethinkConfirm": "Thinking again re-feeds all previous sessions and re-inventories the whole library; existing proposals are kept. Continue?",
+  "viewer.contemplation.evidenceBtn": "Evidence",
+  "viewer.contemplation.deleteBtn": "Delete",
+  "viewer.contemplation.deleteConfirm": "Delete this question and all its thinking history? Produced insight proposals are kept for adjudication in the proposals tab.",
+  "viewer.contemplation.running": "Thinking…",
+  "viewer.contemplation.jobDone": "Done: ${proposals} proposal(s)",
+  "viewer.contemplation.jobError": "Failed: ${err}",
+  "viewer.contemplation.loadFailed": "Failed to load: ${err}",
+  "viewer.contemplation.unavailable": "Contemplation unavailable (no incubator injected)",
+  "viewer.contemplation.answerLabel": "Answer:",
+  "viewer.contemplation.answerMissing": "(no answer produced this run)",
+  "viewer.contemplation.answerError": "Answer generation failed",
+  "viewer.contemplation.answerSkippedNoLlm": "No LLM configured — answer not generated",
+  "viewer.contemplation.expandReport": "Expand full report",
+  "viewer.contemplation.collapseReport": "Collapse report",
+  "viewer.contemplation.section.answer": "Answer",
+  "viewer.contemplation.section.insights": "Insight proposals (adjudicate in proposals)",
+  "viewer.contemplation.section.process": "Process",
+  "viewer.contemplation.section.diagnosis": "Diagnosis",
+  "viewer.contemplation.section.history": "Previous sessions",
+  "viewer.contemplation.planSummary": "Plan (${n} steps)",
+  "viewer.contemplation.traceSummary": "Trace (${n} steps)",
+  "viewer.contemplation.historySummary": "${n} previous session(s) (fed back to avoid repeats)",
+  "viewer.contemplation.evidence.engrams": "Memories read (${n}, click to open)",
+  "viewer.contemplation.evidence.skills": "Skills used (${n})",
+  "viewer.contemplation.evidence.logs": "Logs read (${n})",
+  "viewer.contemplation.diagnosis.drafts": "${n} drafts",
+  "viewer.contemplation.diagnosis.dup": "${n} duplicates vetoed",
+  "viewer.contemplation.diagnosis.validate": "${n} rejected by citation gate",
+  "viewer.contemplation.diagnosis.critic": "${n} rejected by critic",
+  "viewer.contemplation.diagnosis.residual": "${n} others not proposed",
+  "viewer.contemplation.diagnosis.noLlm": "llmClient missing: review and answer generation unavailable",
+  "viewer.contemplation.diagnosis.rejectReasons": "Rejection reasons (${n}, click to view)",
   // Night-thinking T10: explainer / scheduler status / conclude & schedule / sown feedback / diagnosis
-  "viewer.incubations.explainer.what": "Night thinking is resource-maximal deep thinking: it mines the full memory graph, behavioral logs, and your skill catalog (web opt-in per entry) to think through the question once.",
-  "viewer.incubations.explainer.how": "It runs once at the scheduled time: draft insights pass three gates (reference check, dedup, independent critique) to become proposals; your accept/dismiss feedback feeds the next run.",
-  "viewer.incubations.explainer.gain": "Each run produces a working answer draft (click a card to view); when it finishes, you decide — conclude the final answer, or run again (manually / at the next anchor); accepted insights enter the memory repo.",
-  "viewer.incubations.explainer.budget": "Night thinking calls an external LLM (may consume significant tokens); the plan and trace stay fully transparent; the web toggle lives in the seed form — when on, only the question and digest-level content go to the search engine.",
-  "viewer.incubations.schedulerOn": "Scheduler: running (rounds run on schedule)",
-  "viewer.incubations.schedulerOff": "Scheduler: not running (missed rounds catch up on next session or daemon start)",
-  "viewer.incubations.catchUpPending": "pending catch-up (scheduler not running)",
-  "viewer.incubations.finalAnswer": "Final answer",
-  "viewer.incubations.concludeBtn": "Conclude",
-  "viewer.incubations.concludeConfirm": "Synthesize all rounds into a final answer (~1-2 min, possibly longer) and mark for resolve. Continue?",
-  "viewer.incubations.concludePendingHint": "Request timed out or dropped; conclude may still be running in the background. Refresh later instead of retrying.",
-  "viewer.incubations.concludeFailed": "Conclude failed: ${msg}",
-  "viewer.incubations.editSchedule": "Schedule",
-  "viewer.incubations.schedulePrompt": "Daily run time (HH:mm, default 00:00)",
-  "viewer.incubations.scheduleChipTip": "Runs one night-thinking session automatically at this time daily (a single long task); click 🕐 to change the time",
-  "viewer.incubations.sownTip": "Sown. Expected to run at ${time} (or hit \"Run now\"); when it finishes, you decide — archive it, or run again (manually / at the next ${schedule} anchor).",
-  "viewer.incubations.draftSkippedNoLlm": "Draft skipped: llmClient not configured",
-  "viewer.incubations.diagnosis.drafts": "${n} drafts this round",
-  "viewer.incubations.diagnosis.dup": "${n} vetoed as duplicates",
-  "viewer.incubations.diagnosis.validate": "${n} failed reference check",
-  "viewer.incubations.diagnosis.critic": "${n} rejected by critic review",
-  "viewer.incubations.diagnosis.residual": "${n} others did not become proposals",
-  "viewer.incubations.diagnosis.noLlm": "llmClient missing: proposals and drafts unavailable",
-  "viewer.incubations.diagnosis.rejectReasons": "Rejection details (${n}; click to expand)",
   "viewer.maintenance.insightStats.title": "Insight quality metrics",
   "viewer.maintenance.insightStats.total": "${n} insight proposals",
   "viewer.maintenance.insightStats.acceptance": "Acceptance ${v}",
   "viewer.maintenance.insightStats.laterUse": "Later-use ${v}",
-  "viewer.help.nightThinkingTitle": "Night Thinking (Overnight Thinking)",
-  "viewer.help.nightThinkingDesc": "<strong>Night thinking</strong>: seed a question in More → Night Lab; the agent thinks it through night after night, insights appear as proposals and only become memories after approval; plans and traces are fully transparent.",
-  "viewer.help.incubations.pace": "Runs once at the scheduled time (00:00 local by default; change it from the card's Schedule control); when it finishes you decide — archive it, or pick \"not yet\" to authorize another run at the next anchor.",
-  "viewer.help.incubations.catchUp": "Missed runs (no process running) catch up on the next session or daemon start; the header shows live scheduler status.",
-  "viewer.help.incubations.draft": "Each run auto-drafts an interim answer (click the card to read it); Conclude produces the final answer anytime.",
-  "viewer.help.incubations.runNow": "Run now triggers a session manually at any time; it likewise awaits your verdict when done.",
-  "viewer.help.incubations.resources": "Run resources: the full memory graph + activity logs + your skill library (web research is opt-in per entry).",
+  "viewer.help.contemplationTitle": "Contemplation",
+  "viewer.help.contemplationDesc": "<strong>Contemplation</strong>: ask a question on the Contemplation page; the system does one <strong>full-resource-inventory deep think</strong> around it — the entire memory graph, behavioral logs and skill library, fully local and read-only, one report per run.",
+  "viewer.help.contemplation.pace": "Asking starts the think immediately (you can also just say \"help me think this through\" in a chat); it may take a while — leave the page freely, the report appears when done.",
+  "viewer.help.contemplation.answer": "The report is anchored by the <strong>answer</strong>; insights surface as proposals and land as memories only after approval; plan, trace and reject reasons are fully transparent in the Process/Diagnosis folds.",
+  "viewer.help.contemplation.rethink": "Answered entries can be re-thought (\"Think again\" feeds back all previous sessions); the Evidence button shows the memories read, skills used and logs touched this run.",
+  "viewer.help.contemplation.limits": "Entry cap is 50; the page warns near the limit and oldest answered entries must be deleted first; previous sessions are listed by timestamp.",
   "viewer.tab.health.tip":
     "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
   "viewer.tab.config.tip":

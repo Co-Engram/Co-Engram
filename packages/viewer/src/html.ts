@@ -92,7 +92,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   const governanceTabs = [
     ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip"), true],
     ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
-    ["incubations", t(language, "viewer.tab.incubations") + `<sup class="tab-exp">${t(language, "viewer.tab.experimentalSuffix")}</sup>`, t(language, "viewer.tab.incubations.tip"), false],
+    ["contemplation", t(language, "viewer.tab.contemplation"), t(language, "viewer.tab.contemplation.tip"), false],
   ] as const;
 
   // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)。
@@ -295,9 +295,9 @@ ${SIDE_ICONS}
       <div id="trash-content"></div>
     </section>
 
-    <!-- Incubations(夜思实验室,spec §四/§六) -->
-    <section class="tab-panel" data-tab="incubations">
-      <div id="incubations-content"></div>
+    <!-- Contemplation(沉思,2026-08-17 重设计:提问即深思、一次一份报告) -->
+    <section class="tab-panel" data-tab="contemplation">
+      <div id="contemplation-content"></div>
     </section>
 
     <!-- Health -->

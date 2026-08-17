@@ -100,20 +100,20 @@ flowchart TB
 2. **落盘时** —— 复验来源仍存在且未被反驳;accept 创建 `pattern`(或 `hypothesis`)engram,`confidence = critic 分`(机器主观初值,非客观真值),自动连 `derives_from` 证据链。
 3. **存活期** —— 洞察无特权:证据链衰减(对端反驳/失效 >30% 汇入每日重审摘要,不逐条出提案防泛滥);洞察自身 `failedUses ≥ 3` 会成为下一轮复盘种子 —— 系统复盘自己的旧产出。
 
-## 夜思(Overnight Thinking)
+## 沉思(Contemplation)
 
-核心差异化功能:*睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。*
+核心差异化功能:*提出一个问题,围绕它做一次全资源盘点式深度思考 —— 调用全部记忆图谱、行为日志与技能库,纯本地只读执行,深思一次出一份报告。*(2026-08-17 重设计,原「夜思」多轮梦境模型移除)
 
-孵化条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选种子记忆、状态(`active / in-flight / suggested-resolve / resolved / paused`)、轮数与完整时间线。入口:对话(`incubation_create`)、viewer「夜思实验室」页、CLI。
+条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选重点记忆(`seedEngramIds`,留空自动全库检索)、三态状态(`queued → thinking → done`)与完整深思时间线。入口:对话(`ponder_create`)、viewer「沉思」页、CLI。旧五态数据在读取时自动归一化迁移(无迁移脚本);条目上限 50 条(达限拒绝创建并列出最老已答条目引导删除,不自动清理)。
 
 执行双级:
 
-- **L2 Agent 编排(主路径)** —— 一次完整 agent 会话(能力盘点 → PLAN → 只读执行 → 经 `incubation_report` 唯一写回路径回写)。claude-code 端定时/调度场景 spawn 无头 `claude -p` 会话;对话入口由当前会话按 `incubation_run` 返回的固化协议现场执行。
-- **L1 基线(降级)** —— 单次 LLM 远距类比,仅在无 agent runtime 或 L2 失败时使用。openclaw 一期走 L1。
+- **L2 Agent 编排(主路径)** —— 一次完整 agent 会话,按固化协议执行:能力盘点 → 全资源开采(记忆图谱多角度检索 / 行为日志 Read / skill_list+skill_get)→ PLAN → 只读执行 → **写回答(answer,执行现场生产,主体交付物)** → 经 `ponder_report` 唯一写回路径回写(含 `resourcesUsed` 资源申报,支撑 viewer「依据」区;engram id 过试读清洗,编造即剔)。定时/调度场景与 viewer 异步任务 spawn 无头 `claude -p` 会话(实现收敛在 core,三宿主共用);对话入口由当前会话按 `ponder_run` 返回的固化协议现场执行。
+- **L1 基线(兜底)** —— 单次 LLM 远距类比,仅宿主无 agent runtime 或环境无 claude CLI(spawn ENOENT)时使用,审计如实标注 level。**L2 其余失败(超时/解析/非零退出)显式报错,不再静默降级**(2026-08-17 修复:静默降级曾让用户长期吃到 L1 产物而无从知晓)。
 
-调度**独立于 REM 节拍**:active 条目在每日排程时刻(默认 00:00,可按条目改写)到点执行一次单次长任务(light tick 检查 due),「立即夜思」随时手动触发。跨进程 in-flight 锁(TTL 30 分钟)防轮次双计。每次执行 prompt 首行锚定问题并携带完整梦境史(过往洞察 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号,不再驱动自动暂停)。**单次执行语义**:跑完即进入 `suggested-resolve` 待用户裁决 —— 回答「是否回答了你的问题」,是则归档(时间线保留,梦的日记);否则条目回 active,下个排程锚点自动再跑一轮(跑完再次待裁决)。`pause` 暂停自动排程(手动 run 被拒、收束不受影响),`delete` 删除条目(已产出的提案与审计保留)—— 两者随时可用,与轮次/收束一同纳入审计。
+**提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断)/ run_fail / delete`。
 
-**隐私边界(硬约束)**:联网默认关闭、按条目 opt-in;L2 prompt 只携带种子摘要级内容(不带记忆原文),外部调用写审计日志。viewer 完整展示计划与轨迹 —— 过程透明是信任来源。
+**本地执行边界(硬约束)**:纯本地只读,联网能力已整体移除(2026-08-17 用户决策)——白名单不含 WebSearch/WebFetch,协议明示不发起任何网络调用;L2 prompt 只携带种子摘要级内容(不带记忆原文)。viewer 完整展示回答、洞察提案、过程(计划/轨迹)、诊断与依据(实际读取的记忆/技能/日志)—— 过程透明是信任来源。
 
 ## 数学原理
 

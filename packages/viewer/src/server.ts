@@ -68,7 +68,6 @@ import {
   GraphBuilder,
   defaultCachePath,
   readMaintenanceState,
-  computeNextRunAt,
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
@@ -1128,68 +1127,16 @@ async function routeApi(
   }
 
   // ============================================================
-  // /api/incubations(夜思实验室,spec §四/§六)+ 异步任务 + 轮询
   // ============================================================
-  if (path === "/api/incubations" && req.method === "GET") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, items: [] });
-      return;
-    }
-    respondJson(res, 200, {
-      enabled: true,
-      scheduler: dataRoot ? schedulerStatus(dataRoot) : { alive: false },
-      items: ctx.incubator.list().map((e) => ({ ...e, nextRunAt: computeNextRunAt(e) })),
-    });
-    return;
-  }
-
-  if (path === "/api/incubations" && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const body = await readJsonBodyAs<{
-      readonly question?: string;
-      readonly seedEngramIds?: readonly string[];
-      readonly webResearchOptIn?: boolean;
-      readonly schedule?: string;
-    }>(req);
-    if (!body?.question || body.question.trim().length < 4) {
-      respondJson(res, 400, { error: "question required (min 4 chars)" });
-      return;
-    }
-    try {
-      const entry = ctx.incubator.create({
-        question: body.question,
-        ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
-        webResearchOptIn: body.webResearchOptIn === true,
-        ...(body.schedule ? { schedule: body.schedule } : {}),
-      });
-      respondJson(res, 201, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
-    } catch (err) {
-      respondJson(
-        res,
-        err instanceof Error && /invalid schedule/.test(err.message) ? 400 : 500,
-        { error: err instanceof Error ? err.message : String(err) },
-      );
-      return;
-    }
-    return;
-  }
-
-  // 「立即夜思」走异步任务:viewer 是独立 HTTP server,同步等待分钟级
-  // L2 会话必超时 —— 创建后台任务 + GUI 轮询进度,完成后通知(spec §六)。
-  const incubationRunMatch = /^\/api\/incubations\/([^/]+)\/run$/.exec(path);
-  if (incubationRunMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const id = decodeURIComponent(incubationRunMatch[1]!);
+  // /api/contemplations(沉思,2026-08-17 重设计:提问即深思、一次一份报告)
+  // ============================================================
+  /** 起异步深思任务:viewer 是独立 HTTP server,同步等待分钟级 L2 会话必超时
+   *  —— 创建后台任务 + GUI 轮询进度,完成后通知。 */
+  const startContemplationJob = (incubationId: string): string => {
     const jobId = randomUUID();
     const job: IncubationJob = {
       id: jobId,
-      incubationId: id,
+      incubationId,
       status: "running",
       startedAt: new Date().toISOString(),
     };
@@ -1197,7 +1144,7 @@ async function routeApi(
     trimIncubationJobs();
     void (async () => {
       try {
-        const r = await ctx.incubator!.incubateOnce(id, "manual");
+        const r = await ctx.incubator!.incubateOnce(incubationId, "manual");
         job.status = "done";
         job.finishedAt = new Date().toISOString();
         job.level = r.level;
@@ -1211,60 +1158,77 @@ async function routeApi(
         job.error = err instanceof Error ? err.message : String(err);
       }
     })();
+    return jobId;
+  };
+
+  if (path === "/api/contemplations" && req.method === "GET") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, items: [] });
+      return;
+    }
+    respondJson(res, 200, {
+      enabled: true,
+      items: ctx.incubator.list(),
+      limit: ctx.incubator.limitInfo(),
+    });
+    return;
+  }
+
+  // 创建即深思:创建条目(queued)并自动起异步 job,返回 jobId 供轮询
+  if (path === "/api/contemplations" && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const body = await readJsonBodyAs<{
+      readonly question?: string;
+      readonly seedEngramIds?: readonly string[];
+    }>(req);
+    if (!body?.question || body.question.trim().length < 4) {
+      respondJson(res, 400, { error: "question required (min 4 chars)" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.create({
+        question: body.question,
+        ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
+      });
+      const jobId = startContemplationJob(entry.id);
+      respondJson(res, 201, { entry, jobId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /limit reached/.test(msg) ? 400 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 再思/手动执行:done 与 queued 均可;thinking 中域层拒绝 → 409
+  const contemplationRunMatch = /^\/api\/contemplations\/([^/]+)\/run$/.exec(path);
+  if (contemplationRunMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const id = decodeURIComponent(contemplationRunMatch[1]!);
+    // 前置存在性/状态检查给即时 4xx(不占 job);竞态由域层 thinking 锁兜底
+    const existing = ctx.incubator.get(id);
+    if (!existing) {
+      respondJson(res, 404, { error: "contemplation not found" });
+      return;
+    }
+    if (existing.status === "thinking") {
+      respondJson(res, 409, { error: "contemplation already thinking" });
+      return;
+    }
+    const jobId = startContemplationJob(id);
     respondJson(res, 202, { jobId, status: "running" });
     return;
   }
 
-  // 收束:综合全部梦境史出最终回答(spec §五;LLM 分钟级,同步等待可接受 ——
-  // 与 run 不同,conclude 单次 LLM 调用而非整轮 agent 会话)
-  const incubationConcludeMatch = /^\/api\/incubations\/([^/]+)\/conclude$/.exec(path);
-  if (incubationConcludeMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    try {
-      const entry = await ctx.incubator.conclude(
-        decodeURIComponent(incubationConcludeMatch[1]!),
-      );
-      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /llmClient|in-flight|not found/.test(msg) ? 409 : 500, { error: msg });
-      return;
-    }
-    return;
-  }
-
-  // 改排程时刻(spec §四):域层 SCHEDULE_RE 校验 + in-flight/404 映射
-  const incubationScheduleMatch = /^\/api\/incubations\/([^/]+)\/schedule$/.exec(path);
-  if (incubationScheduleMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const body = await readJsonBodyAs<{ readonly schedule?: string }>(req);
-    if (!body?.schedule) {
-      respondJson(res, 400, { error: "schedule required (HH:mm)" });
-      return;
-    }
-    try {
-      const entry = ctx.incubator.updateSchedule(
-        decodeURIComponent(incubationScheduleMatch[1]!),
-        body.schedule,
-      );
-      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /invalid schedule|in-flight|not found/.test(msg) ? 400 : 500, { error: msg });
-      return;
-    }
-    return;
-  }
-
-  const incubationJobMatch = /^\/api\/incubation-jobs\/([^/]+)$/.exec(path);
-  if (incubationJobMatch && req.method === "GET") {
-    const job = incubationJobs.get(decodeURIComponent(incubationJobMatch[1]!));
+  const contemplationJobMatch = /^\/api\/contemplation-jobs\/([^/]+)$/.exec(path);
+  if (contemplationJobMatch && req.method === "GET") {
+    const job = incubationJobs.get(decodeURIComponent(contemplationJobMatch[1]!));
     if (!job) {
       respondJson(res, 404, { error: "job not found" });
       return;
@@ -1273,62 +1237,26 @@ async function routeApi(
     return;
   }
 
-  const incubationResolveMatch = /^\/api\/incubations\/([^/]+)\/resolve$/.exec(path);
-  if (incubationResolveMatch && req.method === "POST") {
+  // 删除条目(生命周期终点):thinking 拒绝;删条目不删提案 —— 提案本体走
+  // 各自 accept/dismiss 裁决流
+  const contemplationDeleteMatch = /^\/api\/contemplations\/([^/]+)\/delete$/.exec(path);
+  if (contemplationDeleteMatch && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false });
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
       return;
     }
-    const id = decodeURIComponent(incubationResolveMatch[1]!);
-    const body = await readJsonBodyAs<{ readonly answered?: boolean }>(req);
-    try {
-      const updated = ctx.incubator.resolve(id, body?.answered === true);
-      respondJson(res, 200, { entry: updated });
-    } catch (err) {
-      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-    return;
-  }
-
-  // 暂停(单次执行语义):nextRunAt=null 不再排程,手动 run 被拒,收束不受影响;
-  // 域层允许轮中暂停(report 写前重读保留 paused),前端 in-flight 态按钮置灰防误解
-  const incubationPauseMatch = /^\/api\/incubations\/([^/]+)\/pause$/.exec(path);
-  if (incubationPauseMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    try {
-      const entry = ctx.incubator.pause(decodeURIComponent(incubationPauseMatch[1]!));
-      respondJson(res, 200, { entry: { ...entry, nextRunAt: computeNextRunAt(entry) } });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /not found/.test(msg) ? 404 : 500, { error: msg });
-      return;
-    }
-    return;
-  }
-
-  // 删除条目(生命周期终点):in-flight 拒绝(域层同 updateSchedule 保护);
-  // 删条目不删提案 —— 提案本体走各自 accept/dismiss 裁决流
-  const incubationDeleteMatch = /^\/api\/incubations\/([^/]+)\/delete$/.exec(path);
-  if (incubationDeleteMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const deleteId = decodeURIComponent(incubationDeleteMatch[1]!);
+    const deleteId = decodeURIComponent(contemplationDeleteMatch[1]!);
     try {
       ctx.incubator.delete(deleteId);
       respondJson(res, 200, { id: deleteId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /in-flight|not found/.test(msg) ? 409 : 500, { error: msg });
+      respondJson(res, /thinking|not found/.test(msg) ? 409 : 500, { error: msg });
       return;
     }
     return;
   }
+
 
   // /api/proposals/:entityId/accept | /dismiss | /reactivate
   const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(
@@ -3627,23 +3555,11 @@ async function readJsonBody(req: IncomingMessage): Promise<UpdateInputBody> {
   return JSON.parse(raw) as UpdateInputBody;
 }
 
-/** 调度器存活:agent.lock 心跳 90s 内视为运行中(holder 会话或 daemon) */
-function schedulerStatus(dataRoot: string): { alive: boolean; heartbeatAt?: string } {
-  try {
-    const raw = readFileSync(join(dataRoot, ".co-engram", "agent.lock"), "utf8");
-    const hb = (JSON.parse(raw) as { heartbeatAt?: string }).heartbeatAt;
-    if (hb && Date.now() - new Date(hb).getTime() < 90_000) return { alive: true, heartbeatAt: hb };
-    return { alive: false, heartbeatAt: hb };
-  } catch {
-    return { alive: false };
-  }
-}
-
 /**
  * 读取请求体并按给定 schema 解析,失败返回 undefined。
  * 用于 POST endpoint(proposals/trash)。
  */
-/** 夜思异步任务注册表(server 进程内;「立即夜思」不挂起 HTTP 请求,spec §六) */
+/** 沉思异步任务注册表(server 进程内;深思不挂起 HTTP 请求) */
 interface IncubationJob {
   readonly id: string;
   readonly incubationId: string;
