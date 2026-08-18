@@ -117,23 +117,29 @@ function reportOf(
 }
 
 describe("CRUD 与持锁写", () => {
-  it("create → queued 落盘;持锁 isHolder=false → 不写盘", () => {
+  it("create → queued 落盘;双实例交错写互不丢失(多会话部署拓扑)", () => {
     incubator.create({ question: "问题 Q" });
     expect(existsSync(join(tmpDir, ".co-engram", "incubations.json"))).toBe(true);
     const raw = JSON.parse(readFileSync(join(tmpDir, ".co-engram", "incubations.json"), "utf8"));
     expect(raw).toHaveLength(1);
     expect(raw[0].status).toBe("queued");
 
-    const nonHolder = new Incubator({
+    // 第二实例(模拟同机第二个 MCP 会话/daemon 并存的部署形态):
+    // 2026-08-19 修复前,holder-only 落盘让 non-holder 的 create 假成功
+    // (返回成功但静默丢数据);修复后任何实例经 RMW 锁均可写,且互不覆盖。
+    const second = new Incubator({
       repository: repo,
       proposalEngine: engine,
       dataRoot: tmpDir,
-      processLock: { isHolder: false },
     });
-    const before = readFileSync(join(tmpDir, ".co-engram", "incubations.json"), "utf8");
-    nonHolder.create({ question: "不应落盘" });
-    const after = readFileSync(join(tmpDir, ".co-engram", "incubations.json"), "utf8");
-    expect(after).toBe(before);
+    second.create({ question: "第二实例问题" });
+    const after = JSON.parse(readFileSync(join(tmpDir, ".co-engram", "incubations.json"), "utf8"));
+    expect(after).toHaveLength(2);
+
+    // 跨工具一致性契约:create 成功 ⇒ 任意实例 list 可见 ⇒ get 可用
+    expect(second.list().map((e) => e.question)).toContain("问题 Q");
+    expect(incubator.list().map((e) => e.question)).toContain("第二实例问题");
+    expect(second.get(incubator.list()[0]!.id)).toBeDefined();
   });
 
   it("创建审计 contemplation_create;删除审计 contemplation_delete(含 sessions)", () => {

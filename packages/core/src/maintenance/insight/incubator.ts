@@ -9,8 +9,10 @@
  * 设计要点:
  * - **从 runRem 解耦**:REM 只是消费方之一(queued 条目供 REM 灵感合并种子);
  *   即时触发(对话/viewer)是独立调用方,无排程
- * - **incubations.json 持锁写**:与 maintenance-state 同款模式,仅 processLock
- *   holder 落盘,防多进程 lost-update
+ * - **incubations.json RMW 短临界区锁 + 原子写**:任何实例可写(2026-08-19
+ *   修复:原「holder-only 落盘」模式让 non-holder 实例的 ponder 工具族假成功
+ *   —— 返回成功但数据静默蒸发;并发安全由文件锁互斥「读-改-写」临界区 +
+ *   tmp-rename 原子写保证,不再依赖进程身份门禁)
  * - **thinking 原子标记**:跨进程互斥,TTL 30min 过期回收(跑过→done,未跑→queued)
  * - **ponder_report 是 L2 唯一写回路径**:机械校验 + 独立 critic → rem-insight
  *   提案(entityId 纳入 session 序号);捕获即时成提案,不等不攒
@@ -25,10 +27,11 @@
  * @module @co-engram/core/maintenance/insight
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { acquireRmwLock } from "../../concurrency/rmw-lock.js";
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { insightEntityId } from "../../observability/proposal-engine.js";
@@ -214,7 +217,6 @@ export interface IncubatorDeps {
   readonly llmClient?: LlmClient;
   /** L2 执行器(宿主注入);缺省走 L1(宿主无 agent runtime) */
   readonly executor?: NightThinkingExecutor;
-  readonly processLock?: { readonly isHolder?: boolean };
   readonly auditLog?: {
     append(entry: {
       readonly actor: string;
@@ -300,6 +302,8 @@ export class Incubator {
   private readonly now: () => string;
   /** L1 兜底执行器(llmClient 存在时惰性构造) */
   private l1: { execute(t: NightThinkingTask): Promise<NightThinkingReport> } | null = null;
+  /** RMW 锁重入深度(同进程 delete/cancel 临界区内调 releaseThinking 等) */
+  private storeLockDepth = 0;
 
   constructor(deps: IncubatorDeps) {
     this.deps = deps;
@@ -330,11 +334,34 @@ export class Incubator {
   }
 
   private write(entries: readonly IncubationEntry[]): void {
-    // 与 maintenance-state 同款持锁写:non-holder 不落盘(防 lost-update)
-    if (this.deps.processLock?.isHolder === false) return;
+    // 原子写:tmp + rename,读者永远看到完整文件(旧版或新版)。
+    // 多进程互斥由 withStoreLock 的短临界区保证(调用方持有);本方法不自行
+    // 加锁,禁止在临界区外调用。
     const path = incubationsPath(this.deps.dataRoot);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(entries, null, 2) + "\n", "utf8");
+    const tmp = `${path}.tmp-${process.pid}-${randomUUID().slice(0, 8)}`;
+    writeFileSync(tmp, JSON.stringify(entries, null, 2) + "\n", "utf8");
+    renameSync(tmp, path);
+  }
+
+  /**
+   * incubations.json 的 RMW 短临界区:跨进程文件锁互斥「读-改-写」全程。
+   * 同进程可重入(delete/cancel 在临界区内调 releaseThinking 等内部 mutator)。
+   * 任何实例(含 maintenance 锁 non-holder)都能进临界区 —— 用户数据通道
+   * 不受单写者门禁管辖(2026-08-19 修复,见模块头注释)。
+   */
+  private withStoreLock<T>(fn: () => T): T {
+    if (this.storeLockDepth > 0) return fn();
+    this.storeLockDepth += 1;
+    const lock = acquireRmwLock(
+      join(this.deps.dataRoot, ".co-engram", "incubations.lock"),
+    );
+    try {
+      return fn();
+    } finally {
+      this.storeLockDepth -= 1;
+      lock.release();
+    }
   }
 
   /**
@@ -463,43 +490,46 @@ export class Incubator {
     readonly question: string;
     readonly seedEngramIds?: readonly string[];
   }): IncubationEntry {
-    const entries = this.read();
-    // 同问题防重:未出过报告的条目(queued/进行中)已存在同问题 → 拒绝。
-    // 覆盖双入口连击(viewer 按钮无反馈期重复点击、对话内重复说「帮我沉思 X」);
-    // done 条目不拦(「重新深思同一问题」走再思/重建是正当场景)。
-    const dup = entries.find(
-      (e) =>
-        e.question === input.question.trim() &&
-        e.status !== "done",
-    );
-    if (dup) {
-      throw new Error(
-        `duplicate contemplation question (existing ${dup.id}, status=${dup.status}) — run or delete it instead`,
+    const entry = this.withStoreLock(() => {
+      const entries = this.read();
+      // 同问题防重:未出过报告的条目(queued/进行中)已存在同问题 → 拒绝。
+      // 覆盖双入口连击(viewer 按钮无反馈期重复点击、对话内重复说「帮我沉思 X」);
+      // done 条目不拦(「重新深思同一问题」走再思/重建是正当场景)。
+      const dup = entries.find(
+        (e) =>
+          e.question === input.question.trim() &&
+          e.status !== "done",
       );
-    }
-    if (entries.length >= MAX_ENTRIES) {
-      // 不自动清理:删除属用户裁决。列出最老 10 条已答条目引导删除。
-      const oldestDone = entries
-        .filter((e) => e.status === "done")
-        .sort((a, b) => parseAt(a.lastRunAt ?? a.createdAt) - parseAt(b.lastRunAt ?? b.createdAt))
-        .slice(0, 10)
-        .map((e) => `- ${e.id} · ${e.question.slice(0, 60)}`)
-        .join("\n");
-      throw new Error(
-        `contemplation limit reached (${entries.length}/${MAX_ENTRIES}) — delete oldest answered entries first. Oldest done entries:\n${oldestDone}`,
-      );
-    }
-    const entry: IncubationEntry = {
-      id: `inc-${randomUUID().slice(0, 12)}`,
-      question: input.question.trim(),
-      seedEngramIds: [...(input.seedEngramIds ?? [])],
-      status: "queued",
-      rounds: 0,
-      createdAt: this.now(),
-      lastRunAt: null,
-      timeline: [],
-    };
-    this.write([...entries, entry]);
+      if (dup) {
+        throw new Error(
+          `duplicate contemplation question (existing ${dup.id}, status=${dup.status}) — run or delete it instead`,
+        );
+      }
+      if (entries.length >= MAX_ENTRIES) {
+        // 不自动清理:删除属用户裁决。列出最老 10 条已答条目引导删除。
+        const oldestDone = entries
+          .filter((e) => e.status === "done")
+          .sort((a, b) => parseAt(a.lastRunAt ?? a.createdAt) - parseAt(b.lastRunAt ?? b.createdAt))
+          .slice(0, 10)
+          .map((e) => `- ${e.id} · ${e.question.slice(0, 60)}`)
+          .join("\n");
+        throw new Error(
+          `contemplation limit reached (${entries.length}/${MAX_ENTRIES}) — delete oldest answered entries first. Oldest done entries:\n${oldestDone}`,
+        );
+      }
+      const created: IncubationEntry = {
+        id: `inc-${randomUUID().slice(0, 12)}`,
+        question: input.question.trim(),
+        seedEngramIds: [...(input.seedEngramIds ?? [])],
+        status: "queued",
+        rounds: 0,
+        createdAt: this.now(),
+        lastRunAt: null,
+        timeline: [],
+      };
+      this.write([...entries, created]);
+      return created;
+    });
     this.deps.auditLog?.append({
       actor: "user",
       action: "contemplation_create",
@@ -530,18 +560,21 @@ export class Incubator {
    * 拦截(条目不存在 → 放弃写入),不会复活。
    */
   delete(id: string, opts?: { readonly force?: boolean }): void {
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    const inFlight =
-      target.status === "thinking" ||
-      target.status === "verifying" ||
-      target.status === "repairing";
-    if (inFlight && !opts?.force) {
-      throw new Error(`incubation ${id} in progress (${target.status}) — cancel the run first or delete with force`);
-    }
-    if (inFlight) this.releaseThinking(id);
-    this.write(this.read().filter((e) => e.id !== id));
+    const { target, inFlight } = this.withStoreLock(() => {
+      const entries = this.read();
+      const found = entries.find((e) => e.id === id);
+      if (!found) throw new Error(`incubation ${id} not found`);
+      const inFlightNow =
+        found.status === "thinking" ||
+        found.status === "verifying" ||
+        found.status === "repairing";
+      if (inFlightNow && !opts?.force) {
+        throw new Error(`incubation ${id} in progress (${found.status}) — cancel the run first or delete with force`);
+      }
+      if (inFlightNow) this.releaseThinking(id);
+      this.write(this.read().filter((e) => e.id !== id));
+      return { target: found, inFlight: inFlightNow };
+    });
     this.deps.auditLog?.append({
       actor: "user",
       action: "contemplation_delete",
@@ -594,64 +627,72 @@ export class Incubator {
   /** queued/done 均可开跑(再思);审计记 run_start;新 run 清旧 run/degraded 标,
    *  上轮未闭合缺口转存瞬态字段供计划生成接力(Phase2) */
   acquireThinking(id: string, by: string): boolean {
-    const entries = this.read();
-    const target = entries.find((e) => e.id === id);
-    if (!target) throw new Error(`incubation ${id} not found`);
-    if (target.status !== "queued" && target.status !== "done") return false;
-    const carryOver = [
-      ...(target.degraded?.nextTasks ?? target.degraded?.unclosedGaps ?? []),
-    ];
-    const updated: IncubationEntry = {
-      ...target,
-      status: "thinking",
-      thinkingAt: this.now(),
-      thinkingBy: by,
-      // degraded 是 run 级标记:再思开启新 run,旧标记随之失效;
-      // 未闭合缺口先转存(接力输入),终束时清除
-      ...(target.degraded ? { degraded: undefined } : {}),
-      ...(carryOver.length ? { carryOverGaps: carryOver } : {}),
-    };
-    this.write(entries.map((e) => (e.id === id ? updated : e)));
+    const started = this.withStoreLock(():
+      | { readonly ok: true; readonly rounds: number }
+      | { readonly ok: false } => {
+      const entries = this.read();
+      const target = entries.find((e) => e.id === id);
+      if (!target) throw new Error(`incubation ${id} not found`);
+      if (target.status !== "queued" && target.status !== "done") return { ok: false };
+      const carryOver = [
+        ...(target.degraded?.nextTasks ?? target.degraded?.unclosedGaps ?? []),
+      ];
+      const updated: IncubationEntry = {
+        ...target,
+        status: "thinking",
+        thinkingAt: this.now(),
+        thinkingBy: by,
+        // degraded 是 run 级标记:再思开启新 run,旧标记随之失效;
+        // 未闭合缺口先转存(接力输入),终束时清除
+        ...(target.degraded ? { degraded: undefined } : {}),
+        ...(carryOver.length ? { carryOverGaps: carryOver } : {}),
+      };
+      this.write(entries.map((e) => (e.id === id ? updated : e)));
+      return { ok: true, rounds: target.rounds + 1 };
+    });
+    if (!started.ok) return false;
     this.deps.auditLog?.append({
       actor: "system",
       action: "contemplation_run_start",
-      metadata: { id, by, session: target.rounds + 1 },
+      metadata: { id, by, session: started.rounds },
     });
     return true;
   }
 
   releaseThinking(id: string): void {
-    const entries = this.read();
-    this.write(
-      entries.map((e) => {
-        if (e.id !== id) return e;
-        if (e.status === "thinking") {
-          // run 未产出报告:回退可跑状态(与旧语义一致)
-          return {
-            ...e,
-            status: e.rounds > 0 ? "done" : "queued",
-            thinkingAt: undefined,
-            thinkingBy: undefined,
-          };
-        }
-        if (e.status === "verifying" || e.status === "repairing") {
-          // PDCA:报告已交、修复中断(执行器抛错/进程退出)—— 按修复失败
-          // 收束为 degraded done,未闭合缺口留档;执行者可再思重跑。
-          const unclosed = (e.run?.gaps ?? [])
-            .filter((g) => g.state === "open")
-            .map((g) => g.description);
-          return {
-            ...e,
-            status: "done" as const,
-            thinkingAt: undefined,
-            thinkingBy: undefined,
-            run: undefined,
-            degraded: { at: this.now(), reason: "aborted" as const, unclosedGaps: unclosed },
-          };
-        }
-        return e;
-      }),
-    );
+    this.withStoreLock(() => {
+      const entries = this.read();
+      this.write(
+        entries.map((e) => {
+          if (e.id !== id) return e;
+          if (e.status === "thinking") {
+            // run 未产出报告:回退可跑状态(与旧语义一致)
+            return {
+              ...e,
+              status: e.rounds > 0 ? "done" : "queued",
+              thinkingAt: undefined,
+              thinkingBy: undefined,
+            };
+          }
+          if (e.status === "verifying" || e.status === "repairing") {
+            // PDCA:报告已交、修复中断(执行器抛错/进程退出)—— 按修复失败
+            // 收束为 degraded done,未闭合缺口留档;执行者可再思重跑。
+            const unclosed = (e.run?.gaps ?? [])
+              .filter((g) => g.state === "open")
+              .map((g) => g.description);
+            return {
+              ...e,
+              status: "done" as const,
+              thinkingAt: undefined,
+              thinkingBy: undefined,
+              run: undefined,
+              degraded: { at: this.now(), reason: "aborted" as const, unclosedGaps: unclosed },
+            };
+          }
+          return e;
+        }),
+      );
+    });
   }
 
   // ============================================================
@@ -719,23 +760,25 @@ export class Incubator {
       plan = this.deps.llmClient
         ? await generateThinkPlan(this.deps.llmClient, input, this.now)
         : templatePlan(input, this.now);
-      // 落盘(写前重读防并发覆盖;已存在则尊重先写者)
-      const fresh = this.read();
-      const idx = fresh.findIndex((e) => e.id === id);
-      if (idx !== -1 && !fresh[idx]!.run?.plan) {
-        const target = fresh[idx]!;
-        fresh[idx] = {
-          ...target,
-          run: {
-            startedAt: target.thinkingAt ?? this.now(),
-            reports: 0,
-            repairReports: 0,
-            gaps: [],
-            plan,
-          },
-        };
-        this.write(fresh);
-      }
+      // 落盘(锁内读-改-写;已存在则尊重先写者)
+      this.withStoreLock(() => {
+        const fresh = this.read();
+        const idx = fresh.findIndex((e) => e.id === id);
+        if (idx !== -1 && !fresh[idx]!.run?.plan) {
+          const target = fresh[idx]!;
+          fresh[idx] = {
+            ...target,
+            run: {
+              startedAt: target.thinkingAt ?? this.now(),
+              reports: 0,
+              repairReports: 0,
+              gaps: [],
+              plan,
+            },
+          };
+          this.write(fresh);
+        }
+      });
       this.deps.auditLog?.append({
         actor: "system",
         action: "contemplation_plan_generated",
@@ -891,18 +934,21 @@ export class Incubator {
     /** PDCA:超额被 deferred 的新缺口描述 */
     readonly deferredGaps: readonly string[];
   }> {
-    const entries = this.read();
-    const idx = entries.findIndex((e) => e.id === input.incubationId);
-    if (idx === -1) throw new Error(`incubation ${input.incubationId} not found`);
-    const entry = entries[idx]!;
-    if (entry.status === "queued" || entry.status === "done") {
-      throw new Error(
-        `incubation ${input.incubationId} has no active run (status=${entry.status}) — call ponder_run first`,
-      );
-    }
-    // 落 verifying 瞬态(校验中;崩溃由 TTL 回收)。thinkingAt 保留:
-    // 既是证据时间窗起点也是 TTL 基准。
-    this.write(entries.map((e) => (e.id === entry.id ? { ...e, status: "verifying" } : e)));
+    const entry = this.withStoreLock(() => {
+      const entries = this.read();
+      const idx = entries.findIndex((e) => e.id === input.incubationId);
+      if (idx === -1) throw new Error(`incubation ${input.incubationId} not found`);
+      const found = entries[idx]!;
+      if (found.status === "queued" || found.status === "done") {
+        throw new Error(
+          `incubation ${input.incubationId} has no active run (status=${found.status}) — call ponder_run first`,
+        );
+      }
+      // 落 verifying 瞬态(校验中;崩溃由 TTL 回收)。thinkingAt 保留:
+      // 既是证据时间窗起点也是 TTL 基准。
+      this.write(entries.map((e) => (e.id === found.id ? { ...e, status: "verifying" } : e)));
+      return found;
+    });
 
     // ---- PDCA 闭合校验(Phase1:清单自报、证据事实化) ----
     const level = input.level ?? "L2";
@@ -1220,113 +1266,115 @@ export class Incubator {
       ...(answer ? { answer } : { answer: undefined }),
       ...(answerError ? { answerError } : { answerError: undefined }),
     };
-    // 写前重读合并:report 中途有 await(critic/综合走 LLM),若仍基于开头
-    // 快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中用户删除等
-    // 裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
-    const fresh = this.read();
-    const freshIdx = fresh.findIndex((x) => x.id === entry.id);
-    // 条目被并发取消(cancel → releaseThinking,状态已非 in-flight):
-    // 放弃写回 —— 落盘会推翻用户的终止裁决(状态被报告强行拉回 done)。
-    // 与下方"被删除"分支同构:用户裁决优先于迟到的报告。
-    if (
-      freshIdx !== -1 &&
-      fresh[freshIdx]!.status !== "thinking" &&
-      fresh[freshIdx]!.status !== "verifying" &&
-      fresh[freshIdx]!.status !== "repairing"
-    ) {
-      return {
-        proposals: entityIds.length,
-        cycleVetoed: allVetoed,
-        entry: fresh[freshIdx]!,
-        openGaps: advanced.gaps.filter((g) => g.state === "open"),
-        degraded: !!degradedFinal,
-        repairRound: repairReports,
-        deferredGaps: advanced.deferredThisRound,
-      };
-    }
-    if (freshIdx === -1) {
-      // 本条目被并发删除:放弃写入(不复活已删条目),返回本轮计算结果
-      return {
-        proposals: entityIds.length,
-        cycleVetoed: allVetoed,
-        entry: updated,
-        openGaps: advanced.gaps.filter((g) => g.state === "open"),
-        degraded: !!degradedFinal,
-        repairRound: repairReports,
-        deferredGaps: advanced.deferredThisRound,
-      };
-    }
-    const finalEntry: IncubationEntry = { ...updated, status: updated.status };
-    const next = [...fresh];
-    next[freshIdx] = finalEntry;
-    // 终态落定:本 run 全部提案的隔离标翻转(正常终束解除;degraded 固化)。
-    // 本 run 的提案 = timeline 中 round=nextRound 的全部事件(主报告 + 修复轮)
-    if (finalize && entityIds.length + timeline.filter((t) => t.round === nextRound).length > 0) {
-      const runEntityIds = [
-        ...entry.timeline
-          .filter((t) => t.round === nextRound)
-          .flatMap((t) => [...t.proposalEntityIds]),
-        ...entityIds,
-      ];
-      if (runEntityIds.length > 0) {
-        this.deps.proposalEngine.setInsightClosureState(
-          runEntityIds,
-          degradedFinal
-            ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
-            : claimsWeak
-              ? { provisional: false, unclosedGaps: claimsWeakNote }
-              : undefined,
-        );
+    // 写前重读合并(锁内临界区):report 中途有 await(critic/综合走 LLM),
+    // 若仍基于开头快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中
+    // 用户删除等裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
+    const commit = this.withStoreLock(():
+      | { readonly kind: "cancelled"; readonly current: IncubationEntry }
+      | { readonly kind: "deleted" }
+      | { readonly kind: "written"; readonly finalEntry: IncubationEntry } => {
+      const fresh = this.read();
+      const freshIdx = fresh.findIndex((x) => x.id === entry.id);
+      // 条目被并发取消(cancel → releaseThinking,状态已非 in-flight):
+      // 放弃写回 —— 落盘会推翻用户的终止裁决(状态被报告强行拉回 done)。
+      // 与下方"被删除"分支同构:用户裁决优先于迟到的报告。
+      if (
+        freshIdx !== -1 &&
+        fresh[freshIdx]!.status !== "thinking" &&
+        fresh[freshIdx]!.status !== "verifying" &&
+        fresh[freshIdx]!.status !== "repairing"
+      ) {
+        return { kind: "cancelled", current: fresh[freshIdx]! };
       }
-    }
-    // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
-    // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达);pdca
-    // 记修复回路状态(Phase1)。
-    this.deps.auditLog?.append({
-      actor: input.actor,
-      action: "contemplation_run_done",
-      metadata: {
-        id: entry.id,
-        round: nextRound,
-        trigger: input.trigger,
-        level: input.level ?? "L2",
-        ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
-        proposals: entityIds.length,
-        drafts: input.report.insights.length,
-        diagnosis,
-        ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
-        pdca: {
-          evidenceAvailable,
-          repairRound: repairReports,
-          openGaps: openGapDescs.length,
-          gapsTotal: advanced.gaps.length,
-          deferred: advanced.deferredThisRound.length,
-          degraded: !!degradedFinal,
-          ...(degradedFinal ? { degradedReason: degradedFinal.reason } : {}),
-          ...(planItems.length
-            ? {
-                planItems: planItems.length,
-                planNarrowed: applied.narrowed.length,
-                planExempted: applied.exempted.length,
-              }
-            : {}),
-          ...(answerRepeat ? { answerRepeat: true } : {}),
-          ...(claimsResult
-            ? {
-                claims: claimsResult.claims.length,
-                claimsDowngraded: claimsResult.claims.filter((c) => c.status === "downgraded").length,
-                claimsWeak,
-              }
-            : { claimsSkipped: true }),
-          ...(degradedFinal?.nextTasks?.length ? { nextTasks: degradedFinal.nextTasks.length } : {}),
+      if (freshIdx === -1) {
+        // 本条目被并发删除:放弃写入(不复活已删条目)
+        return { kind: "deleted" };
+      }
+      const finalEntry: IncubationEntry = { ...updated, status: updated.status };
+      const next = [...fresh];
+      next[freshIdx] = finalEntry;
+      // 终态落定:本 run 全部提案的隔离标翻转(正常终束解除;degraded 固化)。
+      // 本 run 的提案 = timeline 中 round=nextRound 的全部事件(主报告 + 修复轮)
+      if (finalize && entityIds.length + timeline.filter((t) => t.round === nextRound).length > 0) {
+        const runEntityIds = [
+          ...entry.timeline
+            .filter((t) => t.round === nextRound)
+            .flatMap((t) => [...t.proposalEntityIds]),
+          ...entityIds,
+        ];
+        if (runEntityIds.length > 0) {
+          this.deps.proposalEngine.setInsightClosureState(
+            runEntityIds,
+            degradedFinal
+              ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
+              : claimsWeak
+                ? { provisional: false, unclosedGaps: claimsWeakNote }
+                : undefined,
+          );
+        }
+      }
+      // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
+      // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达);pdca
+      // 记修复回路状态(Phase1)。与 write 同临界区,保持盘上状态与审计痕次序。
+      this.deps.auditLog?.append({
+        actor: input.actor,
+        action: "contemplation_run_done",
+        metadata: {
+          id: entry.id,
+          round: nextRound,
+          trigger: input.trigger,
+          level: input.level ?? "L2",
+          ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
+          proposals: entityIds.length,
+          drafts: input.report.insights.length,
+          diagnosis,
+          ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
+          pdca: {
+            evidenceAvailable,
+            repairRound: repairReports,
+            openGaps: openGapDescs.length,
+            gapsTotal: advanced.gaps.length,
+            deferred: advanced.deferredThisRound.length,
+            degraded: !!degradedFinal,
+            ...(degradedFinal ? { degradedReason: degradedFinal.reason } : {}),
+            ...(planItems.length
+              ? {
+                  planItems: planItems.length,
+                  planNarrowed: applied.narrowed.length,
+                  planExempted: applied.exempted.length,
+                }
+              : {}),
+            ...(answerRepeat ? { answerRepeat: true } : {}),
+            ...(claimsResult
+              ? {
+                  claims: claimsResult.claims.length,
+                  claimsDowngraded: claimsResult.claims.filter((c) => c.status === "downgraded").length,
+                  claimsWeak,
+                }
+              : { claimsSkipped: true }),
+            ...(degradedFinal?.nextTasks?.length ? { nextTasks: degradedFinal.nextTasks.length } : {}),
+          },
         },
-      },
+      });
+      this.write(next);
+      return { kind: "written", finalEntry };
     });
-    this.write(next);
+    if (commit.kind !== "written") {
+      // 用户裁决优先:并发取消(取盘上终态)或并发删除(取本轮计算值)
+      return {
+        proposals: entityIds.length,
+        cycleVetoed: allVetoed,
+        entry: commit.kind === "cancelled" ? commit.current : updated,
+        openGaps: advanced.gaps.filter((g) => g.state === "open"),
+        degraded: !!degradedFinal,
+        repairRound: repairReports,
+        deferredGaps: advanced.deferredThisRound,
+      };
+    }
     return {
       proposals: entityIds.length,
       cycleVetoed: allVetoed,
-      entry: finalEntry,
+      entry: commit.finalEntry,
       openGaps: advanced.gaps.filter((g) => g.state === "open"),
       degraded: !!degradedFinal,
       repairRound: repairReports,

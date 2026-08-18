@@ -1244,12 +1244,13 @@ async function routeApi(
         question: body.question,
         ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
       });
-      // 落盘验证:non-holder viewer 的持锁写被跳过(防 lost-update 架构),
-      // 此时创建只存在于内存 —— 显式 503 而非假 201 + 异步 job not found
-      // (E2E 实测发现:旧版此处为静默丢条目,新版创建即跑会显式炸 job error)
+      // 落盘验证(fail-loud 兜底):2026-08-19 修复 incubations.json 为 RMW
+      // 短临界区锁后任何实例可写,此分支不再对应 non-holder(旧 holder-only
+      // 落盘模式会静默丢条目,曾靠它拦为 503);保留作为落盘失败的显式防御
+      // —— 创建若因任何原因未落盘,报 503 而非假 201 + 异步 job not found。
       if (!ctx.incubator.get(entry.id)) {
         respondJson(res, 503, {
-          error: "viewer is read-only in this deployment (non-holder process) — create contemplations from the holder viewer or in chat",
+          error: "contemplation store write failed verification — entry did not persist; retry",
         });
         return;
       }

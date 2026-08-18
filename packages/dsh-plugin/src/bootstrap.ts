@@ -185,7 +185,8 @@ export async function createDshRuntime(
         dataRoot,
         ...(auditLog ? { auditLog } : {}),
         executor: createHeadlessExecutor(),
-        processLock,
+        // 注:incubator 不再接 processLock —— incubations.json 走 RMW 短临界区
+        // 锁(2026-08-19 修复:holder-only 落盘让 non-holder 假成功)
         // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
         // 不消费 drain 队列)
         signalEvidence: signalSink,

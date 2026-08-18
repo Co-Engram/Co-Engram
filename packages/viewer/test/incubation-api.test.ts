@@ -152,21 +152,33 @@ describe("沉思 API", () => {
     expect(nf.status).toBe(404);
   });
 
-  it("non-holder viewer:持锁写被跳过 → 创建落盘验证 503(不假 201 + 异步 job 炸)", async () => {
+  it("第二实例 viewer(多会话部署):RMW 锁下可写 → 创建 201 且落盘可查", async () => {
     const ctx = makeCtx({ fakeExecutor: true });
-    const nonHolder = new Incubator({
+    // 2026-08-19 修复前:holder-only 落盘让非持锁实例假成功(旧版此处被
+    // 落盘验证拦为 503);修复后 incubations.json 走 RMW 短临界区锁,
+    // 任何实例可写 —— 此用例固化为「第二实例同样可用」的部署拓扑契约。
+    const second = new Incubator({
       repository: ctx.repository,
       proposalEngine: ctx.proposalEngine,
       dataRoot: tmpDir,
-      processLock: { isHolder: false },
+      ...(ctx.auditLog ? { auditLog: ctx.auditLog } : {}),
+      // 与 makeCtx(fakeExecutor) 同款 fake L2,创建即深思的 done 链
+      executor: {
+        execute: async () => ({
+          answer: "执行现场回答:证据充分。",
+          insights: [],
+          plan: [{ step: "盘点", capability: "engram_search" }],
+          trace: [{ step: "s1", action: "engram_search", detail: "命中" }],
+        }),
+      } as never,
     });
-    const j = await start({ ...ctx, incubator: nonHolder });
-    const r = await j("/api/contemplations", "POST", { question: "非 holder 创建问题?" });
-    expect(r.status).toBe(503);
-    expect(String(r.json.error)).toContain("read-only");
-    // 盘上无条目(列表为空,无幽灵)
+    const j = await start({ ...ctx, incubator: second });
+    const r = await j("/api/contemplations", "POST", { question: "第二实例创建问题?" });
+    expect(r.status).toBe(201);
+    const job = await pollJob(j, r.json.jobId as string);
+    expect(job.status).toBe("done");
     const list = await j("/api/contemplations");
-    expect(list.json.items).toHaveLength(0);
+    expect(list.json.items).toHaveLength(1);
   });
 
   it("incubator 未注入 → 503 enabled=false", async () => {
