@@ -2820,12 +2820,11 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
         .get() as { n: number }
     )?.n ?? 0;
 
-  // 2. bySynapseKind / totalSynapses:SQLite 实时聚合(写路径同步维护 synapses 表,
-  //    CASCADE 跟随 engram 删除)。旧口径读 graph.json 缓存 —— 重建只挂在 viewer 的
-  //    5 个写路由上,MCP 工具(synapse_create 等)写入不触发重建,首页「记忆突触
-  //    总数」要滞留到下次维护期才更新(2026-08 用户报告)。graph 缓存仍保留给
-  //    topContributors 的 synapse createdBy 聚合用。
-  const graph = readGraphCache(ctx);
+  // 2. bySynapseKind / totalSynapses:SQLite 实时聚合。synapses 表的维护路径:
+  //    bootstrap 启动对账(行数 vs 磁盘 yaml 文件数,不等则回填)+ .yaml watcher
+  //    + doctor;CASCADE 跟随 engram 删除。旧口径读 graph.json 缓存 —— 滞后,
+  //    且存量库 synapses 表曾无任何启动填充路径,首页「记忆突触」恒 0
+  //    (2026-08 用户报告,本注释所述「写路径同步维护」当时并不存在)。
   let totalSynapses = 0;
   for (const r of db
     .prepare(`SELECT kind, count(*) AS n FROM synapses GROUP BY kind`)
@@ -2921,34 +2920,29 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
     }[]
   ).map((r) => ({ ...r, importance: Number(r.importance.toFixed(2)) }));
 
-  // 4. topContributors:engram 作者走 SQLite GROUP BY(毫秒级);
-  //    synapse 作者走 graph.json edges 的 createdBy 字段(GraphBuilder 2026-07 加)。
-  //    修复 Bug 3(2026-07):之前 synapseCount 写死 0,「印迹+突触合计」标题误导用户。
-  //    旧 graph.json 缺 createdBy 字段时,该 synapse 不计入(下次 graph rebuild 后补齐)。
-  const engramContributorRows = db
-    .prepare(
-      `SELECT created_by AS actor, count(*) AS n
-     FROM engrams
-     WHERE created_by != ''
-     GROUP BY created_by`,
-    )
-    .all() as { actor: string; n: number }[];
-
+  // 4. topContributors:engram / synapse 作者都走 SQLite GROUP BY(毫秒级,与
+  //    step 2 同一数据源,同页两口径恒一致)。synapse created_by 是 schema v8
+  //    列,由 bootstrap 对账 / .yaml watcher / doctor 回填。此前 synapse 作者读
+  //    graph.json edges(GraphBuilder 2026-07 加),其重建只挂 viewer 写路由,
+  //    MCP 写入不触发 —— 同页「突触总数」与「贡献者突触合计」分裂(2026-08
+  //    实测 231 vs 224)。
   const contributorMap = new Map<string, { engram: number; synapse: number }>();
-  for (const r of engramContributorRows) {
-    contributorMap.set(r.actor, { engram: r.n, synapse: 0 });
-  }
-  // 从 graph.json edges 聚合 synapse createdBy(graph cache 已在 step 2 读)
-  for (const edge of graph.edges) {
-    const edgeWithCreatedBy = edge as { createdBy?: string };
-    const actor = edgeWithCreatedBy.createdBy;
-    if (!actor) continue; // 旧 graph.json 缺字段,跳过
-    const entry = contributorMap.get(actor);
-    if (entry) {
-      entry.synapse += 1;
+  for (const r of db
+    .prepare(
+      `SELECT 'engram' AS src, created_by AS actor, count(*) AS n
+       FROM engrams WHERE created_by != '' GROUP BY created_by
+       UNION ALL
+       SELECT 'synapse' AS src, created_by AS actor, count(*) AS n
+       FROM synapses WHERE created_by != '' GROUP BY created_by`,
+    )
+    .all() as { src: string; actor: string; n: number }[]) {
+    const entry = contributorMap.get(r.actor) ?? { engram: 0, synapse: 0 };
+    if (r.src === "engram") {
+      entry.engram += r.n;
     } else {
-      contributorMap.set(actor, { engram: 0, synapse: 1 });
+      entry.synapse += r.n;
     }
+    contributorMap.set(r.actor, entry);
   }
   const topContributors = Array.from(contributorMap.entries())
     .map(([actor, counts]) => ({
@@ -3031,28 +3025,6 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
  * graph.json 由 GraphBuilder 维护(startMaintenance / engram create 路径同步),
  * 最新可能略有延迟但对 stats 这种聚合可接受。
  */
-function readGraphCache(ctx: ToolContext): {
-  nodes: readonly { id: string }[];
-  edges: readonly { kind: string }[];
-} {
-  // 通过 repository.rootPath 拿 dataRoot(ctx 上没有 dataRoot 字段直接传到这里,
-  // 用 repository 的 config.rootPath 兜底)
-  const rootPath = (
-    ctx as unknown as { repository: { config: { rootPath: string } } }
-  ).repository.config.rootPath;
-  const graphPath = join(rootPath, ".co-engram", "graph.json");
-  try {
-    const raw = readFileSync(graphPath, "utf8");
-    const parsed = JSON.parse(raw) as {
-      nodes: { id: string }[];
-      edges: { kind: string }[];
-    };
-    return { nodes: parsed.nodes ?? [], edges: parsed.edges ?? [] };
-  } catch {
-    return { nodes: [], edges: [] };
-  }
-}
-
 /** Legacy fallback:小规模或 SQLite 不可用时走老路径(N+1 readEngram) */
 function getStatsLegacy(ctx: ToolContext): StatsBaseResponse {
   const entries = ctx.repository.listEngrams();

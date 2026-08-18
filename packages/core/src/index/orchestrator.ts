@@ -117,6 +117,7 @@ export class IndexOrchestrator {
         toId: synapse.to,
         kind: synapse.kind,
         weight: synapse.weight ?? 0.5,
+        createdBy: synapse.createdBy,
       })),
       knownEngramIds,
     );
