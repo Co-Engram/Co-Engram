@@ -76,21 +76,34 @@ export class FileSignalSink implements SignalSink {
     this.filePath = options.filePath;
     this.flushIntervalMs = options.flushIntervalMs ?? 5_000;
     this.flushThreshold = options.flushThreshold ?? 50;
-
-    // 注册到全局 exit handler(只真正注册一次 process listener)
+    // 兼容保留(2026-08-19 write-through 后不再使用 buffer 批量路径);
+    // 注册仍保留以便旧 subclass 行为不破
     activeSinks.add(this);
     registerGlobalExitHandlerOnce();
   }
 
+  /**
+   * write-through(2026-08-19 跨进程证据延迟修复):事件同步追加落盘。
+   *
+   * 此前 buffer(5s interval / 50 条阈值)批量 flush 在同进程内无害 ——
+   * 但 headless 沉思(auto 模式)的工具调用事件写在 headless MCP server
+   * 进程的 buffer 里,而 Incubator(report 所在进程)的 flush 只能刷
+   * 本进程 buffer:executor 返回后立即 report(≪ 5s)→ 事件仍在异进程
+   * buffer → PDCA 时间窗内零证据 → 每次 headless run 必现「零盘点」
+   * 误拒。工具调用是交互级低频操作,同步追加的可靠性 > 批量性能;
+   * flushThreshold / flushIntervalMs 配置字段保留(向后兼容,不再生效)。
+   */
   append(event: ToolCallEvent): void {
-    this.buffer.push(event);
-    if (this.buffer.length >= this.flushThreshold) {
-      void this.flush();
-    } else if (this.flushTimer === null) {
-      this.flushTimer = setInterval(() => {
-        void this.flush();
-      }, this.flushIntervalMs);
-      this.flushTimer.unref?.();
+    const line = JSON.stringify(event) + "\n";
+    try {
+      const fd = openSync(this.filePath, "a");
+      try {
+        writeFileSync(fd, line, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      // 与旧 flush 同款容错:目录被删等场景丢弃该行,不阻塞工具调用
     }
   }
 

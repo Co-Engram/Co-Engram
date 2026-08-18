@@ -111,18 +111,20 @@ describe("FileSignalSink", () => {
     expect(content).toContain('"id":"x"');
   });
 
-  it("未达 flushThreshold 时不自动写入文件", async () => {
+  it("write-through:append 即时落盘(2026-08-19 跨进程证据延迟修复)", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
     const sink = new FileSignalSink({ filePath, flushThreshold: 3 });
 
     sink.append(makeEvent({ toolName: "a" }));
     sink.append(makeEvent({ toolName: "b" }));
-    // 此时 buffer.length = 2 < threshold = 3，文件不存在
-    expect(existsSync(filePath)).toBe(false);
-
-    await sink.flush(); // 手动 flush
+    // write-through:每条事件同步追加 —— headless 沉思的跨进程证据
+    // 不再依赖 5s 批量 flush(此前 buffer 滞留异进程导致 PDCA 零盘点误拒)
     const lines = readFileSync(filePath, "utf8").trim().split("\n");
     expect(lines.length).toBe(2);
+    expect(lines[0]).toContain('"toolName":"a"');
+
+    await sink.flush(); // 兼容:no-op,不重复不丢失
+    expect(readFileSync(filePath, "utf8").trim().split("\n").length).toBe(2);
   });
 
   it("drain 返回文件中的事件并清空", async () => {
