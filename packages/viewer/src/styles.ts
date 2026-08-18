@@ -2534,7 +2534,10 @@ div.vis-tooltip {
 .inc-empty { text-align: center; padding: 2.4rem 0; color: var(--fg-dim); font-size: 0.85rem; }
 .inc-empty .icon { font-size: 1.8rem; margin-bottom: 0.4rem; }
 .inc-empty-sub { font-size: 0.78rem; margin-top: 0.3rem; }
-.inc-card { margin-bottom: 0.8rem; padding: 0.95rem 1.1rem; }
+.inc-card { margin-bottom: 0.8rem; padding: 0.95rem 1.1rem; isolation: isolate; }
+/* 沉思图标(内联 SVG,替代 ⏾/emoji —— 冷门 Unicode 符号在常见字体无字形,
+   渲染为豆腐块;与侧栏 symbol 体系同规则) */
+.inc-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; vertical-align: -2px; }
 .inc-card-head { display: flex; align-items: flex-start; gap: 0.6rem; margin-bottom: 0.45rem; }
 .inc-card-head .card-title { flex: 1; min-width: 0; margin: 0; }
 .inc-st.st-done { color: var(--accent); background: var(--accent-soft, #EDF7F5); }
@@ -2550,14 +2553,17 @@ div.vis-tooltip {
 @keyframes inc-breath { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .inc-progress-dot { animation: none; } }
 .inc-progress-hint { flex-basis: 100%; color: #8B857B; font-size: 0.72rem; line-height: 1.5; }
-.inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
+.inc-card-acts { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; margin-top: 0.6rem; position: relative; z-index: 1; }
 .btn.mini.primary { color: #fff; background: var(--accent); border-color: var(--accent); }
 .btn.mini.primary:hover { background: var(--accent); opacity: 0.9; }
-/* 回答预览(两行截断,点击展开报告) */
+/* 回答预览(两行截断,点击展开报告)。弃 -webkit-box + line-clamp 老语法
+   (匿名行盒在部分引擎与卡片 backdrop-filter 组合下绘制异常,2026-08-19
+   「回答与按钮重叠」修复):标准 block + max-height 裁剪,前端 clip() 已
+   截 160 字符,超长时硬裁同样稳定 */
 .inc-prev {
   margin-top: 0.5rem; padding: 0.5rem 0.7rem; background: var(--chip-bg, #F0EDE7); border-radius: 8px;
   font-size: 0.8rem; color: var(--fg-muted); line-height: 1.55; cursor: pointer;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: block; max-height: calc(2 * 1.55em + 1rem); overflow: hidden;
 }
 .inc-prev b { color: var(--fg); }
 .inc-prev:hover { background: var(--border); }
@@ -2585,8 +2591,9 @@ div.vis-tooltip {
 .inc-chip.sk { color: #7163C4; background: #EFEDF8; border-color: rgba(113, 99, 196, 0.25); }
 .inc-log-row { font-size: 0.75rem; color: var(--fg-muted); padding: 0.12rem 0; }
 .inc-log-row code { font-size: 0.72rem; background: var(--chip-bg, #F0EDE7); border: 1px solid var(--border); border-radius: 5px; padding: 0 0.4rem; }
-.inc-fold { margin-top: 0.9rem; }
-.inc-fold summary { cursor: pointer; color: var(--fg-dim); font-size: 0.82rem; }
+/* 渐进加载「显示更多」(替代旧 details 大折叠:summary 只有数字、折叠语义
+   承载卡片列表观感差,2026-08-19 改每批 +10 的显式按钮) */
+.inc-more { display: block; margin: 0.6rem auto 1rem; }
 /* 条目过滤框(多条目管理):照 .inc-form-row input 纸面样式,整行宽 */
 .inc-filter {
   width: 100%; font: inherit; font-size: 0.82rem;

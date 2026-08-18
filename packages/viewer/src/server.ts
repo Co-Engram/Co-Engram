@@ -75,6 +75,7 @@ import {
   type Skill,
   type AcquisitionStage,
   type RetentionStage,
+  type IncubationEntry,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 import {
@@ -1199,9 +1200,28 @@ async function routeApi(
     }
     respondJson(res, 200, {
       enabled: true,
-      items: ctx.incubator.list(),
+      // 列表 slim 化(2026-08-19):timeline 只留最后一轮(去 answer 全文,
+      // 条目级 answer 已有),历史轮由 /api/contemplations/:id 按需取 ——
+      // 50 条 × 多轮全文可达 MB 级,30s 轮询每次拉全量是列表慢的主因
+      items: ctx.incubator.list().map(slimIncubationEntry),
       limit: ctx.incubator.limitInfo(),
     });
+    return;
+  }
+
+  // 单条完整详情(报告展开懒加载:历史轮 timeline / 全文字段)
+  const contemplationDetailMatch = /^\/api\/contemplations\/([^/]+)$/.exec(path);
+  if (contemplationDetailMatch && req.method === "GET") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const entry = ctx.incubator.get(decodeURIComponent(contemplationDetailMatch[1]!));
+    if (!entry) {
+      respondJson(res, 404, { error: "contemplation not found" });
+      return;
+    }
+    respondJson(res, 200, { entry });
     return;
   }
 
@@ -1234,10 +1254,33 @@ async function routeApi(
         return;
       }
       const jobId = startContemplationJob(entry.id);
-      respondJson(res, 201, { entry, jobId });
+      respondJson(res, 201, { entry: slimIncubationEntry(entry), jobId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /limit reached/.test(msg) ? 400 : 500, { error: msg });
+      // duplicate → 409(连击防重:同问题未完成态已存在);limit → 400
+      respondJson(res, /duplicate contemplation/.test(msg) ? 409 : /limit reached/.test(msg) ? 400 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 终止进行中的 run(thinking/verifying/repairing → 可跑/降级收束):
+  // 误建条目立即解锁(可删/可再思),不必等 30 分钟 TTL
+  const contemplationCancelMatch = /^\/api\/contemplations\/([^/]+)\/cancel$/.exec(path);
+  if (contemplationCancelMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.cancel(
+        decodeURIComponent(contemplationCancelMatch[1]!),
+        "viewer",
+      );
+      respondJson(res, 200, { entry: slimIncubationEntry(entry) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /not in progress|not found/.test(msg) ? 409 : 500, { error: msg });
       return;
     }
     return;
@@ -1277,8 +1320,9 @@ async function routeApi(
     return;
   }
 
-  // 删除条目(生命周期终点):thinking 拒绝;删条目不删提案 —— 提案本体走
-  // 各自 accept/dismiss 裁决流
+  // 删除条目(生命周期终点):进行中默认拒绝(force 可带出 —— 终止 run 后
+  // 删除,误建条目即时可清理);删条目不删提案 —— 提案本体走各自
+  // accept/dismiss 裁决流
   const contemplationDeleteMatch = /^\/api\/contemplations\/([^/]+)\/delete$/.exec(path);
   if (contemplationDeleteMatch && req.method === "POST") {
     if (!ctx.incubator) {
@@ -1286,12 +1330,13 @@ async function routeApi(
       return;
     }
     const deleteId = decodeURIComponent(contemplationDeleteMatch[1]!);
+    const body = await readJsonBodyAs<{ readonly force?: boolean }>(req).catch(() => undefined);
     try {
-      ctx.incubator.delete(deleteId);
+      ctx.incubator.delete(deleteId, body?.force ? { force: true } : undefined);
       respondJson(res, 200, { id: deleteId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /thinking|not found/.test(msg) ? 409 : 500, { error: msg });
+      respondJson(res, /in progress|not found/.test(msg) ? 409 : 500, { error: msg });
       return;
     }
     return;
@@ -3586,6 +3631,25 @@ interface IncubationJob {
   error?: string;
 }
 const incubationJobs = new Map<string, IncubationJob>();
+
+/**
+ * 列表条目瘦身(2026-08-19):timeline 只留最后一轮,且去掉轮内 answer 全文
+ * (条目级 answer 已有,报告 ① 直接用)。历史轮全文由 /api/contemplations/:id
+ * 按需取。slimTimeline 标记供前端判断"报告历史区需懒加载详情"。
+ * slim 前列表 payload 随轮数线性膨胀(50 条 × 多轮 × answer 全文,可达 MB 级),
+ * 30s 轮询每次全量拉取是沉思 tab 卡顿的主因之一。
+ */
+function slimIncubationEntry(e: IncubationEntry): IncubationEntry & { slimTimeline: true } {
+  const last = e.timeline.at(-1);
+  const timeline = last
+    ? [{ ...last, ...(typeof last.answer === "string" ? { answer: undefined } : {}) }]
+    : [];
+  return {
+    ...e,
+    timeline: timeline as IncubationEntry["timeline"],
+    slimTimeline: true,
+  };
+}
 const INCUBATION_JOB_CAP = 50;
 
 function trimIncubationJobs(): void {

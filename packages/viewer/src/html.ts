@@ -135,6 +135,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.3 6.3A1.8 1.8 0 1 1 8 8.7v.8"/><circle cx="8" cy="11.4" r="0.4"/></symbol>
     <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2.2 1.5"/></symbol>
     <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></symbol>
+    <symbol id="i-ponder" viewBox="0 0 16 16"><path d="M8 2.5a5 5 0 0 1 0 10c-.9 0-1.8-.25-2.5-.7L3 12.5l.7-2.5A5 5 0 1 1 8 2.5z"/><path d="M5.8 7.3h.01M8 7.3h.01M10.2 7.3h.01"/></symbol>
   </svg>`;
 
   return `<!DOCTYPE html>

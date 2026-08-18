@@ -127,12 +127,16 @@ describe("renderCard 三态(2026-08-17 重设计)", () => {
     expect(html).not.toContain("全量盘点");
   });
 
-  it("thinking 条目:进度区 + 阶段说明 + 删除置灰(thinkingCantDelete),无回答预览", () => {
+  it("thinking 条目:进度区 + 阶段说明 + 终止/删除可用(2026-08-19 可取消),无回答预览", () => {
     const sb = execRuntime();
     const html = sb.CO_ENGRAM_CONTEMPLATION.renderCard(makeEntry("inc-vm-2", "thinking"));
     expect(html).toContain(zh["viewer.contemplation.status.thinking"]);
     expect(html).toContain(zh["viewer.contemplation.thinkingHint"]);
-    expect(html).toContain(zh["viewer.contemplation.thinkingCantDelete"]);
+    // 进行中:终止按钮(cancelRun)+ 可用删除(终止后强制删除),不再是置灰禁用
+    expect(html).toContain(zh["viewer.contemplation.cancelBtn"]);
+    expect(html).toContain("CO_ENGRAM_CONTEMPLATION.cancelRun");
+    expect(html).toContain("CO_ENGRAM_CONTEMPLATION.remove");
+    expect(html).not.toContain("disabled");
     expect(html).not.toContain(zh["viewer.contemplation.rethinkBtn"]);
     expect(html).not.toContain(zh["viewer.contemplation.answerLabel"]);
   });
@@ -246,21 +250,113 @@ describe("动作请求面", () => {
     await sb.CO_ENGRAM_CONTEMPLATION.create();
     expect(calls.some((c) => c.includes("POST") && c.endsWith("/api/contemplations"))).toBe(true);
   });
+
+  it("create() 409(同问题未完成):提示重复而非原始错误;短问题直接提示不发请求", async () => {
+    const dupErr = new Error("duplicate contemplation question (existing inc-1) (409)");
+    (dupErr as any).status = 409;
+    const sb = execRuntime();
+    const alerts: string[] = [];
+    sb.alert = (m: string) => alerts.push(m);
+    sb.fetch = async () => { throw dupErr; };
+    sb.document.getElementById("inc-q").value = "重复提交的问题?";
+    sb.document.getElementById("inc-seeds").value = "";
+    await sb.CO_ENGRAM_CONTEMPLATION.create();
+    expect(alerts.some((m) => m.includes(zh["viewer.contemplation.duplicateQuestion"].slice(0, 6)))).toBe(true);
+    expect(alerts.every((m) => !m.includes("duplicate contemplation"))).toBe(true);
+    // 短问题:本地拦截,零请求
+    const calls: string[] = [];
+    sb.fetch = async (url: string, init?: { method?: string }) => { calls.push(url); return { ok: true, status: 200, json: async () => ({}) }; };
+    sb.document.getElementById("inc-q").value = "短";
+    alerts.length = 0;
+    await sb.CO_ENGRAM_CONTEMPLATION.create();
+    expect(calls).toHaveLength(0);
+    expect(alerts.some((m) => m === zh["viewer.contemplation.tooShort"])).toBe(true);
+  });
+
+  it("cancelRun():confirm 取消 → 不发请求;确认 → POST :id/cancel", async () => {
+    const cancelled = await withFetch({ confirm: false });
+    await cancelled.sb.CO_ENGRAM_CONTEMPLATION.cancelRun("inc-2");
+    expect(cancelled.calls).toHaveLength(0);
+    const ok = await withFetch({});
+    await ok.sb.CO_ENGRAM_CONTEMPLATION.cancelRun("inc-2");
+    expect(ok.calls.some((c) => c.startsWith("POST ") && c.includes("/api/contemplations/inc-2/cancel"))).toBe(true);
+  });
+
+  it("remove() 进行中条目:confirm 用终止文案,delete 请求 body 带 force:true", async () => {
+    const deleteCalls: Array<{ url: string; body: unknown }> = [];
+    const sb = execRuntime();
+    const confirms: string[] = [];
+    sb.confirm = (m: string) => { confirms.push(m); return true; };
+    sb.fetch = async (url: string, init?: { body?: string }) => {
+      if (String(url).includes("/delete")) {
+        deleteCalls.push({ url: String(url), body: init?.body ? JSON.parse(init.body) : null });
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    };
+    // 先注入列表数据(inFlight 判定依赖 _items)
+    sb.CO_ENGRAM_CONTEMPLATION._items = [{ id: "inc-f", question: "误建", status: "thinking", rounds: 0, timeline: [] }];
+    await sb.CO_ENGRAM_CONTEMPLATION.remove("inc-f");
+    expect(confirms[0]).toBe(zh["viewer.contemplation.deleteFlightConfirm"]);
+    expect(deleteCalls[0]!.body).toEqual({ force: true });
+    // 非 inFlight:普通文案,delete 无 body
+    sb.CO_ENGRAM_CONTEMPLATION._items = [{ id: "inc-d", question: "已答", status: "done", rounds: 1, timeline: [] }];
+    await sb.CO_ENGRAM_CONTEMPLATION.remove("inc-d");
+    expect(confirms[1]).toBe(zh["viewer.contemplation.deleteConfirm"]);
+    expect(deleteCalls[1]!.body).toBe(null);
+  });
 });
 
-describe("过滤(多条目管理)", () => {
-  it("_filterText 大小写不敏感:仅匹配条目渲染", async () => {
+describe("过滤(多条目管理,2026-08-19 纯前端)", () => {
+  it("_filterText 大小写不敏感:仅匹配条目渲染到 #inc-list,不重新 GET", async () => {
     const sb = execRuntime();
-    sb.fetch = async () => ({ ok: true, status: 200, json: async () => ({
-      enabled: true, limit: { total: 0, max: 50, warnAt: 45 },
-      items: [
-        { id: "a", question: "Co-Engram 采纳率问题?", status: "done", rounds: 1, lastRunAt: null, timeline: [] },
-        { id: "b", question: "安卓性能优化?", status: "done", rounds: 1, lastRunAt: null, timeline: [] },
-      ],
-    }) });
+    let getCalls = 0;
+    sb.fetch = async (url: string) => {
+      if (String(url).includes("/api/contemplations")) getCalls += 1;
+      return { ok: true, status: 200, json: async () => ({
+        enabled: true, limit: { total: 0, max: 50, warnAt: 45 },
+        items: [
+          { id: "a", question: "Co-Engram 采纳率问题?", status: "done", rounds: 1, lastRunAt: null, timeline: [] },
+          { id: "b", question: "安卓性能优化?", status: "done", rounds: 1, lastRunAt: null, timeline: [] },
+        ],
+      }) };
+    };
+    await sb.CO_ENGRAM_CONTEMPLATION.render(sb.document.getElementById("contemplation-content"));
+    expect(getCalls).toBe(1);
+    // 纯前端过滤:过滤不触发新的 GET,只重渲染列表容器
     await sb.CO_ENGRAM_CONTEMPLATION.setFilter("co-engram");
-    const html = sb.document.getElementById("contemplation-content").innerHTML;
+    expect(getCalls).toBe(1);
+    const html = sb.document.getElementById("inc-list").innerHTML;
     expect(html).toContain("采纳率问题");
     expect(html).not.toContain("安卓性能优化");
+  });
+
+  it("渐进渲染:首批 10 条 + 「显示更多」,showMore 后补下一批", async () => {
+    const sb = execRuntime();
+    const items = Array.from({ length: 12 }, (_, i) => ({
+      id: `e${i}`, question: `问题 ${i}:渐进渲染?`, status: "done", rounds: 1, lastRunAt: null, timeline: [],
+    }));
+    sb.fetch = async () => ({ ok: true, status: 200, json: async () => ({
+      enabled: true, limit: { total: 0, max: 50, warnAt: 45 }, items,
+    }) });
+    await sb.CO_ENGRAM_CONTEMPLATION.render(sb.document.getElementById("contemplation-content"));
+    let html = sb.document.getElementById("inc-list").innerHTML;
+    expect(html).toContain("问题 9:");
+    expect(html).not.toContain("问题 10:");
+    expect(html).toContain(zh["viewer.contemplation.showMore"].replace("${n}", "2"));
+    sb.CO_ENGRAM_CONTEMPLATION.showMore();
+    html = sb.document.getElementById("inc-list").innerHTML;
+    expect(html).toContain("问题 10:");
+    expect(html).toContain("问题 11:");
+  });
+
+  it("创建按钮图标为内联 SVG(#i-ponder),不再是字体缺失的 ⏾", async () => {
+    const sb = execRuntime();
+    sb.fetch = async () => ({ ok: true, status: 200, json: async () => ({
+      enabled: true, limit: { total: 0, max: 50, warnAt: 45 }, items: [],
+    }) });
+    await sb.CO_ENGRAM_CONTEMPLATION.render(sb.document.getElementById("contemplation-content"));
+    const html = sb.document.getElementById("contemplation-content").innerHTML;
+    expect(html).toContain("#i-ponder");
+    expect(html).not.toContain("⏾");
   });
 });

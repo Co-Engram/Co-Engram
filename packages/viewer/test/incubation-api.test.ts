@@ -205,4 +205,73 @@ describe("沉思 API", () => {
     expect(actions).toContain("contemplation_run_start");
     expect(actions).toContain("contemplation_run_done");
   });
+
+  it("同问题防重(2026-08-19):未完成态再 POST → 409;不同问题不受影响", async () => {
+    // 无 executor:job 必然 error → 条目回 queued(非 done),409 判定稳定
+    const j = await start(makeCtx());
+    const created = await j("/api/contemplations", "POST", { question: "重复提交的问题?" });
+    expect(created.status).toBe(201);
+    const dup = await j("/api/contemplations", "POST", { question: "重复提交的问题?" });
+    expect(dup.status).toBe(409);
+    expect(String(dup.json.error)).toContain("duplicate");
+    const other = await j("/api/contemplations", "POST", { question: "另一个不同的问题?" });
+    expect(other.status).toBe(201);
+  });
+
+  it("列表 slim 化 + 单条详情端点(2026-08-19):列表 timeline 只 1 轮且剥 answer,详情带全文", async () => {
+    const j = await start(makeCtx({ fakeExecutor: true }));
+    const created = await j("/api/contemplations", "POST", { question: "slim 投影验证问题?" });
+    const id = (created.json.entry as { id: string }).id;
+    await pollJob(j, created.json.jobId as string);
+    const list = await j("/api/contemplations");
+    const slim = (list.json.items as Array<Record<string, unknown>>).find((x) => x.id === id)!;
+    expect(slim.slimTimeline).toBe(true);
+    const tl = slim.timeline as Array<Record<string, unknown>>;
+    expect(tl).toHaveLength(1);
+    expect(tl[0]!.answer).toBeUndefined();
+    // 条目级 answer 保留(报告主体/预览数据源)
+    expect(slim.answer).toBe("执行现场回答:证据充分。");
+    // 详情端点:完整 timeline(含轮内 answer)
+    const detail = await j(`/api/contemplations/${id}`);
+    expect(detail.status).toBe(200);
+    const full = (detail.json.entry as { timeline: Array<Record<string, unknown>> }).timeline;
+    expect(full.at(-1)!.answer).toBe("执行现场回答:证据充分。");
+    expect((detail.json.entry as { slimTimeline?: unknown }).slimTimeline).toBeUndefined();
+    // 不存在 → 404
+    const nf = await j("/api/contemplations/inc-nonexistent");
+    expect(nf.status).toBe(404);
+  });
+
+  it("cancel 端点(2026-08-19):thinking 条目可终止回可跑态;非进行中 → 409;审计留痕", async () => {
+    const ctx = makeCtx();
+    const j = await start(ctx);
+    const created = await j("/api/contemplations", "POST", { question: "终止链路问题?" });
+    const id = (created.json.entry as { id: string }).id;
+    // 直接域层置 thinking(绕过 job 时序,测试稳定)
+    expect(ctx.incubator.acquireThinking(id, "test")).toBe(true);
+    const cancelled = await j(`/api/contemplations/${id}/cancel`, "POST");
+    expect(cancelled.status).toBe(200);
+    expect((cancelled.json.entry as { status: string }).status).toBe("queued");
+    // 已回 queued(非进行中)再 cancel → 409
+    const again = await j(`/api/contemplations/${id}/cancel`, "POST");
+    expect(again.status).toBe(409);
+    const raw = readFileSync(join(tmpDir, ".co-engram", "audit.jsonl"), "utf8");
+    expect(raw).toContain("contemplation_run_cancel");
+  });
+
+  it("delete force(2026-08-19):进行中默认 409,force:true 终止并删除(误建条目即时可清理)", async () => {
+    const ctx = makeCtx();
+    const j = await start(ctx);
+    const created = await j("/api/contemplations", "POST", { question: "误建待删问题?" });
+    const id = (created.json.entry as { id: string }).id;
+    expect(ctx.incubator.acquireThinking(id, "test")).toBe(true);
+    // 无 force:409(保持旧保护语义)
+    const refused = await j(`/api/contemplations/${id}/delete`, "POST");
+    expect(refused.status).toBe(409);
+    // force:终止运行 + 删除条目
+    const forced = await j(`/api/contemplations/${id}/delete`, "POST", { force: true });
+    expect(forced.status).toBe(200);
+    const list = await j("/api/contemplations");
+    expect(list.json.items).toHaveLength(0);
+  });
 });

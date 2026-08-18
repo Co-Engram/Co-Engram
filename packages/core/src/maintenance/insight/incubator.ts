@@ -464,6 +464,19 @@ export class Incubator {
     readonly seedEngramIds?: readonly string[];
   }): IncubationEntry {
     const entries = this.read();
+    // 同问题防重:未出过报告的条目(queued/进行中)已存在同问题 → 拒绝。
+    // 覆盖双入口连击(viewer 按钮无反馈期重复点击、对话内重复说「帮我沉思 X」);
+    // done 条目不拦(「重新深思同一问题」走再思/重建是正当场景)。
+    const dup = entries.find(
+      (e) =>
+        e.question === input.question.trim() &&
+        e.status !== "done",
+    );
+    if (dup) {
+      throw new Error(
+        `duplicate contemplation question (existing ${dup.id}, status=${dup.status}) — run or delete it instead`,
+      );
+    }
     if (entries.length >= MAX_ENTRIES) {
       // 不自动清理:删除属用户裁决。列出最老 10 条已答条目引导删除。
       const oldestDone = entries
@@ -509,22 +522,26 @@ export class Incubator {
   }
 
   /**
-   * 删除条目(生命周期终点;thinking 态拒绝)。
+   * 删除条目(生命周期终点)。
    * 语义:删条目不删提案 —— 提案本体在 proposalEngine,走各自 accept/dismiss
    * 裁决流;深思历史(timeline)随条目一并移除。
+   * force:进行中(thinking/verifying/repairing)默认拒绝(后台 run 可能写回);
+   * force=true 先释放运行标记再删 —— 运行中的写回被 report 的写前重读
+   * 拦截(条目不存在 → 放弃写入),不会复活。
    */
-  delete(id: string): void {
+  delete(id: string, opts?: { readonly force?: boolean }): void {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
-    if (
+    const inFlight =
       target.status === "thinking" ||
       target.status === "verifying" ||
-      target.status === "repairing"
-    ) {
-      throw new Error(`incubation ${id} in progress (${target.status}) — delete after the run finishes`);
+      target.status === "repairing";
+    if (inFlight && !opts?.force) {
+      throw new Error(`incubation ${id} in progress (${target.status}) — cancel the run first or delete with force`);
     }
-    this.write(entries.filter((e) => e.id !== id));
+    if (inFlight) this.releaseThinking(id);
+    this.write(this.read().filter((e) => e.id !== id));
     this.deps.auditLog?.append({
       actor: "user",
       action: "contemplation_delete",
@@ -532,8 +549,42 @@ export class Incubator {
         id,
         questionPreview: target.question.slice(0, 120),
         sessions: target.rounds,
+        ...(inFlight ? { abortedRun: true } : {}),
       },
     });
+  }
+
+  /**
+   * 终止进行中的 run(2026-08-19:沉思可取消)。
+   * 语义:thinking → 回可跑状态(rounds>0 → done,否则 queued,本次 run 视为
+   * 未发生);verifying/repairing → releaseThinking 的降级收束(degraded
+   * aborted,报告缺口留档)。后台 job 的写回由 report 写前重读拦截(状态已
+   * 非 in-flight → 放弃),不会推翻本次取消裁决。审计 contemplation_run_cancel。
+   */
+  cancel(id: string, by = "user"): IncubationEntry {
+    const target = this.get(id);
+    if (!target) throw new Error(`incubation ${id} not found`);
+    if (
+      target.status !== "thinking" &&
+      target.status !== "verifying" &&
+      target.status !== "repairing"
+    ) {
+      throw new Error(`incubation ${id} not in progress (${target.status})`);
+    }
+    this.releaseThinking(id);
+    this.deps.auditLog?.append({
+      actor: "user",
+      action: "contemplation_run_cancel",
+      metadata: {
+        id,
+        by,
+        fromStatus: target.status,
+        questionPreview: target.question.slice(0, 120),
+      },
+    });
+    const after = this.get(id);
+    if (!after) throw new Error(`incubation ${id} vanished during cancel`);
+    return after;
   }
 
   // ============================================================
@@ -1174,6 +1225,25 @@ export class Incubator {
     // 裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
     const fresh = this.read();
     const freshIdx = fresh.findIndex((x) => x.id === entry.id);
+    // 条目被并发取消(cancel → releaseThinking,状态已非 in-flight):
+    // 放弃写回 —— 落盘会推翻用户的终止裁决(状态被报告强行拉回 done)。
+    // 与下方"被删除"分支同构:用户裁决优先于迟到的报告。
+    if (
+      freshIdx !== -1 &&
+      fresh[freshIdx]!.status !== "thinking" &&
+      fresh[freshIdx]!.status !== "verifying" &&
+      fresh[freshIdx]!.status !== "repairing"
+    ) {
+      return {
+        proposals: entityIds.length,
+        cycleVetoed: allVetoed,
+        entry: fresh[freshIdx]!,
+        openGaps: advanced.gaps.filter((g) => g.state === "open"),
+        degraded: !!degradedFinal,
+        repairRound: repairReports,
+        deferredGaps: advanced.deferredThisRound,
+      };
+    }
     if (freshIdx === -1) {
       // 本条目被并发删除:放弃写入(不复活已删条目),返回本轮计算结果
       return {

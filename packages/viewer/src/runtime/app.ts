@@ -226,7 +226,7 @@ const CO_ENGRAM = (function() {
   }
   async function apiGet(url) {
     const r = await fetch(url, { headers: Object.assign({}, authHeaders(), { Accept: 'application/json' }) });
-    if (!r.ok) throw new Error('GET ' + url + ' → ' + r.status);
+    if (!r.ok) throw await httpError(r, 'GET', url);
     return r.json();
   }
   async function apiJson(url, method, body) {
@@ -235,8 +235,20 @@ const CO_ENGRAM = (function() {
       headers: Object.assign({}, authHeaders(), { 'Content-Type': 'application/json' }),
       body: body == null ? undefined : JSON.stringify(body)
     });
-    if (!r.ok) throw new Error(method + ' ' + url + ' → ' + r.status);
+    if (!r.ok) throw await httpError(r, method, url);
     return r.json().catch(function() { return {}; });
+  }
+  // !ok → Error:携带后端 error 文案(仅状态码让用户无从知晓失败原因,
+  // 如重复创建 409 的 duplicate 提示)+ err.status(调用方按码分支友好文案)
+  async function httpError(r, method, url) {
+    let msg = method + ' ' + url + ' → ' + r.status;
+    try {
+      const j = await r.json();
+      if (j && typeof j.error === 'string' && j.error) msg = j.error + ' (' + r.status + ')';
+    } catch (_) {}
+    const err = new Error(msg);
+    err.status = r.status;
+    return err;
   }
 
   // === Cursor paginator 工厂 ===

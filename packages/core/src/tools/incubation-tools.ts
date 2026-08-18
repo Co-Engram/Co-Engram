@@ -77,16 +77,25 @@ function translateContemplationError(err: unknown, id: string): unknown {
       "Use ponder_list to find the correct contemplation id.",
     );
   }
-  if (/thinking|already/.test(msg)) {
+  if (/thinking|already|in progress/.test(msg)) {
     // LOCK_BUSY 是契约里唯一 retryable 语义的 code;thinking 锁随本次深思
-    // 结束或 TTL 回收释放。
+    // 结束、用户在沉思页终止或 TTL 回收释放。
     return new EngramToolError({
       code: "LOCK_BUSY",
-      message: `沉思 ${id} 正在深思中,结束后或 TTL 30min 回收后可重试`,
+      message: `沉思 ${id} 正在深思中,结束后、在沉思页终止或 TTL 30min 回收后可重试`,
       resourceId: id,
       retryable: true,
       retryAfterMs: 30 * 60 * 1000,
-      suggestion: "等本次深思结束(thinking TTL 30 分钟自动回收)后重试同一调用。",
+      suggestion: "等本次深思结束(thinking TTL 30 分钟自动回收)或由用户在沉思页终止后重试同一调用。",
+    });
+  }
+  if (/duplicate contemplation/.test(msg)) {
+    // 同问题防重(2026-08-19):未完成态已存在同问题条目。
+    return new EngramToolError({
+      code: "VALIDATION",
+      message: msg,
+      resourceId: id,
+      suggestion: "该问题已在队列或深思中:用 ponder_list 找到既有条目,用 ponder_run 执行或等其完成,不要重复创建。",
     });
   }
   if (/limit reached/.test(msg)) {
