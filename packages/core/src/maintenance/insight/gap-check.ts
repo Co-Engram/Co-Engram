@@ -23,7 +23,12 @@
 import { createHash } from "node:crypto";
 
 import type { ToolCallEvent } from "../../signals/types.js";
-import type { PonderGap, PonderRequirement, PonderResourceType } from "./types.js";
+import type {
+  PonderGap,
+  PonderPlanItem,
+  PonderRequirement,
+  PonderResourceType,
+} from "./types.js";
 import { INSIGHT_LIMITS } from "./types.js";
 
 /** engram 读取类工具(进入闭合证据面;写类不算) */
@@ -50,12 +55,18 @@ export interface EvidenceDigest {
   /** skill_get/skill_invoke 涉及的 skill id */
   readonly skillIds: ReadonlySet<string>;
   readonly skillCalls: number;
+  /**
+   * P1:engram_search 调用明细(query + 命中数,outputSummary={hits:N} 解析)。
+   * 引擎探测的「逐字执行」与「空结果」都从这机械核验 —— 豁免权在引擎侧。
+   */
+  readonly searches: ReadonlyArray<{ readonly query: string; readonly hits: number }>;
 }
 
 /** 汇总证据(纯函数;events 需已按 run 时间窗过滤) */
 export function digestEvidence(events: readonly ToolCallEvent[]): EvidenceDigest {
   const engramsRead = new Set<string>();
   const skillIds = new Set<string>();
+  const searches: Array<{ query: string; hits: number }> = [];
   let engramReadCalls = 0;
   let skillCalls = 0;
   for (const e of events) {
@@ -65,6 +76,12 @@ export function digestEvidence(events: readonly ToolCallEvent[]): EvidenceDigest
         const id = e.input?.id;
         if (typeof id === "string" && id) engramsRead.add(id);
       }
+      if (e.toolName === "engram_search") {
+        const q = e.input?.query;
+        if (typeof q === "string" && q.trim()) {
+          searches.push({ query: q.trim(), hits: parseHits(e.outputSummary) });
+        }
+      }
       for (const id of e.retrievedEngramIds ?? []) engramsRead.add(id);
     } else if (SKILL_TOOLS.has(e.toolName)) {
       skillCalls += 1;
@@ -72,7 +89,13 @@ export function digestEvidence(events: readonly ToolCallEvent[]): EvidenceDigest
       if (typeof id === "string" && id) skillIds.add(id);
     }
   }
-  return { engramsRead, engramReadCalls, skillIds, skillCalls };
+  return { engramsRead, engramReadCalls, skillIds, skillCalls, searches };
+}
+
+/** outputSummary `{hits: N}` → N(解析失败按 -1 = 未知,不视为空) */
+function parseHits(summary: string | undefined): number {
+  const m = /\{hits:\s*(\d+)\}/.exec(summary ?? "");
+  return m ? Number(m[1]!) : -1;
 }
 
 /** 缺口哈希:资源类型 + 归一化描述(小写、压缩空白;跨轮稳定) */
@@ -99,7 +122,12 @@ export interface RequirementCheckResult {
 export function checkRequirements(
   requirements: readonly PonderRequirement[] | undefined,
   evidence: EvidenceDigest,
-  opts: { readonly level: "L1" | "L2"; readonly evidenceAvailable: boolean },
+  opts: {
+    readonly level: "L1" | "L2";
+    readonly evidenceAvailable: boolean;
+    /** Phase2:与 requirements 等长的缺口来源标注(计划项不占执行者预算) */
+    readonly origins?: ReadonlyArray<"plan" | "executor">;
+  },
 ): RequirementCheckResult {
   const enforce = opts.level === "L2" && opts.evidenceAvailable;
   if (!enforce) {
@@ -140,11 +168,25 @@ export function checkRequirements(
   }
 
   const current: PonderGap[] = [];
-  for (const r of requirements) {
+  for (let i = 0; i < requirements.length; i += 1) {
+    const r = requirements[i]!;
+    const origin = opts.origins?.[i] ?? "executor";
     const observable = OBSERVABLE_TYPES.has(r.resourceType);
     if (r.closed) {
       if (!observable) {
-        // logs/web/mcp:引擎无观测面,自报闭合仅展示(unverified)
+        // logs/web/mcp:引擎无观测面,自报闭合仅展示(unverified)—— 但仍落
+        // closed 记录:修复轮中该类缺口从 open 转 closed 靠它推进(不落记录
+        // = 历史 open 缺口「未重报」永远保持 open,修复回路死锁)
+        current.push({
+          hash: gapHash(r.resourceType, r.description),
+          resourceType: r.resourceType,
+          description: r.description,
+          necessity: r.necessity,
+          state: "closed",
+          reopens: 0,
+          origin,
+          engineUnverified: true,
+        });
         continue;
       }
       const readIds = r.resourceType === "engrams" ? evidence.engramsRead : evidence.skillIds;
@@ -161,6 +203,7 @@ export function checkRequirements(
             state: "open",
             reopens: 0,
             reason: "evidence-mismatch",
+            origin,
           });
           continue;
         }
@@ -174,6 +217,7 @@ export function checkRequirements(
           state: "open",
           reopens: 0,
           reason: "evidence-mismatch",
+          origin,
         });
         continue;
       }
@@ -185,10 +229,11 @@ export function checkRequirements(
         necessity: r.necessity,
         state: "closed",
         reopens: 0,
+        origin,
       });
       continue;
     }
-    // 自报未闭合:logic-needed → 缺口;helpful → 记录(不阻塞,重报可升级)
+    // 自报未闭合:logic-needed → 缺口;helpful → 记录(重报可升级)
     current.push({
       hash: gapHash(r.resourceType, r.description),
       resourceType: r.resourceType,
@@ -197,6 +242,7 @@ export function checkRequirements(
       state: "open",
       reopens: 0,
       reason: r.necessity === "logic-needed" ? "unclosed" : undefined,
+      origin,
       ...(!observable ? { engineUnverified: true } : {}),
     });
   }
@@ -240,9 +286,12 @@ export function advanceGaps(
   const byHash = new Map<string, PonderGap>();
   for (const g of prev) byHash.set(g.hash, g);
 
-  // 单轮新增(open 状态的新哈希)超额 → deferred
+  // 单轮新增(open 状态的新哈希)超额 → deferred。Phase2:预算只约束
+  // executor 来源(计划项是引擎的承诺,不占执行者的反拖延预算)
   const openNow = current.filter((g) => g.state === "open");
-  const newHashes = openNow.filter((g) => !byHash.has(g.hash)).map((g) => g.hash);
+  const newHashes = openNow
+    .filter((g) => !byHash.has(g.hash) && g.origin !== "plan")
+    .map((g) => g.hash);
   const deferredSet = new Set(newHashes.slice(Math.min(limits.maxNewGapsPerReport, newHashes.length)));
   const deferredThisRound: string[] = [];
 
@@ -277,7 +326,8 @@ export function advanceGaps(
 
   const gaps = [...byHash.values()];
   const blocking = gaps.some((g) => g.state === "open");
-  const totalBudgetExhausted = gaps.length > limits.maxTotalGapsPerRun;
+  const executorGaps = gaps.filter((g) => g.origin !== "plan");
+  const totalBudgetExhausted = executorGaps.length > limits.maxTotalGapsPerRun;
   return { gaps, blocking, totalBudgetExhausted, deferredThisRound };
 }
 
@@ -292,4 +342,108 @@ export function isSeedOnlySources(
 ): boolean {
   if (sourceIds.length === 0) return false; // 空由 validate 的 no sourceIds 拒
   return sourceIds.every((id) => seedIds.has(id));
+}
+
+// ============================================================
+// Phase2:计划先行 —— 计划 → 有效需求集的合并(P5 防收窄 + P1 自动豁免)
+// ============================================================
+
+/** 计划应用结果(喂给 checkRequirements 的有效需求集) */
+export interface PlanApplication {
+  /** 有效需求 = 计划项(覆盖/合成/豁免)∪ 执行者追加项 */
+  readonly effective: readonly PonderRequirement[];
+  /** origin 标注(与 effective 等长:plan / executor) */
+  readonly origins: ReadonlyArray<"plan" | "executor">;
+  /** P1 自动豁免的计划项描述(全部探测变体执行且皆空,引擎亲证) */
+  readonly exempted: readonly string[];
+  /**
+   * P5 收窄拦截明细:被删除的计划项(report 缺失)与被降级的计划项
+   * (logic-needed → helpful,引擎已覆写回)—— 展示与审计
+   */
+  readonly narrowed: readonly string[];
+}
+
+/**
+ * 把计划应用到 report 需求清单上(Phase2 核心,纯函数):
+ *
+ * P5 防收窄 ——
+ * - 计划项在 report 中缺失(被删除)→ 合成 open 项(unclosed),删除即缺口;
+ * - report 项把计划项 necessity 降级 → 以计划为准覆写回(降级无效);
+ * - 执行者追加项(无 planItemId)原样保留(受缺口预算约束)。
+ *
+ * P1 自动豁免(豁免权在引擎侧)——
+ * - 可观测(engrams)计划项的全部探测变体(≥2)都在流水里**逐字执行**
+ *   且全部空结果(hits=0 引擎亲证)→ 自动置 closed(exempt),无论执行者
+ *   是否申报 —— 「资源确实不存在」由引擎自己的空结果证明,不依赖自报。
+ */
+export function applyPlanToRequirements(
+  plan: ReadonlyArray<PonderPlanItem>,
+  requirements: readonly PonderRequirement[] | undefined,
+  evidence: EvidenceDigest,
+): PlanApplication {
+  const effective: PonderRequirement[] = [];
+  const origins: Array<"plan" | "executor"> = [];
+  const exempted: string[] = [];
+  const narrowed: string[] = [];
+  const claimedByPlanId = new Map<string, PonderRequirement>();
+  for (const r of requirements ?? []) {
+    if (r.planItemId) claimedByPlanId.set(r.planItemId, r);
+  }
+
+  for (const pi of plan) {
+    // P1:engrams 项探测全部逐字执行且全部空 → 自动豁免(引擎亲证)
+    if (
+      pi.resourceType === "engrams" &&
+      pi.probes.length >= 2 &&
+      pi.probes.every((p) => probeRanEmpty(p.query, evidence))
+    ) {
+      effective.push({
+        resourceType: pi.resourceType,
+        description: pi.description,
+        necessity: pi.necessity,
+        closed: true,
+        planItemId: pi.id,
+      });
+      origins.push("plan");
+      exempted.push(pi.description);
+      continue;
+    }
+    const claimed = claimedByPlanId.get(pi.id);
+    if (!claimed) {
+      // P5:计划项被删除 → 合成 open(描述以计划为准;缺口即收窄证据)
+      narrowed.push(pi.description);
+      effective.push({
+        resourceType: pi.resourceType,
+        description: pi.description,
+        necessity: pi.necessity,
+        closed: false,
+        planItemId: pi.id,
+      });
+      origins.push("plan");
+      continue;
+    }
+    // P5:降级覆写(计划 logic-needed 不因 report 报 helpful 而降级)
+    if (pi.necessity === "logic-needed" && claimed.necessity !== "logic-needed") {
+      narrowed.push(pi.description);
+    }
+    effective.push({
+      ...claimed,
+      description: pi.description, // 描述以计划为准(漂移即换需求,同属收窄面)
+      necessity: pi.necessity === "logic-needed" ? "logic-needed" : claimed.necessity,
+      planItemId: pi.id,
+    });
+    origins.push("plan");
+  }
+  for (const r of requirements ?? []) {
+    if (r.planItemId) continue; // 已并入计划项
+    effective.push(r);
+    origins.push("executor");
+  }
+  return { effective, origins, exempted, narrowed };
+}
+
+/** 探测词逐字执行且空结果(精确匹配 input.query;hits=0 从 outputSummary 解析) */
+function probeRanEmpty(query: string, evidence: EvidenceDigest): boolean {
+  const q = query.trim();
+  return evidence.searches.some((s) => s.query === q && s.hits === 0);
 }

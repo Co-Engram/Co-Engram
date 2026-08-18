@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added(2026-08-18 沉思 PDCA Phase2:计划先行 + 探测引擎生成 + 细化防收窄)
+
+- **思考计划引擎生成(清单生成权转移)**:Phase1 的「清单自报」折中收口 —— `ponder_run` 启动时(buildTask)引擎生成需求拓扑并落盘 `run.plan`(LLM critic 式单次调用从问题结构生成 3-6 项:资源类型/描述/必要性/探测词;无 llmClient 或解析失败走机械模板,五类型全覆盖;上轮 degraded 未闭合缺口机械追加进新计划,跨轮接力)。任务包携带计划,协议改为「执行附带计划」。**P5 细化防收窄**:report 需求经 `planItemId` 链接计划项,删除的计划项由引擎合成 open 缺口、必要性降级被覆写回,执行者只能追加(计划项不占执行者缺口预算)。**P1 探测引擎生成**:engrams 计划项携带 ≥2 个引擎探测词,执行者逐字执行不得改写(闭合核验精确匹配,「表演式探测」凑数通道关闭);全部探测变体执行且皆空(引擎从调用流水 `{hits:0}` 亲证)→ 自动豁免闭合,豁免权完全引擎侧。headless 路径 prompt 渲染计划清单。viewer 报告「闭合校验」段新增探测豁免/收窄拦截展示(i18n 中英)。附带两项实施中实证修复:不可观测类型(web/logs/mcp)缺口在修复轮的闭合死锁(closed 声明不落记录 → 永远 open);证据时间窗移除 5s 回溯容差(上一 run 的空探测会污染本 run 的豁免判定 —— 跨 run 证据污染)。
+
 ### Added(2026-08-18 沉思 PDCA Phase1:闭合事实化 + 修复回路)
 
 - **沉思闭合校验与修复回路(清单自报、证据事实化)**:沉思报告的过程证据此前是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可全引)—— 形式合规的表演即可全绿。Phase1 落地最小 PDCA 骨架:`ponder_report` 新增 `requirements` 需求清单(L2 引擎侧必填),closed 的 engrams/skills 条目由引擎用本次 run 的调用流水(`signals.jsonl` 时间窗快照,不消费维护 drain 队列)机械复核 `evidence.ids` —— **假闭合**(自报已读但流水无证据)、**瞒报**(有调用不报清单/清单缺失)、**零盘点**(run 内零 engram/skill 读调用)整单或逐条拦截;**零增量**拦截(洞察 sourceIds 全来自任务包种子 → 拒该洞察)。状态机扩展 `verifying`(校验瞬态)/`repairing`(带缺口清单退回执行者,修复后全量重报)。硬限制引擎强制(业界基准参数,`maintenance.remInsight.repairRounds` 可配置 [1,10]):修复 report ≤ 6、单次新缺口 ≤ 3(超额 deferred)、累计缺口 ≤ 10;**重报语义反转** —— 同哈希缺口重报计修复失败(连续 2 次强制升级 logic-needed),终束只能由预算耗尽触发。触顶 → **degraded 终束**:条目落「降级收束」标记与未闭合清单,洞察提案固化隔离标、默认不进审批队列(viewer 提案中心新增置顶「隔离区」展示未闭合清单,可在「全部」视图裁决);正常终束自动解除隔离。L1 与未注入证据源的部署降级跳过(审计标注 `evidenceAvailable=false`)。审计新增 `contemplation_gap_check`;三宿主(claude-code-mcp/openclaw-plugin/dsh-plugin)注入同进程证据源。文档、帮助栏与 viewer 文案中英同步。

@@ -100,6 +100,17 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
     ...(task.dreamHistory.trim().length > 0
       ? [`## Previous thinking sessions (deepen or pivot, do not repeat)`, task.dreamHistory, ``]
       : []),
+    ...(task.plan && task.plan.items.length
+      ? [
+          `## Requirement plan (engine-generated contract — close every item; probes run VERBATIM)`,
+          ...task.plan.items.map(
+            (it) =>
+              `- [${it.id}] ${it.resourceType} (${it.necessity}${it.carryOver ? ", carry-over" : ""}): ${it.description}` +
+              (it.probes.length ? ` | probes: ${it.probes.map((p) => JSON.stringify(p.query)).join(", ")}` : ""),
+          ),
+          ``,
+        ]
+      : []),
     `## Execution boundary`,
     `- The memory repo and local files are READ-ONLY: do not write or modify anything.`,
     `- Web research (WebSearch / WebFetch) is ALLOWED as read-only external`,

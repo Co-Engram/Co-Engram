@@ -282,6 +282,7 @@ export interface NightThinkingResourcesUsed {
 
 // ============================================================
 // PDCA 修复回路(Phase1,2026-08-18):清单自报、证据事实化
+// Phase2(2026-08-18):计划先行 —— 清单生成权转移(引擎/critic 生成)
 // ============================================================
 
 /** 沉思资源类型(需求清单的归类维度;闭合可观测性按类型区分) */
@@ -289,6 +290,38 @@ export type PonderResourceType = "engrams" | "skills" | "logs" | "web" | "mcp";
 
 /** 需求必要性:logic-needed(不闭合即缺口)/ helpful(可能有帮助) */
 export type PonderNecessity = "logic-needed" | "helpful";
+
+/**
+ * 引擎生成的探测 payload(P1:生成权转移的核心)。
+ * 探测词由引擎/critic 生成,执行者**逐字执行不得改写**(闭合核验按精确
+ * 匹配);engrams 项强制 ≥2 个变体 —— 全部执行且全部空结果(引擎从调用
+ * 流水的 outputSummary={hits:0} 亲证)→ 该需求自动豁免闭合。
+ */
+export interface PonderProbe {
+  /** 探测查询词(engrams:engram_search 的 query;web:检索词,执行不可观测仅 payload 受控) */
+  readonly query: string;
+}
+
+/** 计划项(需求拓扑节点;LLM 从问题结构生成,无 LLM 时模板兜底) */
+export interface PonderPlanItem {
+  /** 计划项 id(run 内稳定;report 需求经 planItemId 链接) */
+  readonly id: string;
+  readonly resourceType: PonderResourceType;
+  readonly description: string;
+  readonly necessity: PonderNecessity;
+  /** 引擎生成的探测词(engrams ≥2 变体;logs/mcp 无探测) */
+  readonly probes: readonly PonderProbe[];
+  /** 跨轮接力来源:上轮 degraded 未闭合缺口机械带入(非 LLM 判断) */
+  readonly carryOver?: boolean;
+}
+
+/** 一次深思 run 的思考计划(Phase2 计划先行:计划=执行拓扑,落盘可审视) */
+export interface PonderPlan {
+  /** plan 生成来源:llm(critic 从问题结构生成)/ template(无 llmClient 机械兜底) */
+  readonly source: "llm" | "template";
+  readonly generatedAt: string;
+  readonly items: readonly PonderPlanItem[];
+}
 
 /**
  * 沉思需求清单条目(Phase1 折中:清单由执行者自报,闭合证据由引擎事实化)。
@@ -310,6 +343,13 @@ export interface PonderRequirement {
   readonly closed: boolean;
   /** 事实锚点:真实调用过的 id(engrams=读过的 engram id;skills=skill id) */
   readonly evidence?: { readonly ids?: readonly string[] };
+  /**
+   * Phase2 计划先行:链接计划项(任务包 task.plan[].id)。有 planItemId 的
+   * 条目是对计划项的闭合申报;necessity 以计划为准(降级无效,P5);缺失的
+   * 计划项由引擎合成 open 缺口(删除=收窄被拦)。无 planItemId = 执行者
+   * 追加项(受缺口预算约束)。
+   */
+  readonly planItemId?: string;
 }
 
 /** 引擎侧缺口记录(跨修复轮持久化;哈希 = 资源类型 + 归一化描述) */
@@ -327,6 +367,10 @@ export interface PonderGap {
   readonly reason?: "evidence-mismatch" | "unclosed" | "deferred-over-budget";
   /** 引擎不可观测类型的未闭合项(展示用,不阻塞终束) */
   readonly engineUnverified?: boolean;
+  /** Phase2:缺口来源 —— plan(引擎承诺,不占执行者预算)/ executor(追加申报) */
+  readonly origin?: "plan" | "executor";
+  /** P1 自动豁免:全部引擎探测变体执行且皆空(引擎亲证)→ closed 附此标记 */
+  readonly exempt?: "probe-empty";
 }
 
 /** 单次深思 run 的 PDCA 状态(acquireThinking 起、终束落定止;再思重置) */
@@ -338,6 +382,8 @@ export interface PonderRunState {
   readonly repairReports: number;
   /** 生命周期累计唯一缺口(含已闭合/deferred;预算分母) */
   readonly gaps: readonly PonderGap[];
+  /** Phase2 计划先行:需求拓扑(buildTask 时生成落盘;report 按此核覆盖) */
+  readonly plan?: PonderPlan;
 }
 
 /** 沉思任务包(core 只定义契约,不绑宿主;纯本地只读执行) */
@@ -355,6 +401,12 @@ export interface NightThinkingTask {
   readonly dreamHistory: string;
   /** 本地日志/状态文件路径(存在的才列;L2 用已授权 Read 读取) */
   readonly resourceHints: readonly string[];
+  /**
+   * Phase2 计划先行:引擎生成的需求拓扑(critter 从问题结构生成,或无
+   * llmClient 时的机械模板)。执行协议:逐项闭合;探测词逐字执行不得改写;
+   * 可追加不可删除/降级(删除由引擎合成缺口拦截)。
+   */
+  readonly plan?: PonderPlan;
   /** 固化协议:盘点→plan→执行→按格式 report(不依赖 agent 自觉) */
   readonly protocol: string;
 }

@@ -92,8 +92,16 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
      e.g. a code-graph MCP to verify claims against the actual codebase.
      Prefer calls that cannot mutate external state; record which MCP tool
      served which step in the trace.
-3. PLAN — decide the steps: what to examine, which capability for each step,
-   what question each step answers. Keep it small (3-6 steps).
+3. PLAN — execute the ATTACHED REQUIREMENT PLAN (task.plan, engine-generated).
+   The plan is the contract: every item must be closed before the run can
+   finalize. You may ADD items you discover (report them without a
+   planItemId); you may NOT drop or downgrade planned items — dropping one
+   re-opens it as a gap, and downgrades are overridden by the plan.
+   PROBES (hard gate): each engrams item carries engine-generated probe
+   queries — run them VERBATIM with engram_search (do not reword, do not
+   skip; extra queries of your own are fine in addition). If every probe of
+   an item returns empty the engine auto-exempts it — you do not need to
+   claim anything for genuinely absent resources.
 4. EXECUTE — run the plan with READ-ONLY actions only. Record what you did
    and what you found at each step. Do NOT write or modify anything in the
    memory repo or local files. Web research (search engines, URL fetch) is
@@ -119,7 +127,8 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
        "logs": [<paths you actually read>],
        "web": [{"query": "<search query or URL>",
          "purpose": "<what question it answered>"}] },
-     "requirements": [ {"resourceType": "engrams|skills|logs|web|mcp",
+     "requirements": [ {"planItemId": "<task.plan item id, for planned items>",
+       "resourceType": "engrams|skills|logs|web|mcp",
        "description": "<what resource this run needs and why>",
        "necessity": "logic-needed|helpful",
        "closed": true|false,
@@ -141,14 +150,17 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    actually read. Insights with empty, invented, or non-engram sourceIds are
    rejected by the citation gate before review.
    REQUIREMENTS CLOSURE (hard gate, engine-side): the "requirements" list is
-   MANDATORY for agent-run reports. The engine cross-checks it against the
-   tool-call stream it observed for this run: (a) a closed engrams/skills
-   requirement must carry evidence.ids that the engine actually saw being
-   called — self-declared closure without real calls is rejected as a gap;
-   (b) if the engine observed engram/skill calls but the list declares no
-   corresponding entry (or the list is missing), the whole report is rejected;
-   (c) a run with zero engram/skill read calls is rejected outright.
-   logs/web/mcp closure cannot be engine-verified — declare them honestly.
+   MANDATORY for agent-run reports and is validated AGAINST THE ATTACHED PLAN:
+   every planned item must appear with its planItemId; dropped planned items
+   are re-opened as gaps by the engine and necessity downgrades are overridden.
+   The engine cross-checks closure against the tool-call stream it observed
+   for this run: (a) a closed engrams/skills requirement must carry
+   evidence.ids that the engine actually saw being called — self-declared
+   closure without real calls is rejected as a gap; (b) if the engine
+   observed engram/skill calls but the list declares no corresponding entry
+   (or the list is missing), the whole report is rejected; (c) a run with
+   zero engram/skill read calls is rejected outright. logs/web/mcp closure
+   cannot be engine-verified — declare them honestly.
    GAP REPAIR LOOP: if the report comes back with an "openGaps" list, the run
    is NOT finished — the entry stays in repair state. Mine the missing
    resources, then call \`ponder_report\` AGAIN with a FULL updated report

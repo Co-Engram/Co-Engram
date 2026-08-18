@@ -189,7 +189,7 @@ export const incubationRunTool: Tool<
           `沉思 ${parsed.id} 正在深思中 —— 30 分钟未回写自动回收。`,
         );
       }
-      const task = incubator.buildTask(parsed.id);
+      const task = await incubator.buildTask(parsed.id);
       return { mode: "agent", incubationId: parsed.id, status: "thinking", task };
     } catch (err) {
       throw translateContemplationError(err, parsed.id);

@@ -977,6 +977,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.contemplation.pdca.repairRound": "修复轮次：第 ${n} 次重报",
   "viewer.contemplation.pdca.closedThisRound": "本轮复核闭合 ${n} 项需求",
   "viewer.contemplation.pdca.openGaps": "未闭合缺口：",
+  "viewer.contemplation.pdca.exempted": "探测豁免(全部引擎探测皆空,引擎亲证):",
+  "viewer.contemplation.pdca.narrowed": "计划收窄拦截(被删除/降级的需求,引擎已还原):",
   "viewer.contemplation.pdca.degradedFinal": "本次深思以降级收束（degraded）",
   "viewer.contemplation.thinkingSince": "深思开始于 ${t}",
   "viewer.contemplation.thinkingHint": "正在盘点记忆图谱、行为日志与技能库……深思可能耗时较久，完成后自动出报告，可离开本页",
@@ -1026,7 +1028,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.contemplation.pace": "提问即深思：提交后立即开始（也可在对话里直接说「帮我沉思这个问题」）；可能耗时较久，可离开页面，完成后自动出报告。",
   "viewer.help.contemplation.answer": "报告以<strong>回答</strong>为主体；洞察以提案呈现，审批后才落为记忆；计划、轨迹与拒因在「过程」「诊断」折叠区完全透明。",
   "viewer.help.contemplation.rethink": "对已答条目可「再思一次」——回灌全部过往深思史重新盘点；「依据」按钮展示本次实际读取的记忆、使用的技能与日志。",
-  "viewer.help.contemplation.closure": "闭合校验：报告中的资源需求清单会与引擎记录的实际调用流水核对——自报「已读」但无真实调用会被退回修复（对话内自动补做后重报）。反复不闭合或超出修复预算（默认 6 轮）时，本次深思以<strong>降级收束</strong>结束：卡片带「降级」标记并列出未闭合需求，其洞察提案进入提案中心的<strong>隔离区</strong>，默认不进审批队列（可在「全部」视图中裁决）。",
+  "viewer.help.contemplation.closure": "闭合校验:每次深思启动时引擎先生成<strong>思考计划</strong>(需求清单与探测词 —— 执行者逐字执行探测、只能追加不能删改),报告按计划核覆盖:被删除或降级的需求由引擎还原,自报「已读」但无真实调用会被退回修复(对话内自动补做后重报)。全部探测皆空的需求由引擎亲证自动豁免。反复不闭合或超出修复预算(默认 6 轮)时,本次深思以<strong>降级收束</strong>结束:卡片带「降级」标记并列出未闭合需求,其洞察提案进入提案中心的<strong>隔离区</strong>,默认不进审批队列(可在「全部」视图中裁决)。",
   "viewer.help.contemplation.limits": "条目上限 50 条，接近上限时页面提示，达限需先删除旧的已答条目；历史深思按时间戳呈现。",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",

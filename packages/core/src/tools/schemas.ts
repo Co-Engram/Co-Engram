@@ -941,15 +941,18 @@ export const IncubationReportInputSchema = z
         })
         .optional(),
       /**
-       * 需求清单(PDCA Phase1,L2 引擎侧必填):逐条声明本次深思需要的
-       * 资源与闭合状态。closed 的 engrams/skills 条目由引擎用调用流水
-       * 复核(evidence.ids 必须真实调用过);瞒报/零盘点整单拒绝;有
-       * 未闭合缺口时 report 被退回,修复后全量重报。
+       * 需求清单(PDCA Phase1,L2 引擎侧必填;Phase2 按计划核覆盖):
+       * 计划项经 planItemId 链接(缺失的计划项由引擎合成缺口,降级被
+       * 覆写);closed 的 engrams/skills 条目由引擎用调用流水复核
+       * (evidence.ids 必须真实调用过);瞒报/零盘点整单拒绝;有未闭合
+       * 缺口时 report 被退回,修复后全量重报。
        */
       requirements: z
         .array(
           z
             .object({
+              /** Phase2 计划先行:任务包 task.plan[].id(计划项必带) */
+              planItemId: z.string().min(1).max(40).optional(),
               resourceType: z.enum(["engrams", "skills", "logs", "web", "mcp"]),
               description: z.string().min(1).max(500),
               necessity: z.enum(["logic-needed", "helpful"]),

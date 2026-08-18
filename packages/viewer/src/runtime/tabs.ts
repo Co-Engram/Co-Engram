@@ -5155,13 +5155,15 @@ window.CO_ENGRAM_CONTEMPLATION = {
           ? '<ul class="inc-trace-list">' + last.diagnosis.rejectReasons.map(r => '<li>' + CO_ENGRAM.escapeHtml(r) + '</li>').join('') + '</ul>' : '')
         + '</details>';
     }
-    // ④b 闭合校验(PDCA Phase1):修复轮次/开放缺口/本轮闭合数/degraded
-    if (last && last.pdca && (last.pdca.repairRound > 0 || (last.pdca.openGaps || []).length || last.pdca.degraded || last.pdca.closedThisRound > 0)) {
+    // ④b 闭合校验(PDCA Phase1+2):修复轮次/开放缺口/本轮闭合数/degraded/收窄/豁免
+    if (last && last.pdca && (last.pdca.repairRound > 0 || (last.pdca.openGaps || []).length || last.pdca.degraded || last.pdca.closedThisRound > 0 || (last.pdca.narrowed || []).length || (last.pdca.exempted || []).length)) {
       h += '<div class="inc-sec-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.section.pdca')) + '</div>'
         + '<ul class="inc-ins-list">'
         + (last.pdca.repairRound > 0 ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.repairRound', { n: last.pdca.repairRound })) + '</li>' : '')
         + (last.pdca.closedThisRound > 0 ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.closedThisRound', { n: last.pdca.closedThisRound })) + '</li>' : '')
         + ((last.pdca.openGaps || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.openGaps')) + (last.pdca.openGaps || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
+        + ((last.pdca.exempted || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.exempted')) + (last.pdca.exempted || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
+        + ((last.pdca.narrowed || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.narrowed')) + (last.pdca.narrowed || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
         + (last.pdca.degraded ? '<li style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.degradedFinal')) + '</li>' : '')
         + '</ul>';
     }

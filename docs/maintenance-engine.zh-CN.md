@@ -113,9 +113,16 @@ flowchart TB
 
 **提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断、PDCA 状态)/ run_fail / delete / gap_check`。
 
-### 闭合校验与修复回路(PDCA,2026-08-18)
+### 计划先行与探测引擎生成(Phase2,2026-08-18)
 
-沉思机制的核心信任问题:过程证据曾是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可直接全引)—— 形式合规的表演即可全绿。Phase1 落地「**清单自报、证据事实化**」:清单仍由执行者在 `ponder_report` 的 `requirements` 字段提交(逐条:资源类型 / 描述 / 必要性 logic-needed·helpful / 闭合状态 / 事实锚点 `evidence.ids`),但每个闭合声明由引擎用**调用流水**(`.co-engram/signals.jsonl`,按本次 run 的时间窗过滤;快照读取,不消费维护引擎的 drain 队列)机械复核:
+Phase1 的「清单自报」折中在 Phase2 收口 —— **清单生成权转移**:`ponder_run` 启动时(buildTask)由引擎生成**思考计划**(需求拓扑)并落盘(`run.plan`),执行者不再自拟清单:
+
+- **计划双源**:LLM(critic 式单次调用,从问题结构 + 种子 + 深思史生成 3-6 项:资源类型/描述/必要性/探测词);无 llmClient 或生成失败时机械模板兜底(五类型全覆盖、问题词切片作探测;`planSource` 落审计)。上轮 degraded 的未闭合缺口**机械追加**进新计划(跨轮接力,不依赖 LLM)。
+- **P5 细化防收窄**:report 的 requirements 逐条经 `planItemId` 链接计划项;计划项被删除 → 引擎合成 open 缺口;必要性降级 → 以计划为准覆写;执行者只能**追加**新需求(受缺口预算约束,计划项不占执行者预算 —— 预算是反执行者拖延的手段,不是惩罚引擎判断的)。
+- **P1 探测引擎生成**:engrams 计划项携带 ≥2 个引擎生成的探测词,执行者**逐字执行不得改写**(闭合核验按精确匹配 —— 生成权管 payload,「表演式探测」的凑数通道关闭);**自动豁免**:全部探测变体都执行且都空(引擎从调用流水的 `{hits:0}` 亲证)→ 该项自动判闭合(probe-empty 豁免),豁免权完全在引擎侧 —— 「资源确实不存在」由引擎自己的空结果证明,不依赖执行者申报。探测非空 = 资源存在,必须真实闭合(evidence.ids)。web 探测词由引擎生成(payload 受控)但执行不可观测,闭合申报仅展示;skills 盘点为机械调用;logs/mcp 无探测。
+- headless(auto)路径同样携带计划(prompt 渲染计划清单),且无修复轮 —— 一次做全,否则带缺口收束。
+
+### 闭合校验与修复回路(PDCA,2026-08-18)沉思机制的核心信任问题:过程证据曾是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可直接全引)—— 形式合规的表演即可全绿。Phase1 落地「**清单自报、证据事实化**」:清单仍由执行者在 `ponder_report` 的 `requirements` 字段提交(逐条:资源类型 / 描述 / 必要性 logic-needed·helpful / 闭合状态 / 事实锚点 `evidence.ids`),但每个闭合声明由引擎用**调用流水**(`.co-engram/signals.jsonl`,按本次 run 的时间窗过滤;快照读取,不消费维护引擎的 drain 队列)机械复核:
 
 - **假闭合拦截**:closed 的 engrams/skills 条目,`evidence.ids` 中每个 id 必须真实出现在流水(检索命中或 engram_get/skill_get 直读),否则判缺口(`evidence-mismatch`),run 转入 `repairing` 并把缺口清单随工具返回 —— 执行者补做后**全量重报**,直至闭合;
 - **瞒报拦截**:流水里有 engram/skill 读调用而清单未报对应条目(或清单整体缺失)→ 整单拒绝;run 内零 engram/skill 读调用(完全偏废)同样整单拒绝;

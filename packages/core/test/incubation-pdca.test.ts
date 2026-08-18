@@ -212,18 +212,22 @@ describe("PDCA 闭合事实化:清单校验四道闸", () => {
     ).rejects.toThrow(/no resource evidence at all/);
   });
 
-  it("requirements 缺失(L2 + 引擎有证据面)→ 整单拒绝", async () => {
+  it("requirements 缺失(L2 + 引擎有证据面)→ Phase2 计划项合成缺口退回修复(不再整单拒)", async () => {
     const incubator = makeIncubator();
     const e = incubator.create({ question: "缺清单问题?" });
     incubator.acquireThinking(e.id, "test");
-    observedEvents = [engramEvent(makeSource("来源").id)];
-    await expect(
-      incubator.report({
-        incubationId: e.id,
-        report: { insights: [], plan: [], trace: [] },
-        trigger: "manual", actor: "test",
-      }),
-    ).rejects.toThrow(/requirements missing/);
+    await incubator.buildTask(e.id); // 生成并落盘计划(无 llmClient → 模板)
+    const a = makeSource("来源");
+    observedEvents = [engramEvent(a.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: { insights: [], plan: [], trace: [] }, // 无 requirements
+      trigger: "manual", actor: "test",
+    });
+    // Phase2:计划先行后,缺清单 = 计划项全部 open(删除即收窄)→ repairing
+    expect(r.entry.status).toBe("repairing");
+    expect(r.openGaps.length).toBeGreaterThanOrEqual(1);
+    expect(r.openGaps.every((g) => g.origin === "plan")).toBe(true);
   });
 
   it("引擎不可观测类型(logs/web/mcp)closed 不参与事实化:自报 closed 直接认可;报了又悬置同样阻塞(报进清单 = 承诺闭合)", async () => {

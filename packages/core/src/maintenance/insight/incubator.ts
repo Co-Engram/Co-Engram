@@ -55,13 +55,14 @@ import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
 import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
 import {
   advanceGaps,
+  applyPlanToRequirements,
   checkRequirements,
   digestEvidence,
-  gapHash,
   isSeedOnlySources,
 } from "./gap-check.js";
+import { generateThinkPlan, templatePlan } from "./plan.js";
 import type { ToolCallEvent } from "../../signals/types.js";
-import type { PonderGap, PonderRequirement, PonderRunState } from "./types.js";
+import type { PonderGap, PonderPlan, PonderRunState } from "./types.js";
 
 /**
  * 条目状态(Phase1 PDCA 扩展,2026-08-18):
@@ -118,6 +119,10 @@ export interface IncubationTimelineEvent {
     readonly degraded: boolean;
     /** 本轮 deferred 的超额新缺口(不阻塞;留痕) */
     readonly deferred?: readonly string[];
+    /** Phase2:P5 收窄拦截(删除/降级的计划项) */
+    readonly narrowed?: readonly string[];
+    /** Phase2:P1 自动豁免(探测皆空的计划项) */
+    readonly exempted?: readonly string[];
   };
 }
 
@@ -143,6 +148,8 @@ export interface IncubationEntry {
   readonly run?: PonderRunState;
   /** degraded 终束标记(run 级;洞察提案隔离依据;再思时清除) */
   readonly degraded?: IncubationDegraded;
+  /** Phase2 接力瞬态:acquireThinking 时从上轮 degraded 转存,供计划生成 */
+  readonly carryOverGaps?: readonly string[];
 }
 
 /** incubator 对 proposalEngine 的结构依赖 */
@@ -423,6 +430,7 @@ export class Incubator {
             ...(thinkingAt ? { thinkingAt } : {}),
             ...(thinkingBy ? { thinkingBy } : {}),
             ...(run ? { run } : {}),
+            ...(e.carryOverGaps ? { carryOverGaps: e.carryOverGaps } : {}),
           }
         : {}),
       ...(degraded ? { degraded } : {}),
@@ -515,19 +523,23 @@ export class Incubator {
   // thinking 原子标记(跨进程互斥)
   // ============================================================
 
-  /** queued/done 均可开跑(再思);审计记 run_start;新 run 清旧 run/degraded 标 */
+  /** queued/done 均可开跑(再思);审计记 run_start;新 run 清旧 run/degraded 标,
+   *  上轮未闭合缺口转存瞬态字段供计划生成接力(Phase2) */
   acquireThinking(id: string, by: string): boolean {
     const entries = this.read();
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
     if (target.status !== "queued" && target.status !== "done") return false;
+    const carryOver = [...(target.degraded?.unclosedGaps ?? [])];
     const updated: IncubationEntry = {
       ...target,
       status: "thinking",
       thinkingAt: this.now(),
       thinkingBy: by,
-      // degraded 是 run 级标记:再思开启新 run,旧标记随之失效
+      // degraded 是 run 级标记:再思开启新 run,旧标记随之失效;
+      // 未闭合缺口先转存(接力输入),终束时清除
       ...(target.degraded ? { degraded: undefined } : {}),
+      ...(carryOver.length ? { carryOverGaps: carryOver } : {}),
     };
     this.write(entries.map((e) => (e.id === id ? updated : e)));
     this.deps.auditLog?.append({
@@ -614,19 +626,65 @@ export class Incubator {
       }));
   }
 
-  /** 组装 L2 任务包(ponder_run 工具返回;脱敏:种子摘要级内容) */
-  buildTask(id: string): NightThinkingTask {
+  /**
+   * 组装 L2 任务包(ponder_run 工具返回;脱敏:种子摘要级内容)。
+   * Phase2 计划先行:run 首次组装时生成需求拓扑并落盘 run.plan(LLM 从
+   * 问题结构生成,无 llmClient 走机械模板;上轮未闭合缺口机械接力);
+   * 修复轮重复调用只复用不重生成。
+   */
+  async buildTask(id: string): Promise<NightThinkingTask> {
     const entry = this.get(id);
     if (!entry) throw new Error(`incubation ${id} not found`);
     const seedDigests = entry.seedEngramIds.length > 0
       ? collectSeedDigests(this.deps.repository, entry.seedEngramIds)
       : searchFallbackSeeds(this.deps.repository, entry.question);
+    let plan: PonderPlan | undefined = entry.run?.plan;
+    if (!plan) {
+      const input = {
+        question: entry.question,
+        seedTitles: seedDigests.map((s) => s.title),
+        dreamHistory: this.dreamHistoryFor(id),
+        carryOverGaps: [...(entry.carryOverGaps ?? [])],
+      };
+      plan = this.deps.llmClient
+        ? await generateThinkPlan(this.deps.llmClient, input, this.now)
+        : templatePlan(input, this.now);
+      // 落盘(写前重读防并发覆盖;已存在则尊重先写者)
+      const fresh = this.read();
+      const idx = fresh.findIndex((e) => e.id === id);
+      if (idx !== -1 && !fresh[idx]!.run?.plan) {
+        const target = fresh[idx]!;
+        fresh[idx] = {
+          ...target,
+          run: {
+            startedAt: target.thinkingAt ?? this.now(),
+            reports: 0,
+            repairReports: 0,
+            gaps: [],
+            plan,
+          },
+        };
+        this.write(fresh);
+      }
+      this.deps.auditLog?.append({
+        actor: "system",
+        action: "contemplation_plan_generated",
+        metadata: {
+          id,
+          source: plan.source,
+          items: plan.items.length,
+          probes: plan.items.reduce((n, it) => n + it.probes.length, 0),
+          carryOver: plan.items.filter((it) => it.carryOver).length,
+        },
+      });
+    }
     return {
       incubationId: entry.id,
       question: entry.question,
       seedDigests,
       dreamHistory: this.dreamHistoryFor(id),
       resourceHints: collectResourceHints(this.deps.dataRoot),
+      plan,
       protocol: buildProtocol(this.deps.repository.currentLanguage),
     };
   }
@@ -659,7 +717,7 @@ export class Incubator {
       throw new Error(`incubation ${id} already thinking`);
     }
     const startedAt = Date.now();
-    const task = this.buildTask(id);
+    const task = await this.buildTask(id);
     // 种子空兜底留痕(缺陷 D):显式种子为空但任务包拿到了种子 → 记审计,
     // audit 查询 / viewer 可区分「本轮种子来自兜底检索」与「用户指定」
     if (entry.seedEngramIds.length === 0 && task.seedDigests.length > 0) {
@@ -791,15 +849,22 @@ export class Incubator {
     const nextRound = isMainReport ? entry.rounds + 1 : entry.rounds;
     let events: readonly ToolCallEvent[] = [];
     if (evidenceAvailable) {
-      // flush 把 sink 缓冲(≤5s/50条)落盘,snapshot 读取不消费 drain 队列
+      // flush 把 sink 缓冲(≤5s/50条)落盘,snapshot 读取不消费 drain 队列。
+      // 时间窗严格 [thinkingAt, ∞):at 是调用时刻(非落盘时刻),flush 已
+      // 解决延迟 —— 不回溯容差,否则上一 run 刚执行的空探测会污染本 run
+      // 的 P1 豁免判定(「资源不存在」被假证明,跨 run 证据污染)。
       await this.deps.signalEvidence!.flush();
-      const since = parseAt(entry.thinkingAt!) - 5_000; // flush 延迟容差
+      const since = parseAt(entry.thinkingAt!);
       events = this.deps.signalEvidence!.snapshot().filter((e) => e.at >= since);
     }
     const digest = digestEvidence(events);
-    const reqCheck = checkRequirements(input.report.requirements, digest, {
+    // Phase2 计划先行:计划 → 有效需求集(P5 防收窄:P1 自动豁免)
+    const planItems = runState.plan?.items ?? [];
+    const applied = applyPlanToRequirements(planItems, input.report.requirements, digest);
+    const reqCheck = checkRequirements(applied.effective, digest, {
       level,
       evidenceAvailable,
+      ...(applied.origins.length ? { origins: applied.origins } : {}),
     });
     if (reqCheck.reject) {
       this.deps.auditLog?.append({
@@ -811,7 +876,14 @@ export class Incubator {
       // 状态停在 verifying(重报入口仍判定为主报告/修复轮)。
       throw new Error(`report rejected by closure check: ${reqCheck.reject}`);
     }
-    const advanced = advanceGaps(runState.gaps, reqCheck.current);
+    // P1 豁免留痕:自动豁免的计划项在 gap 记录上标 probe-empty
+    const exemptSet = new Set(applied.exempted);
+    const currentGaps = reqCheck.current.map((g) =>
+      exemptSet.has(g.description) && g.state === "closed"
+        ? { ...g, exempt: "probe-empty" as const }
+        : g,
+    );
+    const advanced = advanceGaps(runState.gaps, currentGaps);
     const repairReports = isMainReport ? 0 : runState.repairReports + 1;
     const repairLimit = Math.max(
       1,
@@ -1000,6 +1072,8 @@ export class Incubator {
           ...(advanced.deferredThisRound.length
             ? { deferred: advanced.deferredThisRound }
             : {}),
+          ...(applied.narrowed.length ? { narrowed: applied.narrowed.slice(0, 10) } : {}),
+          ...(applied.exempted.length ? { exempted: applied.exempted.slice(0, 10) } : {}),
         },
       },
     ];
@@ -1092,6 +1166,13 @@ export class Incubator {
           deferred: advanced.deferredThisRound.length,
           degraded: !!degradedFinal,
           ...(degradedFinal ? { degradedReason: degradedFinal.reason } : {}),
+          ...(planItems.length
+            ? {
+                planItems: planItems.length,
+                planNarrowed: applied.narrowed.length,
+                planExempted: applied.exempted.length,
+              }
+            : {}),
         },
       },
     });

@@ -55,10 +55,10 @@ function setup(opts: { withMemories?: boolean } = {}) {
 }
 
 describe("种子空兜底(buildTask,缺陷 D)", () => {
-  it("seedEngramIds 为空 + 库中有相关记忆 → FTS 检索兜底,种子非空且命中相关条目", () => {
+  it("seedEngramIds 为空 + 库中有相关记忆 → FTS 检索兜底,种子非空且命中相关条目", async () => {
     const { incubator } = setup({ withMemories: true });
     const e = incubator.create({ question: "co-engram 夜思如何改进" });
-    const task = incubator.buildTask(e.id);
+    const task = await incubator.buildTask(e.id);
     expect(task.seedDigests.length).toBeGreaterThan(0);
     const titles = task.seedDigests.map((s) => s.title).join("\n");
     expect(titles).toContain("审计轮转");
@@ -67,7 +67,7 @@ describe("种子空兜底(buildTask,缺陷 D)", () => {
     expect(titles).not.toContain("安卓");
   });
 
-  it("seedEngramIds 非空 → 走显式种子,不触发兜底检索", () => {
+  it("seedEngramIds 非空 → 走显式种子,不触发兜底检索", async () => {
     const { incubator, repo } = setup({ withMemories: true });
     const all = repo.listEngrams();
     const target = all.find((x) => x.title.includes("设计原则"))!;
@@ -75,15 +75,15 @@ describe("种子空兜底(buildTask,缺陷 D)", () => {
       question: "co-engram 夜思如何改进",
       seedEngramIds: [target.id],
     });
-    const task = incubator.buildTask(e.id);
+    const task = await incubator.buildTask(e.id);
     expect(task.seedDigests).toHaveLength(1);
     expect(task.seedDigests[0]?.id).toBe(target.id);
   });
 
-  it("库为空/问题无命中 → 兜底返回空(不伪造种子)", () => {
+  it("库为空/问题无命中 → 兜底返回空(不伪造种子)", async () => {
     const { incubator } = setup({ withMemories: false });
     const e = incubator.create({ question: "zzz qqq 无关问题" });
-    expect(incubator.buildTask(e.id).seedDigests).toEqual([]);
+    expect((await incubator.buildTask(e.id)).seedDigests).toEqual([]);
   });
 
   it("incubateOnce 兜底生效时留审计(night_thinking_seed_fallback)", async () => {
