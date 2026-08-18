@@ -294,9 +294,9 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     failedUses: f.failedUses ?? 0,
     reinforcementScore: f.reinforcementScore ?? 0,
     lastRetrievalScore: f.lastRetrievalScore,
-    outgoingSynapseCount: 0,
-    incomingSynapseCount: 0,
-    activeContradictionCount: 0,
+    // 突触计数三列不提供(2026-08-19):INSERT 侧 NOT NULL DEFAULT 0 兜底,
+    // UPDATE 侧保留原值(不再把 recompute 的正确值覆盖回 0);cold-start
+    // 后由对账 else 分支的 recomputeSynapseCounts 全量写入真值。
     verificationStatus: f.verificationStatus,
   };
 }

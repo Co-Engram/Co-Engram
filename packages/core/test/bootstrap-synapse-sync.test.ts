@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -341,5 +341,62 @@ describe("bootstrap synapse 表启动对账(2026-08 首页突触 0 修复)", () 
     expect(q(a.id)).toEqual({ o: 1, i: 1 }); // similar_to 对称:两端出+入各 1
     expect(q(b.id)).toEqual({ o: 1, i: 1 });
     third.indexDb?.close();
+  });
+
+  /**
+   * 场景 7(2026-08-19 第三层缺口):engram 更新走 write-through
+   * (syncEngramToIndex)时不得清零计数列 —— 修复前它是全字段 upsert,
+   * 恒写 0,/api/stats 每次调用的 rescanModifiedEngrams 都会把 recompute
+   * 的正确值覆盖回 0(部署实测:recompute 后 65/100 非零,一次 stats 调用
+   * 后回到 0/100)。现在计数三列未提供时 UPDATE 保留原值。
+   */
+  it("engram 更新(rescanModifiedEngrams 触发 write-through)不清零计数列", () => {
+    const first = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const a = first.repository.createEngram({
+      title: "印迹 A",
+      content: "内容 A",
+      kind: "observation",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    const b = first.repository.createEngram({
+      title: "印迹 B",
+      content: "内容 B",
+      kind: "pattern",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    first.repository.createSynapse({
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      createdBy: "杨洋 10192021",
+    });
+    first.indexDb?.close();
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const second = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const q = (id: string) =>
+      second
+        .indexDb!.prepare(
+          `SELECT outgoing_synapse_count AS o, incoming_synapse_count AS i
+           FROM engrams WHERE id = ?`,
+        )
+        .get(id) as { o: number; i: number };
+    expect(q(a.id)).toEqual({ o: 1, i: 1 });
+
+    // 模拟外部编辑:touch a 的文件 mtime → rescanModifiedEngrams 走
+    // syncEngramToIndex 全字段 upsert(修复前的清零路径)
+    const entry = second.repository
+      .listEngramIndex()
+      .find((e) => e.id === a.id)!;
+    const absPath = join(tmpRoot, entry.path);
+    const later = new Date(Date.now() + 2000);
+    utimesSync(absPath, later, later);
+    second.repository.rescanModifiedEngrams();
+
+    // 计数列必须保留(修复前:被 excluded 的 0 覆盖)
+    expect(q(a.id)).toEqual({ o: 1, i: 1 });
+    second.indexDb?.close();
   });
 });

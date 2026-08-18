@@ -407,6 +407,16 @@ export class IndexDb {
     const incomingSynapseCount = entry.incomingSynapseCount ?? 0;
     const activeContradictionCount = entry.activeContradictionCount ?? 0;
     const verificationStatus = entry.verificationStatus ?? null;
+    // 突触计数列条件性覆盖(2026-08-19 第三层缺口):调用方未提供时 UPDATE
+    // 保留原值 —— write-through(syncEngramToIndex)与 cold-start
+    // (engramFileToIndexEntry)都不知道真实计数,若无条件覆盖 excluded 的 0,
+    // 任何 engram 更新(含 /api/stats 的 rescanModifiedEngrams)都会把
+    // recomputeSynapseCounts 写入的正确值清回 0(部署实测踩中)。INSERT 侧
+    // 行尚不存在,?? 0 兜底(NOT NULL 列),随后 recompute 覆盖为真值。
+    const synapseCountUpdateSql =
+      `${entry.outgoingSynapseCount !== undefined ? ",\n        outgoing_synapse_count = excluded.outgoing_synapse_count" : ""}` +
+      `${entry.incomingSynapseCount !== undefined ? ",\n        incoming_synapse_count = excluded.incoming_synapse_count" : ""}` +
+      `${entry.activeContradictionCount !== undefined ? ",\n        active_contradiction_count = excluded.active_contradiction_count" : ""}`;
     this.prepare(
       `
       INSERT INTO engrams (
@@ -443,10 +453,7 @@ export class IndexDb {
         failed_uses = excluded.failed_uses,
         reinforcement_score = excluded.reinforcement_score,
         last_retrieval_score = excluded.last_retrieval_score,
-        outgoing_synapse_count = excluded.outgoing_synapse_count,
-        incoming_synapse_count = excluded.incoming_synapse_count,
-        active_contradiction_count = excluded.active_contradiction_count,
-        verification_status = excluded.verification_status
+        verification_status = excluded.verification_status${synapseCountUpdateSql}
     `,
     ).run(
       entry.id,

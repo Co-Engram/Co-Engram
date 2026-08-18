@@ -439,9 +439,9 @@ export class EngramRepository {
       failedUses: frontmatter.failedUses ?? 0,
       reinforcementScore: frontmatter.reinforcementScore ?? 0,
       lastRetrievalScore: frontmatter.lastRetrievalScore,
-      outgoingSynapseCount: 0,
-      incomingSynapseCount: 0,
-      activeContradictionCount: 0,
+      // 突触计数三列不提供(2026-08-19):upsert 对未提供列保留原值 —— 此处
+      // 写 0 会把 recomputeSynapseCounts 的正确值覆盖清零。真实计数由
+      // recomputeSynapseCounts(bootstrap 对账 / watcher / doctor)维护。
       verificationStatus: frontmatter.verificationStatus,
     };
     try {
