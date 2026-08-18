@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed(2026-08-19 计数列重算补缺口:对账「一致」分支也要跑)
+
+- **`recomputeSynapseCounts` 只挂在 `rebuildSynapseTable` 内的缺口**:部署实测发现,synapses 表行数与磁盘一致的存量库(对账走「跳过」分支)永远不会触发表重建,计数列的历史全零(无回填路径时代写入)永远残留 —— 真实库踩中:表 234 行一致,计数列 100/100 全零。修复:bootstrap 对账的 else 分支(行数一致)同样执行 `recomputeSynapseCounts`(毫秒级幂等)。测试:场景 6(表一致 + 计数列人工清零 → 启动后修复)。
+
 ### Fixed(2026-08-19 统计口径审计:engram_list 突触计数列恒 0)
 
 - **`engrams.outgoing/incoming_synapse_count` 无回填路径(engram_list MCP 输出恒 0)**:两处写入路径(write-through `syncEngramToIndex` 与 cold-start `engramFileToIndexEntry`)都把计数写 0,注释宣称的「maintenance / synapse-create 增量 UPDATE 回填」全项目不存在——`engram_list` 经 `readDigestBatch`(`queryEngramsForMcpList`)读 SQLite 列,LLM 看到的每条记忆突触数恒 0,对记忆连接度判断被误导(实测 100/100 行全零)。修复:`rebuildSynapseTable` 末尾同事务执行 `recomputeSynapseCounts`(对称 kind 两端计入出+入,与 `readSynapses` 实时口径一致;走 idx_synapses_from/to 索引毫秒级),bootstrap 启动对账 / .yaml watcher / doctor 全路径自动覆盖;更正两处失实注释。`active_contradiction_count` 依赖 resolutionState(synapses 表无此列)不在重算范围,注释已注明。测试:bootstrap-synapse-sync.test.ts 场景 5(计数列 vs `readSynapses` 口径对照)。

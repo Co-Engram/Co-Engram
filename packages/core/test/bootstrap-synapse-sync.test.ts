@@ -288,4 +288,58 @@ describe("bootstrap synapse 表启动对账(2026-08 首页突触 0 修复)", () 
     expect(second.indexDb?.countSynapses()).toBe(0);
     second.indexDb?.close();
   });
+
+  /**
+   * 场景 6(2026-08-19 部署实测追加):synapses 表行数与磁盘一致(对账走
+   * 「跳过」分支),但 engrams 突触计数列残留历史全零(无回填路径时代写入
+   * 的错误)→ 启动时 else 分支的 recomputeSynapseCounts 必须修复它。
+   * 真实库踩中:表 234 行一致,计数列 100/100 全零,若只在 rebuildSynapseTable
+   * 内重算,该错误在表一致的库上永远残留。
+   */
+  it("表一致但计数列历史全零 → 启动对账 else 分支重算修复", () => {
+    const first = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const a = first.repository.createEngram({
+      title: "印迹 A",
+      content: "内容 A",
+      kind: "observation",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    const b = first.repository.createEngram({
+      title: "印迹 B",
+      content: "内容 B",
+      kind: "pattern",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    first.repository.createSynapse({
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      createdBy: "杨洋 10192021",
+    });
+    first.indexDb?.close();
+
+    // 第二次 bootstrap:rebuild 分支回填,计数正确
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const second = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    // 模拟历史错误:手工把计数列清零(等效于旧版本写入的全零状态)
+    second.indexDb!.exec(
+      `UPDATE engrams SET outgoing_synapse_count = 0, incoming_synapse_count = 0`,
+    );
+    second.indexDb?.close();
+
+    // 第三次 bootstrap:synapses 表与磁盘一致 → else 分支必须重算计数列
+    const third = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const q = (id: string) =>
+      third
+        .indexDb!.prepare(
+          `SELECT outgoing_synapse_count AS o, incoming_synapse_count AS i
+           FROM engrams WHERE id = ?`,
+        )
+        .get(id) as { o: number; i: number };
+    expect(q(a.id)).toEqual({ o: 1, i: 1 }); // similar_to 对称:两端出+入各 1
+    expect(q(b.id)).toEqual({ o: 1, i: 1 });
+    third.indexDb?.close();
+  });
 });

@@ -174,6 +174,12 @@ export function bootstrapRepositoryAndSearch(
             dbDir,
           ).rebuildSynapseTableFromDisk();
           synapseSync = `rebuilt ${r.inserted} rows (${r.skippedDangling} dangling skipped)`;
+        } else {
+          // 行数一致也重算 engrams 突触计数列(毫秒级幂等):该列的历史错误
+          // (无回填路径时代写入的全零)只在 rebuildSynapseTable 内被顺带修复,
+          // 表一致的对账跳过分支若不补,存量库计数列会永远残留 —— 2026-08-19
+          // 真实库实测踩中(表 234 行一致,计数列 100/100 全零)。
+          indexDb.recomputeSynapseCounts();
         }
       } catch {
         // 对账 / 回填失败不阻塞启动;doctor 与 .yaml watcher 仍是修复路径
