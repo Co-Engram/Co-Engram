@@ -101,6 +101,64 @@ describe("bootstrap synapse 表启动对账(2026-08 首页突触 0 修复)", () 
   });
 
   /**
+   * 场景 5(2026-08 审计追加):对账回填同步重算 engrams 突触计数列。
+   * 该列此前无任何回填路径(write-through 与 cold-start 都写 0,注释宣称的
+   * 「maintenance 增量 UPDATE」不存在),engram_list 的 MCP 输出
+   * (readDigestBatch)读到恒 0。对称 kind(similar_to)两端都计入出+入,
+   * 与 repository.readSynapses 的实时权威口径一致。
+   */
+  it("对账回填后 outgoing/incoming_synapse_count 与 readSynapses 口径一致", () => {
+    const first = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const a = first.repository.createEngram({
+      title: "印迹 A",
+      content: "内容 A",
+      kind: "observation",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    const b = first.repository.createEngram({
+      title: "印迹 B",
+      content: "内容 B",
+      kind: "pattern",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    // similar_to(对称)+ derives_from(有向 a→b)
+    first.repository.createSynapse({
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      createdBy: "杨洋 10192021",
+    });
+    first.repository.createSynapse({
+      from: a.id,
+      to: b.id,
+      kind: "derives_from",
+      createdBy: "杨洋 10192021",
+    });
+    first.indexDb?.close();
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const second = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const q = (id: string) =>
+      second
+        .indexDb!.prepare(
+          `SELECT outgoing_synapse_count AS o, incoming_synapse_count AS i
+         FROM engrams WHERE id = ?`,
+        )
+        .get(id) as { o: number; i: number };
+    // a:similar_to(对称,出+入)+ derives_from(a 为源,计出)
+    expect(q(a.id)).toEqual({ o: 2, i: 1 });
+    // b:similar_to(对称,出+入)+ derives_from(b 为靶,计入)
+    expect(q(b.id)).toEqual({ o: 1, i: 2 });
+    // 与 readSynapses 实时口径一致(权威对照)
+    const liveA = second.repository.readSynapses(a.id);
+    expect(liveA.outgoing.length).toBe(q(a.id).o);
+    expect(liveA.incoming.length).toBe(q(a.id).i);
+    second.indexDb?.close();
+  });
+
+  /**
    * 场景 2:已一致的库再次启动 → 对账跳过(无重建日志),零写放大。
    */
   it("表已一致 → 不触发回填(无 synapse table sync 日志)", () => {

@@ -245,7 +245,8 @@ export function bootstrapRepositoryAndSearch(
  * 等派生数据)。SQLite index.db 不存 synapse 字段,所以投影等价。
  *
  * v4:synapse counts(outgoing/incoming/activeContradiction)在 cold-start
- * 时为 0;maintenance 周期性 UPDATE 全表回填。这样 cold-start 路径不需要
+ * 时为 0;由 rebuildSynapseTable 末尾的 recomputeSynapseCounts 重算覆盖
+ * (bootstrap 启动对账 / .yaml watcher / doctor 全路径)。cold-start 本身不
  * 扫 synapses/ 目录(N+1 痛点),保留"冷启动 10s 完成"的体验。
  */
 function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {

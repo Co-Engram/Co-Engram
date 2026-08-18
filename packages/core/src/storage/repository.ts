@@ -419,9 +419,11 @@ export class EngramRepository {
       createdBy: frontmatter.createdBy ?? "",
       // v4 schema 投影:覆盖 DigestLine / readDigestBatch 需要的所有字段,
       // 让 engram_list / collectNeighborDigests / findCandidatesSync 等
-      // 高频路径完全脱离 readEngram。synapse counts(out/in/contradiction)
-      // frontmatter 不持有,这里写 0,由 maintenance / synapse-create 路径
-      // 增量 UPDATE 回填(schema 已为此预留 idx_engrams_verification 等索引)。
+      // 高频路径完全脱离 readEngram。synapse counts(out/in)frontmatter 不
+      // 持有,这里写 0;真实计数由 rebuildSynapseTable 末尾的
+      // recomputeSynapseCounts 从 synapses 表重算(bootstrap 启动对账 /
+      // .yaml watcher / doctor 路径覆盖)。active_contradiction_count 依赖
+      // resolutionState(synapses 表无此列),不在该重算范围。
       kinds: frontmatter.kinds ?? [frontmatter.kind],
       contextTags: frontmatter.contextTags ?? frontmatter.tags ?? [],
       freshness,

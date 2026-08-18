@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed(2026-08-19 统计口径审计:engram_list 突触计数列恒 0)
+
+- **`engrams.outgoing/incoming_synapse_count` 无回填路径(engram_list MCP 输出恒 0)**:两处写入路径(write-through `syncEngramToIndex` 与 cold-start `engramFileToIndexEntry`)都把计数写 0,注释宣称的「maintenance / synapse-create 增量 UPDATE 回填」全项目不存在——`engram_list` 经 `readDigestBatch`(`queryEngramsForMcpList`)读 SQLite 列,LLM 看到的每条记忆突触数恒 0,对记忆连接度判断被误导(实测 100/100 行全零)。修复:`rebuildSynapseTable` 末尾同事务执行 `recomputeSynapseCounts`(对称 kind 两端计入出+入,与 `readSynapses` 实时口径一致;走 idx_synapses_from/to 索引毫秒级),bootstrap 启动对账 / .yaml watcher / doctor 全路径自动覆盖;更正两处失实注释。`active_contradiction_count` 依赖 resolutionState(synapses 表无此列)不在重算范围,注释已注明。测试:bootstrap-synapse-sync.test.ts 场景 5(计数列 vs `readSynapses` 口径对照)。
+
 ### Fixed(2026-08-19 首页记忆突触 0:synapses 表启动对账 + 贡献者口径统一)
 
 - **viewer 首页「记忆突触」恒 0(存量库)**:`/api/stats` 的 totalSynapses/bySynapseKind 读取口径切到 SQLite synapses 表后,存量库的 synapses 表无任何启动填充路径——bootstrap cold-start 只灌 engrams 表,全量重建仅挂 doctor 与 dangling 清理,.yaml watcher 只在宿主进程内生效——Co-Claw 常驻 viewer 读到恒空表,首页突触 0 且 bySynapseKind 全空;同页「贡献者」突触合计仍读 graph.json 旧缓存(实测 231 vs 224 同页分裂,graph 重建只挂 viewer 写路由,MCP `synapse_create` 不触发)。修复:①`bootstrapRepositoryAndSearch` 启动对账:synapses 表行数与磁盘 `synapses/` yaml 文件数不等则从磁盘全量回填(置于 engram cold-start 之后,避开 `DELETE FROM engrams` 的 CASCADE 清空;三宿主共用装配层一次覆盖;SCHEMA_VERSION 升级 DROP 全表后同样自动恢复);②synapses 表新增 `created_by` 列(schema 7→8,DROP 重建自动迁移),topContributors 突触作者聚合从 graph.json 缓存切本表实时 `GROUP BY`,同页两口径恒一致。对账成本:一致时一次 O(1) `count` + `readdir`;不一致才付全量回填(~50ms/1000 synapse)。新增 `bootstrap-synapse-sync.test.ts` 4 用例(存量库回填 / 一致跳过 / schema v7 升级恢复 / dangling 幂等)。

@@ -1085,8 +1085,43 @@ export class IndexDb {
         this.upsertSynapse(s);
         inserted++;
       }
+      // 同步重算 engrams 表的突触计数列(2026-08 审计修复):该列此前无任何
+      // 回填路径 —— syncEngramToIndex / engramFileToIndexEntry 都写 0,注释
+      // 宣称的「maintenance / synapse-create 增量 UPDATE」并不存在,queryEngrams-
+      // ForMcpList(engram_list MCP 输出)经 readDigestBatch 读到恒 0。挂在
+      // rebuildSynapseTable 末尾让 bootstrap 对账 / watcher / doctor 全路径覆盖。
+      this.recomputeSynapseCountsUnsafe();
     });
     return { inserted, skippedDangling };
+  }
+
+  /**
+   * 从 synapses 表重算 engrams.outgoing/incoming_synapse_count(对称 kind 语义,
+   * 与 repository.readSynapses 口径一致:similar_to / contradicts 两端都计入出+入)。
+   *
+   * active_contradiction_count 不在此回填 —— 该列语义依赖 resolutionState
+   * (仅未终态的 contradicts 计入),synapses 表无此列,无法从表派生。
+   *
+   * 走 idx_synapses_from / idx_synapses_to 索引,毫秒级;幂等。
+   */
+  recomputeSynapseCounts(): void {
+    this.transaction(() => this.recomputeSynapseCountsUnsafe());
+  }
+
+  private recomputeSynapseCountsUnsafe(): void {
+    this.exec(`
+      UPDATE engrams SET
+        outgoing_synapse_count = (
+          SELECT count(*) FROM synapses s
+          WHERE s.from_id = engrams.id
+             OR (s.kind IN ('similar_to','contradicts') AND s.to_id = engrams.id)
+        ),
+        incoming_synapse_count = (
+          SELECT count(*) FROM synapses s
+          WHERE s.to_id = engrams.id
+             OR (s.kind IN ('similar_to','contradicts') AND s.from_id = engrams.id)
+        )
+    `);
   }
 
   /**
