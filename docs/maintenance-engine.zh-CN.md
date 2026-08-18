@@ -113,6 +113,14 @@ flowchart TB
 
 **提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断、PDCA 状态)/ run_fail / delete / gap_check`。
 
+### 角度防复读、主张对手抽取与接力权转移(Phase3,2026-08-18)
+
+Phase3 收掉最后三块「同源判断」:
+
+- **P6 角度防复读**:计划终态化加两道机械保证 —— engrams 探测词任意两词字符 2-gram Jaccard ≥ 0.7 判同角度复读(第二词替换为关键词切片变体;中文无词分隔故用字符级度量);计划必含外部型(web/mcp 至少一项),LLM 计划缺失时机械补 web 项。答案相邻复读:与上一 run 最终答案 Jaccard ≥ 0.65 → timeline 标记 `answerRepeat`(标记 + 审计,不阻塞 ——「上轮结论仍成立」是正当场景,v7 要求检查而非禁止)。
+- **P7 主张对手抽取**:L2 提交答案时,独立 critic 对答案做对抗式主张审计(`extractClaims`:逐条判 `evidenced` = 答案明示有记忆/日志/探测/检索支撑 / `downgraded` = 无支撑断言、推测、待验证);**降级占比 > 30% → 本 run 洞察提案全部固化隔离**(「答案弱支撑」,同 degraded 隔离待遇但不改 run 终态 —— 资源闭合与答案支撑是两个维度)。fail-open:LLM 不可用即跳过(timeline 记 `claimsSkipped`,无 llmClient 部署的洞察产出不受罚)。主张清单与占比落 timeline,viewer 报告「主张抽取」折叠区展示。
+- **P8 接力权转移**:degraded 终束时 critic 生成**下轮验证任务**(`generateNextTasks`:2-5 条,基于未闭合缺口与本轮部分答案;机械保证至少一条外部资源型 —— LLM 任务全无外部型时引擎兜底追加);LLM 失败退化为缺口原文转写(Phase2 的机械 carryOver 行为)。acquireThinking 转存 `nextTasks ?? unclosedGaps` → 新计划按外部型分流消费(含外部关键词的任务进 web 计划项,否则 engrams 项)—— 下轮任务不再由「懒人自己布置」。
+
 ### 计划先行与探测引擎生成(Phase2,2026-08-18)
 
 Phase1 的「清单自报」折中在 Phase2 收口 —— **清单生成权转移**:`ponder_run` 启动时(buildTask)由引擎生成**思考计划**(需求拓扑)并落盘(`run.plan`),执行者不再自拟清单:

@@ -348,9 +348,12 @@ describe("跨轮接力(P4 延伸:上轮未闭合缺口进新计划)", () => {
     });
     expect(incubator.acquireThinking(e.id, "rethink")).toBe(true);
     const task2 = await incubator.buildTask(e.id);
-    const carried = task2.plan!.items.find((i) => i.description === engramsItem.description);
+    // Phase3 P8:接力输入优先用 nextTasks(critic 生成;mock 未覆盖 HANDOFF
+    // prompt → generateNextTasks 退化 fallback「验证未闭合需求:<原描述>」)
+    const carried = task2.plan!.items.find(
+      (i) => i.carryOver && i.description.includes(engramsItem.description),
+    );
     expect(carried).toBeDefined();
-    expect(carried!.carryOver).toBe(true);
     expect(carried!.necessity).toBe("logic-needed");
   });
 });

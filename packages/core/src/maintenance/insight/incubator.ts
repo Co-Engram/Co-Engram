@@ -61,6 +61,7 @@ import {
   isSeedOnlySources,
 } from "./gap-check.js";
 import { generateThinkPlan, templatePlan } from "./plan.js";
+import { extractClaims, generateNextTasks } from "./claims.js";
 import type { ToolCallEvent } from "../../signals/types.js";
 import type { PonderGap, PonderPlan, PonderRunState } from "./types.js";
 
@@ -78,6 +79,11 @@ export interface IncubationDegraded {
   readonly reason: "repair-budget-exhausted" | "gap-budget-exhausted" | "ttl-expired" | "aborted";
   /** 未闭合缺口描述(审批面置顶展示) */
   readonly unclosedGaps: readonly string[];
+  /**
+   * P8 接力权转移:critic 生成的下轮验证任务(至少一条外部资源型,机械
+   * 保证);LLM 失败时缺省 → 转存退化用 unclosedGaps 机械描述。
+   */
+  readonly nextTasks?: readonly string[];
 }
 
 /** 深思时间线单次记录(同一时间线,内部 round 序号供提案实体 id;UI 按时间戳呈现) */
@@ -123,7 +129,18 @@ export interface IncubationTimelineEvent {
     readonly narrowed?: readonly string[];
     /** Phase2:P1 自动豁免(探测皆空的计划项) */
     readonly exempted?: readonly string[];
+    /** Phase3 P6:答案与上一 run 最终答案高度重复(标记,不阻塞) */
+    readonly answerRepeat?: boolean;
+    /** Phase3 P7:主张抽取被跳过(无 llmClient / L2 未交 answer) */
+    readonly claimsSkipped?: boolean;
+    /** Phase3 P7:降级主张占比(0-1);> 0.3 时本 run 提案隔离 */
+    readonly answerDowngradeRatio?: number;
   };
+  /** Phase3 P7:对手抽取的主张清单(critic 从执行者 answer 抽取;上限截断) */
+  readonly answerClaims?: ReadonlyArray<{
+    readonly claim: string;
+    readonly status: "evidenced" | "downgraded";
+  }>;
 }
 
 export interface IncubationEntry {
@@ -530,7 +547,9 @@ export class Incubator {
     const target = entries.find((e) => e.id === id);
     if (!target) throw new Error(`incubation ${id} not found`);
     if (target.status !== "queued" && target.status !== "done") return false;
-    const carryOver = [...(target.degraded?.unclosedGaps ?? [])];
+    const carryOver = [
+      ...(target.degraded?.nextTasks ?? target.degraded?.unclosedGaps ?? []),
+    ];
     const updated: IncubationEntry = {
       ...target,
       status: "thinking",
@@ -847,6 +866,27 @@ export class Incubator {
     // verifying 入口但 timeline 未写成 → 仍是主报告,rounds 递增)
     const isMainReport = runState.reports === 0;
     const nextRound = isMainReport ? entry.rounds + 1 : entry.rounds;
+
+    // ---- Phase3 P6:答案相邻复读检测(与上一 run 最终答案比;标记+审计,
+    //      不阻塞 ——「上轮结论仍成立」是正当场景,v7 要求检查而非禁止) ----
+    const cutoffRound = isMainReport ? nextRound : entry.rounds;
+    const prevRunAnswer = [...entry.timeline]
+      .filter((t) => t.round < cutoffRound && typeof t.answer === "string")
+      .reverse()
+      .find((t) => typeof t.answer === "string")?.answer;
+    const answerRepeat =
+      !!input.report.answer?.trim() &&
+      !!prevRunAnswer &&
+      contentJaccard(input.report.answer, prevRunAnswer) >= INSIGHT_LIMITS.dreamJaccard;
+
+    // ---- Phase3 P7:主张对手抽取(独立 critic 从执行者 answer 抽取;
+    //      fail-open —— 质量信号而非形式闸,LLM 不可用即跳过) ----
+    const claimsResult =
+      level === "L2" && evidenceAvailable && this.deps.llmClient && input.report.answer?.trim()
+        ? await extractClaims(this.deps.llmClient, input.report.answer)
+        : undefined;
+    const claimsWeak = !!claimsResult?.weak;
+
     let events: readonly ToolCallEvent[] = [];
     if (evidenceAvailable) {
       // flush 把 sink 缓冲(≤5s/50条)落盘,snapshot 读取不消费 drain 队列。
@@ -904,13 +944,33 @@ export class Incubator {
         reason: gapBudgetExhausted ? "gap-budget-exhausted" : "repair-budget-exhausted",
         unclosedGaps: openGapDescs,
       };
+      // Phase3 P8:接力权转移 —— critic 生成下轮验证任务(含至少一条外部
+      // 资源型,机械保证);LLM 失败退化用缺口原文(generateNextTasks 内兜底)
+      if (this.deps.llmClient) {
+        const tasks = await generateNextTasks(this.deps.llmClient, {
+          question: entry.question,
+          unclosedGaps: openGapDescs,
+          answer: input.report.answer ?? "",
+        });
+        if (tasks.length) degradedFinal = { ...degradedFinal, nextTasks: tasks };
+      }
     }
-    // run 未闭合期间提案带隔离标;终态落定时翻转(见本函数尾)
+    // run 未闭合期间提案带隔离标;终态落定时翻转(见本函数尾)。
+    // Phase3 P7:终束但答案弱支撑(降级主张占比 > 30%)→ 提案固化隔离
+    // (不改 run 终态 —— 资源闭合与答案支撑是两个维度)
+    const claimsWeakNote = claimsResult
+      ? [
+          `答案弱支撑:降级主张占比 ${(claimsResult.downgradeRatio * 100).toFixed(0)}%(阈值 30%),` +
+            `洞察提案隔离待人工复核`,
+        ]
+      : [];
     const proposalDegraded = degradedFinal
       ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
       : !finalize
         ? { provisional: true, unclosedGaps: openGapDescs }
-        : undefined;
+        : claimsWeak
+          ? { provisional: false, unclosedGaps: claimsWeakNote }
+          : undefined;
 
     // ---- 循环检测:与过往每次洞察摘要逐一对比(整体 blob 会被稀释,
     //      逐条对比才能稳定命中),Jaccard ≥ dreamJaccard → 该条作废 ----
@@ -1074,7 +1134,12 @@ export class Incubator {
             : {}),
           ...(applied.narrowed.length ? { narrowed: applied.narrowed.slice(0, 10) } : {}),
           ...(applied.exempted.length ? { exempted: applied.exempted.slice(0, 10) } : {}),
+          ...(answerRepeat ? { answerRepeat: true } : {}),
+          ...(claimsResult
+            ? { answerDowngradeRatio: Number(claimsResult.downgradeRatio.toFixed(2)) }
+            : { claimsSkipped: true }),
         },
+        ...(claimsResult?.claims.length ? { answerClaims: claimsResult.claims } : {}),
       },
     ];
     const nextRunState: PonderRunState | undefined = finalize
@@ -1138,7 +1203,9 @@ export class Incubator {
           runEntityIds,
           degradedFinal
             ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
-            : undefined,
+            : claimsWeak
+              ? { provisional: false, unclosedGaps: claimsWeakNote }
+              : undefined,
         );
       }
     }
@@ -1173,6 +1240,15 @@ export class Incubator {
                 planExempted: applied.exempted.length,
               }
             : {}),
+          ...(answerRepeat ? { answerRepeat: true } : {}),
+          ...(claimsResult
+            ? {
+                claims: claimsResult.claims.length,
+                claimsDowngraded: claimsResult.claims.filter((c) => c.status === "downgraded").length,
+                claimsWeak,
+              }
+            : { claimsSkipped: true }),
+          ...(degradedFinal?.nextTasks?.length ? { nextTasks: degradedFinal.nextTasks.length } : {}),
         },
       },
     });

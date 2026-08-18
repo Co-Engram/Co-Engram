@@ -5029,12 +5029,16 @@ window.CO_ENGRAM_CONTEMPLATION = {
       + (e.lastRunAt ? '<span class="inc-hatched" title="' + CO_ENGRAM.escapeHtml(e.lastRunAt) + '">' + CO_ENGRAM.relativeTime(e.lastRunAt) + '</span>' : '<span class="inc-hatched">' + CO_ENGRAM.relativeTime(e.createdAt || '') + '</span>')
       + (e.rounds > 1 ? '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.historySummary', { n: e.rounds - 1 })) + '</span>' : '')
       + '</div>'
-      // degraded 终束警示:触顶收束 + 未闭合清单(P4:勤奋与懒散必须验收差分)
+      // degraded 终束警示:触顶收束 + 未闭合清单 + 下轮验证任务(P4/P8)
       + (e.degraded
         ? '<div class="inc-progress" style="border-color:#E0A800;background:rgba(224,168,0,.06)">'
           + '<span>⚠ ' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.degradedReason.' + (e.degraded.reason || 'repair-budget-exhausted'))) + '</span>'
           + '<div style="font-size:.8rem;margin-top:.2rem"><b>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.degradedUnclosed')) + '</b>'
           + (e.degraded.unclosedGaps || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('')
+          + ((e.degraded.nextTasks || []).length
+              ? '<div style="margin-top:.3rem"><b>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.nextTasks')) + '</b>'
+                + (e.degraded.nextTasks || []).map(g => '<div style="margin-left:1rem">→ ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('')
+                + '</div>' : '')
           + '</div></div>'
         : '')
       // thinking 过程信息(消除信息焦虑):开始时间 + 阶段说明
@@ -5164,8 +5168,22 @@ window.CO_ENGRAM_CONTEMPLATION = {
         + ((last.pdca.openGaps || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.openGaps')) + (last.pdca.openGaps || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
         + ((last.pdca.exempted || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.exempted')) + (last.pdca.exempted || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
         + ((last.pdca.narrowed || []).length ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.narrowed')) + (last.pdca.narrowed || []).map(g => '<div style="margin-left:1rem">· ' + CO_ENGRAM.escapeHtml(g) + '</div>').join('') + '</li>' : '')
+        + (last.pdca.answerRepeat ? '<li style="color:#B45309">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.answerRepeat')) + '</li>' : '')
+        + (typeof last.pdca.answerDowngradeRatio === 'number'
+            ? '<li>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.claimsRatio', { pct: Math.round(last.pdca.answerDowngradeRatio * 100) })) + (last.pdca.answerDowngradeRatio > 0.3 ? ' <span style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.claimsWeak')) + '</span>' : '') + '</li>' : '')
+        + (last.pdca.claimsSkipped ? '<li style="color:var(--fg-muted)">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.claimsSkipped')) + '</li>' : '')
         + (last.pdca.degraded ? '<li style="color:#E02424">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.pdca.degradedFinal')) + '</li>' : '')
         + '</ul>';
+    }
+    // ④c 主张抽取(P7:对手抽取的主张清单;折叠)
+    if (last && (last.answerClaims || []).length) {
+      h += '<div class="inc-sec-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.section.claims')) + '</div>'
+        + '<details class="inc-fold-sm"><summary>' + CO_ENGRAM.escapeHtml(T.t('viewer.contemplation.claimsSummary', {
+            n: last.answerClaims.length,
+            d: last.answerClaims.filter(c => c.status === 'downgraded').length,
+          })) + '</summary><ul class="inc-trace-list">'
+        + last.answerClaims.map(c => '<li>' + (c.status === 'downgraded' ? '⚠ ' : '✓ ') + CO_ENGRAM.escapeHtml(c.claim) + '</li>').join('')
+        + '</ul></details>';
     }
     // ⑤ 历史深思(此前各次,时间戳标识;无「第几夜」概念)
     const hist = tl.slice(0, -1);

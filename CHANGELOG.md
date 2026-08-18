@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added(2026-08-18 沉思 PDCA Phase3:角度防复读 + 主张对手抽取 + 接力权转移)
+
+- **同源判断的最后三块生成权转移**:①P6 角度防复读 —— 计划终态化机械保证探测词角度多样性(任意两词字符 2-gram Jaccard ≥ 0.7 判同角度复读,替换为关键词变体;中文无词分隔故用字符级度量)与计划必含外部型(web/mcp,LLM 缺则机械补);答案与上一 run 最终答案 Jaccard ≥ 0.65 → timeline 标记 answerRepeat(标记不阻塞);②P7 主张对手抽取 —— 新模块 claims.ts:独立 critic 对 L2 答案做对抗式主张审计(逐条判 evidenced/downgraded),降级占比 > 30% → 本 run 洞察提案全部固化隔离(「答案弱支撑」,不改 run 终态);fail-open(LLM 不可用即跳过,记 claimsSkipped);主张清单与占比落 timeline,viewer 报告新增「主张抽取」折叠区;③P8 接力权转移 —— degraded 终束时 critic 生成下轮验证任务(2-5 条,机械保证至少一条外部资源型,LLM 遗漏时引擎兜底追加),acquireThinking 转存 nextTasks 并按外部型分流进新计划(web 项/engrams 项)—— 下轮议程不再由执行者自设。viewer degraded 警示区新增「下轮验证任务」展示;审计 run_done 的 pdca 扩展 claims/nextTasks 计数。测试:新增 incubation-phase3.test.ts 7 用例;真实场景验证 8/8(探测词同质替换/外部型保证/答案复读标记/健康与弱支撑答案/降档 nextTasks/外部型兜底/接力进计划)。全 workspace 回归:core 2924 / viewer 439 / claude-code-mcp 332 / openclaw 122 / dsh 19 / e2e 35 / contracts 18。
+
 ### Added(2026-08-18 沉思 PDCA Phase2:计划先行 + 探测引擎生成 + 细化防收窄)
 
 - **思考计划引擎生成(清单生成权转移)**:Phase1 的「清单自报」折中收口 —— `ponder_run` 启动时(buildTask)引擎生成需求拓扑并落盘 `run.plan`(LLM critic 式单次调用从问题结构生成 3-6 项:资源类型/描述/必要性/探测词;无 llmClient 或解析失败走机械模板,五类型全覆盖;上轮 degraded 未闭合缺口机械追加进新计划,跨轮接力)。任务包携带计划,协议改为「执行附带计划」。**P5 细化防收窄**:report 需求经 `planItemId` 链接计划项,删除的计划项由引擎合成 open 缺口、必要性降级被覆写回,执行者只能追加(计划项不占执行者缺口预算)。**P1 探测引擎生成**:engrams 计划项携带 ≥2 个引擎探测词,执行者逐字执行不得改写(闭合核验精确匹配,「表演式探测」凑数通道关闭);全部探测变体执行且皆空(引擎从调用流水 `{hits:0}` 亲证)→ 自动豁免闭合,豁免权完全引擎侧。headless 路径 prompt 渲染计划清单。viewer 报告「闭合校验」段新增探测豁免/收窄拦截展示(i18n 中英)。附带两项实施中实证修复:不可观测类型(web/logs/mcp)缺口在修复轮的闭合死锁(closed 声明不落记录 → 永远 open);证据时间窗移除 5s 回溯容差(上一 run 的空探测会污染本 run 的豁免判定 —— 跨 run 证据污染)。

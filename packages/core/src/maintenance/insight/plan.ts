@@ -20,6 +20,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
+import { EXTERNAL_TASK_PATTERN } from "./claims.js";
 import type { PonderPlan, PonderPlanItem, PonderProbe } from "./types.js";
 
 /** 计划生成输入(buildTask 组装;全部脱敏级内容) */
@@ -201,7 +202,10 @@ export function templatePlan(input: PlanGenerationInput, now: () => string): Pon
  * 计划终态化(双源共用):
  * - 跨轮接力缺口机械追加为 logic-needed engrams 项(描述即缺口原文,
  *   不经 LLM 改写 —— 接力权在引擎);
- * - engrams 项探测变体 <2 时补足(模板第二变体 = 关键词切片)。
+ * - engrams 项探测变体 <2 时补足(模板第二变体 = 关键词切片);
+ * - P6 角度防复读:探测词同质检查(任意两词 token Jaccard ≥ 0.7 = 同一
+ *   角度复读)→ 替换为关键词切片变体;计划必含外部型(web|mcp),
+ *   LLM 计划缺失时机械补 web 项 —— 「全资源盘点」不允许只看记忆图谱。
  */
 function finalizePlan(
   source: "llm" | "template",
@@ -209,37 +213,76 @@ function finalizePlan(
   input: PlanGenerationInput,
   now: () => string,
 ): PonderPlan {
-  const out = items.map((it) =>
-    it.resourceType === "engrams" && it.probes.length < 2
-      ? {
-          ...it,
-          probes: [
-            ...it.probes,
-            { query: keywordsOf(`${it.description} ${input.question}`) },
-          ],
-        }
-      : it,
-  );
+  const out = items.map((it) => {
+    if (it.resourceType !== "engrams") return it;
+    const probes = [...it.probes];
+    if (probes.length < 2) {
+      probes.push({ query: keywordsOf(`${it.description} ${input.question}`) });
+    }
+    // P6:探测词角度多样性 —— 首词与其余词逐对检查,同质即换关键词变体
+    for (let i = 1; i < probes.length; i += 1) {
+      if (tokenJaccard(probes[0]!.query, probes[i]!.query) >= 0.7) {
+        probes[i] = { query: keywordsOf(`${probes[i]!.query} ${input.question}`) };
+      }
+    }
+    return { ...it, probes };
+  });
+  // P6:外部型保证(web|mcp 至少一项)
+  if (!out.some((it) => it.resourceType === "web" || it.resourceType === "mcp")) {
+    out.push({
+      id: newPlanId(),
+      resourceType: "web",
+      description: "外部检索验证(计划机械补:全资源盘点不允许只看记忆图谱)",
+      necessity: "helpful",
+      probes: [{ query: input.question.trim().slice(0, 200) }],
+    });
+  }
   const existing = new Set(out.map((it) => `${it.resourceType}::${it.description.toLowerCase()}`));
   for (const gap of input.carryOverGaps) {
     const description = gap.trim().slice(0, 500);
     if (!description) continue;
-    const key = `engrams::${description.toLowerCase()}`;
+    // P8 外部型分流:接力任务含外部证据源关键词 → web 计划项(payload
+    // 受控,执行不可观测);否则 engrams 项(可观测,双探测变体)
+    const external = EXTERNAL_TASK_PATTERN.test(description);
+    const resourceType = external ? "web" : "engrams";
+    const key = `${resourceType}::${description.toLowerCase()}`;
     if (existing.has(key)) continue;
     existing.add(key);
     out.push({
       id: newPlanId(),
-      resourceType: "engrams",
+      resourceType,
       description,
       necessity: "logic-needed",
-      probes: [
-        { query: description.slice(0, 200) },
-        { query: keywordsOf(description) },
-      ],
+      probes: external
+        ? [{ query: description.slice(0, 200) }]
+        : [
+            { query: description.slice(0, 200) },
+            { query: keywordsOf(description) },
+          ],
       carryOver: true,
     });
   }
   return { source, generatedAt: now(), items: out };
+}
+
+/**
+ * 两查询词的字符 2-gram 集 Jaccard(P6 同质判定)。用字符级而非词级:
+ * 中文探测词无词分隔,词级切分会把整句当一个 token(永不同质)——
+ * 2-gram 对中英统一有效。
+ */
+function tokenJaccard(a: string, b: string): number {
+  const grams = (s: string): ReadonlySet<string> => {
+    const t = s.toLowerCase().replace(/\s+/g, "");
+    const out = new Set<string>();
+    for (let i = 0; i < t.length - 1; i += 1) out.add(t.slice(i, i + 2));
+    return out;
+  };
+  const ta = grams(a);
+  const tb = grams(b);
+  if (ta.size === 0 || tb.size === 0) return 0;
+  let inter = 0;
+  for (const g of ta) if (tb.has(g)) inter += 1;
+  return inter / (ta.size + tb.size - inter);
 }
 
 /** 问题关键词切片(模板第二探测变体;无停用词表的长词优先) */
