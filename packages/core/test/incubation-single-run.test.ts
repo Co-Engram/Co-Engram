@@ -3,7 +3,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Incubator } from "../src/maintenance/insight/incubator.js";
 import type { IncubatorDeps } from "../src/maintenance/insight/incubator.js";
@@ -363,5 +363,29 @@ describe("收束的提案隔离分流", () => {
       provisional: false,
       unclosedGaps: ["缺口A"],
     });
+  });
+});
+
+// report 总超时兜底(2026-08-19 E2E 实测):executor 有 20min 超时,但
+// report() 内部的 LLM await 无超时 —— headless 死亡/LLM 挂起时链条悬挂,
+// 条目挂 thinking 到 30min TTL,用户全程无反馈。外层 25min 总超时按
+// aborted 收束(thinking 无报告 → 回退 queued 可重跑)。
+describe("report 总超时兜底", () => {
+  it("report 悬挂 → 25min 超时 reject + 条目回退 queued", async () => {
+    vi.useFakeTimers();
+    try {
+      const incubator = makeIncubator();
+      vi.spyOn(incubator, "report" as never).mockReturnValue(
+        new Promise(() => {}) as never,
+      );
+      const e = incubator.create({ question: "悬挂问题?" });
+      const pending = incubator.incubateOnce(e.id, "manual");
+      const expectation = expect(pending).rejects.toThrow(/report timeout/);
+      await vi.advanceTimersByTimeAsync(25 * 60_000 + 100);
+      await expectation;
+      expect(incubator.get(e.id)?.status).toBe("queued");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

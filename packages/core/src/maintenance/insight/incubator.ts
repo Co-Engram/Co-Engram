@@ -317,6 +317,9 @@ function parseAt(iso: string): number {
 /**
  * 夜思孵化器。读时始终从磁盘读(跨进程可见),写时仅 holder 落盘。
  */
+/** report() 链的总超时:> executor 20min(DEFAULT_TIMEOUT_MS)+ report 的 LLM 余量 */
+const REPORT_TIMEOUT_MS = 25 * 60_000;
+
 export class Incubator {
   private readonly deps: IncubatorDeps;
   private readonly now: () => string;
@@ -971,13 +974,35 @@ export class Incubator {
         report = await this.runL1(task);
         level = "L1";
       }
-      const result = await this.report({
-        incubationId: id,
-        report,
-        trigger,
-        actor: `contemplation-${level}`,
-        level,
-        durationMs: Date.now() - startedAt,
+      // report 总超时(2026-08-19 E2E 实测缺陷):executor 有 20min 超时,但
+      // report() 内部存在无超时的 LLM await(critic / 综合 / 主张抽取)——
+      // headless 进程死亡或 LLM 挂起时链条悬挂,条目挂 thinking 直到 30min
+      // TTL,用户全程无反馈。外层总超时兜底(25min > executor 20min + report
+      // 余量);超时按 aborted 收束,迟到的 report 写回由「写前重读拦截」
+      //(commit 的 cancelled 分支:状态非 in-flight 即放弃)自然丢弃。
+      let reportTimer: ReturnType<typeof setTimeout> | undefined;
+      const result = await Promise.race([
+        this.report({
+          incubationId: id,
+          report,
+          trigger,
+          actor: `contemplation-${level}`,
+          level,
+          durationMs: Date.now() - startedAt,
+        }),
+        new Promise<never>((_, reject) => {
+          reportTimer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `contemplation report timeout (${REPORT_TIMEOUT_MS}ms) — report 链存在无超时 await`,
+                ),
+              ),
+            REPORT_TIMEOUT_MS,
+          );
+        }),
+      ]).finally(() => {
+        if (reportTimer) clearTimeout(reportTimer);
       });
       // 单跑收尾(2026-08-19):report 带 openGaps 时条目停在 repairing 等
       // 修复轮 —— 修复轮只存在于 MCP 现场会话(执行者可再调 ponder_report);
