@@ -83,7 +83,10 @@ export function wrapAllToolsWithSignalSink<I, O>(
  *
  * 不同工具的输出结构不同：
  *   - engram_get / engram_create：直接返回 EngramView / { id }
- *   - engram_search / engram_list：返回 { hits: [{ id }] } 或 [{ id }]
+ *   - engram_search：返回 { results: [{ id }] }(2026-08-19 补 —— 此前只认
+ *     hits/裸数组形状,search 命中的 id 从未进过 retrievedEngramIds,PDCA
+ *     闭合校验对检索类证据恒不可见)
+ *   - engram_list：返回 { items: [{ id }] }
  *   - synapse_create：返回 { id }（synapse id，不是 engram id）
  *   - 其他：无
  */
@@ -106,20 +109,24 @@ function extractEngramIds<I, O>(
     return typeof id === "string" ? [id] : undefined;
   }
 
-  // engram_search / engram_list：result.hits[].id 或 result[].id
+  // engram_search / engram_list:results[] / items[] / hits[] / 裸数组四种
+  // 历史形状都认(形状取并集,提取失败宁可 undefined 也不猜)
   if (toolName === "engram_search" || toolName === "engram_list") {
     if (
       typeof result === "object" &&
       result !== null &&
       !Array.isArray(result)
     ) {
-      const hits = (result as { hits?: unknown }).hits;
-      if (Array.isArray(hits)) {
-        const ids = hits
-          .map((h) => (h as { id?: unknown })?.id)
-          .filter((id): id is string => typeof id === "string");
-        return ids.length > 0 ? ids : undefined;
+      for (const key of ["results", "items", "hits"] as const) {
+        const arr = (result as Record<string, unknown>)[key];
+        if (Array.isArray(arr)) {
+          const ids = arr
+            .map((h) => (h as { id?: unknown })?.id)
+            .filter((id): id is string => typeof id === "string");
+          if (ids.length > 0) return ids;
+        }
       }
+      return undefined;
     }
     if (Array.isArray(result)) {
       const ids = result
