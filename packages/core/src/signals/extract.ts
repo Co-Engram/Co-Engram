@@ -9,8 +9,9 @@
  *   - 可扩展：宿主可以传入自己的 rules
  *
  * 规则说明（按 weight 强弱）：
- *   强正(≥ 0.6):repeated_get / get_then_action / contradicts_deleted
- *   弱正(0.2-0.5):get_no_resimilar_search
+ *   强正(≥ 0.6):repeated_get / get_then_action / contradicts_deleted /
+ *     retrieval_hit(批次内检索命中 ≥3)
+ *   弱正(0.2-0.5):get_no_resimilar_search / retrieval_hit(命中 1-2 次)
  *   强负(≤ -0.6):get_then_immediate_search / contradicts_created
  *   弱负(-0.2 - -0.5):user_correction
  *
@@ -400,12 +401,62 @@ export const contradictsCreatedRule: SignalRule = {
   },
 };
 
+/**
+ * 规则:engram_search 检索命中(引用即反馈,2026-08-19 反馈自动化切片)
+ *
+ * 背景(实测 3081 观察窗口 0 闭环):MCP 边界下 get_then_action(+0.8)依赖
+ * 宿主侧动作事件、生产零触发;单次 get 走 get_no_further(+0.4)够不到
+ * 关窗阈值 0.6 —— 可观测正信号与阈值结构性脱节,反馈回路因此断开。
+ * 而 engram_search 是最大量的引用行为,retrievedEngramIds 命中此前零信号。
+ *
+ * 语义分层(批次内累计命中次数,去重后同 engram 取最高档):
+ *   - ≥3 次:+0.6(强正,可达关窗阈值)—— 「反复被检索」是 repeated_get
+ *     的检索版;检索命中弱于深读,门槛从 2 次提高到 3 次
+ *   - 1-2 次:+0.2(存在感,不单独关窗)—— 命中≠深读,低于 get_no_further
+ * 组合语义:search 命中(+0.2)+ 随后 get(+0.4)= 0.6 恰好关窗 ——
+ * 「检索确认 + 深读」是 MCP 边界内可观测的有效使用证据链。
+ */
+export const retrievalHitRule: SignalRule = {
+  name: "retrieval_hit",
+  weight: 0.6,
+  match(events) {
+    const counts = new Map<string, number>();
+    const queries = new Map<string, string[]>();
+    for (const e of events) {
+      if (e.toolName !== "engram_search") continue;
+      for (const id of e.retrievedEngramIds ?? []) {
+        counts.set(id, (counts.get(id) ?? 0) + 1);
+        const q = e.input?.query;
+        if (typeof q === "string" && q.trim()) {
+          const list = queries.get(id) ?? [];
+          if (list.length < 3 && !list.includes(q)) list.push(q);
+          queries.set(id, list);
+        }
+      }
+    }
+    const signals: BehavioralSignal[] = [];
+    for (const [id, count] of counts) {
+      const strong = count >= 3;
+      signals.push({
+        engramId: id,
+        weight: strong ? 0.6 : 0.2,
+        source: "retrieval_hit",
+        evidence: { count, strong, queries: queries.get(id) ?? [] },
+        sessionId: events[0]?.sessionId ?? "",
+        at: events[events.length - 1]?.at ?? 0,
+      });
+    }
+    return signals;
+  },
+};
+
 /** 默认规则集（按 weight 从强到弱排序,仅影响审计日志可读性,不影响结果） */
 export const DEFAULT_RULES: readonly SignalRule[] = [
   contradictsCreatedRule, // -0.8
   getThenImmediateSearchRule, // -0.7
   getFollowedByActionRule, // +0.8
   repeatedGetRule, // +0.6
+  retrievalHitRule, // +0.6(批次内命中 ≥3)/ +0.2(1-2 次)
   userCorrectionRule, // -0.4
   getFollowedByNoSearchRule, // +0.4
 ];
