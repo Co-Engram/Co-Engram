@@ -399,4 +399,60 @@ describe("bootstrap synapse 表启动对账(2026-08 首页突触 0 修复)", () 
     expect(q(a.id)).toEqual({ o: 1, i: 1 });
     second.indexDb?.close();
   });
+
+  /**
+   * 场景 8(2026-08-19 ghost 清理启动对账):外部 rm 删除 engram 文件(不经
+   * co-engram 删除路径)→ 下次启动 rescanDeletedEngrams 清 index entry +
+   * SQLite ghost 行 + dangling synapse yaml,synapse 对账基于干净磁盘。
+   * 修复前:scanForDeletedEngrams 只挂 watcher 链,常驻宿主无事件时
+   * totalEngrams 虚高、dangling yaml 永存。
+   */
+  it("外部 rm engram → 启动对账清 ghost 行 + dangling synapse", () => {
+    const first = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    const a = first.repository.createEngram({
+      title: "印迹 A",
+      content: "内容 A",
+      kind: "observation",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    const b = first.repository.createEngram({
+      title: "印迹 B",
+      content: "内容 B",
+      kind: "pattern",
+      domainTags: ["测试域"],
+      createdBy: "杨洋 10192021",
+    });
+    first.repository.createSynapse({
+      from: a.id,
+      to: b.id,
+      kind: "similar_to",
+      createdBy: "杨洋 10192021",
+    });
+    first.indexDb?.close();
+
+    // 外部 rm:b 的 .md 直接删(模拟 git pull 同步删除 / 误删)
+    const entryB = first.repository
+      .listEngramIndex()
+      .find((e) => e.id === b.id)!;
+    rmSync(join(tmpRoot, entryB.path));
+
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const second = bootstrapRepositoryAndSearch({ dataRoot: tmpRoot });
+    // ghost 行被清:engrams 只剩 a
+    expect(
+      (
+        second.indexDb!.prepare(`SELECT count(*) AS n FROM engrams`).get() as {
+          n: number;
+        }
+      ).n,
+    ).toBe(1);
+    // deleteEngram 全清理连 dangling synapse yaml 一起删 → synapse 对账后表空
+    expect(second.indexDb?.countSynapses()).toBe(0);
+    // index entry 也被清(listEngramIndex 不再含 b)
+    expect(second.repository.listEngramIndex().some((e) => e.id === b.id)).toBe(
+      false,
+    );
+    second.indexDb?.close();
+  });
 });

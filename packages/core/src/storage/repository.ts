@@ -953,7 +953,7 @@ export class EngramRepository {
    * index(防 untrusted 投毒),只处理「新增」方向走 hook,「删除」方向
    * 完全未处理。本方法补齐删除方向的自动同步。
    */
-  private scanForDeletedEngrams(): void {
+  private scanForDeletedEngrams(): { deleted: number; moved: number } {
     // 直接读 index.json(不调 getIndex —— getIndex 在 index.json 缺失时会
     // 触发 rebuildIndex,把所有合法 .md 灌入,污染孤儿判定)。
     // index.json 损坏时 readEngramIndex 抛错,catch 后跳过本次扫描。
@@ -961,7 +961,7 @@ export class EngramRepository {
     try {
       index = readEngramIndex(this.config.rootPath);
     } catch {
-      return;
+      return { deleted: 0, moved: 0 };
     }
     const root = this.config.rootPath;
     // 磁盘合法 engram 的 id→path 映射,用于区分「路径迁移」与「真删除」。
@@ -974,7 +974,7 @@ export class EngramRepository {
     const diskIds = this.collectDiskEngramIds();
     // 先收集再清理:readEngramIndex 快照不会被 deleteEngram 修改,先收集让语义清晰。
     const orphans: StableEngramId[] = [];
-    let moved = false;
+    let moved = 0;
     for (const [id, entry] of index.entries) {
       // path 校验:理论上是 trusted,但 doctor 自愈后可能含异常路径
       if (!isPathWithinRoot(root, entry.path)) continue;
@@ -993,12 +993,12 @@ export class EngramRepository {
           // 用旧 mtime 兜底,scanForModifiedEngrams 下轮校正
         }
         index.entries.set(id, { ...entry, path: diskPath, mtime });
-        moved = true;
+        moved++;
       } else {
         orphans.push(id);
       }
     }
-    if (moved) {
+    if (moved > 0) {
       this.persistIndex(index);
     }
     for (const id of orphans) {
@@ -1011,6 +1011,7 @@ export class EngramRepository {
         // 部分清理失败不阻塞其他孤儿,下次扫描重试
       }
     }
+    return { deleted: orphans.length, moved };
   }
 
   /**
@@ -1143,6 +1144,19 @@ export class EngramRepository {
    */
   rescanModifiedEngrams(): { id: string; contentChanged: boolean }[] {
     return this.scanForModifiedEngrams();
+  }
+
+  /**
+   * 按需触发删除方向同步(public 入口,2026-08-19):扫描 index entry 中
+   * 磁盘文件已消失的真删除(stable id 区分路径迁移),复用 deleteEngram
+   * 完整清理 index / 磁盘 / synapse yaml / SQLite。此前只挂 .md watcher 链
+   * (startWatching / scheduleDataScan),常驻宿主无事件时 ghost 行残留,
+   * totalEngrams 虚高 —— bootstrap 启动对账调用本方法兜底。
+   *
+   * @returns deleted:清理的真删除数;moved:路径迁移修正数(仅改 index entry)
+   */
+  rescanDeletedEngrams(): { deleted: number; moved: number } {
+    return this.scanForDeletedEngrams();
   }
 
   /** 停止 watcher(主要用于测试隔离) */

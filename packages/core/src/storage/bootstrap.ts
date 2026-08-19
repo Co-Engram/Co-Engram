@@ -155,6 +155,23 @@ export function bootstrapRepositoryAndSearch(
         indexedCount = entries.length;
       }
 
+      // Engram ghost 清理(2026-08-19,对称 synapse 对账):scanForDeletedEngrams
+      // 此前只挂 .md watcher 链(startWatching / scheduleDataScan),外部 rm /
+      // git pull 删除文件后,常驻宿主无事件时 index entry 与 SQLite 行残留,
+      // totalEngrams 虚高。启动清一次(stable id 区分路径迁移与真删除,复用
+      // deleteEngram 全清理:含 synapse yaml)—— 必须放在 synapse 对账之前,
+      // 清理后的磁盘 yaml 数才是对账的正确基准。成本与 cold-start 同量级
+      // (一次全盘扫),启动低频路径可接受。
+      let ghostCleanup: string | undefined;
+      try {
+        const r = repository.rescanDeletedEngrams();
+        if (r.deleted > 0 || r.moved > 0) {
+          ghostCleanup = `${r.deleted} deleted, ${r.moved} moved`;
+        }
+      } catch {
+        // 清理失败不阻塞启动;doctor 与 watcher 仍是修复路径
+      }
+
       // Synapse 表对账(2026-08 首页突触 0 修复):上方 cold-start 只灌 engrams
       // 表,synapses 表此前没有任何启动填充路径(仅 .yaml watcher / doctor 触发),
       // 存量库切到「stats 读 SQLite」口径后首页突触恒 0;SCHEMA_VERSION 升级
@@ -203,6 +220,10 @@ export function bootstrapRepositoryAndSearch(
       if (synapseSync) {
         // eslint-disable-next-line no-console
         console.warn(`[co-engram] synapse table sync: ${synapseSync}`);
+      }
+      if (ghostCleanup) {
+        // eslint-disable-next-line no-console
+        console.warn(`[co-engram] ghost engram cleanup: ${ghostCleanup}`);
       }
 
       return { repository, searchEngine, engineType: "sqlite", indexDb };
