@@ -1,6 +1,6 @@
 // 单次执行语义(2026-08-17 重设计:跑完即 done,无仪式/排程)+ delete + 生命周期审计
 // (contemplation_run_done / contemplation_delete / contemplation_run_start)
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -387,5 +387,83 @@ describe("report 总超时兜底", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("启动恢复:recoverStale(宿主进程死亡后的固化收束)", () => {
+  const storePath = () => join(tmpDir, ".co-engram", "incubations.json");
+
+  it("超时遗留的 thinking(rounds=0)→ 固化 queued + 审计;幂等二次扫描零动作", () => {
+    const incubator = makeIncubator();
+    const e = incubator.create({ question: "恢复问题?" });
+    // 模拟驱动进程死亡前的 in-flight:已 acquireThinking 但无人再写回
+    incubator.acquireThinking(e.id, "incubateOnce:manual");
+    clockMs += 31 * 60_000; // 越过 30min TTL
+    const rebooted = makeIncubator(); // 新宿主进程装配(同 dataRoot)
+    const diffs = rebooted.recoverStale();
+    expect(diffs).toHaveLength(1);
+    expect(diffs[0]).toMatchObject({
+      id: e.id,
+      from: "thinking",
+      to: "queued",
+      reason: "ttl-expired-thinking",
+    });
+    // 盘上已固化(非仅读时映射):直读原始 JSON 验证
+    const onDisk = JSON.parse(readFileSync(storePath(), "utf8")) as Array<{
+      id: string; status: string;
+    }>;
+    expect(onDisk.find((x) => x.id === e.id)?.status).toBe("queued");
+    expect(audit.some((a) => a.action === "contemplation_recovered")).toBe(true);
+    // 幂等:再次扫描零 diff
+    expect(rebooted.recoverStale()).toHaveLength(0);
+  });
+
+  it("超时遗留的 repairing(带 open gap)→ 固化 done + degraded(ttl-expired)", () => {
+    const incubator = makeIncubator();
+    const e = incubator.create({ question: "修复中死亡?" });
+    incubator.acquireThinking(e.id, "incubateOnce:manual");
+    // 手工落 repairing 态(驱动进程死于 report 之后的修复等待期)
+    const raw = JSON.parse(readFileSync(storePath(), "utf8")) as Array<Record<string, unknown>>;
+    const idx = raw.findIndex((x) => x.id === e.id);
+    raw[idx] = {
+      ...raw[idx],
+      status: "repairing",
+      run: {
+        startedAt: raw[idx]!.thinkingAt,
+        reports: 1,
+        repairReports: 0,
+        gaps: [{
+          hash: "h1", resourceType: "engrams", description: "图谱盘点",
+          necessity: "logic-needed", state: "open", reopens: 0,
+        }],
+      },
+    };
+    // @ts-expect-error 测试直写文件系统
+    writeFileSync(storePath(), JSON.stringify(raw, null, 2));
+    clockMs += 31 * 60_000;
+    const rebooted = makeIncubator();
+    const diffs = rebooted.recoverStale();
+    expect(diffs[0]).toMatchObject({
+      id: e.id,
+      from: "repairing",
+      to: "done",
+      reason: "ttl-expired",
+    });
+    const after = rebooted.get(e.id);
+    expect(after?.status).toBe("done");
+    expect(after?.degraded?.unclosedGaps).toEqual(["图谱盘点"]);
+  });
+
+  it("TTL 内的 in-flight 不被回收(原样保留,零审计)", () => {
+    const incubator = makeIncubator();
+    const e = incubator.create({ question: "仍在跑?" });
+    incubator.acquireThinking(e.id, "incubateOnce:manual");
+    clockMs += 10 * 60_000; // 10min < 30min
+    const rebooted = makeIncubator();
+    expect(rebooted.recoverStale()).toHaveLength(0);
+    const onDisk = JSON.parse(readFileSync(storePath(), "utf8")) as Array<{
+      id: string; status: string;
+    }>;
+    expect(onDisk.find((x) => x.id === e.id)?.status).toBe("thinking");
   });
 });

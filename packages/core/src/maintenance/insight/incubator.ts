@@ -802,6 +802,80 @@ export class Incubator {
   // 深思史(回灌组装)与任务包
   // ============================================================
 
+  /**
+   * 启动恢复:固化超时 in-flight 条目的 TTL 收束(2026-08-19)。
+   *
+   * 进程内超时(executor 20min / report 链 25min)对「宿主进程自身死亡」
+   * 无效 —— timer 随进程消失,链条悬挂且零审计(部署实测 inc-1093853c:
+   * 驱动进程死亡,条目挂 thinking 3h+,audit 无 run_fail,journal 零日志)。
+   * normalize 的 TTL 映射只在读时生效且不写盘(无人读 = 盘上永不回收)。
+   * 每个宿主进程装配时调用一次:原始态与归一化态对比,被 TTL 回收的条目
+   * 固化写盘并逐条审计 contemplation_recovered —— 恢复有痕、不依赖是否
+   * 有人读。幂等:无可恢复条目时零写盘,多进程重复调用安全(锁内 RMW)。
+   */
+  recoverStale(): ReadonlyArray<{
+    readonly id: string;
+    readonly from: string;
+    readonly to: string;
+    readonly reason: string;
+  }> {
+    const diffs: Array<{
+      id: string;
+      from: string;
+      to: string;
+      reason: string;
+    }> = [];
+    this.withStoreLock(() => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(
+          readFileSync(incubationsPath(this.deps.dataRoot), "utf8"),
+        );
+      } catch {
+        return; // 文件不存在/损坏:无恢复对象
+      }
+      if (!Array.isArray(parsed)) return;
+      const rawEntries = parsed as IncubationEntry[];
+      let changed = false;
+      const next = rawEntries.map((raw) => {
+        const norm = this.normalize(raw);
+        // normalize 拒收的条目原样保留(恢复不删数据,与 read 的过滤语义不同)
+        if (!norm) return raw;
+        const wasInFlight =
+          raw.status === "thinking" ||
+          raw.status === "verifying" ||
+          raw.status === "repairing";
+        const settled = norm.status === "queued" || norm.status === "done";
+        if (wasInFlight && settled) {
+          changed = true;
+          diffs.push({
+            id: norm.id,
+            from: raw.status,
+            to: norm.status,
+            reason: norm.degraded?.reason ?? "ttl-expired-thinking",
+          });
+          return norm; // 固化 TTL 映射结果(thinking→queued/done;verifying/repairing→done+degraded)
+        }
+        return raw; // 其余条目原样保留:恢复只处置超时 in-flight,不做全量归一化回写
+      });
+      if (changed) this.write(next);
+    });
+    for (const d of diffs) {
+      this.deps.auditLog?.append({
+        actor: "system",
+        action: "contemplation_recovered",
+        metadata: {
+          id: d.id,
+          fromStatus: d.from,
+          toStatus: d.to,
+          reason: d.reason,
+        },
+      });
+    }
+    return diffs;
+  }
+
+
   /** 深思史(最近 HISTORY_CAP 次):过往洞察摘要 + accept/dismiss 理由(回灌防重复) */
   dreamHistoryFor(id: string): string {
     const entry = this.get(id);

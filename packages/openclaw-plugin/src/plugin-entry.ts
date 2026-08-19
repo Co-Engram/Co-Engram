@@ -334,6 +334,10 @@ export function createCoEngramContext(
         }
       : {}),
   };
+  // 启动恢复(2026-08-19):固化超时 in-flight 深思条目的 TTL 收束。
+  // 宿主进程死亡时一切进程内超时失效(timer 随进程消失),条目悬挂且
+  // 零审计;每次装配时扫描一次,恢复有痕。幂等,无可恢复时零写盘。
+  ctx.incubator?.recoverStale();
   return ctx;
 }
 
