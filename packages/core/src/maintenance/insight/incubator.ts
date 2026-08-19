@@ -752,19 +752,25 @@ export class Incubator {
               fromGaps.length > 0
                 ? fromGaps
                 : (e.run?.plan?.items ?? []).map((it) => it.description);
-            // 终态落定:本 run 提案隔离标翻转(degraded 固化)——与 report 的
-            // finalize 分支对齐。此前 releaseThinking 的全部收束路径(执行器
-            // 抛错 / TTL 前的显式收束 / 单跑缺口收尾)都漏了翻转,提案停在
+            // 终态落定:本 run 提案隔离标翻转 —— 与 report 的 finalize 分支
+            // 对齐。此前 releaseThinking 的全部收束路径都漏了翻转,提案停在
             // provisional 隔离态无人终裁(2026-08-19)。
+            // 分流(2026-08-19 产品裁决):single-run-gaps → **解除**隔离 ——
+            // 单跑沉思已交付 answer 与过审提案,计划部分缺口与提案质量是两个
+            // 维度(提案过了机械校验 + critic 质量关),因缺口整批隔离对用户
+            // 是噪音(部署实测用户两次成功深思的 3 条提案被打入隔离区);
+            // 其余成因(修复失败/TTL/中断)保留固化隔离语义。
             const runEntityIds = e.timeline
               .filter((t) => t.round === e.rounds)
               .flatMap((t) => [...t.proposalEntityIds]);
             if (runEntityIds.length > 0) {
               try {
-                this.deps.proposalEngine.setInsightClosureState(runEntityIds, {
-                  provisional: false,
-                  unclosedGaps: unclosed,
-                });
+                this.deps.proposalEngine.setInsightClosureState(
+                  runEntityIds,
+                  info?.reason === "single-run-gaps"
+                    ? undefined
+                    : { provisional: false, unclosedGaps: unclosed },
+                );
               } catch {
                 // 提案翻转失败不阻塞条目收束;提案面仍按 provisional 展示
               }

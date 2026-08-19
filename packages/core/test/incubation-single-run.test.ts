@@ -255,3 +255,113 @@ describe("单跑缺口立即收束(single-run-gaps)", () => {
     expect(entry.degraded?.unclosedGaps.length).toBeGreaterThan(0);
   });
 });
+
+// 提案隔离分流(2026-08-19 产品裁决):single-run-gaps 收束**解除**隔离 ——
+// 单跑沉思已交付 answer 与过审提案,计划部分缺口与提案质量是两个维度;
+// 修复失败 / TTL / 中断类成因保留固化隔离。
+describe("收束的提案隔离分流", () => {
+  function seedRepairing(
+    incubator: Incubator,
+    id: string,
+    withProposal = true,
+  ): void {
+    const { mkdirSync, writeFileSync: wf } = require("node:fs");
+    const dir = join(tmpDir, ".co-engram");
+    mkdirSync(dir, { recursive: true });
+    wf(
+      join(dir, "incubations.json"),
+      JSON.stringify([
+        {
+          id,
+          question: "隔离分流?",
+          seedEngramIds: [],
+          status: "repairing",
+          rounds: 1,
+          createdAt: clockNow(),
+          lastRunAt: null,
+          timeline: [
+            {
+              at: clockNow(),
+              trigger: "manual",
+              round: 1,
+              summaries: [],
+              proposalEntityIds: withProposal ? ["ent-1"] : [],
+            },
+          ],
+          thinkingAt: clockNow(),
+          thinkingBy: "test",
+          run: {
+            startedAt: clockNow(),
+            reports: 1,
+            repairReports: 0,
+            gaps: [
+              {
+                hash: "h1",
+                resourceType: "engrams",
+                description: "缺口A",
+                necessity: "helpful",
+                state: "open",
+                reopens: 0,
+                cause: "unclosed",
+              },
+            ],
+          },
+        },
+      ]),
+    );
+    void incubator;
+  }
+
+  it("single-run-gaps → setInsightClosureState(ids, undefined) 解除", () => {
+    const calls: unknown[][] = [];
+    const incubator = new Incubator({
+      repository: {} as never,
+      proposalEngine: {
+        proposeInsight: () => true,
+        listAll: () => [],
+        findProposalByEntityId: () => undefined,
+        setInsightClosureState: (...args: unknown[]) => {
+          calls.push(args);
+        },
+      },
+      dataRoot: tmpDir,
+      llmClient: { complete: async () => "x" } as never,
+      auditLog: { append: () => {} },
+      now: clockNow,
+    });
+    seedRepairing(incubator, "inc-relieve");
+    incubator.releaseThinking("inc-relieve", { reason: "single-run-gaps" });
+    expect(calls).toEqual([[["ent-1"], undefined]]);
+    const entry = incubator.get("inc-relieve")!;
+    expect(entry.status).toBe("done");
+    expect(entry.degraded?.reason).toBe("single-run-gaps");
+    expect(entry.degraded?.unclosedGaps).toEqual(["缺口A"]);
+  });
+
+  it("ttl-expired 类(非单跑)→ 固化隔离(unclosedGaps 随 degraded 落标)", () => {
+    const calls: unknown[][] = [];
+    const incubator = new Incubator({
+      repository: {} as never,
+      proposalEngine: {
+        proposeInsight: () => true,
+        listAll: () => [],
+        findProposalByEntityId: () => undefined,
+        setInsightClosureState: (...args: unknown[]) => {
+          calls.push(args);
+        },
+      },
+      dataRoot: tmpDir,
+      llmClient: { complete: async () => "x" } as never,
+      auditLog: { append: () => {} },
+      now: clockNow,
+    });
+    seedRepairing(incubator, "inc-quarantine");
+    incubator.releaseThinking("inc-quarantine", { reason: "ttl-expired" });
+    expect(calls.length).toBe(1);
+    expect(calls[0]![0]).toEqual(["ent-1"]);
+    expect(calls[0]![1]).toMatchObject({
+      provisional: false,
+      unclosedGaps: ["缺口A"],
+    });
+  });
+});
