@@ -4,7 +4,7 @@
 // 3. delete force:进行中默认拒绝,force 先释放运行标记再删(误建条目即时可清理)
 // 4. report 写回竞态:报告校验中(证据 flush 的 await 点)被 cancel →
 //    写前重读发现状态已非 in-flight → 放弃写回,不推翻用户的终止裁决
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -119,6 +119,73 @@ describe("delete force(误建条目即时可清理)", () => {
     expect(incubator.list().find((x) => x.id === e.id)).toBeUndefined();
     const del = auditEntries.find((a) => a.action === "contemplation_delete");
     expect(del?.metadata?.abortedRun).toBe(true);
+  });
+});
+
+describe("reclaimOrphans(孤儿条目主动回收,执行可靠性修复)", () => {
+  it("超时 thinking(rounds=0)→ 回 queued;未超时的 in-flight 不动;审计留痕", () => {
+    const incubator = makeIncubator();
+    const orphan = incubator.create({ question: "孤儿条目?" });
+    const fresh = incubator.create({ question: "活跃条目?" });
+    incubator.acquireThinking(orphan.id, "dead-job");
+    incubator.acquireThinking(fresh.id, "live-job");
+    // 把孤儿的 thinkingAt 拨回 TTL 之前(模拟 job 属主进程死亡后时间流逝)
+    const raw = JSON.parse(
+      readFileSync(join(tmpDir, ".co-engram", "incubations.json"), "utf8"),
+    ) as Array<{ id: string; thinkingAt?: string }>;
+    for (const e of raw) {
+      if (e.id === orphan.id) {
+        e.thinkingAt = new Date(clockMs - 31 * 60_000).toISOString();
+      }
+    }
+    writeFileSync(
+      join(tmpDir, ".co-engram", "incubations.json"),
+      JSON.stringify(raw, null, 2),
+    );
+
+    const reclaimed = incubator.reclaimOrphans();
+    expect(reclaimed.map((r) => r.id)).toEqual([orphan.id]);
+    expect(incubator.get(orphan.id)?.status).toBe("queued");
+    // 未超时的活跃条目不受影响
+    expect(incubator.get(fresh.id)?.status).toBe("thinking");
+    const audit = auditEntries.find(
+      (a) => a.action === "contemplation_orphan_reclaimed",
+    );
+    expect(audit?.metadata?.fromStatus).toBe("thinking");
+  });
+
+  it("超时 verifying → degraded done(aborted)留档", () => {
+    const incubator = makeIncubator();
+    const e = incubator.create({ question: "校验中孤儿?" });
+    incubator.acquireThinking(e.id, "dead-job");
+    // 直接写盘:status=verifying + 过期 thinkingAt(releaseThinking 对
+    // verifying/repairing 走 degraded aborted 收束)
+    const p = join(tmpDir, ".co-engram", "incubations.json");
+    const raw = JSON.parse(readFileSync(p, "utf8")) as Array<{
+      id: string;
+      status?: string;
+      thinkingAt?: string;
+    }>;
+    for (const x of raw) {
+      if (x.id === e.id) {
+        x.status = "verifying";
+        x.thinkingAt = new Date(clockMs - 31 * 60_000).toISOString();
+      }
+    }
+    writeFileSync(p, JSON.stringify(raw, null, 2));
+
+    expect(incubator.reclaimOrphans().map((r) => r.id)).toEqual([e.id]);
+    const after = incubator.get(e.id)!;
+    expect(after.status).toBe("done");
+    // 收束成因:releaseThinking 的 aborted 或其内部读链 normalize 的
+    // ttl-expired —— 孤儿场景两者语义等价(成因都是超时无人续约)
+    expect(["aborted", "ttl-expired"]).toContain(after.degraded?.reason);
+  });
+
+  it("无孤儿 → 空清单,零副作用", () => {
+    const incubator = makeIncubator();
+    incubator.create({ question: "普通条目?" });
+    expect(incubator.reclaimOrphans()).toEqual([]);
   });
 });
 

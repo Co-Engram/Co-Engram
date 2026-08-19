@@ -643,6 +643,60 @@ export class Incubator {
   }
 
   /**
+   * 孤儿条目主动回收(2026-08-19 执行可靠性修复)。
+   *
+   * 背景:job 属主进程死亡(viewer/MCP 进程重启、job 闭包随进程蒸发)时,
+   * 条目停在 in-flight 无人释放 —— 审计实测 14 启动/3 完成/8 失败的当天,
+   * 另有 job 挂死 6.5 分钟需人工 cancel 的亲历案例。TTL 读时归一化
+   * (normalize)是惰性兜底:没人读就没人回收。
+   *
+   * 语义:maintenance light 周期(5 分钟,holder 单进程)主动扫描,把
+   * thinkingAt 超过 inFlightTtlMs 的 in-flight 条目按 releaseThinking 语义
+   * 收束(thinking→可跑态;verifying/repairing→degraded aborted)。
+   * 与 normalize 的 TTL 分支同阈值同语义,只是把兜底从「读时惰性」变
+   * 「定期主动」;审计 contemplation_orphan_reclaimed 留痕。
+   */
+  reclaimOrphans(now: string = this.now()): readonly { id: string; fromStatus: string }[] {
+    const reclaimed: Array<{ id: string; fromStatus: string }> = [];
+    const nowMs = parseAt(now);
+    // 注意:不能经 this.read() —— normalize 的 TTL 分支会把超时 in-flight
+    // 就地归一化(仅内存视图),扫描就永远看不到孤儿。这里读原始 JSON,
+    // 让回收走 releaseThinking 显式落盘 + 审计。
+    let raw: unknown;
+    try {
+      raw = JSON.parse(
+        readFileSync(incubationsPath(this.deps.dataRoot), "utf8"),
+      );
+    } catch {
+      return reclaimed;
+    }
+    if (!Array.isArray(raw)) return reclaimed;
+    for (const e of raw as IncubationEntry[]) {
+      if (
+        (e.status === "thinking" ||
+          e.status === "verifying" ||
+          e.status === "repairing") &&
+        e.thinkingAt &&
+        nowMs - parseAt(e.thinkingAt) > INSIGHT_LIMITS.inFlightTtlMs
+      ) {
+        this.releaseThinking(e.id);
+        this.deps.auditLog?.append({
+          actor: "system",
+          action: "contemplation_orphan_reclaimed",
+          metadata: {
+            id: e.id,
+            fromStatus: e.status,
+            thinkingAt: e.thinkingAt,
+            questionPreview: e.question.slice(0, 120),
+          },
+        });
+        reclaimed.push({ id: e.id, fromStatus: e.status });
+      }
+    }
+    return reclaimed;
+  }
+
+  /**
    * 终止进行中的 run(2026-08-19:沉思可取消)。
    * 语义:thinking → 回可跑状态(rounds>0 → done,否则 queued,本次 run 视为
    * 未发生);verifying/repairing → releaseThinking 的降级收束(degraded

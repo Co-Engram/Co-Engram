@@ -300,6 +300,8 @@ export interface MaintenanceReport {
   readonly windowsClosedBySignal?: number;
   /** light 阶段是否刷新了 prompt-signals.json */
   readonly promptSignalsUpdated?: boolean;
+  /** light:沉思孤儿条目回收数(job 属主进程死亡后 in-flight 无人释放,2026-08-19) */
+  readonly orphansReclaimed?: number;
   /**
    * daily 阶段实际衰减的 engram 数(importance 真的发生变化的条数;
    * 已在 0 / 1 边界无变化的 engram 不计入)。

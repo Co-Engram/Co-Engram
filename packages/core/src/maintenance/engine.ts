@@ -215,6 +215,19 @@ export class MaintenanceEngine {
         }
       }
 
+      // 沉思孤儿条目主动回收(2026-08-19 执行可靠性修复):job 属主进程
+      // 死亡时条目停在 in-flight 无人释放,审计实测完成率 21% 的当天另有
+      // 挂死需人工解锁的案例。TTL 读时归一化是惰性兜底,这里按 light 周期
+      // (5 分钟,holder 单进程)主动收束,不再等用户读到它。
+      let orphansReclaimed = 0;
+      if (this.deps.incubator) {
+        try {
+          orphansReclaimed = this.deps.incubator.reclaimOrphans().length;
+        } catch {
+          // 回收失败不阻塞 light
+        }
+      }
+
       // 自进化 prompt signals:扫描 domainTags,生成 snapshot 写缓存
       // 用于 promptBuilder 动态填充 "Frequent topics" 提示
       let promptSignalsUpdated = false;
@@ -258,6 +271,7 @@ export class MaintenanceEngine {
         windowsClosed,
         windowsClosedBySignal,
         promptSignalsUpdated,
+        orphansReclaimed,
         downstreamReport: {
           signalsProcessed,
           rpeUpdates,
@@ -853,6 +867,9 @@ export class MaintenanceEngine {
       windowsClosed: body.windowsClosed,
       windowsClosedBySignal: body.windowsClosedBySignal,
       promptSignalsUpdated: body.promptSignalsUpdated,
+      ...(body.orphansReclaimed !== undefined
+        ? { orphansReclaimed: body.orphansReclaimed }
+        : {}),
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
       ...(body.skillsDecayed !== undefined

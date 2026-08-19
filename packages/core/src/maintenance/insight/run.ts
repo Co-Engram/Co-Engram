@@ -62,6 +62,11 @@ export interface IncubationSource {
     readonly question: string;
     readonly dreamHistory: string;
   }>;
+  /**
+   * 孤儿条目主动回收(light 周期调用;2026-08-19 执行可靠性修复):
+   * job 属主进程死亡后 in-flight 条目无人释放,超 TTL 即收束并审计。
+   */
+  reclaimOrphans(): readonly { id: string; fromStatus: string }[];
 }
 
 export interface DeepThoughtReport {
