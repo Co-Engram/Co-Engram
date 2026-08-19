@@ -13,8 +13,12 @@
 /** 一期思维模式(④批判/⑤元认知/⑥第一性原理/⑦溯因假设为二期) */
 export type DeepThoughtMode = "integration" | "retrospective" | "inspiration";
 
-/** 洞察产出类型(spec §三):synapse-suggestion 走 rem-synapse 既有路径,不在此列 */
-export type InsightType = "theme" | "lesson" | "analogy" | "hypothesis";
+/** 洞察产出类型(spec §三):synapse-suggestion 走 rem-synapse 既有路径,不在此列。
+ * pattern(2026-08-20):可复用规律 —— 与 engram kind 的 pattern 对齐,消除
+ * 「kind 有 pattern / insight type 没有」的双枚举串台(LLM 执行者从 kind 串写
+ * 导致 schema 往返)。accept 落库映射:pattern → pattern engram(原有逻辑
+ * 非 hypothesis 即 pattern,天然兼容)。 */
+export type InsightType = "theme" | "lesson" | "analogy" | "hypothesis" | "pattern";
 
 /**
  * 笼统 domainTags:灵感模式域判定前过滤 —— imported/uncategorized 等标签
@@ -365,6 +369,14 @@ export interface PonderGap {
   readonly reopens: number;
   /** 缺口成因:evidence-mismatch(自报闭合但流水无证据)/ unclosed(自报未闭合) */
   readonly reason?: "evidence-mismatch" | "unclosed" | "deferred-over-budget";
+  /**
+   * evidence-mismatch 的自解释诊断(2026-08-20:拒绝必须自带修复所需信息,
+   * 快速失败原则的另一半):列出 claimed-but-unobserved 的 id、引擎实际观测
+   * 到的 id 集(截断展示)、该类型的合法证据锚点,以及 evidence.ids 留空 +
+   * 本类型有调用即可类型级闭合的出口。只进 gap 记录与 ponder_report 返回值,
+   * 不参与任何判定。
+   */
+  readonly detail?: string;
   /** 引擎不可观测类型的未闭合项(展示用,不阻塞终束) */
   readonly engineUnverified?: boolean;
   /** Phase2:缺口来源 —— plan(引擎承诺,不占执行者预算)/ executor(追加申报) */

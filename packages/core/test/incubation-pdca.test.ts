@@ -49,12 +49,22 @@ function skillEvent(id: string): ToolCallEvent {
   };
 }
 
-function makeIncubator(opts: { repairRoundLimit?: number } = {}): Incubator {
+function skillListEvent(): ToolCallEvent {
+  return {
+    toolName: "skill_list",
+    input: {},
+    outputSummary: "{items:9}",
+    sessionId: "s",
+    at: clockMs + 100,
+  };
+}
+
+function makeIncubator(opts: { repairRoundLimit?: number; llm?: unknown } = {}): Incubator {
   return new Incubator({
     repository: repo,
     proposalEngine: engine,
     dataRoot: tmpDir,
-    llmClient: mockLlm(),
+    llmClient: (opts.llm ?? mockLlm()) as never,
     signalEvidence,
     ...(opts.repairRoundLimit !== undefined
       ? { repairRoundLimit: opts.repairRoundLimit }
@@ -555,6 +565,220 @@ describe("PDCA 种子源拦截(零增量)", () => {
     // hit.id 是否进兜底种子集取决于 FTS 检索;两种情况都不应误伤 —— 若命中则拒,
     // 若未命中则通过。断言:引擎行为确定(不崩溃)、状态推进确定
     expect(["repairing", "done"]).toContain(r.entry.status);
+  });
+});
+
+describe("诊断可达性(2026-08-20):mismatch detail / 类型级闭合出口 / critic 分账", () => {
+  /** critic prompt 返回任意原文(不可解析 → null score)的 LLM mock */
+  const criticRawLlm = (raw: string) => ({
+    async complete(prompt: string) {
+      if (prompt.includes("independent critic")) return raw;
+      return "阶段结论。";
+    },
+  });
+
+  it("engrams mismatch 的 detail 自解释:列出未观测 id、引擎观测集与 ids 留空的类型级出口", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("真来源");
+    const e = incubator.create({ question: "诊断详情问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读齐相关记忆", evidence: { ids: [a.id, "编造/id"] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    const gap = r.openGaps[0]!;
+    expect(gap.reason).toBe("evidence-mismatch");
+    expect(gap.detail).toContain("编造/id");
+    expect(gap.detail).toContain(a.id); // 引擎观测到的 id 也在详情里
+    expect(gap.detail).toContain("leave evidence.ids empty");
+  });
+
+  it("skills mismatch 的 detail 指明合法锚点:宿主技能名 / skill_list 结果不是合法 evidence id", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("来源");
+    const e = incubator.create({ question: "技能诊断问题?" });
+    incubator.acquireThinking(e.id, "test");
+    // 只有 skill_list 盘点调用(无 input.id → skillIds 为空),清单却报了宿主技能名
+    observedEvents = [engramEvent(a.id), skillListEvent()];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id] } }),
+          req({ resourceType: "skills", description: "技能盘点", evidence: { ids: ["cogp-sunzi"] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    const gap = r.openGaps.find((g) => g.resourceType === "skills")!;
+    expect(gap.reason).toBe("evidence-mismatch");
+    expect(gap.detail).toContain("cogp-sunzi");
+    expect(gap.detail).toContain("skill_get / skill_invoke");
+    expect(gap.detail).toContain("NOT valid ids");
+  });
+
+  it("skills 类型级闭合出口(防回归):evidence.ids 留空 + 仅 skill_list 盘点 → closed,不再 mismatch", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("来源");
+    const e = incubator.create({ question: "类型级闭合问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id), skillListEvent()];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id] } }),
+          // 分析类问题的正当形态:印迹盘点过但无适用印迹 → ids 留空
+          req({ resourceType: "skills", description: "技能盘点", evidence: { ids: [] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    expect(r.entry.status).toBe("done");
+    expect(r.openGaps).toHaveLength(0);
+  });
+
+  it("skills 零调用且 ids 留空 → mismatch 的 detail 指明最低成本闭合路径(先调 skill_list)", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("来源");
+    const e = incubator.create({ question: "零技能调用问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id] } }),
+          req({ resourceType: "skills", description: "技能盘点", evidence: { ids: [] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    const gap = r.openGaps.find((g) => g.resourceType === "skills")!;
+    expect(gap.reason).toBe("evidence-mismatch");
+    expect(gap.detail).toContain("skill_list");
+  });
+
+  it("critic unparseable 与低分分账:不可解析计入 criticUnparseable(基础设施信号),diagnosis 返回值可达", async () => {
+    const incubator = makeIncubator({ llm: criticRawLlm("抱歉,我无法输出 JSON。") });
+    const a = makeSource("来源甲");
+    const b = makeSource("来源乙", ["域乙"]);
+    const e = incubator.create({ question: "critic 故障问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id), engramEvent(b.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [{
+          mode: "inspiration", type: "theme", title: "会被 infrastructure 误杀的洞察",
+          content: "c", summary: "s",
+          sourceIds: [a.id, b.id], domainTags: ["沉思"], reason: "r",
+        }],
+        plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id, b.id] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    expect(r.proposals).toBe(0); // fail-closed 行为不变:不可解析不出提案
+    // 但归因口径分账:unparseable ≠ 低分
+    expect(r.diagnosis.criticUnparseable).toBe(1);
+    expect(r.diagnosis.criticRejected).toBe(0);
+    expect(r.diagnosis.rejectReasons?.[0]).toContain("[critic-unparseable]");
+    expect(r.diagnosis.rejectReasons?.[0]).toContain("infrastructure signal");
+  }, 20_000); // critique 内部 3 次重试 + 2s/4s 退避(critic.ts),unparseable 路径 >5s
+
+  it("diagnosis 摘要随返回值透传:正常终束也携带(proposals=0 不再只能翻审计)", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("来源");
+    const e = incubator.create({ question: "诊断透传问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    expect(r.entry.status).toBe("done");
+    expect(r.diagnosis).toMatchObject({
+      drafts: 0, dupVetoed: 0, validateRejected: 0,
+      criticRejected: 0, criticUnparseable: 0, llmClientMissing: false,
+    });
+  });
+
+  it("pattern 洞察类型:≥2 来源通过机械校验并成案;单来源被拒并给出 pattern 专属理由", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("观察甲");
+    const b = makeSource("观察乙", ["域乙"]);
+    const e = incubator.create({ question: "pattern 类型问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id), engramEvent(b.id)];
+    const r = await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [
+          {
+            mode: "inspiration", type: "pattern", title: "双来源可复用规律",
+            content: "c", summary: "s",
+            sourceIds: [a.id, b.id], domainTags: ["沉思"], reason: "r",
+          },
+          {
+            mode: "inspiration", type: "pattern", title: "单来源伪规律",
+            content: "c2", summary: "s2",
+            sourceIds: [a.id], domainTags: ["沉思"], reason: "r2",
+          },
+        ],
+        plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id, b.id] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    expect(r.proposals).toBe(1); // 双来源 pattern 成案
+    const reasons = (r.diagnosis.rejectReasons ?? []).join("\n");
+    expect(reasons).toContain("[validate] 单来源伪规律");
+    expect(reasons).toContain("pattern requires >=2 sources");
+  });
+
+  it("审计查询枚举已登记 contemplation 事件(action 过滤可用,诊断不再只能 grep 文件)", async () => {
+    const incubator = makeIncubator();
+    const a = makeSource("来源");
+    const e = incubator.create({ question: "审计枚举问题?" });
+    incubator.acquireThinking(e.id, "test");
+    observedEvents = [engramEvent(a.id)];
+    await incubator.report({
+      incubationId: e.id,
+      report: {
+        insights: [], plan: [], trace: [],
+        requirements: [
+          req({ resourceType: "engrams", description: "读记忆", evidence: { ids: [a.id] } }),
+        ],
+      },
+      trigger: "manual", actor: "test",
+    });
+    expect(auditEntries.some((x) => x.action === "contemplation_run_done")).toBe(true);
+    // 工具入参 schema 层:action 枚举包含 contemplation_*(此前查不到的根因)
+    const { EngramAuditQueryInputSchema } = await import("../src/tools/audit-query-tool.js");
+    expect(() =>
+      EngramAuditQueryInputSchema.parse({ action: "contemplation_run_done", limit: 5 }),
+    ).not.toThrow();
   });
 });
 

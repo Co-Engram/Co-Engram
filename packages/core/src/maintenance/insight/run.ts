@@ -350,7 +350,7 @@ export function parseDrafts(raw: string, mode: DeepThoughtMode): InsightDraft[] 
     const d = item as Partial<InsightDraft> & { type?: string };
     if (!d.title || !d.content || !Array.isArray(d.sourceIds)) continue;
     const type = d.type;
-    if (type !== "theme" && type !== "lesson" && type !== "analogy" && type !== "hypothesis") continue;
+    if (type !== "theme" && type !== "lesson" && type !== "analogy" && type !== "hypothesis" && type !== "pattern") continue;
     out.push({
       mode,
       type,

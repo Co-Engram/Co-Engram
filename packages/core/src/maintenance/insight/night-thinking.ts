@@ -82,6 +82,12 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
      inventory host-runtime skills (research / structured-thinking /
      analysis) and apply one when the question is analysis-heavy. Record
      which skill you applied in the trace.
+     For closure evidence: a skills requirement's evidence.ids only counts
+     co-engram imprint ids actually passed to skill_get / skill_invoke —
+     skill_list results and host-runtime skill names are NOT valid ids (the
+     engine cannot observe host-skill calls; record those in the trace).
+     If no imprint is relevant to the question, leave evidence.ids EMPTY:
+     having run skill_list already closes the item at type level.
    - Web research: when the host provides search/fetch tools and the
      question involves external facts (industry trends, competitor moves,
      benchmarks, latest versions), search the web to ground the answer in
@@ -133,7 +139,7 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
        "necessity": "logic-needed|helpful",
        "closed": true|false,
        "evidence": {"ids": [<ids you actually called>]} } ] } }
-   Each insight draft: { "type": "theme|lesson|analogy|hypothesis", "title",
+   Each insight draft: { "type": "theme|lesson|analogy|hypothesis|pattern", "title",
    "summary", "content", "sourceIds": [...], "domainTags": [...], "reason",
    "aar": {...} (lesson only) }. Insights are captured immediately — do not
    wait or batch. Do not repeat directions already explored in the previous
@@ -162,14 +168,22 @@ export const CONTEMPLATION_PROTOCOL = `CONTEMPLATION PROTOCOL (follow exactly):
    zero engram/skill read calls is rejected outright. logs/web/mcp closure
    cannot be engine-verified — declare them honestly.
    GAP REPAIR LOOP: if the report comes back with an "openGaps" list, the run
-   is NOT finished — the entry stays in repair state. Mine the missing
+   is NOT finished — the entry stays in repair state. Each open gap carries a
+   "detail" field telling you exactly which claimed ids were not observed,
+   which ids the engine did observe, and what counts as valid evidence —
+   read it instead of guessing. Mine the missing
    resources, then call \`ponder_report\` AGAIN with a FULL updated report
    (answer + insights + full requirements list; already-closed items stay
    closed with their evidence). Re-declaring the same gap twice escalates it
    to logic-needed; the repair budget is limited (a handful of re-reports) —
    exhausting it finalizes the run as degraded (its insight proposals are
    quarantined from the approval queue). Repair promptly instead of
-   re-submitting the same unchanged list.`;
+   re-submitting the same unchanged list.
+   The report result also carries a "diagnosis" object (dupVetoed /
+   validateRejected / criticRejected / criticUnparseable / rejectReasons):
+   when proposals is 0, read it BEFORE re-submitting — "[critic-unparseable]"
+   marks critic LLM output that could not be parsed (an infrastructure
+   signal, not a quality verdict on your insight).`;
 
 /** 组装协议文本(2026-08-17 起受控联网:只读检索允许,隐私边界固化;无开关)。
  * language 注入洞察产出语言指令(2026-08-18:L2 无头会话此前无语言约束,

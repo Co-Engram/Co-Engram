@@ -73,6 +73,17 @@ export function validateInsightDraft(
 
   // ---- 模式专属 ----
   switch (draft.type) {
+    case "pattern": {
+      // 与 theme 同构的 ≥2 来源要求:可复用规律必须从多条观察中提炼,
+      // 单来源「规律」只是转述(theme 强调跨情境,pattern 强调可复用)。
+      if (draft.sourceIds.length < 2) {
+        return {
+          ok: false,
+          reason: "pattern requires >=2 sources (a reusable structure must be distilled from multiple observations)",
+        };
+      }
+      break;
+    }
     case "theme": {
       if (draft.sourceIds.length < 2) {
         return { ok: false, reason: "theme requires >=2 sources (cross-contextuality)" };

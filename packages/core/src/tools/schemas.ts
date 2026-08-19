@@ -893,7 +893,7 @@ export const IncubationDeleteInputSchema = z
   .strict();
 
 const InsightDraftSchema = z.object({
-  type: z.enum(["theme", "lesson", "analogy", "hypothesis"]),
+  type: z.enum(["theme", "lesson", "analogy", "hypothesis", "pattern"]),
   title: z.string().min(1).max(200),
   content: z.string().min(1),
   summary: z.string().min(1).max(300),
