@@ -130,6 +130,26 @@ async function main(): Promise<void> {
 
   process.stderr.write(`[co-engram-daemon] starting (dataRoot=${dataRoot})\n`);
 
+  // 死亡留痕(2026-08-20):detached spawn + stdio:ignore 曾把 daemon 全部
+  // stderr 丢弃,一次部署实测死亡零现场(launcher 已接 logs/daemon.log)。
+  // exit 记录退出码(SIGKILL 不可捕获,是唯一盲区);未捕获异常/rejection
+  // 先落盘 stack 再退 —— 与 Node 默认 crash 语义一致,只是留痕在前。
+  process.on("exit", (code) => {
+    process.stderr.write(`[co-engram-daemon] exiting (code=${code})\n`);
+  });
+  process.on("uncaughtException", (err) => {
+    process.stderr.write(
+      `[co-engram-daemon] FATAL uncaughtException: ${err instanceof Error ? err.stack ?? err.message : String(err)}\n`,
+    );
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    process.stderr.write(
+      `[co-engram-daemon] FATAL unhandledRejection: ${String(reason)}\n`,
+    );
+    process.exit(1);
+  });
+
   // === bootstrap(dataRoot / config / language / maintenance / proposal)==
   // 与 mcp-server.ts main() 同款逻辑;daemon 与 mcp-server 是两个不同入口,
   // 共享 bootstrap 未来抽公共函数,当前先代码重复。

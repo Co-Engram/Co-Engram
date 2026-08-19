@@ -27,7 +27,15 @@
 
 import { createConnection } from "node:net";
 import { spawn } from "node:child_process";
-import { existsSync as fsExistsSync, unlinkSync } from "node:fs";
+import {
+  existsSync as fsExistsSync,
+  unlinkSync,
+  mkdirSync,
+  openSync,
+  closeSync,
+  statSync,
+  renameSync,
+} from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
@@ -132,11 +140,38 @@ function spawnDaemon(opts: {
   // detached daemon:setsid + unlink from parent
   // --disable-warning=ExperimentalWarning:抑制 node:sqlite 的 experimental 提示
   // (co-engram 用 node:sqlite 做 indexDb 派生层;Node 21+ 精确 flag,只抑这一类,不影响其他 warning)
+  //
+  // stderr/stdout 接日志文件(2026-08-20 修复「进程死亡零日志」):此前
+  // stdio:"ignore" 把 daemon 全部 stderr 诊断丢弃 —— detached 普通子进程
+  // 不归 systemd 管,journal 天然不记,死亡现场彻底不可考(部署实测 17:38
+  // daemon 死亡零线索)。stderrLogPath 由 ensureDaemon 默认提供;显式不传
+  // 才回退 ignore(兼容旧调用)。
+  let stderrFd: number | null = null;
+  if (opts.stderrLogPath) {
+    try {
+      mkdirSync(dirname(opts.stderrLogPath), { recursive: true });
+      // 简单轮转:>10MB 归档为 .1(daemon 诊断低频,常态远达不到)
+      try {
+        if (statSync(opts.stderrLogPath).size > 10 * 1024 * 1024) {
+          renameSync(opts.stderrLogPath, `${opts.stderrLogPath}.1`);
+        }
+      } catch {
+        // 首次创建无旧文件
+      }
+      stderrFd = openSync(opts.stderrLogPath, "a");
+    } catch {
+      stderrFd = null; // 日志打开失败不阻塞 daemon 启动
+    }
+  }
   const child = spawn(process.execPath, ["--disable-warning=ExperimentalWarning", entry, opts.dataRoot], {
     env,
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", stderrFd ?? "ignore", stderrFd ?? "ignore"],
   });
+  if (stderrFd !== null) {
+    // 子进程持有 fd 副本;父侧描述符用完即关,不随 thin client 生命周期泄漏
+    closeSync(stderrFd);
+  }
   child.on("error", () => {
     // 静默 — 调用方通过 waitForSocket 失败兜底
   });
@@ -219,6 +254,8 @@ export async function ensureDaemon(opts: {
     dataRoot: opts.dataRoot,
     socketPath: expectedSocketPath,
     lockPath,
+    // stderr 落盘:dataRoot/.co-engram/logs/daemon.log(daemon 死亡现场可考)
+    stderrLogPath: join(opts.dataRoot, ".co-engram", "logs", "daemon.log"),
   });
 
   // 3. 等待 socket 就绪
