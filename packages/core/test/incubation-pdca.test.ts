@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EngramRepository } from "../src/storage/repository.js";
 import { ProposalEngine } from "../src/observability/proposal-engine.js";
 import { Incubator } from "../src/maintenance/insight/incubator.js";
-import type { PonderRequirement } from "../src/maintenance/insight/types.js";
+import { advanceGaps } from "../src/maintenance/insight/gap-check.js";
+import type { PonderGap, PonderRequirement } from "../src/maintenance/insight/types.js";
 import type { ToolCallEvent } from "../src/signals/types.js";
 
 let tmpDir: string;
@@ -554,5 +555,61 @@ describe("PDCA 种子源拦截(零增量)", () => {
     // hit.id 是否进兜底种子集取决于 FTS 检索;两种情况都不应误伤 —— 若命中则拒,
     // 若未命中则通过。断言:引擎行为确定(不崩溃)、状态推进确定
     expect(["repairing", "done"]).toContain(r.entry.status);
+  });
+});
+
+describe("advanceGaps:engineUnverified 合成缺口不阻塞终束", () => {
+  const gap = (over: Partial<PonderGap>): PonderGap => ({
+    hash: "h",
+    resourceType: "engrams",
+    description: "缺口",
+    necessity: "helpful",
+    state: "open",
+    reopens: 0,
+    ...over,
+  });
+
+  it("仅 plan 合成的 logs/web/mcp(engineUnverified)open → 不 blocking(展示保留)", () => {
+    const r = advanceGaps(
+      [],
+      [
+        gap({ hash: "a", resourceType: "logs", description: "日志佐证", engineUnverified: true, origin: "plan" }),
+        gap({ hash: "b", resourceType: "web", description: "联网核查", engineUnverified: true, origin: "plan" }),
+        gap({ hash: "c", resourceType: "mcp", description: "工具盘点", engineUnverified: true, origin: "plan" }),
+      ],
+    );
+    expect(r.blocking).toBe(false);
+    // 展示面不受影响:三项仍以 open 落在 gaps 里
+    expect(r.gaps.filter((g) => g.state === "open")).toHaveLength(3);
+  });
+
+  it("executor 申报又悬置的不可观测项(engineUnverified 但非 plan)→ 仍 blocking(报进清单 = 承诺闭合)", () => {
+    const r = advanceGaps(
+      [],
+      [gap({ hash: "a", resourceType: "logs", description: "行为日志佐证", engineUnverified: true })],
+    );
+    expect(r.blocking).toBe(true);
+  });
+
+  it("可观测类型(engrams/skills)open → 仍 blocking(防假闭合语义不变,含 plan 合成项)", () => {
+    const r = advanceGaps(
+      [],
+      [
+        gap({ hash: "a", resourceType: "engrams", description: "图谱盘点", origin: "plan" }),
+        gap({ hash: "b", resourceType: "web", description: "联网核查", engineUnverified: true, origin: "plan" }),
+      ],
+    );
+    expect(r.blocking).toBe(true);
+  });
+
+  it("engineUnverified 合成项全部转 closed → 不 blocking(修复轮推进路径)", () => {
+    const prev = [
+      gap({ hash: "a", resourceType: "web", description: "联网核查", engineUnverified: true, origin: "plan" }),
+    ];
+    const r = advanceGaps(prev, [
+      gap({ hash: "a", resourceType: "web", description: "联网核查", state: "closed", engineUnverified: true, origin: "plan" }),
+    ]);
+    expect(r.blocking).toBe(false);
+    expect(r.gaps[0]!.state).toBe("closed");
   });
 });

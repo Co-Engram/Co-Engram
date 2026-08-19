@@ -325,7 +325,15 @@ export function advanceGaps(
   }
 
   const gaps = [...byHash.values()];
-  const blocking = gaps.some((g) => g.state === "open");
+  // blocking 排除「engineUnverified + origin=plan」的合成缺口:logs/web/mcp
+  // 引擎无观测面,P5 防收窄合成的 open(执行者从未申报)修复轮里只能等到
+  // 一句补报表态 —— 现场路径徒增一轮交互,headless 单跑路径必然挂到 TTL。
+  // executor 主动申报又悬置的不可观测项仍阻塞(报进清单 = 承诺闭合,
+  // incubation-pdca 集成测试固化该语义);展示不受影响(openGapDescs/
+  // timeline 仍列出全部 open 缺口)。
+  const blocking = gaps.some(
+    (g) => g.state === "open" && !(g.engineUnverified && g.origin === "plan"),
+  );
   const executorGaps = gaps.filter((g) => g.origin !== "plan");
   const totalBudgetExhausted = executorGaps.length > limits.maxTotalGapsPerRun;
   return { gaps, blocking, totalBudgetExhausted, deferredThisRound };
