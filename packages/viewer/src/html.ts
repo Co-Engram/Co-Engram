@@ -79,8 +79,8 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     : "";
   const authPlaceholder = t(language, "viewer.auth.placeholder");
 
-  // 侧栏导航(2026-08 改版):按使用频率与治理语义分组。
-  // 主功能:高频浏览入口;治理:需要人裁决的入口;管理:低频工具(图标行,极度降权)。
+  // 侧栏导航(2026-08 改版):按使用频率与进化语义分组。
+  // 主功能:高频浏览入口;进化:驱动记忆库成长变化的入口;管理:低频工具(图标行,极度降权)。
   // .tab 类与 data-tab 属性保持不变 —— app.ts 的 showTab 依赖这两个选择器。
   const primaryTabs = [
     ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
@@ -89,14 +89,14 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     ["skills", t(language, "viewer.tab.skills"), t(language, "viewer.tab.skills.tip")],
   ] as const;
 
-  const governanceTabs = [
+  const evolutionTabs = [
     ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip"), true],
     ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
     ["contemplation", t(language, "viewer.tab.contemplation"), t(language, "viewer.tab.contemplation.tip"), false],
   ] as const;
 
   // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)。
-  // 2026-08:审计/回收站按用户要求从治理区移到左栏底部(与合并/健康同为图标入口,
+  // 2026-08:审计/回收站按用户要求从进化组移到左栏底部(与合并/健康同为图标入口,
   // 图标复用 DEMO 定稿 i-clock / i-trash)
   const adminTabs = [
     ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip"), "i-merge"],
@@ -115,7 +115,7 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   };
 
   const primaryTabButtons = primaryTabs.map(navButton).join("\n      ");
-  const governanceTabButtons = governanceTabs.map(navButton).join("\n      ");
+  const evolutionTabButtons = evolutionTabs.map(navButton).join("\n      ");
   const adminTabButtons = adminTabs
     .map(
       ([id, label, tip, icon]) =>
@@ -169,9 +169,9 @@ ${SIDE_ICONS}
       ${primaryTabButtons}
     </nav>
 
-    <div class="side-sec">${t(language, "viewer.nav.governance")}</div>
-    <nav class="side-group" aria-label="${t(language, "viewer.nav.governance")}">
-      ${governanceTabButtons}
+    <div class="side-sec">${t(language, "viewer.nav.evolution")}</div>
+    <nav class="side-group" aria-label="${t(language, "viewer.nav.evolution")}">
+      ${evolutionTabButtons}
     </nav>
 
     <div class="side-admin">

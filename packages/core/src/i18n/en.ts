@@ -906,7 +906,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.nav.primary": "Browse",
   "engrams.tree.expandAll": "Expand all",
   "engrams.tree.collapseAll": "Collapse all",
-  "viewer.nav.governance": "Governance",
+  "viewer.nav.evolution": "Evolution",
   "viewer.tab.stats": "Stats",
   "viewer.tab.engrams": "Engrams",
   "viewer.tab.skills": "Skills",
@@ -2358,7 +2358,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>refuted</strong>: marked as the losing side by contradiction_resolve; excluded from retrieval by default.",
   "viewer.help.tabsTitle": "Tabs",
   "viewer.help.tabStats":
-    "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, governance in the middle, health/merge/config/help collapsed into the bottom icon row.",
+    "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, evolution in the middle, health/merge/config/help collapsed into the bottom icon row.",
   "viewer.help.tabEngrams":
     "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status/visibility/freshness (this week / this month / dormant 30d-unused) filters. Cards carry kind/visibility/verification badges, a summary, creator, retrieval and synapse counts, and an importance trend glyph (▲ recently retrieved · ▼ dormant decay · ▬ steady); click to open detail (edit/delete/show synapses). Tree view is a single tree rooted at the library root, folder rows show cumulative counts and average importance; click a row to expand/collapse, with expand/collapse-all at the top.",
   "viewer.help.tabSkills":

@@ -2486,7 +2486,7 @@ div.vis-tooltip {
 }
 .ex code { font-size: 0.65rem; background: none; }
 
-/* === 2026-08 治理页页头(DEMO 各 tab h1 + sub)=== */
+/* === 2026-08 进化页页头(DEMO 各 tab h1 + sub)=== */
 /* 回收站行卡片(DEMO g2-trash .t-row) */
 .t-row {
   display: flex;
@@ -2510,7 +2510,7 @@ div.vis-tooltip {
   padding: 1px 8px;
 }
 
-/* === 治理页页头 === */
+/* === 进化页页头 === */
 /* === 沉思(contemplation,2026-08-17 重设计:提问即深思、一次一份报告) === */
 .inc-sow-card { margin-bottom: 1.1rem; padding: 1rem 1.2rem; }
 .inc-sow-title { margin: 0 0 0.7rem; font-size: 0.92rem; color: var(--accent); font-weight: 700; }
