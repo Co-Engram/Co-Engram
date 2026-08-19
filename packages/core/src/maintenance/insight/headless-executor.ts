@@ -137,6 +137,12 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
       "return the report object as your final answer in the exact JSON shape below (you have no ponder_report tool in this headless session — and no repair loop either: if the closure check finds open gaps, this run finalizes as degraded, so mine ALL required resources in this single pass)",
     ),
     ``,
+    `HARD GATE (engine-verified, 2026-08-19 两连败实证): before writing the`,
+    `final answer you MUST have actually called engram_search in this session —`,
+    `the engine cross-checks the real tool-call stream, not your claims; a report`,
+    `from a run with zero engram/skill read calls is rejected outright ("no`,
+    `resource evidence"). Seed digests are starting hints, never a substitute`,
+    `for retrieval.`,
     `Final answer: ONLY the JSON object {"answer":"<non-empty answer text — REQUIRED>","insights":[...],"plan":[...],"trace":[...],"resourcesUsed":{...},"requirements":[...]} — no prose outside it.`,
   ].join("\n");
 }
