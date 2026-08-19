@@ -13,7 +13,11 @@ let tmpDir: string;
 let clockMs: number;
 const clockNow = () => new Date(clockMs).toISOString();
 
-type AuditRecord = { actor: string; action: string; metadata?: Record<string, unknown> };
+type AuditRecord = {
+  actor: string;
+  action: string;
+  metadata?: Record<string, unknown>;
+};
 let audit: AuditRecord[];
 
 function makeIncubator(
@@ -153,5 +157,33 @@ describe("生命周期审计(run_start / run_done / delete)", () => {
       llmClientMissing: false,
     });
     expect(done!.metadata!.answerPreview).toBe("执行现场回答:方向收敛。");
+  });
+});
+
+// 闭合校验拒绝收束(2026-08-19):零盘点拒绝此前落 degraded{reason:"aborted",
+// unclosedGaps:[]}——「执行中断 + 未闭合需求空清单」的矛盾展示(部署实测
+// 用户看到「未闭合需求:——」)。修复后 reason=closure-rejected、缺口回落
+// 计划全量、失败原因落 answerError。
+describe("闭合校验拒绝收束(closure-rejected)", () => {
+  it("零盘点拒绝 → closure-rejected + 计划全量未闭合 + answerError", async () => {
+    const incubator = makeIncubator();
+    const withEvidence = incubator as unknown as {
+      deps: { signalEvidence?: { snapshot(): unknown[] } };
+    };
+    // 注入证据面(快照返回空 = 有证据面但零调用)→ 触发「零盘点」拒绝
+    withEvidence.deps.signalEvidence = {
+      snapshot: () => [],
+      flush: async () => {},
+    };
+    const e = incubator.create({ question: "零盘点问题?" });
+    await expect(incubator.incubateOnce(e.id, "manual")).rejects.toThrow(
+      /rejected by closure check/,
+    );
+    const entry = incubator.get(e.id)!;
+    expect(entry.status).toBe("done");
+    expect(entry.degraded?.reason).toBe("closure-rejected");
+    // gaps 从未被逐项比对填充 → 回落 run.plan 全量(template 计划 5 项)
+    expect(entry.degraded?.unclosedGaps.length).toBeGreaterThan(0);
+    expect(entry.answerError ?? "").toContain("closure check");
   });
 });

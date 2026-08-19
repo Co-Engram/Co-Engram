@@ -55,7 +55,11 @@ import type {
   WebResourceUsed,
 } from "./types.js";
 import { DEFAULT_REM_INSIGHT, INSIGHT_LIMITS } from "./types.js";
-import { contentJaccard, validateInsightDraft, type ProposalLike } from "./validate.js";
+import {
+  contentJaccard,
+  validateInsightDraft,
+  type ProposalLike,
+} from "./validate.js";
 import {
   advanceGaps,
   applyPlanToRequirements,
@@ -74,12 +78,22 @@ import type { PonderGap, PonderPlan, PonderRunState } from "./types.js";
  *   → done(全闭合终束)| repairing(有缺口,等修复 report → verifying → …)
  * repairing/verifying 超时(复用 TTL)未闭合 → done + degraded(触顶终束)。
  */
-export type IncubationStatus = "queued" | "thinking" | "verifying" | "repairing" | "done";
+export type IncubationStatus =
+  | "queued"
+  | "thinking"
+  | "verifying"
+  | "repairing"
+  | "done";
 
-/** degraded 终束成因(预算触顶 / TTL 超时 / 执行中断) */
+/** degraded 终束成因(预算触顶 / TTL 超时 / 执行中断 / 闭合校验拒绝) */
 export interface IncubationDegraded {
   readonly at: string;
-  readonly reason: "repair-budget-exhausted" | "gap-budget-exhausted" | "ttl-expired" | "aborted";
+  readonly reason:
+    | "repair-budget-exhausted"
+    | "gap-budget-exhausted"
+    | "ttl-expired"
+    | "aborted"
+    | "closure-rejected";
   /** 未闭合缺口描述(审批面置顶展示) */
   readonly unclosedGaps: readonly string[];
   /**
@@ -199,7 +213,12 @@ export interface IncubatorProposalSink {
   /** PDCA:run 终态落定时改写本 run 提案的隔离标(正常=解除;degraded=固化) */
   setInsightClosureState(
     entityIds: readonly string[],
-    degraded: { readonly provisional: boolean; readonly unclosedGaps: readonly string[] } | undefined,
+    degraded:
+      | {
+          readonly provisional: boolean;
+          readonly unclosedGaps: readonly string[];
+        }
+      | undefined,
   ): void;
 }
 
@@ -301,7 +320,9 @@ export class Incubator {
   private readonly deps: IncubatorDeps;
   private readonly now: () => string;
   /** L1 兜底执行器(llmClient 存在时惰性构造) */
-  private l1: { execute(t: NightThinkingTask): Promise<NightThinkingReport> } | null = null;
+  private l1: {
+    execute(t: NightThinkingTask): Promise<NightThinkingReport>;
+  } | null = null;
   /** RMW 锁重入深度(同进程 delete/cancel 临界区内调 releaseThinking 等) */
   private storeLockDepth = 0;
 
@@ -376,7 +397,8 @@ export class Incubator {
    *   (历史深思的回答呈现兼容);externalCallCount 等联网线字段丢弃
    */
   private normalize(e: IncubationEntry): IncubationEntry | null {
-    if (!e || typeof e.id !== "string" || typeof e.question !== "string") return null;
+    if (!e || typeof e.id !== "string" || typeof e.question !== "string")
+      return null;
     const rounds = e.rounds ?? 0;
     const raw = e as unknown as Record<string, unknown>;
     const timeline = Array.isArray(e.timeline)
@@ -387,7 +409,8 @@ export class Incubator {
             ...(typeof ev.answerDraft === "string" && ev.answer === undefined
               ? { answer: ev.answerDraft }
               : {}),
-            ...(typeof ev.answerDraftError === "string" && ev.answerError === undefined
+            ...(typeof ev.answerDraftError === "string" &&
+            ev.answerError === undefined
               ? { answerError: ev.answerDraftError }
               : {}),
           } as IncubationTimelineEvent;
@@ -399,9 +422,8 @@ export class Incubator {
         : typeof raw.finalAnswer === "string"
           ? (raw.finalAnswer as string)
           : timeline.length
-            ? ([...timeline].reverse().find((t) => typeof t.answer === "string")?.answer as
-                | string
-                | undefined)
+            ? ([...timeline].reverse().find((t) => typeof t.answer === "string")
+                ?.answer as string | undefined)
             : undefined;
     // 状态映射
     let status: IncubationStatus;
@@ -416,28 +438,39 @@ export class Incubator {
       status = legacy;
     } else if (legacy === "in-flight") {
       status = "thinking";
-    } else if (legacy === "resolved" || legacy === "paused" || legacy === "suggested-resolve") {
+    } else if (
+      legacy === "resolved" ||
+      legacy === "paused" ||
+      legacy === "suggested-resolve"
+    ) {
       status = "done";
     } else {
       status = rounds > 0 ? "done" : "queued";
     }
     // thinking TTL 过期回收:跑过的回 done,没跑过的回 queued
-    const thinkingAt = (e.thinkingAt ?? (typeof raw.inFlightAt === "string" ? (raw.inFlightAt as string) : undefined)) as
-      | string
-      | undefined;
-    const thinkingBy = (e.thinkingBy ?? (typeof raw.inFlightBy === "string" ? (raw.inFlightBy as string) : undefined)) as
-      | string
-      | undefined;
+    const thinkingAt = (e.thinkingAt ??
+      (typeof raw.inFlightAt === "string"
+        ? (raw.inFlightAt as string)
+        : undefined)) as string | undefined;
+    const thinkingBy = (e.thinkingBy ??
+      (typeof raw.inFlightBy === "string"
+        ? (raw.inFlightBy as string)
+        : undefined)) as string | undefined;
     // PDCA 修复回路瞬态(verifying/repairing)TTL 过期 → 视为修复失败,
     // done + degraded(ttl-expired),未闭合缺口随 run 记录落盘(审批面可见)
     let degraded = e.degraded;
     let run = e.run;
     if (
-      (status === "thinking" || status === "verifying" || status === "repairing") &&
+      (status === "thinking" ||
+        status === "verifying" ||
+        status === "repairing") &&
       thinkingAt
     ) {
       // 用注入时钟(与写入同源),防测试/模拟时钟与真实时钟混用导致瞬态被误回收
-      if (parseAt(this.now()) - parseAt(thinkingAt) > INSIGHT_LIMITS.inFlightTtlMs) {
+      if (
+        parseAt(this.now()) - parseAt(thinkingAt) >
+        INSIGHT_LIMITS.inFlightTtlMs
+      ) {
         if (status === "thinking") {
           status = rounds > 0 ? "done" : "queued";
         } else {
@@ -457,7 +490,9 @@ export class Incubator {
     }
     const lastRunAt =
       e.lastRunAt ??
-      (typeof raw.lastHatchedAt === "string" ? (raw.lastHatchedAt as string) : null);
+      (typeof raw.lastHatchedAt === "string"
+        ? (raw.lastHatchedAt as string)
+        : null);
     return {
       id: e.id,
       question: e.question,
@@ -469,7 +504,9 @@ export class Incubator {
       timeline,
       ...(answer !== undefined ? { answer } : {}),
       ...(e.answerError !== undefined ? { answerError: e.answerError } : {}),
-      ...(status === "thinking" || status === "verifying" || status === "repairing"
+      ...(status === "thinking" ||
+      status === "verifying" ||
+      status === "repairing"
         ? {
             ...(thinkingAt ? { thinkingAt } : {}),
             ...(thinkingBy ? { thinkingBy } : {}),
@@ -478,7 +515,9 @@ export class Incubator {
           }
         : {}),
       ...(degraded ? { degraded } : {}),
-      ...(e.consecutiveVetoed !== undefined ? { consecutiveVetoed: e.consecutiveVetoed } : {}),
+      ...(e.consecutiveVetoed !== undefined
+        ? { consecutiveVetoed: e.consecutiveVetoed }
+        : {}),
     };
   }
 
@@ -496,9 +535,7 @@ export class Incubator {
       // 覆盖双入口连击(viewer 按钮无反馈期重复点击、对话内重复说「帮我沉思 X」);
       // done 条目不拦(「重新深思同一问题」走再思/重建是正当场景)。
       const dup = entries.find(
-        (e) =>
-          e.question === input.question.trim() &&
-          e.status !== "done",
+        (e) => e.question === input.question.trim() && e.status !== "done",
       );
       if (dup) {
         throw new Error(
@@ -509,7 +546,11 @@ export class Incubator {
         // 不自动清理:删除属用户裁决。列出最老 10 条已答条目引导删除。
         const oldestDone = entries
           .filter((e) => e.status === "done")
-          .sort((a, b) => parseAt(a.lastRunAt ?? a.createdAt) - parseAt(b.lastRunAt ?? b.createdAt))
+          .sort(
+            (a, b) =>
+              parseAt(a.lastRunAt ?? a.createdAt) -
+              parseAt(b.lastRunAt ?? b.createdAt),
+          )
           .slice(0, 10)
           .map((e) => `- ${e.id} · ${e.question.slice(0, 60)}`)
           .join("\n");
@@ -547,8 +588,16 @@ export class Incubator {
   }
 
   /** 条目上限元信息(viewer 预警用) */
-  limitInfo(): { readonly total: number; readonly max: number; readonly warnAt: number } {
-    return { total: this.read().length, max: MAX_ENTRIES, warnAt: ENTRY_WARN_THRESHOLD };
+  limitInfo(): {
+    readonly total: number;
+    readonly max: number;
+    readonly warnAt: number;
+  } {
+    return {
+      total: this.read().length,
+      max: MAX_ENTRIES,
+      warnAt: ENTRY_WARN_THRESHOLD,
+    };
   }
 
   /**
@@ -569,7 +618,9 @@ export class Incubator {
         found.status === "verifying" ||
         found.status === "repairing";
       if (inFlightNow && !opts?.force) {
-        throw new Error(`incubation ${id} in progress (${found.status}) — cancel the run first or delete with force`);
+        throw new Error(
+          `incubation ${id} in progress (${found.status}) — cancel the run first or delete with force`,
+        );
       }
       if (inFlightNow) this.releaseThinking(id);
       this.write(this.read().filter((e) => e.id !== id));
@@ -627,29 +678,34 @@ export class Incubator {
   /** queued/done 均可开跑(再思);审计记 run_start;新 run 清旧 run/degraded 标,
    *  上轮未闭合缺口转存瞬态字段供计划生成接力(Phase2) */
   acquireThinking(id: string, by: string): boolean {
-    const started = this.withStoreLock(():
-      | { readonly ok: true; readonly rounds: number }
-      | { readonly ok: false } => {
-      const entries = this.read();
-      const target = entries.find((e) => e.id === id);
-      if (!target) throw new Error(`incubation ${id} not found`);
-      if (target.status !== "queued" && target.status !== "done") return { ok: false };
-      const carryOver = [
-        ...(target.degraded?.nextTasks ?? target.degraded?.unclosedGaps ?? []),
-      ];
-      const updated: IncubationEntry = {
-        ...target,
-        status: "thinking",
-        thinkingAt: this.now(),
-        thinkingBy: by,
-        // degraded 是 run 级标记:再思开启新 run,旧标记随之失效;
-        // 未闭合缺口先转存(接力输入),终束时清除
-        ...(target.degraded ? { degraded: undefined } : {}),
-        ...(carryOver.length ? { carryOverGaps: carryOver } : {}),
-      };
-      this.write(entries.map((e) => (e.id === id ? updated : e)));
-      return { ok: true, rounds: target.rounds + 1 };
-    });
+    const started = this.withStoreLock(
+      ():
+        | { readonly ok: true; readonly rounds: number }
+        | { readonly ok: false } => {
+        const entries = this.read();
+        const target = entries.find((e) => e.id === id);
+        if (!target) throw new Error(`incubation ${id} not found`);
+        if (target.status !== "queued" && target.status !== "done")
+          return { ok: false };
+        const carryOver = [
+          ...(target.degraded?.nextTasks ??
+            target.degraded?.unclosedGaps ??
+            []),
+        ];
+        const updated: IncubationEntry = {
+          ...target,
+          status: "thinking",
+          thinkingAt: this.now(),
+          thinkingBy: by,
+          // degraded 是 run 级标记:再思开启新 run,旧标记随之失效;
+          // 未闭合缺口先转存(接力输入),终束时清除
+          ...(target.degraded ? { degraded: undefined } : {}),
+          ...(carryOver.length ? { carryOverGaps: carryOver } : {}),
+        };
+        this.write(entries.map((e) => (e.id === id ? updated : e)));
+        return { ok: true, rounds: target.rounds + 1 };
+      },
+    );
     if (!started.ok) return false;
     this.deps.auditLog?.append({
       actor: "system",
@@ -659,7 +715,15 @@ export class Incubator {
     return true;
   }
 
-  releaseThinking(id: string): void {
+  releaseThinking(
+    id: string,
+    info?: {
+      /** degraded 成因(缺省 aborted —— cancel / 执行器抛错等真中断) */
+      readonly reason?: IncubationDegraded["reason"];
+      /** 失败原因预览(落 entry.answerError,用户端可见) */
+      readonly errorPreview?: string;
+    },
+  ): void {
     this.withStoreLock(() => {
       const entries = this.read();
       this.write(
@@ -677,16 +741,28 @@ export class Incubator {
           if (e.status === "verifying" || e.status === "repairing") {
             // PDCA:报告已交、修复中断(执行器抛错/进程退出)—— 按修复失败
             // 收束为 degraded done,未闭合缺口留档;执行者可再思重跑。
-            const unclosed = (e.run?.gaps ?? [])
+            // 缺口清单回落链(2026-08-19 修复「未闭合需求:——」空展示):
+            // run.gaps 的 open 项 → 空则 run.plan 全量(整单被闭合校验拒绝时
+            // gaps 从未被逐项比对填充,计划项本身就是全部未闭合)。
+            const fromGaps = (e.run?.gaps ?? [])
               .filter((g) => g.state === "open")
               .map((g) => g.description);
+            const unclosed =
+              fromGaps.length > 0
+                ? fromGaps
+                : (e.run?.plan?.items ?? []).map((it) => it.description);
             return {
               ...e,
               status: "done" as const,
               thinkingAt: undefined,
               thinkingBy: undefined,
               run: undefined,
-              degraded: { at: this.now(), reason: "aborted" as const, unclosedGaps: unclosed },
+              degraded: {
+                at: this.now(),
+                reason: info?.reason ?? "aborted",
+                unclosedGaps: unclosed,
+              },
+              ...(info?.errorPreview ? { answerError: info.errorPreview } : {}),
             };
           }
           return e;
@@ -715,7 +791,9 @@ export class Incubator {
         return " [pending]";
       });
       t.summaries.forEach((s, i) => {
-        lines.push(`- Session ${t.round}(${t.trigger}): ${s}${dispositions[i] ?? ""}`);
+        lines.push(
+          `- Session ${t.round}(${t.trigger}): ${s}${dispositions[i] ?? ""}`,
+        );
       });
       if (t.summaries.length === 0) {
         lines.push(
@@ -727,7 +805,11 @@ export class Incubator {
   }
 
   /** queued 条目(供 REM 灵感模式合并;还没深思过的问题最有价值) */
-  activeEntries(): ReadonlyArray<{ id: string; question: string; dreamHistory: string }> {
+  activeEntries(): ReadonlyArray<{
+    id: string;
+    question: string;
+    dreamHistory: string;
+  }> {
     return this.read()
       .filter((e) => e.status === "queued")
       .map((e) => ({
@@ -746,9 +828,10 @@ export class Incubator {
   async buildTask(id: string): Promise<NightThinkingTask> {
     const entry = this.get(id);
     if (!entry) throw new Error(`incubation ${id} not found`);
-    const seedDigests = entry.seedEngramIds.length > 0
-      ? collectSeedDigests(this.deps.repository, entry.seedEngramIds)
-      : searchFallbackSeeds(this.deps.repository, entry.question);
+    const seedDigests =
+      entry.seedEngramIds.length > 0
+        ? collectSeedDigests(this.deps.repository, entry.seedEngramIds)
+        : searchFallbackSeeds(this.deps.repository, entry.question);
     let plan: PonderPlan | undefined = entry.run?.plan;
     if (!plan) {
       const input = {
@@ -855,8 +938,7 @@ export class Incubator {
           // spawn ENOENT = 环境无 claude CLI(配置缺失,非本轮失败):
           // 降级 L1 让沉思仍可用,审计如实标注;其余失败(超时/解析/非零
           // 退出)显式抛错 —— 静默降级曾让用户长期吃 L1 产物而无从知晓。
-          const isEnoent =
-            err instanceof Error && /ENOENT/i.test(err.message);
+          const isEnoent = err instanceof Error && /ENOENT/i.test(err.message);
           if (!isEnoent) throw err;
           report = await this.runL1(task);
           level = "L1";
@@ -875,14 +957,23 @@ export class Incubator {
       });
       return { ...result, level };
     } catch (err) {
-      this.releaseThinking(id);
+      const msg = (err instanceof Error ? err.message : String(err)).slice(
+        0,
+        200,
+      );
+      // 闭合校验拒绝是「报告未通过证据核验」而非执行中断 —— 成因与失败
+      // 原因落 entry(degraded.reason / answerError),用户端「带缺口收束」
+      // 不再显示为「执行中断 + 未闭合需求空清单」(2026-08-19 部署实测)。
+      this.releaseThinking(id, {
+        reason: /rejected by closure check/.test(msg)
+          ? "closure-rejected"
+          : "aborted",
+        errorPreview: msg,
+      });
       this.deps.auditLog?.append({
         actor: "system",
         action: "contemplation_run_fail",
-        metadata: {
-          id,
-          errorPreview: (err instanceof Error ? err.message : String(err)).slice(0, 200),
-        },
+        metadata: { id, errorPreview: msg },
       });
       throw err;
     }
@@ -892,7 +983,8 @@ export class Incubator {
     if (!this.deps.llmClient) {
       throw new Error("L1 unavailable: no llmClient injected");
     }
-    if (!this.l1) this.l1 = createL1Executor(this.deps.llmClient, this.deps.repository);
+    if (!this.l1)
+      this.l1 = createL1Executor(this.deps.llmClient, this.deps.repository);
     return this.l1.execute(task);
   }
 
@@ -937,7 +1029,8 @@ export class Incubator {
     const entry = this.withStoreLock(() => {
       const entries = this.read();
       const idx = entries.findIndex((e) => e.id === input.incubationId);
-      if (idx === -1) throw new Error(`incubation ${input.incubationId} not found`);
+      if (idx === -1)
+        throw new Error(`incubation ${input.incubationId} not found`);
       const found = entries[idx]!;
       if (found.status === "queued" || found.status === "done") {
         throw new Error(
@@ -946,7 +1039,11 @@ export class Incubator {
       }
       // 落 verifying 瞬态(校验中;崩溃由 TTL 回收)。thinkingAt 保留:
       // 既是证据时间窗起点也是 TTL 基准。
-      this.write(entries.map((e) => (e.id === found.id ? { ...e, status: "verifying" } : e)));
+      this.write(
+        entries.map((e) =>
+          e.id === found.id ? { ...e, status: "verifying" } : e,
+        ),
+      );
       return found;
     });
 
@@ -974,12 +1071,16 @@ export class Incubator {
     const answerRepeat =
       !!input.report.answer?.trim() &&
       !!prevRunAnswer &&
-      contentJaccard(input.report.answer, prevRunAnswer) >= INSIGHT_LIMITS.dreamJaccard;
+      contentJaccard(input.report.answer, prevRunAnswer) >=
+        INSIGHT_LIMITS.dreamJaccard;
 
     // ---- Phase3 P7:主张对手抽取(独立 critic 从执行者 answer 抽取;
     //      fail-open —— 质量信号而非形式闸,LLM 不可用即跳过) ----
     const claimsResult =
-      level === "L2" && evidenceAvailable && this.deps.llmClient && input.report.answer?.trim()
+      level === "L2" &&
+      evidenceAvailable &&
+      this.deps.llmClient &&
+      input.report.answer?.trim()
         ? await extractClaims(this.deps.llmClient, input.report.answer)
         : undefined;
     const claimsWeak = !!claimsResult?.weak;
@@ -992,12 +1093,18 @@ export class Incubator {
       // 的 P1 豁免判定(「资源不存在」被假证明,跨 run 证据污染)。
       await this.deps.signalEvidence!.flush();
       const since = parseAt(entry.thinkingAt!);
-      events = this.deps.signalEvidence!.snapshot().filter((e) => e.at >= since);
+      events = this.deps
+        .signalEvidence!.snapshot()
+        .filter((e) => e.at >= since);
     }
     const digest = digestEvidence(events);
     // Phase2 计划先行:计划 → 有效需求集(P5 防收窄:P1 自动豁免)
     const planItems = runState.plan?.items ?? [];
-    const applied = applyPlanToRequirements(planItems, input.report.requirements, digest);
+    const applied = applyPlanToRequirements(
+      planItems,
+      input.report.requirements,
+      digest,
+    );
     const reqCheck = checkRequirements(applied.effective, digest, {
       level,
       evidenceAvailable,
@@ -1024,7 +1131,10 @@ export class Incubator {
     const repairReports = isMainReport ? 0 : runState.repairReports + 1;
     const repairLimit = Math.max(
       1,
-      Math.min(10, this.deps.repairRoundLimit ?? INSIGHT_LIMITS.maxRepairRounds),
+      Math.min(
+        10,
+        this.deps.repairRoundLimit ?? INSIGHT_LIMITS.maxRepairRounds,
+      ),
     );
     const blocking = advanced.blocking;
     // 终束只能由预算耗尽触发(P3:重报不是终束理由)
@@ -1038,7 +1148,9 @@ export class Incubator {
     if (finalize && blocking) {
       degradedFinal = {
         at: this.now(),
-        reason: gapBudgetExhausted ? "gap-budget-exhausted" : "repair-budget-exhausted",
+        reason: gapBudgetExhausted
+          ? "gap-budget-exhausted"
+          : "repair-budget-exhausted",
         unclosedGaps: openGapDescs,
       };
       // Phase3 P8:接力权转移 —— critic 生成下轮验证任务(含至少一条外部
@@ -1049,7 +1161,8 @@ export class Incubator {
           unclosedGaps: openGapDescs,
           answer: input.report.answer ?? "",
         });
-        if (tasks.length) degradedFinal = { ...degradedFinal, nextTasks: tasks };
+        if (tasks.length)
+          degradedFinal = { ...degradedFinal, nextTasks: tasks };
       }
     }
     // run 未闭合期间提案带隔离标;终态落定时翻转(见本函数尾)。
@@ -1086,14 +1199,18 @@ export class Incubator {
       survived.push(d);
     }
     const allVetoed =
-      input.report.insights.length > 0 && vetoed === input.report.insights.length;
+      input.report.insights.length > 0 &&
+      vetoed === input.report.insights.length;
 
     // ---- 种子源检查(P2 零增量拦截):种子是起点提示不是边界,洞察
     //      sourceIds 全部来自任务包种子 = 没有为问题开采任何新证据 ----
     const seedIdSet = new Set<string>(entry.seedEngramIds);
     if (entry.seedEngramIds.length === 0) {
       // 兜底种子引擎可复算(确定性 FTS;repo 只读协议下结果稳定)
-      for (const s of searchFallbackSeeds(this.deps.repository, entry.question)) {
+      for (const s of searchFallbackSeeds(
+        this.deps.repository,
+        entry.question,
+      )) {
         seedIdSet.add(s.id);
       }
     }
@@ -1134,7 +1251,13 @@ export class Incubator {
       // fail-closed:无 llmClient 即无独立 critic → 不出提案
       // (静默 continue:llmClientMissing 已由 diagnosis 字段表达)
       if (!this.deps.llmClient) continue;
-      const score = await critique(this.deps.llmClient, d, sub, d.mode, this.deps.repository.currentLanguage);
+      const score = await critique(
+        this.deps.llmClient,
+        d,
+        sub,
+        d.mode,
+        this.deps.repository.currentLanguage,
+      );
       if (!score || score.overall < threshold) {
         criticRejected += 1;
         rejectReasons.push(
@@ -1142,7 +1265,12 @@ export class Incubator {
         );
         continue;
       }
-      const entityId = insightEntityId(d.mode, entry.id, nextRound, d.sourceIds);
+      const entityId = insightEntityId(
+        d.mode,
+        entry.id,
+        nextRound,
+        d.sourceIds,
+      );
       const ok = this.deps.proposalEngine.proposeInsight({
         mode: d.mode,
         insightType: d.type,
@@ -1190,7 +1318,9 @@ export class Incubator {
             { rejectReasons, traceSummary },
           );
         } catch (err) {
-          answerError = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+          answerError = (
+            err instanceof Error ? err.message : String(err)
+          ).slice(0, 200);
         }
       }
     }
@@ -1224,19 +1354,30 @@ export class Incubator {
         pdca: {
           repairRound: repairReports,
           openGaps: openGapDescs.slice(0, 10),
-          closedThisRound: reqCheck.current.filter((g) => g.state === "closed").length,
+          closedThisRound: reqCheck.current.filter((g) => g.state === "closed")
+            .length,
           degraded: !!degradedFinal,
           ...(advanced.deferredThisRound.length
             ? { deferred: advanced.deferredThisRound }
             : {}),
-          ...(applied.narrowed.length ? { narrowed: applied.narrowed.slice(0, 10) } : {}),
-          ...(applied.exempted.length ? { exempted: applied.exempted.slice(0, 10) } : {}),
+          ...(applied.narrowed.length
+            ? { narrowed: applied.narrowed.slice(0, 10) }
+            : {}),
+          ...(applied.exempted.length
+            ? { exempted: applied.exempted.slice(0, 10) }
+            : {}),
           ...(answerRepeat ? { answerRepeat: true } : {}),
           ...(claimsResult
-            ? { answerDowngradeRatio: Number(claimsResult.downgradeRatio.toFixed(2)) }
+            ? {
+                answerDowngradeRatio: Number(
+                  claimsResult.downgradeRatio.toFixed(2),
+                ),
+              }
             : { claimsSkipped: true }),
         },
-        ...(claimsResult?.claims.length ? { answerClaims: claimsResult.claims } : {}),
+        ...(claimsResult?.claims.length
+          ? { answerClaims: claimsResult.claims }
+          : {}),
       },
     ];
     const nextRunState: PonderRunState | undefined = finalize
@@ -1262,103 +1403,129 @@ export class Incubator {
             ...(entry.thinkingBy ? { thinkingBy: entry.thinkingBy } : {}),
             run: nextRunState,
           }),
-      ...(degradedFinal ? { degraded: degradedFinal } : { degraded: undefined }),
+      ...(degradedFinal
+        ? { degraded: degradedFinal }
+        : { degraded: undefined }),
       ...(answer ? { answer } : { answer: undefined }),
       ...(answerError ? { answerError } : { answerError: undefined }),
     };
     // 写前重读合并(锁内临界区):report 中途有 await(critic/综合走 LLM),
     // 若仍基于开头快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中
     // 用户删除等裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
-    const commit = this.withStoreLock(():
-      | { readonly kind: "cancelled"; readonly current: IncubationEntry }
-      | { readonly kind: "deleted" }
-      | { readonly kind: "written"; readonly finalEntry: IncubationEntry } => {
-      const fresh = this.read();
-      const freshIdx = fresh.findIndex((x) => x.id === entry.id);
-      // 条目被并发取消(cancel → releaseThinking,状态已非 in-flight):
-      // 放弃写回 —— 落盘会推翻用户的终止裁决(状态被报告强行拉回 done)。
-      // 与下方"被删除"分支同构:用户裁决优先于迟到的报告。
-      if (
-        freshIdx !== -1 &&
-        fresh[freshIdx]!.status !== "thinking" &&
-        fresh[freshIdx]!.status !== "verifying" &&
-        fresh[freshIdx]!.status !== "repairing"
-      ) {
-        return { kind: "cancelled", current: fresh[freshIdx]! };
-      }
-      if (freshIdx === -1) {
-        // 本条目被并发删除:放弃写入(不复活已删条目)
-        return { kind: "deleted" };
-      }
-      const finalEntry: IncubationEntry = { ...updated, status: updated.status };
-      const next = [...fresh];
-      next[freshIdx] = finalEntry;
-      // 终态落定:本 run 全部提案的隔离标翻转(正常终束解除;degraded 固化)。
-      // 本 run 的提案 = timeline 中 round=nextRound 的全部事件(主报告 + 修复轮)
-      if (finalize && entityIds.length + timeline.filter((t) => t.round === nextRound).length > 0) {
-        const runEntityIds = [
-          ...entry.timeline
-            .filter((t) => t.round === nextRound)
-            .flatMap((t) => [...t.proposalEntityIds]),
-          ...entityIds,
-        ];
-        if (runEntityIds.length > 0) {
-          this.deps.proposalEngine.setInsightClosureState(
-            runEntityIds,
-            degradedFinal
-              ? { provisional: false, unclosedGaps: degradedFinal.unclosedGaps }
-              : claimsWeak
-                ? { provisional: false, unclosedGaps: claimsWeakNote }
-                : undefined,
-          );
+    const commit = this.withStoreLock(
+      ():
+        | { readonly kind: "cancelled"; readonly current: IncubationEntry }
+        | { readonly kind: "deleted" }
+        | {
+            readonly kind: "written";
+            readonly finalEntry: IncubationEntry;
+          } => {
+        const fresh = this.read();
+        const freshIdx = fresh.findIndex((x) => x.id === entry.id);
+        // 条目被并发取消(cancel → releaseThinking,状态已非 in-flight):
+        // 放弃写回 —— 落盘会推翻用户的终止裁决(状态被报告强行拉回 done)。
+        // 与下方"被删除"分支同构:用户裁决优先于迟到的报告。
+        if (
+          freshIdx !== -1 &&
+          fresh[freshIdx]!.status !== "thinking" &&
+          fresh[freshIdx]!.status !== "verifying" &&
+          fresh[freshIdx]!.status !== "repairing"
+        ) {
+          return { kind: "cancelled", current: fresh[freshIdx]! };
         }
-      }
-      // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
-      // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达);pdca
-      // 记修复回路状态(Phase1)。与 write 同临界区,保持盘上状态与审计痕次序。
-      this.deps.auditLog?.append({
-        actor: input.actor,
-        action: "contemplation_run_done",
-        metadata: {
-          id: entry.id,
-          round: nextRound,
-          trigger: input.trigger,
-          level: input.level ?? "L2",
-          ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
-          proposals: entityIds.length,
-          drafts: input.report.insights.length,
-          diagnosis,
-          ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
-          pdca: {
-            evidenceAvailable,
-            repairRound: repairReports,
-            openGaps: openGapDescs.length,
-            gapsTotal: advanced.gaps.length,
-            deferred: advanced.deferredThisRound.length,
-            degraded: !!degradedFinal,
-            ...(degradedFinal ? { degradedReason: degradedFinal.reason } : {}),
-            ...(planItems.length
-              ? {
-                  planItems: planItems.length,
-                  planNarrowed: applied.narrowed.length,
-                  planExempted: applied.exempted.length,
-                }
+        if (freshIdx === -1) {
+          // 本条目被并发删除:放弃写入(不复活已删条目)
+          return { kind: "deleted" };
+        }
+        const finalEntry: IncubationEntry = {
+          ...updated,
+          status: updated.status,
+        };
+        const next = [...fresh];
+        next[freshIdx] = finalEntry;
+        // 终态落定:本 run 全部提案的隔离标翻转(正常终束解除;degraded 固化)。
+        // 本 run 的提案 = timeline 中 round=nextRound 的全部事件(主报告 + 修复轮)
+        if (
+          finalize &&
+          entityIds.length +
+            timeline.filter((t) => t.round === nextRound).length >
+            0
+        ) {
+          const runEntityIds = [
+            ...entry.timeline
+              .filter((t) => t.round === nextRound)
+              .flatMap((t) => [...t.proposalEntityIds]),
+            ...entityIds,
+          ];
+          if (runEntityIds.length > 0) {
+            this.deps.proposalEngine.setInsightClosureState(
+              runEntityIds,
+              degradedFinal
+                ? {
+                    provisional: false,
+                    unclosedGaps: degradedFinal.unclosedGaps,
+                  }
+                : claimsWeak
+                  ? { provisional: false, unclosedGaps: claimsWeakNote }
+                  : undefined,
+            );
+          }
+        }
+        // 轮次审计(viewer 可查):diagnosis 以嵌套对象直落 metadata;回答仅记
+        // 200 字预览防爆噪;level 是执行档位(M2:不进 UI,仅审计可达);pdca
+        // 记修复回路状态(Phase1)。与 write 同临界区,保持盘上状态与审计痕次序。
+        this.deps.auditLog?.append({
+          actor: input.actor,
+          action: "contemplation_run_done",
+          metadata: {
+            id: entry.id,
+            round: nextRound,
+            trigger: input.trigger,
+            level: input.level ?? "L2",
+            ...(input.durationMs !== undefined
+              ? { durationMs: input.durationMs }
               : {}),
-            ...(answerRepeat ? { answerRepeat: true } : {}),
-            ...(claimsResult
-              ? {
-                  claims: claimsResult.claims.length,
-                  claimsDowngraded: claimsResult.claims.filter((c) => c.status === "downgraded").length,
-                  claimsWeak,
-                }
-              : { claimsSkipped: true }),
-            ...(degradedFinal?.nextTasks?.length ? { nextTasks: degradedFinal.nextTasks.length } : {}),
+            proposals: entityIds.length,
+            drafts: input.report.insights.length,
+            diagnosis,
+            ...(answer ? { answerPreview: answer.slice(0, 200) } : {}),
+            pdca: {
+              evidenceAvailable,
+              repairRound: repairReports,
+              openGaps: openGapDescs.length,
+              gapsTotal: advanced.gaps.length,
+              deferred: advanced.deferredThisRound.length,
+              degraded: !!degradedFinal,
+              ...(degradedFinal
+                ? { degradedReason: degradedFinal.reason }
+                : {}),
+              ...(planItems.length
+                ? {
+                    planItems: planItems.length,
+                    planNarrowed: applied.narrowed.length,
+                    planExempted: applied.exempted.length,
+                  }
+                : {}),
+              ...(answerRepeat ? { answerRepeat: true } : {}),
+              ...(claimsResult
+                ? {
+                    claims: claimsResult.claims.length,
+                    claimsDowngraded: claimsResult.claims.filter(
+                      (c) => c.status === "downgraded",
+                    ).length,
+                    claimsWeak,
+                  }
+                : { claimsSkipped: true }),
+              ...(degradedFinal?.nextTasks?.length
+                ? { nextTasks: degradedFinal.nextTasks.length }
+                : {}),
+            },
           },
-        },
-      });
-      this.write(next);
-      return { kind: "written", finalEntry };
-    });
+        });
+        this.write(next);
+        return { kind: "written", finalEntry };
+      },
+    );
     if (commit.kind !== "written") {
       // 用户裁决优先:并发取消(取盘上终态)或并发删除(取本轮计算值)
       return {
@@ -1396,8 +1563,18 @@ export class Incubator {
         return false;
       }
     });
-    const skills = [...new Set((r.skills ?? []).filter((s): s is string => typeof s === "string" && !!s))];
-    const logs = [...new Set((r.logs ?? []).filter((l): l is string => typeof l === "string" && !!l))];
+    const skills = [
+      ...new Set(
+        (r.skills ?? []).filter(
+          (s): s is string => typeof s === "string" && !!s,
+        ),
+      ),
+    ];
+    const logs = [
+      ...new Set(
+        (r.logs ?? []).filter((l): l is string => typeof l === "string" && !!l),
+      ),
+    ];
     const webMap = new Map<string, WebResourceUsed>();
     for (const w of Array.isArray(r.web) ? r.web : []) {
       if (!w || typeof w.query !== "string" || !w.query.trim()) continue;
@@ -1410,14 +1587,21 @@ export class Incubator {
         ? { purpose: w.purpose.trim().slice(0, 300) }
         : {}),
     }));
-    if (engrams.length === 0 && skills.length === 0 && logs.length === 0 && web.length === 0) {
+    if (
+      engrams.length === 0 &&
+      skills.length === 0 &&
+      logs.length === 0 &&
+      web.length === 0
+    ) {
       return undefined;
     }
     return { engrams, skills, logs, ...(web.length ? { web } : {}) };
   }
 
   /** 由 sourceIds 构造最小校验子图(节点来自 repo;不存在者由引用闭合拒绝) */
-  private subgraphFor(d: InsightDraft): Parameters<typeof validateInsightDraft>[1] {
+  private subgraphFor(
+    d: InsightDraft,
+  ): Parameters<typeof validateInsightDraft>[1] {
     const nodes = [];
     for (const id of new Set(d.sourceIds)) {
       try {
