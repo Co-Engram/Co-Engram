@@ -38,6 +38,9 @@ Co-Engram 的存储基于三条原则:
 │   └── <intention-id>.yaml
 ├── config/                             # 仓库级配置
 │   └── co-engram.yaml
+├── events/                             # 团队动态事件(入库,2026-08)
+│   └── 2026-08-19/                     # 按天分区(事件 ts,UTC)
+│       └── <origin>.jsonl              # 每个作者/机器一个文件 —— 写者隔离分片
 ├── .trash/                             # 记忆回收站(可选开启,纳入 Git 跟踪)
 │   └── 2026-06/                        # 按月分区(UTC)
 │       └── <domainTags>/<slug>.md
@@ -348,6 +351,23 @@ synapse 图的快照,用于快速遍历。在每次 `synapse_create` / `synapse_
 跟踪的 action:`create`、`update`、`update_lifecycle`、`reinforce`、`report_failure`、`forget`、`restore`、`sweep_to_trash`、`restore_from_trash`、`purge`、`propose`、`accept`、`dismiss`、`retrieve_hit`、`retrieve_effective`、`retrieve_inconclusive`、`contradicted`。
 
 大致大小:200 字节/事件。默认开启轮转后,文件大小受 ~50MB 硬上限约束(实际通常远低于此)。
+
+### `events/<日期>/<origin>.jsonl`
+
+团队动态事件(2026-08)。`audit.jsonl` 是机器本地的(gitignored),在「各自 clone + git 同步」拓扑下,viewer 的「记忆动态」流若无此机制将只包含本机事件。因此高价值动作(`create`、`update`、`reinforce`、`contradicted`、`accept`、`skill_create`、`skill_update`)会双写一份**随仓库提交**的按天分片:
+
+- **写者隔离**:每个文件只有一个写者(`<origin>` = git `user.name`,兜底 `user.email`),git 合并在结构上零冲突——无需 union merge driver。
+- **隐私防线**:`visibility: private` 的 engram 事件绝不进入 `events/`(只留在本地 audit);metadata 白名单投影并截断至 80 字,正文内容绝不全文携带。
+- **去重**:每事件带全局唯一 `eventId`;viewer 合并 `audit.jsonl ∪ events/` 时按 `action|engramId|ts` 去重本机双写。
+- **保留策略**:早于 `audit.teamEvents.retentionDays`(默认 14 天)的日期目录整目录删除;未来日期目录(时钟漂移产物)永不删除。
+
+每行是一个 `TeamEvent`:
+
+```json
+{"schemaVersion":1,"eventId":"0f4c…","origin":"alice","ts":"2026-08-19T10:00:00.000Z","actor":"user","action":"create","engramId":"01J...A","metadata":{"createdBy":"alice","title":"部署端口契约"}}
+```
+
+仓库 config 设 `audit.teamEvents.enabled: false` 可关闭。
 
 ### `doctor-report.json`
 

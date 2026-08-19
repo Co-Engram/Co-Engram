@@ -41,6 +41,7 @@ import {
   writeSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
+import type { TeamEventRecorder } from "./team-event-store.js";
 
 /** 审计动作 */
 export type AuditAction =
@@ -160,9 +161,20 @@ export class AuditLog {
     | undefined;
   /** 背压冷却:上次 append 触发轮转的时间戳(防边界震荡) */
   private lastBackpressureAt = 0;
+  /**
+   * 团队动态事件出口(2026-08-19):宿主装配 TeamEventStore 后,append 自动
+   * 双写——本地 audit.jsonl 照旧,高价值动作另落 events/ 分片随 git 同步。
+   * 接口解耦(TeamEventRecorder),本模块不依赖具体实现,无循环引用。
+   */
+  private teamEventRecorder?: TeamEventRecorder;
 
   constructor(dataRoot: string) {
     this.filePath = join(dataRoot, ".co-engram", "audit.jsonl");
+  }
+
+  /** 注入团队动态事件出口(幂等;不注入则 append 行为与历史版本一致) */
+  setTeamEventRecorder(recorder: TeamEventRecorder): void {
+    this.teamEventRecorder = recorder;
   }
 
   /** 追加一条记录(失败静默) */
@@ -174,6 +186,8 @@ export class AuditLog {
         mkdirSync(dir, { recursive: true });
       }
       appendFileSync(this.filePath, `${JSON.stringify(fullEntry)}\n`, "utf8");
+      // 团队事件转发在本地写入成功之后(本地审计优先;转发内部自带过滤与静默)
+      this.teamEventRecorder?.record(fullEntry);
       this.maybeBackpressureRotate();
     } catch {
       // intentional:审计失败不应阻塞业务逻辑

@@ -38,6 +38,9 @@ Co-Engram's storage is built on three principles:
 │   └── <intention-id>.yaml
 ├── config/                             # repo-level config
 │   └── co-engram.yaml
+├── events/                             # team activity events (Git-tracked, 2026-08)
+│   └── 2026-08-19/                     # partition by day (event ts, UTC)
+│       └── <origin>.jsonl              # one file per author/machine — writer-isolated sharding
 ├── .trash/                             # memory recycle bin (opt-in, Git-tracked)
 │   └── 2026-06/                        # partition by month (UTC)
 │       └── <domainTags>/<slug>.md
@@ -348,6 +351,23 @@ Each line is one `AuditEntry`:
 Tracked actions: `create`, `update`, `update_lifecycle`, `reinforce`, `report_failure`, `forget`, `restore`, `sweep_to_trash`, `restore_from_trash`, `purge`, `propose`, `accept`, `dismiss`, `retrieve_hit`, `retrieve_effective`, `retrieve_inconclusive`, `contradicted`.
 
 Approximate size: 200 bytes/event. With default rotation the file stays bounded at ~50MB worst-case (size cap), typically much smaller.
+
+### `events/<day>/<origin>.jsonl`
+
+Team activity events (2026-08). `audit.jsonl` is machine-local (gitignored), so in the clone-per-person + git sync topology the viewer's "Memory Activity" feed would otherwise only show local events. High-value actions (`create`, `update`, `reinforce`, `contradicted`, `accept`, `skill_create`, `skill_update`) are therefore dual-written into day-partitioned shards that **are** committed with the repo:
+
+- **Writer isolation**: each file is written by exactly one author/machine (`<origin>` = git `user.name`, falling back to `user.email`), so git merges never conflict — no union driver needed.
+- **Privacy**: events for `visibility: private` engrams never enter `events/` (they stay in the local audit only); metadata is whitelist-projected and clipped to 80 chars, content bodies are never carried in full.
+- **Dedup**: every event carries a globally unique `eventId`; the viewer merges `audit.jsonl ∪ events/` and dedups local dual-writes by `action|engramId|ts`.
+- **Retention**: day directories older than `audit.teamEvents.retentionDays` (default 14) are deleted whole; future-dated directories (clock skew) are never touched.
+
+Each line is one `TeamEvent`:
+
+```json
+{"schemaVersion":1,"eventId":"0f4c…","origin":"alice","ts":"2026-08-19T10:00:00.000Z","actor":"user","action":"create","engramId":"01J...A","metadata":{"createdBy":"alice","title":"deploy port contract"}}
+```
+
+Disable with `audit.teamEvents.enabled: false` in the repo config.
 
 ### `doctor-report.json`
 

@@ -66,6 +66,7 @@ import {
   type NecessityEvaluator,
   type PathOverviewItem,
   DEFAULT_AUDIT_CONFIG,
+  TeamEventStore,
   acquireProcessLock,
   verifyDerivedIntegrity,
   IndexOrchestrator,
@@ -233,6 +234,32 @@ export function createCoEngramContext(
   const auditLog = fullConfig.auditEnabled
     ? new AuditLog(fullConfig.dataRoot)
     : undefined;
+  // 团队动态事件出口(2026-08-19,与 claude-code-mcp register.ts 同款装配):
+  // 高价值动作双写 events/ 分片随 git 同步;visibilityLookup 走 SQLite 单查,
+  // indexDb 缺失时不装配 → TeamEventStore 宁缺勿漏(private 不可判定就不落盘)。
+  const teamEventsConfig = fullConfig.auditTeamEvents;
+  const teamEventStore =
+    auditLog && teamEventsConfig?.enabled !== false
+      ? new TeamEventStore(fullConfig.dataRoot, {
+          origin: detectGitAuthor() ?? "unknown",
+          ...(teamEventsConfig?.retentionDays
+            ? { retentionDays: teamEventsConfig.retentionDays }
+            : {}),
+          ...(repository.indexDb
+            ? {
+                visibilityLookup: (engramId: string): string | undefined => {
+                  const row = repository.indexDb!.prepare(
+                    "SELECT visibility FROM engrams WHERE id = ?",
+                  ).get(engramId) as { visibility: string } | undefined;
+                  return row?.visibility;
+                },
+              }
+            : {}),
+        })
+      : undefined;
+  if (auditLog && teamEventStore) {
+    auditLog.setTeamEventRecorder(teamEventStore);
+  }
   const effectivenessTracker =
     fullConfig.effectivenessEnabled && auditLog
       ? new EffectivenessTracker(fullConfig.dataRoot, auditLog)

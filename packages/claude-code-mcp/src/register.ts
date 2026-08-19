@@ -30,6 +30,7 @@ import {
   type MaintenanceConfig,
   type ProposalEngineConfig,
   type AuditRotationConfig,
+  TeamEventStore,
   type NecessityEvaluator,
   type LlmClient,
   type Tool,
@@ -126,6 +127,18 @@ export interface CoEngramMcpServerConfig {
    * auditEnabled=false 时本字段被忽略(无 auditLog 自然无 rotation)。
    */
   readonly auditRotationConfig?: AuditRotationConfig;
+  /**
+   * 团队动态事件同步(2026-08-19,config.json 的 audit.teamEvents 透传)。
+   *
+   * 启用时(默认),高价值动作(create/update/reinforce/contradicted/accept/
+   * skill_*)除写本地 audit 外,另落 events/<日期>/<origin>.jsonl 分片随
+   * git 同步——「各自 clone + sync」拓扑下,viewer「记忆动态」才能看到
+   * 团队成员的操作流。private engram 的事件被过滤,不进同步目录。
+   */
+  readonly auditTeamEvents?: {
+    enabled?: boolean;
+    retentionDays?: number;
+  };
   /** 是否启用 effectiveness 追踪（默认 true） */
   readonly effectivenessEnabled?: boolean;
   /** 是否启用 proposal engine（默认 false,需显式开启） */
@@ -303,6 +316,32 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   // M1: 构造 observability 三件套（按需）
   const auditEnabled = config.auditEnabled !== false; // 默认 true
   const auditLog = auditEnabled ? new AuditLog(config.dataRoot) : undefined;
+  // 团队动态事件出口(2026-08-19):高价值动作双写 events/ 分片随 git 同步。
+  // visibilityLookup 走 SQLite 单查;indexDb 缺失时不装配 lookup →
+  // TeamEventStore 宁缺勿漏(private 不可判定就不落盘)。
+  const teamEventsConfig = config.auditTeamEvents;
+  const teamEventStore =
+    auditLog && teamEventsConfig?.enabled !== false
+      ? new TeamEventStore(config.dataRoot, {
+          origin: detectGitAuthor() ?? "unknown",
+          ...(teamEventsConfig?.retentionDays
+            ? { retentionDays: teamEventsConfig.retentionDays }
+            : {}),
+          ...(repository.indexDb
+            ? {
+                visibilityLookup: (engramId: string): string | undefined => {
+                  const row = repository.indexDb!.prepare(
+                    "SELECT visibility FROM engrams WHERE id = ?",
+                  ).get(engramId) as { visibility: string } | undefined;
+                  return row?.visibility;
+                },
+              }
+            : {}),
+        })
+      : undefined;
+  if (auditLog && teamEventStore) {
+    auditLog.setTeamEventRecorder(teamEventStore);
+  }
   const effectivenessEnabled = config.effectivenessEnabled !== false; // 默认 true
   const effectivenessTracker =
     effectivenessEnabled && auditLog

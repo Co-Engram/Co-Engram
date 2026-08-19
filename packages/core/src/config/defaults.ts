@@ -88,6 +88,10 @@ export const DEFAULT_AUDIT_CONFIG: Readonly<Required<AuditSectionConfig>> = {
     maxSizeMb: 50,
     intervalMs: 24 * 60 * 60 * 1000,
   },
+  teamEvents: {
+    enabled: true,
+    retentionDays: 14,
+  },
 };
 
 /** Effectiveness 默认值 */

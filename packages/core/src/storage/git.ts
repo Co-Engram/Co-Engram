@@ -603,6 +603,8 @@ export function hasRemote(repoPath: string): boolean {
  */
 export const DEFAULT_CO_ENGRAM_GITIGNORE = `# co-engram 仓库默认 .gitignore
 # 整个 .co-engram/ 目录不入库(派生数据 + 行为缓存 + 审计日志,可重新生成)
+# 注意:团队动态事件在 events/ 目录(2026-08-19 起),**必须入库**——
+# 它是跨机动态流的数据源,加入 ignore 会导致看不到团队成员的记忆动态。
 .co-engram/
 
 # Private engrams(visibility='private')—— 用户私人记忆,不入团队仓库

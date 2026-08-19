@@ -346,6 +346,7 @@ async function main(): Promise<void> {
       : {}),
     auditEnabled,
     auditRotationConfig: persistedConfig.audit?.rotation,
+    auditTeamEvents: persistedConfig.audit?.teamEvents,
     effectivenessEnabled,
     proposalEnabled,
     proposalConfig,

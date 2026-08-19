@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   type AuditAction,
+  type AuditEntry,
   type ToolContext,
   type EngramUpdateInput,
   type EngramVisibility,
@@ -71,6 +72,7 @@ import {
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
+  TeamEventStore,
   type EngramRepository,
   type Skill,
   type AcquisitionStage,
@@ -1500,7 +1502,7 @@ async function routeApi(
     const cursor = url.searchParams.get("cursor") ?? undefined;
     const queryLimit = Math.min(Math.max(limit * 10, 2000), 10000);
 
-    const allEntries = ctx.auditLog.query({
+    const localEntries = ctx.auditLog.query({
       ...(actionList.length === 1
         ? { action: actionList[0] as AuditAction }
         : actionList.length > 1
@@ -1511,6 +1513,49 @@ async function routeApi(
       ...(until ? { until } : {}),
       limit: queryLimit,
     });
+
+    // 团队动态事件合并(2026-08-19):events/ 分片携带其他机器(git 同步)的
+    // 高价值动作,与本机 audit 合并成统一动态流。本机事件双写(audit + events)
+    // 产生重复,按 action|engramId|ts 语义键去重,本机条目优先(metadata 更全)。
+    // 只读实例:origin/visibilityLookup 是写端职责,读端仅需 dataRoot。
+    let allEntries: readonly AuditEntry[] = localEntries;
+    if (dataRoot) {
+      const teamStore = new TeamEventStore(dataRoot, { origin: "viewer-reader" });
+      const teamFilter = {
+        ...(actionList.length > 0
+          ? { action: actionList as readonly AuditAction[] }
+          : {}),
+        ...(engramId ? { engramId } : {}),
+        ...(since ? { since } : {}),
+        ...(until ? { until } : {}),
+        limit: queryLimit,
+      };
+      const seen = new Set(
+        localEntries.map(
+          (e) => `${e.action}|${e.engramId ?? ""}|${e.ts}`,
+        ),
+      );
+      const merged = [...localEntries];
+      for (const ev of teamStore.query(teamFilter)) {
+        const key = `${ev.action}|${ev.engramId ?? ""}|${ev.ts}`;
+        if (seen.has(key)) continue; // 本机双写去重
+        seen.add(key);
+        merged.push({
+          ts: ev.ts,
+          actor: ev.actor,
+          action: ev.action,
+          ...(ev.engramId ? { engramId: ev.engramId } : {}),
+          ...(ev.host ? { host: ev.host } : {}),
+          metadata: {
+            ...(ev.metadata ?? {}),
+            // 操作者标识:authorFor 兜底链展示用(跨机事件无 updatedBy/
+            // createdBy 时,显示 origin 而非机器 actor)
+            _teamOrigin: ev.origin,
+          },
+        });
+      }
+      allEntries = merged;
+    }
 
     // 附加 _idx 作 tiebreak(同 ts 时稳定排序);ts 是毫秒精度,碰撞概率低
     // 但密集审计场景仍可能,用 _idx 兜底

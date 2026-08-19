@@ -323,6 +323,8 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     if (e.action === 'update' && m.changes && typeof m.changes === 'object') {
       const c = m.changes;
       if (c.content && c.content.to) return clip(c.content.to);
+      // 2026-08-19:跨机团队事件的投影形状(白名单只留 fields + contentTo 截断)
+      if (typeof c.contentTo === 'string' && c.contentTo) return clip(c.contentTo);
     }
     if (e.engramSummary) return clip(e.engramSummary);
     if (typeof m.reason === 'string' && m.reason) return clip(m.reason);
@@ -334,12 +336,15 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     return '';
   };
   // 人类作者名(DEMO .ew):metadata 里的 updatedBy/createdBy 优先,
-  // 其次回填的 engramCreatedBy;都没有才显示机器 actor(user/llm/system)
+  // 其次回填的 engramCreatedBy,再是跨机团队事件的操作者标识(_teamOrigin,
+  // 2026-08-19:别人机器同步来的动态没有 updatedBy,origin 才是操作人);
+  // 都没有才显示机器 actor(user/llm/system)
   const authorFor = (e) => {
     const m = e.metadata || {};
     if (typeof m.updatedBy === 'string' && m.updatedBy) return m.updatedBy;
     if (typeof m.createdBy === 'string' && m.createdBy) return m.createdBy;
     if (e.engramCreatedBy) return e.engramCreatedBy;
+    if (typeof m._teamOrigin === 'string' && m._teamOrigin) return m._teamOrigin;
     return e.actor || '';
   };
   // 日标题(DEMO:「今天 · 8月15日」):Intl 按界面语言本地化月日
@@ -369,8 +374,10 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     // 与记忆更新图(updatesLast30d)同口径:update 必须有 changes.content
     // (真实内容变更)才展示;例外放行 source=external-edit(IDE/git pull
     // 外部改文件,contentHash 已判定内容级变更,无 changes diff 可依)。
+    // 2026-08-19:跨机团队事件的 changes 是白名单投影形状(fields +
+    // contentTo 截断,不带全文),contentTo 同样证明内容级变更,一并放行。
     if (e.action === 'update'
-      && !(e.metadata && e.metadata.changes && e.metadata.changes.content)
+      && !(e.metadata && e.metadata.changes && (e.metadata.changes.content || e.metadata.changes.contentTo))
       && e.metadata?.source !== 'external-edit') continue;
     const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.ts));
     const prev = dedup.get(key);
