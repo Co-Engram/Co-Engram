@@ -144,7 +144,7 @@ export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: tru
 export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   name: "skill_invoke",
   description:
-    "报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 会拒绝。",
+    "报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 通过一次使用报告自动复活（relearning：使用是最强的再激活信号，SKILL.md 内容若长期未用建议先复核）。",
   inputSchema: SkillInvokeInputSchema,
   async execute(input, ctx) {
     const parsed = validateInput<SkillInvokeToolInput>(
@@ -153,27 +153,9 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
     );
     const repo = requireSkillRepo(ctx);
     const before = repo.readSkill(parsed.id);
-    if (before.retentionStage === "forgotten") {
-      if (ctx.auditLog) {
-        ctx.auditLog.append({
-          actor: "user",
-          action: "skill_invoke",
-          metadata: {
-            skillId: parsed.id,
-            success: false,
-            error: "forgotten",
-            retentionStage: before.retentionStage
-          },
-        });
-      }
-      return {
-        skillId: parsed.id,
-        success: false,
-        output: "",
-        error: `Skill ${parsed.id} decayed to forgotten (re-instantiate or restore before use)`,
-        executedAt: new Date().toISOString(),
-      };
-    }
+    // forgotten 不再拒绝(原实现阻断 relearning,低频好技能被系统判死):
+    // recordUse 内部 touch lastUsedAt → retention 自动回 active,使用即复活。
+    const wasForgotten = before.retentionStage === "forgotten";
     const after = repo.recordUse(parsed.id, { success: parsed.success, effectiveness: parsed.effectiveness });
     if (ctx.auditLog) {
       ctx.auditLog.append({
@@ -185,14 +167,15 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
           effectiveness: parsed.effectiveness,
           utilityBefore: before.utility,
           utilityAfter: after.utility,
-          retentionStage: after.retentionStage
+          retentionStage: after.retentionStage,
+          ...(wasForgotten ? { revivedFrom: "forgotten" as const } : {}),
         },
       });
     }
     return {
       skillId: parsed.id,
       success: parsed.success,
-      output: `utility=${after.utility.toFixed(3)} successCount=${after.successCount} failureCount=${after.failureCount} retentionStage=${after.retentionStage}`,
+      output: `utility=${after.utility.toFixed(3)} successCount=${after.successCount} failureCount=${after.failureCount} retentionStage=${after.retentionStage}${wasForgotten ? " revivedFrom=forgotten" : ""}`,
       effectiveness: parsed.effectiveness,
       executedAt: new Date().toISOString(),
     };

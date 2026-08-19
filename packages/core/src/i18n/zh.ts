@@ -528,7 +528,7 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 想读陈述性记忆(用 engram_search / engram_get)
 
 返回:Skill 元信息(name、description、template kind、parameters)。`,
-  "tool.skill_invoke.agent": `报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 会拒绝。
+  "tool.skill_invoke.agent": `报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 通过一次使用报告自动复活（relearning:使用是最强的再激活信号;若 SKILL.md 长期未用建议先复核内容）。
 
 何时调用:
 - 已通过宿主实际执行完一个 skill，需要报告结果
@@ -2446,13 +2446,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.skill.conceptEngramVsSkill":
     "<strong>engram vs skill</strong>:engram 记录静态知识(事实、模式、流程),skill 记录可调用的动态技能(带参数的模板、推理链)。engram 是「名词」,skill 是「动词」——当 agent 需要执行某个动作序列时,它调用 <code>skill_invoke</code> 并传入参数,skill 返回执行结果。",
   "viewer.help.skill.lifecycle":
-    "<strong>生命周期</strong>:<code>检测(提案) → accept(落盘) → invoke(使用) → 衰退 → forgotten</code>。<code>检测</code>:扫描 <code>SKILL.md</code> 所在目录,生成候选提案。<code>accept</code>:创建 Skill 实体,acquisitionStage=draft,retentionStage=active。<code>invoke</code>:记录使用次数,按 <strong>Rescorla-Wagner 规则</strong> 更新 utility(成功时提升,失败时降低)。<code>衰退</code>:light 维护周期重算 retention,utility 持续低下时会从 active 降为 aging/stale。<code>forgotten</code>:长期未用或 utility 极低的 skill 自动遗忘。",
+    "<strong>生命周期</strong>:<code>检测(提案) → accept(落盘) → invoke(使用) → 衰退 → forgotten</code>。<code>检测</code>:扫描 <code>SKILL.md</code> 所在目录,生成候选提案。<code>accept</code>:创建 Skill 实体,acquisitionStage=draft,retentionStage=active。<code>invoke</code>:记录使用次数,按 <strong>Rescorla-Wagner 规则</strong> 更新 utility(成功时提升,失败时降低)。<code>衰退</code>:light 维护周期重算 retention,随时间从 active 降为 aging/stale(从未使用的技能也随注册时间老化)。<code>forgotten</code>:长期未用的 skill 自动遗忘,不注入技能清单;一次真实使用即可复活(relearning)。",
   "viewer.help.skill.acquisition":
     "<strong>习得深度轴(acquisitionStage)</strong>:<code>draft(草稿) → compiled(已编译) → tuned(已调优)</code>。<code>draft</code>:刚接受提案,未被充分验证的 skill。<code>compiled</code>:经过一定次数的成功调用,utility 稳定在较高水平,可进入编译阶段(ACT-R production compilation,从显式推理转为内化模式)。<code>tuned</code>:长期高频使用且表现稳定的 skill,经过人工或自动调优,达到专家级水平。阶段迁移需人工触发(或未来版本自动迁移),体现技能从「有意识执行」到「自动化」的学习曲线。",
   "viewer.help.skill.utility":
     "<strong>utility(效用)</strong>:0-1 之间,反映技能被调用的期望收益。初始值 0.5。每次成功调用(返回有效结果)按 Rescorla-Wagner 规则提升,失败调用降低。utility 高的 skill 在同类技能竞选中优先被选中。utility 按 Ebbinghaus 曲线时间衰减,久未使用的 skill utility 会自动下降。",
   "viewer.help.skill.retention":
-    "<strong>retention(保持)</strong>:反映技能在记忆中的保持强度,分 4 档:<code>active(活跃)</code>:近期使用频繁,保持强度高。<code>aging(老化)</code>:开始遗忘但仍可召回。<code>stale(陈旧)</code>:保持强度低,可能需重新学习。<code>forgotten(遗忘)</code>:已从默认技能池移除,需手动重新激活。",
+    "<strong>retention(保持)</strong>:反映技能在记忆中的保持强度,按遗忘曲线随时间衰减(用过没用的技能距上次使用、从未使用的技能距注册时间起算),分 4 档:<code>active(活跃)</code>:近期使用频繁,保持强度高。<code>aging(老化)</code>:开始遗忘但仍可召回。<code>stale(陈旧)</code>:保持强度低,可能需重新学习。<code>forgotten(遗忘)</code>:已从默认技能池移除;<strong>使用一次即自动复活</strong>(relearning,下次 agent 触发时正常调用并报告即可),也可在网页上手动恢复。",
   "viewer.help.skill.composes":
     "<strong>composes(skill 间组合)</strong>:skill 可以声明对其他 skill 的依赖,形成 <code>Skill Chaining</code>(技能链)。例如「发布流程」skill 可能由「测试」「构建」「部署」三个子 skill 组合而成。调用父 skill 时会自动按依赖顺序调用子 skill,实现复杂任务的分解与复用。组合关系用 <code>composes</code> 字段声明。",
   "viewer.help.skill.sidecar":

@@ -1473,11 +1473,12 @@ describe("skill_invoke", () => {
         { id: "skill-1", success: true, effectiveness: 0.9 },
         extCtx,
       );
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/forgotten/);
-      // 验证 utility 未变（forgotten 分支在 recordUse 前返回）
+      // forgotten 不再拒绝:使用即复活(relearning),正常记录并提示
+      expect(result.success).toBe(true);
+      expect(result.output).toContain("revivedFrom=forgotten");
       const after = repo.readSkill("skill-1");
-      expect(after.utility).toBe(skill.utility);
+      expect(after.retentionStage).toBe("active"); // 复活
+      expect(after.utility).toBeGreaterThan(skill.utility); // Rescorla-Wagner 正常更新
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }

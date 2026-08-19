@@ -97,7 +97,7 @@ Co-Engram 会自动扫描包含 `SKILL.md` 的目录（不绑死特定路径）�
 
 - **Rescorla-Wagner 更新**：`utility(n+1) = utility(n) + α × [reward - utility(n)]`
 - **成功率追踪**：`successCount` / `failureCount` 累积
-- **衰退重算**：基于 `lastUsedAt` 和 `utility` 重新计算 `retentionStage`
+- **衰退重算**：基于 `lastUsedAt`（从未使用时锚定 `createdAt`）和 `utility` 重新计算 `retentionStage`
 
 调用示例：
 
@@ -113,9 +113,9 @@ skill_invoke({
 
 **Oblivion 遗忘曲线**：`retention = exp(-n/S)`，其中：
 
-- `n` = 距离上次使用的天数
+- `n` = 距锚点的天数：用过没用的技能锚定**上次使用时间**，从未使用的技能锚定**创建时间**（never-used 不再冻结在 active，未验证的技能随库龄老化）
 - `S` = `(utility + frequency + ε) × T`（记忆强度）
-- `T = 10`（时间尺度常数）
+- `T = 15`（时间尺度常数；2026-08 由 10 上调——原值下用过 1 次的技能约 5 天即 stale，"用进"的奖励追不上"废退"的惩罚）
 - `frequency = min(invocationCount / 20, 1)`（频率归一化）
 
 **衰退阶段**（`retentionStage`）：
@@ -125,11 +125,11 @@ skill_invoke({
 | `active` | > 0.75 | 正常调用，utility 全强度更新 |
 | `aging` | 0.5 - 0.75 | utility 更新衰减 |
 | `stale` | 0.25 - 0.5 | 仅记录调用，不更新 utility |
-| `forgotten` | < 0.25 | 禁止调用，需重新实例化或恢复 |
+| `forgotten` | < 0.25 | 移出技能注入清单；一次真实使用即自动复活（relearning），也可手动恢复 |
 
 **周期性重算**：maintenance engine 的 **light stage**（每 5 分钟）调用 `recomputeRetentionAll()`，批量更新所有 skill 的 `retentionStage`。
 
-**重要**：`forgotten` 只改变投影状态，不物理删除 sidecar 或本体。用户可通过 `skill_update` 手动恢复 `acquisitionStage` 重新激活。
+**重要**：`forgotten` 只改变投影状态，不物理删除 sidecar 或本体。复活有两条路径：① agent 再次使用该技能并调用 `skill_invoke` 记录结果（使用即复活，touch `lastUsedAt` → retention 回满 → 回 active）；② 在 viewer 手动恢复（`reactivateSkill`，touch `lastUsedAt` 但不记为一次使用）。
 
 ### 5. 组合（Skill Chaining）
 
@@ -227,12 +227,12 @@ Viewer 的 **Stats** tab 新增 Skill 维度：
 
 **遗忘曲线**：`retention = exp(-n/S)`
 
-- `n`：距上次使用天数
+- `n`：距锚点天数（上次使用时间；从未使用则创建时间）
 - `S`：记忆强度 = `(utility + frequency + ε) × T`
 
 **关键参数**：
 
-- `T = 10`：时间尺度常数
+- `T = 15`：时间尺度常数
 - `ε = 0.1`：防零除数
 - `frequency = min(invocationCount / 20, 1)`：频率归一化，上限 20 次
 
@@ -241,6 +241,7 @@ Viewer 的 **Stats** tab 新增 Skill 维度：
 - 高 utility + 高频率 → `S` 大 → 遗忘慢
 - 低 utility + 低频率 → `S` 小 → 遗忘快
 - 刚调用完（`n = 0`）→ `retention = 1.0`（完全保留）
+- 从未使用 → 从创建时间起算，未验证的技能随库龄老化而非永久保持 active
 
 ### Options Framework
 

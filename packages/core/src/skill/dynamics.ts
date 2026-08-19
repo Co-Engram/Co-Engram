@@ -7,7 +7,13 @@
 import type { AcquisitionStage, RetentionStage } from "../types/skill.js";
 
 export const DEFAULT_LEARNING_RATE = 0.1;
-const OBLIVION_T = 10;
+/**
+ * 基准衰减尺度(天)。15:低样本技能(用过 1 次,U≈0.55,F=0.05)的
+ * S≈(0.55+0.05+0.1)×15≈10.5 天 → 7 天不用到 aging、约 14 天 stale、
+ * 约 29 天 forgotten。原值 10 时 S≈6.8 天,5 天即 stale、9 天 forgotten,
+ * "用进"的奖励追不上"废退"的惩罚(一次成功仅延长 S 0.3 天)。
+ */
+const OBLIVION_T = 15;
 const OBLIVION_EPSILON = 0.1;
 const FREQUENCY_CAP = 20;
 const RETENTION_THRESHOLD_ACTIVE = 0.75;
@@ -24,15 +30,30 @@ export function updateUtility(currentU: number, reward: number, alpha = DEFAULT_
   return clamp01(currentU + alpha * (reward - currentU));
 }
 
-/** Oblivion: retention=exp(-n/S), S=(U+F+ε)·T, n=距上次使用天数, F=归一化频率 */
+/**
+ * Oblivion: retention=exp(-n/S), S=(U+F+ε)·T, F=归一化频率
+ *
+ * n 的锚点:优先 lastUsedAt(用过→距上次使用);从未使用→距 createdAt
+ * (注册起算)。原实现把 lastUsedAt=null 映射为 now(n≡0),导致从未使用的
+ * 技能永久冻结在 active、"被使用过的技能反而先被遗忘"的倒置——修复后
+ * never-used 也随库龄老化(未验证+陈旧→逐渐淡出注入清单),与 relearning
+ * 通道(skill_invoke 复活 forgotten)配套成闭环。
+ */
 export function computeRetention(
-  skill: { readonly utility: number; readonly invocationCount: number; readonly lastUsedAt: string | null },
+  skill: {
+    readonly utility: number;
+    readonly invocationCount: number;
+    readonly lastUsedAt: string | null;
+    /** 衰减起点兜底:lastUsedAt=null(从未使用)时用 createdAt;null→n=0 */
+    readonly createdAt: string | null;
+  },
   nowMs: number,
 ): number {
   const u = clamp01(skill.utility);
   const f = Math.min(1, skill.invocationCount / FREQUENCY_CAP);
   const s = (u + f + OBLIVION_EPSILON) * OBLIVION_T;
-  const last = skill.lastUsedAt ? new Date(skill.lastUsedAt).getTime() : nowMs;
+  const anchor = skill.lastUsedAt ?? skill.createdAt;
+  const last = anchor ? new Date(anchor).getTime() : nowMs;
   const nDays = Math.max(0, (nowMs - last) / 86_400_000);
   return Math.exp(-nDays / s);
 }
