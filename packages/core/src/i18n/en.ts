@@ -984,6 +984,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Ask your first question above — a full inventory of memories, logs and skills, thought through once",
   "viewer.contemplation.limitWarn":
     "Near the entry limit (${n}/${max}) — delete old answered entries first",
+  "viewer.contemplation.degradedReason.single-run-gaps":
+    "Single-run finalized with open gaps — answer and insight proposals delivered (proposals quarantined by default)",
   "viewer.contemplation.status.queued": "Queued",
   "viewer.contemplation.status.thinking": "Thinking",
   "viewer.contemplation.status.verifying": "Verifying",

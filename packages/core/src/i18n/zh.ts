@@ -974,6 +974,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "条目接近上限（${n}/${max}），请先删除旧的已答条目",
   "viewer.contemplation.status.queued": "排队中",
   "viewer.contemplation.status.thinking": "深思中",
+  "viewer.contemplation.degradedReason.single-run-gaps":
+    "单轮深思存在未闭合缺口，已按缺口收束（回答与洞察提案已交付，提案默认隔离）",
   "viewer.contemplation.status.verifying": "校验中",
   "viewer.contemplation.status.repairing": "修复缺口",
   "viewer.contemplation.status.done": "已答",

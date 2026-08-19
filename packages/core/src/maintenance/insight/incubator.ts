@@ -93,7 +93,8 @@ export interface IncubationDegraded {
     | "gap-budget-exhausted"
     | "ttl-expired"
     | "aborted"
-    | "closure-rejected";
+    | "closure-rejected"
+    | "single-run-gaps";
   /** 未闭合缺口描述(审批面置顶展示) */
   readonly unclosedGaps: readonly string[];
   /**
@@ -751,6 +752,23 @@ export class Incubator {
               fromGaps.length > 0
                 ? fromGaps
                 : (e.run?.plan?.items ?? []).map((it) => it.description);
+            // 终态落定:本 run 提案隔离标翻转(degraded 固化)——与 report 的
+            // finalize 分支对齐。此前 releaseThinking 的全部收束路径(执行器
+            // 抛错 / TTL 前的显式收束 / 单跑缺口收尾)都漏了翻转,提案停在
+            // provisional 隔离态无人终裁(2026-08-19)。
+            const runEntityIds = e.timeline
+              .filter((t) => t.round === e.rounds)
+              .flatMap((t) => [...t.proposalEntityIds]);
+            if (runEntityIds.length > 0) {
+              try {
+                this.deps.proposalEngine.setInsightClosureState(runEntityIds, {
+                  provisional: false,
+                  unclosedGaps: unclosed,
+                });
+              } catch {
+                // 提案翻转失败不阻塞条目收束;提案面仍按 provisional 展示
+              }
+            }
             return {
               ...e,
               status: "done" as const,
@@ -955,6 +973,14 @@ export class Incubator {
         level,
         durationMs: Date.now() - startedAt,
       });
+      // 单跑收尾(2026-08-19):report 带 openGaps 时条目停在 repairing 等
+      // 修复轮 —— 修复轮只存在于 MCP 现场会话(执行者可再调 ponder_report);
+      // incubateOnce 驱动的 headless 单跑没有后续轮,会挂到 30min TTL,页面
+      // 呈现「无终态」。answer 与洞察提案已交付,缺口按单轮收束立即终态化
+      //(releaseThinking 内同步翻转提案隔离标)。
+      if (this.get(id)?.status === "repairing") {
+        this.releaseThinking(id, { reason: "single-run-gaps" });
+      }
       return { ...result, level };
     } catch (err) {
       const msg = (err instanceof Error ? err.message : String(err)).slice(

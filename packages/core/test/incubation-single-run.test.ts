@@ -187,3 +187,71 @@ describe("闭合校验拒绝收束(closure-rejected)", () => {
     expect(entry.answerError ?? "").toContain("closure check");
   });
 });
+
+// 单跑收尾(2026-08-19):report 带 openGaps 时条目停在 repairing 等修复轮,
+// 而 headless 单跑(incubateOnce 驱动)没有后续轮 —— 会挂到 30min TTL,
+// 页面呈现「无终态」(部署实测用户两次深思都停在 repairing/verifying,
+// 误以为失败,实际 answer 已交付)。修复:incubateOnce 收尾立即按缺口
+// 收束(single-run-gaps),answer 保留、缺口清单落 degraded。
+describe("单跑缺口立即收束(single-run-gaps)", () => {
+  it("报告带缺口 → 立即 done + single-run-gaps,answer 保留", async () => {
+    const observedId = "01OBSERVED-ID";
+    const incubator = new Incubator({
+      repository: {} as never,
+      proposalEngine: {
+        proposeInsight: () => true,
+        listAll: () => [],
+        findProposalByEntityId: () => undefined,
+        setInsightClosureState: () => undefined,
+      },
+      dataRoot: tmpDir,
+      llmClient: {
+        complete: async () => "兜底综合。",
+      } as never,
+      executor: {
+        // 有证据(观察到 1 次 engram 读)但只闭合 1 项 —— template 计划的
+        // 其余项由引擎合成 open 缺口 → repairing → 单跑收尾
+        execute: async () => ({
+          answer: "带缺口的回答",
+          insights: [],
+          plan: [],
+          trace: [],
+          requirements: [
+            {
+              resourceType: "engrams",
+              description: "已闭合项",
+              closed: true,
+              evidence: { ids: [observedId] },
+            },
+          ],
+        }),
+      },
+      signalEvidence: {
+        snapshot: () => [
+          {
+            toolName: "engram_get",
+            input: { id: observedId },
+            outputSummary: "{ok}",
+            retrievedEngramIds: [observedId],
+            sessionId: "s",
+            at: clockMs + 100,
+          },
+        ],
+        flush: async () => {},
+      },
+      auditLog: {
+        append: (e) => {
+          audit.push(e as AuditRecord);
+        },
+      },
+      now: clockNow,
+    });
+    const e = incubator.create({ question: "带缺口问题?" });
+    await incubator.incubateOnce(e.id, "manual"); // 有证据,不整单拒
+    const entry = incubator.get(e.id)!;
+    expect(entry.status).toBe("done"); // 不再挂 repairing
+    expect(entry.degraded?.reason).toBe("single-run-gaps");
+    expect(entry.answer).toBe("带缺口的回答"); // answer 保留交付
+    expect(entry.degraded?.unclosedGaps.length).toBeGreaterThan(0);
+  });
+});
