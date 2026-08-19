@@ -59,7 +59,10 @@ export interface HeadlessExecutorOptions {
    * 注入 spawn 实现(测试用,不真调 claude)。
    * 签名对齐 node:child_process.spawn,返回 { stdout, stderr } 的 Promise 包装。
    */
-  readonly spawnFn?: (cmd: string, args: readonly string[]) => Promise<{
+  readonly spawnFn?: (
+    cmd: string,
+    args: readonly string[],
+  ) => Promise<{
     readonly stdout: string;
     readonly stderr: string;
     readonly code: number | null;
@@ -80,7 +83,10 @@ const DEFAULT_TIMEOUT_MS = 20 * 60_000;
  */
 export function buildHeadlessPrompt(task: NightThinkingTask): string {
   const seeds = task.seedDigests
-    .map((s) => `- [${s.id}] ${s.title} | tags=${s.domainTags.join("/")} | ${s.summary}`)
+    .map(
+      (s) =>
+        `- [${s.id}] ${s.title} | tags=${s.domainTags.join("/")} | ${s.summary}`,
+    )
     .join("\n");
   return [
     `You are the L2 contemplation agent. Work through the task below READ-ONLY.`,
@@ -89,7 +95,8 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
     `${task.question}`,
     ``,
     `## Seed memory digests (summary-level only; read full content via engram_get if needed)`,
-    seeds || "(no seeds — use engram_search to find relevant memories yourself)",
+    seeds ||
+      "(no seeds — use engram_search to find relevant memories yourself)",
     ``,
     `## Resource hints (task.resourceHints — local, read-only)`,
     task.resourceHints.length > 0
@@ -98,7 +105,11 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
     ...task.resourceHints.map((p) => `- ${p}`),
     ``,
     ...(task.dreamHistory.trim().length > 0
-      ? [`## Previous thinking sessions (deepen or pivot, do not repeat)`, task.dreamHistory, ``]
+      ? [
+          `## Previous thinking sessions (deepen or pivot, do not repeat)`,
+          task.dreamHistory,
+          ``,
+        ]
       : []),
     ...(task.plan && task.plan.items.length
       ? [
@@ -106,7 +117,9 @@ export function buildHeadlessPrompt(task: NightThinkingTask): string {
           ...task.plan.items.map(
             (it) =>
               `- [${it.id}] ${it.resourceType} (${it.necessity}${it.carryOver ? ", carry-over" : ""}): ${it.description}` +
-              (it.probes.length ? ` | probes: ${it.probes.map((p) => JSON.stringify(p.query)).join(", ")}` : ""),
+              (it.probes.length
+                ? ` | probes: ${it.probes.map((p) => JSON.stringify(p.query)).join(", ")}`
+                : ""),
           ),
           ``,
         ]
@@ -167,17 +180,22 @@ export function parseHeadlessReport(raw: string): NightThinkingReport {
   if (start === -1 || end <= start) {
     throw new Error("headless executor: no JSON object in output");
   }
-  const parsed = JSON.parse(body.slice(start, end + 1)) as Partial<NightThinkingReport> & {
+  const parsed = JSON.parse(
+    body.slice(start, end + 1),
+  ) as Partial<NightThinkingReport> & {
     resourcesUsed?: NightThinkingResourcesUsed;
   };
   // 2026-08-17 新契约:answer 是主体交付物 —— insights/plan/trace 缺失按空
   // 数组容错(E2E 实测:answer 强化后 agent 有概率输出精简 JSON 丢数组,
   // 旧「missing insights array」硬拒会把已交付的 answer 一并丢弃)。
   // answer 与 insights 双缺才是坏报告。
-  const hasAnswer = typeof parsed.answer === "string" && parsed.answer.trim().length > 0;
+  const hasAnswer =
+    typeof parsed.answer === "string" && parsed.answer.trim().length > 0;
   const hasInsights = Array.isArray(parsed.insights);
   if (!hasAnswer && !hasInsights) {
-    throw new Error("headless executor: report has neither answer nor insights array");
+    throw new Error(
+      "headless executor: report has neither answer nor insights array",
+    );
   }
   return {
     ...(hasAnswer ? { answer: parsed.answer } : {}),
@@ -210,15 +228,31 @@ export function createHeadlessExecutor(
         run(bin, ["-p", prompt, ...flags]),
         new Promise<never>((_, reject) =>
           setTimeout(
-            () => reject(new Error(`headless executor timeout (${timeoutMs}ms)`)),
+            () =>
+              reject(new Error(`headless executor timeout (${timeoutMs}ms)`)),
             timeoutMs,
           ),
         ),
       ]);
       if (code !== 0) {
-        throw new Error(`headless executor exited ${code}: ${stderr.slice(0, 200)}`);
+        // 诊断增强(2026-08-19):claude CLI 部分失败模式(登录态/限流/截断)
+        // stderr 为空而有价值信息在 stdout —— 两者都空才是真无线索。
+        const detail = (stderr.trim() || stdout.trim().slice(-200)).slice(
+          0,
+          200,
+        );
+        throw new Error(`headless executor exited ${code}: ${detail}`);
       }
-      return parseHeadlessReport(stdout);
+      try {
+        return parseHeadlessReport(stdout);
+      } catch (err) {
+        // 诊断增强(2026-08-19):解析失败必须带 agent 实际输出尾部 ——
+        // 「neither answer nor insights」若无原文,输出形态(截断/围栏异常/
+        // turns 用尽仓促交卷)全部无从判断(部署实测 4 连败零线索)。
+        const reason = err instanceof Error ? err.message : String(err);
+        const tail = stdout.trim().slice(-200);
+        throw new Error(`${reason} (${stdout.length} chars), tail: ${tail}`);
+      }
     },
   };
 }
