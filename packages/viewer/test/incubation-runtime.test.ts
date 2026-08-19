@@ -360,3 +360,65 @@ describe("过滤(多条目管理,2026-08-19 纯前端)", () => {
     expect(html).not.toContain("⏾");
   });
 });
+
+describe("30s 轮询输入保护(IME 组合态不丢输入,2026-08-19)", () => {
+  function makePollSandbox() {
+    const sb = execRuntime();
+    let tick: (() => void) | null = null;
+    sb.setInterval = (fn: () => void) => { tick = fn; return 1; };
+    let getCalls = 0;
+    sb.fetch = async () => {
+      getCalls += 1;
+      return { ok: true, status: 200, json: async () => ({
+        enabled: true, limit: { total: 1, max: 50, warnAt: 45 },
+        items: [{ id: "t1", question: "进行中的问题?", status: "thinking", rounds: 0, timeline: [] }],
+      }) };
+    };
+    const root = sb.document.getElementById("contemplation-content");
+    root.closest = () => ({ hidden: false }); // 面板可见:tick 不在「面板隐藏」分支提前退出
+    return { sb, root, getTick: () => tick, getCalls: () => getCalls };
+  }
+
+  it("焦点在问题框 + value 空(IME 拼音组合中):tick 跳过 re-render,零新增 GET", async () => {
+    const ctx = makePollSandbox();
+    const qEl = ctx.sb.document.getElementById("inc-q");
+    qEl.value = "";
+    ctx.sb.document.activeElement = qEl; // 组合态:焦点在框、内容尚未上屏(.value 为空)
+    await ctx.sb.CO_ENGRAM_CONTEMPLATION.render(ctx.root);
+    const tick = ctx.getTick()!;
+    expect(tick).toBeTruthy(); // thinking 条目 → 30s 轮询已注册
+    const before = ctx.getCalls();
+    tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.getCalls()).toBe(before); // 未 re-render → 无新 GET → 输入框不被重建
+  });
+
+  it("对照:焦点不在输入框且无草稿 → tick 照常 re-render(有新 GET)", async () => {
+    const ctx = makePollSandbox();
+    ctx.sb.document.getElementById("inc-q").value = "";
+    ctx.sb.document.activeElement = undefined;
+    await ctx.sb.CO_ENGRAM_CONTEMPLATION.render(ctx.root);
+    const tick = ctx.getTick()!;
+    const before = ctx.getCalls();
+    tick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.getCalls()).toBe(before + 1); // re-render → 新 GET
+  });
+
+  it("re-render 重建:焦点原在问题框 → 恢复焦点 + 光标到内容末尾(草稿保留)", async () => {
+    const ctx = makePollSandbox();
+    const qEl = ctx.sb.document.getElementById("inc-q");
+    qEl.id = "inc-q";
+    qEl.value = "Co-engram如何改";
+    const focusCalls: string[] = [];
+    qEl.focus = () => focusCalls.push("focus");
+    const selCalls: Array<[number, number]> = [];
+    qEl.setSelectionRange = (a: number, b: number) => selCalls.push([a, b]);
+    ctx.sb.document.activeElement = qEl;
+    await ctx.sb.CO_ENGRAM_CONTEMPLATION.render(ctx.root);
+    const newEl = ctx.sb.document.getElementById("inc-q");
+    expect(newEl.value).toBe("Co-engram如何改"); // 草稿保留
+    expect(focusCalls).toHaveLength(1); // 焦点恢复
+    expect(selCalls[0]).toEqual(["Co-engram如何改".length, "Co-engram如何改".length]); // 光标到末尾
+  });
+});

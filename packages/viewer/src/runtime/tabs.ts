@@ -4997,9 +4997,16 @@ window.CO_ENGRAM_CONTEMPLATION = {
     const ae = document.activeElement;
     const wasFilter = !!(ae && ae.id === 'inc-filter');
     const cursor = wasFilter ? ae.selectionStart : null;
+    const focusQ = !!(ae && ae.id === 'inc-q');
+    const focusSeeds = !!(ae && ae.id === 'inc-seeds');
     root.innerHTML = html;
     if (qv) { const el = document.getElementById('inc-q'); if (el) el.value = qv; }
     if (sv) { const el = document.getElementById('inc-seeds'); if (el) el.value = sv; }
+    // 焦点原在问题/种子框:重建后恢复焦点 + 光标到末尾(否则用户继续打字静默丢失)
+    if (focusQ || focusSeeds) {
+      const el = document.getElementById(focusQ ? 'inc-q' : 'inc-seeds');
+      if (el) { el.focus(); const end = el.value.length; try { el.setSelectionRange(end, end); } catch (e) { /* 防御 */ } }
+    }
     if (CO_ENGRAM_CONTEMPLATION._filterText || wasFilter) {
       const f = document.getElementById('inc-filter');
       if (f) {
@@ -5015,8 +5022,14 @@ window.CO_ENGRAM_CONTEMPLATION = {
       CO_ENGRAM_CONTEMPLATION._incPollTimer = setInterval(function() {
         const root = document.getElementById('contemplation-content');
         const panel = root ? root.closest('.tab-panel') : null;
-        const typing = (document.getElementById('inc-q') && document.getElementById('inc-q').value.trim())
-          || (document.activeElement === document.getElementById('inc-filter'));
+        const qEl = document.getElementById('inc-q');
+        const ae = document.activeElement;
+        // 焦点在问题/种子框 = 输入中(含 IME 拼音组合期:此时 value 可能为空,但组合文本不进 .value,
+        // 仅靠 value 判断会误判「未输入」→ 重建 textarea → 组合被打断、内容丢失)
+        const typing = (qEl && qEl.value.trim())
+          || ae === qEl
+          || ae === document.getElementById('inc-seeds')
+          || ae === document.getElementById('inc-filter');
         if (!root || (panel && panel.hidden)) {
           clearInterval(CO_ENGRAM_CONTEMPLATION._incPollTimer);
           CO_ENGRAM_CONTEMPLATION._incPollTimer = null;
