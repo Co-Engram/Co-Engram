@@ -17,6 +17,7 @@
  */
 
 import { spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 
 import type {
   NightThinkingExecutor,
@@ -230,34 +231,50 @@ export function createHeadlessExecutor(
     async execute(task: NightThinkingTask): Promise<NightThinkingReport> {
       const flags = buildHeadlessArgs(task, maxTurns, readOnlyMcpServers);
       const prompt = buildHeadlessPrompt(task);
-      const { stdout, code, stderr } = await Promise.race([
-        run(bin, ["-p", prompt, ...flags]),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () =>
-              reject(new Error(`headless executor timeout (${timeoutMs}ms)`)),
-            timeoutMs,
-          ),
-        ),
-      ]);
-      if (code !== 0) {
-        // 诊断增强(2026-08-19):claude CLI 部分失败模式(登录态/限流/截断)
-        // stderr 为空而有价值信息在 stdout —— 两者都空才是真无线索。
-        const detail = (stderr.trim() || stdout.trim().slice(-200)).slice(
-          0,
-          200,
-        );
-        throw new Error(`headless executor exited ${code}: ${detail}`);
-      }
+      const spawned = run(bin, ["-p", prompt, ...flags]) as SpawnPromise;
+      let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
       try {
-        return parseHeadlessReport(stdout);
+        const { stdout, code, stderr } = await Promise.race([
+          spawned,
+          new Promise<never>((_, reject) => {
+            timeoutTimer = setTimeout(
+              () =>
+                reject(
+                  new Error(`headless executor timeout (${timeoutMs}ms)`),
+                ),
+              timeoutMs,
+            );
+          }),
+        ]);
+        if (code !== 0) {
+          // 诊断增强(2026-08-19):claude CLI 部分失败模式(登录态/限流/截断)
+          // stderr 为空而有价值信息在 stdout —— 两者都空才是真无线索。
+          const detail = (stderr.trim() || stdout.trim().slice(-200)).slice(
+            0,
+            200,
+          );
+          throw new Error(`headless executor exited ${code}: ${detail}`);
+        }
+        try {
+          return parseHeadlessReport(stdout);
+        } catch (err) {
+          // 诊断增强(2026-08-19):解析失败必须带 agent 实际输出尾部 ——
+          // 「neither answer nor insights」若无原文,输出形态(截断/围栏异常/
+          // turns 用尽仓促交卷)全部无从判断(部署实测 4 连败零线索)。
+          const reason = err instanceof Error ? err.message : String(err);
+          const tail = stdout.trim().slice(-200);
+          throw new Error(`${reason} (${stdout.length} chars), tail: ${tail}`);
+        }
       } catch (err) {
-        // 诊断增强(2026-08-19):解析失败必须带 agent 实际输出尾部 ——
-        // 「neither answer nor insights」若无原文,输出形态(截断/围栏异常/
-        // turns 用尽仓促交卷)全部无从判断(部署实测 4 连败零线索)。
-        const reason = err instanceof Error ? err.message : String(err);
-        const tail = stdout.trim().slice(-200);
-        throw new Error(`${reason} (${stdout.length} chars), tail: ${tail}`);
+        // 孤儿防护(2026-08-20):Promise.race 抛出不终止 spawn —— 超时/失败
+        // 后 claude 子进程继续跑成孤儿(部署实测:进程链全灭后条目悬挂 3h+,
+        // 无 run_fail 零审计)。任何失败路径统一 kill;已退出的进程是 no-op。
+        killSpawnedChild(spawned);
+        throw err;
+      } finally {
+        // timer 泄漏修复:run 先完成时原实现不清 timer,进程白持一个
+        // 20min 定时器到触发为止。
+        if (timeoutTimer !== undefined) clearTimeout(timeoutTimer);
       }
     },
   };
@@ -267,9 +284,14 @@ export function createHeadlessExecutor(
 function defaultSpawn(
   cmd: string,
   args: readonly string[],
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
+): SpawnPromise {
+  let child: ChildProcess | undefined;
+  const p = new Promise<{
+    stdout: string;
+    stderr: string;
+    code: number | null;
+  }>((resolve, reject) => {
+    child = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
@@ -283,5 +305,39 @@ function defaultSpawn(
     });
     child.on("error", reject);
     child.on("close", (code) => resolve({ stdout, stderr, code }));
-  });
+  }) as SpawnPromise;
+  // child 引用挂到 promise 上(new Promise 的 executor 同步执行,此处已赋值):
+  // 超时/失败路径经 killSpawnedChild 终止子进程,防孤儿泄漏。
+  p.child = child;
+  return p;
+}
+
+/** spawn promise + 可选子进程引用(fake spawnFn 无 child 时 kill 静默跳过) */
+type SpawnPromise = Promise<{
+  stdout: string;
+  stderr: string;
+  code: number | null;
+}> & {
+  child?: Pick<ChildProcess, "kill" | "killed" | "exitCode">;
+};
+
+/** 孤儿防护:超时/失败后 kill 子进程;SIGTERM 后 5s 强杀兜底 */
+function killSpawnedChild(spawned: SpawnPromise): void {
+  const child = spawned.child;
+  if (!child || child.exitCode !== null || child.killed) return;
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return; // 已死(竞态):无需强杀
+  }
+  const escalate = setTimeout(() => {
+    if (child.exitCode === null) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // 已退出
+      }
+    }
+  }, 5_000);
+  escalate.unref?.(); // 不阻塞宿主进程退出
 }
