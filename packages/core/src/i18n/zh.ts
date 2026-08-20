@@ -2148,6 +2148,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.filter.count": "节点 ${nodes} · 突触 ${edges}",
   "viewer.graph.filter.countTip":
     "格式「过滤后 / 总数」。统计栏的突触总数走 /api/status 全量统计,本图谱只渲染两端记忆印迹都存在的突触(悬空突触由 doctor 自动清理);关键词/目录/类型过滤进一步收窄显示范围。",
+  "viewer.graph.filter.skillNodes":
+    "节点总数中包含 ${n} 个技能节点(技能与记忆印迹同图展示),因此可能大于概览栏的「记忆印迹」数。",
 
   // ===== 详情面板 / Drawer(viewer.detail.*) =====
   "viewer.detail.editModeHint": "编辑模式 · 修改后点击「保存」提交",

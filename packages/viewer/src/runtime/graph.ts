@@ -1204,7 +1204,11 @@ window.CO_ENGRAM_GRAPH = {
       ? String(passNodes.length)
       : passNodes.length + ' / ' + totalNodes;
     countEl.textContent = T.t('viewer.graph.filter.count', { nodes: nodesText, edges: edgesText });
-    countEl.title = T.t('viewer.graph.filter.countTip');
+    // 节点口径说明:图谱节点 = 印迹 + 技能同图(2026-08-20 用户报告概览 109 vs 图谱 118
+    // 疑似矛盾,实为 9 个技能节点)。动态拼入 tooltip,悬停即可看到差异来源。
+    const skillTotal = s.data.nodes.filter(n => n.kind === 'skill').length;
+    countEl.title = T.t('viewer.graph.filter.countTip')
+      + (skillTotal > 0 ? '\\n' + T.t('viewer.graph.filter.skillNodes', { n: skillTotal }) : '');
   }
 };
 `;

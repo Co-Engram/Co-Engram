@@ -2226,6 +2226,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.filter.count": "Nodes ${nodes} · Synapses ${edges}",
   "viewer.graph.filter.countTip":
     'Format: "filtered / total". The stats bar\'s synapse total comes from /api/status (full count), while this graph only renders synapses whose both endpoint engrams exist (dangling synapses are auto-cleaned by doctor). Keyword/path/kind filters narrow the visible range further.',
+  "viewer.graph.filter.skillNodes":
+    "The total node count includes ${n} skill nodes (skills are drawn in the same graph as engrams), so it can exceed the Memories figure on the Overview tab.",
 
   // ===== Detail panel / drawer (viewer.detail.*) =====
   "viewer.detail.editModeHint": 'Edit mode · click "Save" to submit changes',
