@@ -2066,7 +2066,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.explainerBody":
     'REM is a low-frequency stage. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
   "viewer.maintenance.stage.rem": "REM (consolidation)",
-  "viewer.maintenance.stage.rem": "REM (consolidation)",
   "viewer.maintenance.stage.deep": "Deep (cleanup)",
   "viewer.maintenance.stage.light": "Light (signals)",
   "viewer.maintenance.stageIcon.rem": "🌙",
