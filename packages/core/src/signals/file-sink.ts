@@ -83,6 +83,19 @@ export class FileSignalSink implements SignalSink {
     this.cursorPath = `${options.filePath}.cursor`;
     this.flushIntervalMs = options.flushIntervalMs ?? 5_000;
     this.flushThreshold = options.flushThreshold ?? 50;
+    // 游标初始化(2026-08-20):把「无 cursor 文件 = 存量视为已消费」的判定
+    // 从每次 drain 兜底提前到构造时一次性落盘,区分两种首跑 ——
+    //   升级部署:signals.jsonl 已有存量 → cursor 定在存量顶部(不重放,
+    //             与 readCursor 原兜底语义等价,只是时机提前);
+    //   新仓库:文件不存在 → cursor=0,之后产生的事件正常可被 drain。
+    // 原实现新仓库首次 drain 把「刚产生的事件」当存量吞掉(e2e maintenance
+    // P4 稳定复现 0 事件),新用户首个 light 维护周期会丢第一批信号。
+    if (!existsSync(this.cursorPath)) {
+      const existing = this.readAll();
+      this.writeCursor(
+        existing.length ? Math.max(...existing.map((e) => e.at)) : 0,
+      );
+    }
     // 兼容保留(2026-08-19 write-through 后不再使用 buffer 批量路径);
     // 注册仍保留以便旧 subclass 行为不破
     activeSinks.add(this);

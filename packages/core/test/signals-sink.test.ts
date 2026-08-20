@@ -127,20 +127,27 @@ describe("FileSignalSink", () => {
     expect(readFileSync(filePath, "utf8").trim().split("\n").length).toBe(2);
   });
 
-  it("drain 游标消费(2026-08-19):首次(无游标)存量视为已消费返回空,此后只返回增量且不清空文件", async () => {
+  it("drain 游标消费(2026-08-20 起构造时初始化):升级存量(构造前已在文件)不重放,构造后新事件正常消费且不清空文件", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
+    // 升级场景:构造 sink 之前文件已有存量(旧清空语义下大概率已被消费过,
+    // 重放会重复强化)
+    const legacy = [
+      makeEvent({ toolName: "a", input: { x: 1 }, sessionId: "s1" }),
+      makeEvent({ toolName: "b", input: { y: 2 }, sessionId: "s2" }),
+    ];
+    writeFileSync(
+      filePath,
+      legacy.map((e) => JSON.stringify(e) + "\n").join(""),
+      "utf8",
+    );
     const sink = new FileSignalSink({ filePath, flushThreshold: 10 });
 
-    sink.append(makeEvent({ toolName: "a", input: { x: 1 }, sessionId: "s1" }));
-    sink.append(makeEvent({ toolName: "b", input: { y: 2 }, sessionId: "s2" }));
-    await sink.flush();
-
-    // 升级迁移:旧清空语义下存量大概率已被消费,重放会重复强化 → 返回空,
-    // 游标从存量顶部开始
+    // 存量不重放:构造时游标已定在存量顶部 → 首次 drain 返回空
     const first = sink.drain();
     expect(first).toEqual([]);
 
-    // 游标后的新事件:drain 返回增量
+    // 构造后的新事件:drain 返回增量(2026-08-20 修复:此前「无游标=吞掉
+    // 当下全部」的兜底把新仓库首批事件也吞了,e2e maintenance P4 复现)
     sink.append(makeEvent({ toolName: "c", sessionId: "s3" }));
     const drained = sink.drain();
     expect(drained).toHaveLength(1);
@@ -156,7 +163,8 @@ describe("FileSignalSink", () => {
 
   it("跨进程证据不被消费方吃掉(P0 修复核心场景):A 进程 run 证据 append 后,B 进程(holder)drain,A 的 snapshot 仍可见", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
-    // A 进程(沉思执行者,non-holder)与 B 进程(holder 消费者)各持 sink 实例
+    // A 进程(沉思执行者,non-holder)与 B 进程(holder 消费者)各持 sink 实例;
+    // 两者构造时游标均初始化为 0(新仓库)
     const a = new FileSignalSink({ filePath });
     const b = new FileSignalSink({ filePath });
 
@@ -164,13 +172,14 @@ describe("FileSignalSink", () => {
     a.append(makeEvent({ toolName: "engram_search", sessionId: "run-A" }));
     a.append(makeEvent({ toolName: "engram_get", sessionId: "run-A" }));
 
-    // B 的 runLight 到点消费(旧实现:drain 读全部 + 清空 → A 的证据被吃)
+    // B 的 runLight 到点消费:B 正常拿到 A 的增量(消费语义本身无害;
+    // 旧实现真正的害在「读完清空」)
     const consumed = b.drain();
-    // 迁移语义:B 首次 drain 把存量标为已消费返回空(或游标已由 A 侧建立
-    // 的话同样为空)—— 关键是不清空文件
-    expect(consumed).toEqual([]);
+    expect(consumed).toHaveLength(2);
+    expect(consumed.every((e) => e.sessionId === "run-A")).toBe(true);
 
-    // A 的 PDCA snapshot 仍能看到自己的证据(旧实现此处为空 → 零盘点误拒)
+    // A 的 PDCA snapshot 仍能看到自己的证据(drain 不清空文件;旧实现
+    // 此处为空 → 零盘点误拒)—— 这是本场景要保护的核心契约
     const snap = a.snapshot();
     expect(snap.filter((e) => e.sessionId === "run-A")).toHaveLength(2);
   });

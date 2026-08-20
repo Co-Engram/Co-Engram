@@ -64,15 +64,17 @@ describe("critique(独立第二次调用)", () => {
     expect(score!.overall).toBe(0.5);
   });
 
+  // timeout 20s:critique 内部 3 次重试 + 2s/4s 退避(critic.ts),持续不可
+  // 解析/抛错路径总耗时 6s+,超过 vitest 默认 5s —— 此前两用例稳定超时误红
   it("垃圾文本 → null(fail-closed,不出提案)", async () => {
     const llm = makeClient("I think this is quite good overall!");
     expect(await critique(llm, DRAFT, SUB, "integration")).toBeNull();
-  });
+  }, 20_000);
 
   it("complete 抛错 → null", async () => {
     const llm = makeClient(new Error("boom"));
     expect(await critique(llm, DRAFT, SUB, "integration")).toBeNull();
-  });
+  }, 20_000);
 
   it("首次解析失败 → 重试后成功(间歇性输出波动,2026-08-16)", async () => {
     let call = 0;
