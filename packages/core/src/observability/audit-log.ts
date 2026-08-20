@@ -91,6 +91,9 @@ export type AuditAction =
   // 技能退役提案生成(light 周期零调用+stale/forgotten 扫描;accept/dismiss
   // 走通用 accept/dismiss action + metadata.source="skill-retire")
   | "skill_retire_proposed"
+  // 反思判断层降级(REM 突触 refiner / 写入时反思:llmClient 缺失/失败,
+  // 降级为占位 similar_to 或跳过;不做机械伪因果 —— 留痕供覆盖率观测)
+  | "reflection_skipped"
   | "skill_compose_add"
   | "skill_compose_remove"
   | "skill_related_engram_add"

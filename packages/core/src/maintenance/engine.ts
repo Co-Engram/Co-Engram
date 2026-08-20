@@ -526,16 +526,21 @@ export class MaintenanceEngine {
         this.deps.proposalEngine,
       );
 
-      // 1.6 突触候选对计算(二期,agent-driven):局部图遍历(活跃 engram + 1-hop 邻居)
-      //     → 候选对(A×A + A×N + Jaccard 预筛)。不调 LLM/不 propose——交 agent
-      //     (Claude Code)判断关系 + 调 synapse_create/delete/update。增量触发。
+      // 1.6 突触候选对计算(二期,agent-driven)+ 反思判断层(2026-08 二期落地):
+      //     局部图遍历(活跃 engram + 1-hop 邻居)→ 候选对(A×A + A×N + Jaccard
+      //     预筛 + 三层节流)→ llmClient 可用时 LLM 判 12 kind/none 按判定提案
+      //     (修复因果/时间族突触恒 0);缺失/失败降级占位 similar_to。增量触发。
       const lastRemState = this.deps.dataRoot
         ? await readMaintenanceState(this.deps.dataRoot)
         : undefined;
       const synapseRefine = await refineSynapsesOnActiveGraph(
         this.deps.repository,
         this.deps.proposalEngine,
-        { lastRemAt: lastRemState?.stages.rem?.lastRunAt },
+        {
+          lastRemAt: lastRemState?.stages.rem?.lastRunAt,
+          ...(this.deps.llmClient ? { llmClient: this.deps.llmClient } : {}),
+          ...(this.deps.auditLog ? { auditLog: this.deps.auditLog } : {}),
+        },
       );
 
       // checkpoint:LLM 阶段(dreaming + 标签刷新 + 突触候选对)完成,写 intermediate state。

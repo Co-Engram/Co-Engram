@@ -68,9 +68,21 @@ import { isRetireCandidate } from "../skill/dynamics.js";
 import type { Skill } from "../types/skill.js";
 import { t, resolveLanguage } from "../i18n/index.js";
 import { readTeamMemoryConfigSync } from "../config/index.js";
+import {
+  judgeRelationPairs,
+  type RelationJudgePair,
+} from "../dreaming/synapse-relation-judge.js";
+import { createDriverLlmClient } from "../merge/driver-llm.js";
+import { tokenizeForDedup, jaccardSimilarity } from "../dedup/similar.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
+
+/**
+ * 写入时反思的候选集上限(Jaccard 降序 top-K)。控 LLM 成本:单次反思的
+ * token 与库规模解耦(记忆 01KYCGK 设计要点:候选预算 K 让成本 O(K/batch))。
+ */
+export const REFLECTION_ON_ACCEPT_TOP_K = 10;
 
 /** 主题簇 */
 export interface TopicCluster {
@@ -501,6 +513,13 @@ export class ProposalEngine {
    */
   private proposalsCache: { mtime: number; data: Proposal[] } | null = null;
   private clustersCache: { mtime: number; data: TopicCluster[] } | null = null;
+  /**
+   * 写入时反思(2026-08 反思落地)并发闸:同一时刻最多一个反思在跑。
+   * 丢弃式限流——批量 accept(如 acceptBatch 30 条)时,反思中的新入库
+   * 直接跳过,不排队(队列会让 30×10 候选的 LLM 调用串行阻塞数分钟)。
+   * 被跳过的关系判断由 REM 周期反思兜底(活跃集含新建 engram)。
+   */
+  private reflectionInFlight = false;
   /**
    * dismissed-tombstones 的 mtime-based cache。
    *
@@ -1972,6 +1991,11 @@ export class ProposalEngine {
       at: new Date().toISOString(),
     });
 
+    // 写入时反思(2026-08 反思落地):fire-and-forget,不阻塞 accept 返回。
+    // 覆盖 conversation/auto-memory/external-markdown(通用分支);rem-insight/
+    // rem-pattern 等内部产物不经此(来源关系已由 derives_from 表达)。
+    void this.reflectOnNewEngram(engram.id);
+
     return engram.id;
   }
 
@@ -2848,6 +2872,140 @@ export class ProposalEngine {
       },
     });
     return true;
+  }
+
+  /**
+   * 写入时反思(2026-08 反思落地):新 engram 经 accept 入库后,判断它与
+   * 既有记忆的语义关系(12 种 SynapseKind),生成 rem-synapse 提案(不直写)。
+   *
+   * 这是记忆三操作(记录/检索/反思)中「反思」的写入时路径;周期路径在
+   * REM 的 refineSynapsesOnActiveGraph(同一 judge 层)。
+   *
+   * 候选集:同 domainTags(≥1 交集)的 active 且未 refuted engram,Jaccard
+   * 降序 top-K(K=10,控 LLM 成本——token 与库规模 N 解耦,记忆 01KYCGK
+   * 设计要点第 2 条)。llmClient 从磁盘 config 兜底构造(与 git merge driver
+   * 同源,~/.co-engram/llm-config.json,host 配过 LLM 即可用,无需新 wiring)。
+   *
+   * fire-and-forget(调用方 void,不阻塞 accept 返回);失败/无 LLM 记
+   * reflection_skipped 审计;并发闸见 reflectionInFlight 注释。
+   */
+  private async reflectOnNewEngram(engramId: string): Promise<void> {
+    if (this.reflectionInFlight) return;
+    this.reflectionInFlight = true;
+    try {
+      const bootstrapped = createDriverLlmClient();
+      if (!bootstrapped) {
+        this.auditLog.append({
+          actor: "system",
+          action: "reflection_skipped",
+          metadata: { layer: "on-accept", engramId, reason: "llm-missing" },
+        });
+        return;
+      }
+      let target;
+      try {
+        target = this.repository.readEngram(engramId);
+      } catch {
+        return; // 创建后立即被删(竞态)—— 无可反思对象
+      }
+      if (target.verificationStatus === "refuted") return;
+
+      // 候选:同域(≥1 domainTags 交集)+ active + 未 refuted,排除自身
+      const digests = this.repository.readDigestBatch(
+        this.repository.listEngrams().map((e) => e.id),
+      );
+      const targetTags = new Set(target.domainTags);
+      const candidateIds = digests
+        .filter(
+          (d) =>
+            d.id !== engramId &&
+            d.status === "active" &&
+            d.verificationStatus !== "refuted" &&
+            d.domainTags.some((t) => targetTags.has(t)),
+        )
+        .map((d) => d.id);
+      if (candidateIds.length === 0) return; // 无同域候选,不跨域硬凑
+
+      const contents = this.repository.readContentBatch([
+        engramId,
+        ...candidateIds,
+      ]);
+      const contentById = new Map(contents.map((c) => [c.id, c] as const));
+      const digestById = new Map(digests.map((d) => [d.id, d] as const));
+      const targetTokens = tokenizeForDedup(
+        `${target.title} ${target.summary ?? ""} ${target.content}`,
+      );
+      const scored = candidateIds
+        .map((id) => {
+          const c = contentById.get(id);
+          const tokens = c
+            ? tokenizeForDedup(`${c.title} ${c.summary ?? ""} ${c.content}`)
+            : new Set<string>();
+          return { id, sim: jaccardSimilarity(targetTokens, tokens) };
+        })
+        .sort((x, y) => y.sim - x.sim)
+        .slice(0, REFLECTION_ON_ACCEPT_TOP_K);
+
+      const judgePairs: RelationJudgePair[] = scored.map(({ id }) => {
+        const c = contentById.get(id);
+        const d = digestById.get(id);
+        return {
+          aId: engramId,
+          bId: id,
+          aTitle: target.title,
+          bTitle: c?.title ?? id,
+          aText: `${target.summary ?? ""} [${target.domainTags.join("/")}]\n${target.content}`,
+          bText: c
+            ? `${c.summary ?? ""}${d ? ` [${d.domainTags.join("/")}]` : ""}\n${c.content}`
+            : (d?.title ?? id),
+        };
+      });
+
+      const verdicts = await judgeRelationPairs(
+        bootstrapped.client,
+        judgePairs,
+      );
+      const degraded = verdicts.filter((v) => v === undefined).length;
+      if (degraded > 0) {
+        this.auditLog.append({
+          actor: "system",
+          action: "reflection_skipped",
+          metadata: {
+            layer: "on-accept",
+            engramId,
+            reason: "llm-failed",
+            pairsTotal: judgePairs.length,
+            pairsDegraded: degraded,
+          },
+        });
+      }
+      for (let i = 0; i < judgePairs.length; i++) {
+        const v = verdicts[i];
+        if (v === undefined || v.kind === "none") continue;
+        try {
+          this.proposeSynapseOp({
+            op: "add",
+            from: v.reverse ? judgePairs[i]!.bId : engramId,
+            to: v.reverse ? engramId : judgePairs[i]!.bId,
+            kind: v.kind,
+            reason: `写入时反思(新记忆入库,LLM 判${v.kind}${v.reverse ? ",反向" : ""},置信 ${v.confidence.toFixed(2)}):${v.reason}`,
+            confidence: v.confidence,
+            fromTitle: v.reverse ? judgePairs[i]!.bTitle : target.title,
+            toTitle: v.reverse ? target.title : judgePairs[i]!.bTitle,
+          });
+        } catch {
+          // 单条 propose 失败不阻塞其余
+        }
+      }
+    } catch {
+      this.auditLog.append({
+        actor: "system",
+        action: "reflection_skipped",
+        metadata: { layer: "on-accept", engramId, reason: "llm-error" },
+      });
+    } finally {
+      this.reflectionInFlight = false;
+    }
   }
 
   /**

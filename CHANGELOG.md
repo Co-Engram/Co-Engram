@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added(2026-08-20 反思落地:REM 突触维护二期 —— 因果/时间族突触从 0 起步)
+
+- **反思判断层**(LLM 语义关系判断,12 kind / none,新 `synapse-relation-judge.ts`):REM 周期 `refineSynapsesOnActiveGraph` 的候选对(增量活跃集 + Jaccard 预筛 + 三层节流)不再占位 `similar_to`,而是 LLM 判定 kind 后按判定生成提案(判 `none` 不提、比占位更少噪音;有向关系方向由 LLM 裁定 `reverse` 时交换端点)—— 修复图谱取证「149 突触 80% similar_to、causes/depends_on/follows/supersedes/consolidates/contradicts 全 0」的结构缺口(根因:机械层只算得出相似,语义关系只有 LLM 能判)。
+- **写入时反思**(记忆三操作「记录/检索/反思」中反思的写入时路径):`accept` 新 engram(conversation / auto-memory / external-markdown)入库后 fire-and-forget 判断与同域既有记忆(domainTags 交集 + Jaccard 降序 top-10,token 与库规模解耦)的关系并生成 rem-synapse 提案(不直写);llmClient 从 `~/.co-engram/llm-config.json` 磁盘兜底构造(与 git merge driver 同源,零宿主 wiring);并发闸(丢弃式限流)防批量 accept 倾泻,被跳过的关系由 REM 周期反思兜底。
+- **降级链(不做机械伪因果)**:llmClient 缺失/调用失败/输出不可解析 → refiner 降回占位 `similar_to`(原行为)、写入时反思跳过,审计新 action `reflection_skipped`(llm-missing / llm-failed / llm-error,含 layer 与批量降级计数);机械层只筛候选,关系判断只有 LLM。
+- 测试:judge 纯函数(prompt/解析容错/按批降级)+ refiner 集成(causes 提案/reverse 交换/none 不提/两种降级)+ 写入时端到端(本地 mock LLM server 走真实磁盘兜底通道)共 20 用例;场景验证 15 断言(真实库同域对 440 素材 + REM 全链路 causes 落盘顺链可达 + 降级链);core 3030 + claude-code-mcp 332 + openclaw 122 + dsh 19 + contracts 18 全绿。已知边界:SQLite digest 未同步的冷克隆库上 REM refiner 空转(生产 host 常驻同步不受影响)。
+
+### Added(2026-08-20 技能退役回路:零调用技能从「永久闲置」到「可裁决退出」)
+
+- **技能退役提案**(maintenance light 周期):`invocationCount===0` 且锚点距今 ≥ 30 天(可配 `maintenance.skillRetire.staleZeroUseDays`)且 `retentionStage ∈ {stale,forgotten}` 的技能生成 `source="skill-retire"` 退役提案(用户裁决,不自动删;与 contemplation_delete 同哲学)。accept → 写 `retiredAt`(`skill_list` 默认不列 / catalog 不注入,SKILL.md 与印迹完整保留);dismiss → touch 重置计时 + tombstone 永久屏蔽;被使用 / viewer 恢复即复活(清 `retiredAt` + 自动撤销提案,与 forgotten 复活语义对齐)。审计专用 action `skill_retire_proposed`;文案 i18n 中英自适应(`resolveLanguage`);帮助栏 lifecycle/retention 段与 `docs/skill-memory{,.zh-CN}.md` 同步。测试:skill-retire 20 用例 + 产物级场景 16 断言;core 3008 + claude-code-mcp 332 + openclaw 122 + dsh 19 + contracts 18 全绿。
+
 ### Changed(2026-08-19 侧栏分组「治理」更名「进化」)
 
 - **导航语义校准(中英同步)**:viewer 侧栏第二分组 `治理/Governance` 更名为 `进化/Evolution` —— 该组收纳提案/梦境/沉思,语义是「驱动记忆库成长变化」而非「管控」,帮助栏概览 tab 描述中的「治理入口/governance in the middle」同步改为「进化入口/evolution in the middle」;内部变量 `governanceTabs` 对齐更名 `evolutionTabs`。i18n 中英 key 集合一致(1529 keys),i18n-ui-regression 23 用例回归通过。

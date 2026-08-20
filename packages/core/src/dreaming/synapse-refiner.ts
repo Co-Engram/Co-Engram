@@ -1,9 +1,11 @@
 /**
  * REM 突触候选对计算(二期,agent-driven):局部图遍历,输出候选对给 agent 判断。
  *
- * **不调 LLM,不 propose**——co-engram 跑在 Claude Code 里,agent 本身是强 LLM。
- * 突触关系判断交 agent(透明、遵循指令、可复用 synapse_create/delete 工具),
- * co-engram 只负责计算「哪些 engram 对值得 agent 看」(候选对)。
+ * 反思落地(2026-08,REM 突触维护二期 / 记忆 01KYCGK8FPGW2GW9C3WF0FK2TM):
+ * 注入 llmClient 时,候选对经 LLM 语义判断(12 种 SynapseKind 或 none)后按
+ * 判定 kind 生成提案——修复「similar_to 占位提案」导致因果/时间族突触恒为 0
+ * 的结构缺陷(机械层只筛候选,关系判断只有 LLM)。未注入/失败时保持原行为
+ * (占位 similar_to,agent review),记审计 reflection_skipped。
  *
  * 算法(局部图遍历,神经科学:REM 巩固白天激活的记忆 + 关联网络):
  *   1. 活跃集 A = { e | 上次 REM 后检索(lastRetrievedAt > lastRemAt) OR 新建(createdAt > lastRemAt) }
@@ -18,7 +20,12 @@
 
 import type { EngramRepository } from "../storage/repository.js";
 import type { SynapseKind } from "../types/synapse.js";
+import type { LlmClient } from "../observability/necessity-evaluator.js";
 import { tokenizeForDedup, jaccardSimilarity } from "../dedup/similar.js";
+import {
+  judgeRelationPairs,
+  type RelationJudgePair,
+} from "./synapse-relation-judge.js";
 
 /**
  * 候选对 Jaccard 预筛阈值(范围内,低于此值的 A×A 对不给 agent)。
@@ -64,6 +71,15 @@ interface ProposalEngineLike {
   }): boolean;
 }
 
+/** 审计接口(降级留痕用,结构类型避免 import AuditLog 实类) */
+interface AuditLike {
+  append(entry: {
+    readonly actor: "system";
+    readonly action: "reflection_skipped";
+    readonly metadata?: Readonly<Record<string, unknown>>;
+  }): void;
+}
+
 /** 一对候选(交 agent 判断) */
 export interface SynapseCandidatePair {
   readonly a: string;
@@ -88,11 +104,15 @@ export interface SynapseRefineResult {
 }
 
 /**
- * 计算突触候选对(局部图遍历)。不调 LLM,不 propose——交 agent 判断。
+ * 计算突触候选对(局部图遍历)+ 可选 LLM 语义判断(反思落地)。
  *
  * @param repo 仓库
+ * @param proposalEngine 注入时对无 edge 候选生成 add 提案(用户审批)
  * @param options.lastRemAt 上次 REM 完成时间(增量触发基线);undefined→全量(冷启动)
  * @param options.jaccardThreshold 覆盖默认预筛阈值
+ * @param options.llmClient 注入时启用反思判断层(按判定 kind 提案;none 不提);
+ *   缺失/失败降级为占位 similar_to 提案(原行为)
+ * @param options.auditLog 降级时记 reflection_skipped 审计
  */
 export async function refineSynapsesOnActiveGraph(
   repo: EngramRepository,
@@ -100,6 +120,8 @@ export async function refineSynapsesOnActiveGraph(
   options: {
     readonly lastRemAt?: string;
     readonly jaccardThreshold?: number;
+    readonly llmClient?: LlmClient;
+    readonly auditLog?: AuditLike;
   } = {},
 ): Promise<SynapseRefineResult> {
   const lastRemAt = options.lastRemAt;
@@ -109,9 +131,15 @@ export async function refineSynapsesOnActiveGraph(
   // 1. 活跃集 A(增量检索 OR 新建)
   const allIds = repo.listEngrams().map((e) => e.id);
   if (allIds.length === 0) {
-    return { activeCount: 0, neighborCount: 0, candidatePairs: [], proposed: 0 };
+    return {
+      activeCount: 0,
+      neighborCount: 0,
+      candidatePairs: [],
+      proposed: 0,
+    };
   }
   const digests = repo.readDigestBatch(allIds);
+  const digestById = new Map(digests.map((d) => [d.id, d] as const));
   const titleById = new Map<string, string>();
   const activeIds = new Set<string>();
   for (const d of digests) {
@@ -123,7 +151,12 @@ export async function refineSynapsesOnActiveGraph(
     if (retrieved || created) activeIds.add(d.id);
   }
   if (activeIds.size === 0) {
-    return { activeCount: 0, neighborCount: 0, candidatePairs: [], proposed: 0 };
+    return {
+      activeCount: 0,
+      neighborCount: 0,
+      candidatePairs: [],
+      proposed: 0,
+    };
   }
 
   // 2. 邻居集 N(1-hop:活跃 engram 的突触对端)
@@ -212,9 +245,9 @@ export async function refineSynapsesOnActiveGraph(
     }
   }
 
-  // 候选对(无现有 edge)→ proposeSynapseOp 生成 add similar_to 占位 proposal。
-  // 复用现有 proposal 系统:agent 通过 engram_list_proposals/accept/dismiss review。
-  // accept 落盘 similar_to;想改 kind→dismiss+synapse_create;不建→dismiss。
+  // 候选对(无现有 edge)→ 三层节流选出配额内的对 → (可选)LLM 语义判断 →
+  // proposeSynapseOp 生成 add 提案。复用现有 proposal 系统:agent 通过
+  // engram_list_proposals/accept/dismiss review。
   // 有 edge 的候选(现有突触)不 propose——agent 用 synapse 工具评估 retype/delete。
   // proposeSynapseOp 幂等(entityId=hash(from+to+op+kind)),与 rem.ts 聚类 add 同对同 kind 去重。
   //
@@ -225,12 +258,14 @@ export async function refineSynapsesOnActiveGraph(
   const noEdgeCandidates = candidatePairs
     .filter((p) => !p.hasEdge)
     .sort((x, y) => y.similarity - x.similarity);
+  // 先选后判:配额在「选中」时计,LLM 成本恒等于节流后数量(≤ 30/轮),
+  // 判 none 的对不 propose 但占配额——配额控制的是「LLM 看多少对」。
   const nodeProposeCount = new Map<string, number>();
-  let proposed = 0;
+  const selected: SynapseCandidatePair[] = [];
   for (const p of noEdgeCandidates) {
     if (
       SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN > 0 &&
-      proposed >= SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN
+      selected.length >= SYNAPSE_REFINE_MAX_PROPOSE_PER_RUN
     ) {
       break;
     }
@@ -241,22 +276,86 @@ export async function refineSynapsesOnActiveGraph(
     ) {
       continue;
     }
+    selected.push(p);
+    nodeProposeCount.set(p.a, (nodeProposeCount.get(p.a) ?? 0) + 1);
+    nodeProposeCount.set(p.b, (nodeProposeCount.get(p.b) ?? 0) + 1);
+  }
+
+  // 反思判断层(2026-08 二期):LLM 判 12 kind/none;机械层至此为止,
+  // 关系判断只有 LLM(降级不产伪因果——占位 similar_to 是「待 agent 复核」
+  // 的诚实标注,不是伪造的语义关系)。
+  let verdicts: Awaited<ReturnType<typeof judgeRelationPairs>> | undefined;
+  if (selected.length > 0) {
+    if (options.llmClient) {
+      const judgePairs: RelationJudgePair[] = selected.map((p) => ({
+        aId: p.a,
+        bId: p.b,
+        aTitle: p.aTitle,
+        bTitle: p.bTitle,
+        aText: judgeTextOf(p.a),
+        bText: judgeTextOf(p.b),
+      }));
+      try {
+        const results = await judgeRelationPairs(options.llmClient, judgePairs);
+        const degraded = results.filter((v) => v === undefined).length;
+        if (degraded > 0) {
+          options.auditLog?.append({
+            actor: "system",
+            action: "reflection_skipped",
+            metadata: {
+              layer: "rem-synapse-refine",
+              reason: "llm-failed",
+              pairsTotal: selected.length,
+              pairsDegraded: degraded,
+            },
+          });
+        }
+        if (results.some((v) => v !== undefined)) verdicts = results;
+      } catch {
+        options.auditLog?.append({
+          actor: "system",
+          action: "reflection_skipped",
+          metadata: { layer: "rem-synapse-refine", reason: "llm-error" },
+        });
+      }
+    } else {
+      options.auditLog?.append({
+        actor: "system",
+        action: "reflection_skipped",
+        metadata: {
+          layer: "rem-synapse-refine",
+          reason: "llm-missing",
+          pairsTotal: selected.length,
+        },
+      });
+    }
+  }
+
+  let proposed = 0;
+  for (let i = 0; i < selected.length; i++) {
+    const p = selected[i]!;
+    const v = verdicts?.[i];
+    if (v?.kind === "none") continue; // LLM 判无关系 → 不提(比占位更少噪音)
+    // 有向关系方向由 LLM 裁定(reverse → 交换两端)
+    const from = v?.reverse ? p.b : p.a;
+    const to = v?.reverse ? p.a : p.b;
     try {
       proposalEngine?.proposeSynapseOp?.({
         op: "add",
-        from: p.a,
-        to: p.b,
-        kind: "similar_to",
-        reason: `REM 突触候选(局部图遍历:活跃集+邻居;Jaccard ${p.similarity.toFixed(2)});agent review 关系类型`,
-        confidence: p.similarity,
-        fromTitle: p.aTitle,
-        toTitle: p.bTitle,
+        from,
+        to,
+        kind: v?.kind ?? "similar_to",
+        reason:
+          v !== undefined
+            ? `REM 反思(LLM 语义判断,${v.kind}${v.reverse ? ",反向" : ""},置信 ${v.confidence.toFixed(2)}):${v.reason}`
+            : `REM 突触候选(局部图遍历:活跃集+邻居;Jaccard ${p.similarity.toFixed(2)});agent review 关系类型`,
+        confidence: v?.confidence ?? p.similarity,
+        fromTitle: v?.reverse ? p.bTitle : p.aTitle,
+        toTitle: v?.reverse ? p.aTitle : p.bTitle,
       });
       proposed += 1;
-      nodeProposeCount.set(p.a, (nodeProposeCount.get(p.a) ?? 0) + 1);
-      nodeProposeCount.set(p.b, (nodeProposeCount.get(p.b) ?? 0) + 1);
     } catch {
-      // 单条 propose 失败不阻塞(不计入节点配额,后续对仍可尝试)
+      // 单条 propose 失败不阻塞
     }
   }
 
@@ -266,4 +365,15 @@ export async function refineSynapsesOnActiveGraph(
     candidatePairs,
     proposed,
   };
+
+  /** 端点判断素材(优先全文摘要,缺则标题兜底;截断在 judge 层) */
+  function judgeTextOf(id: string): string {
+    const c = contentById.get(id);
+    if (c) {
+      const d = digestById.get(id);
+      const tags = d ? ` [${d.domainTags.join("/")}]` : "";
+      return `${c.summary ?? ""}${tags}\n${c.content}`;
+    }
+    return titleById.get(id) ?? id;
+  }
 }
