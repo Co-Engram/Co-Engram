@@ -969,6 +969,8 @@ export class ProposalEngine {
    */
   proposeInsight(input: {
     readonly mode: string;
+    /** 触发入口(2026-08-20 来源细分):manual=沉思 / scheduled=夜思;落 payload 供 viewer 区分展示 */
+    readonly trigger?: "manual" | "scheduled";
     readonly insightType: string;
     readonly title: string;
     readonly content: string;
@@ -1036,6 +1038,9 @@ export class ProposalEngine {
         remReason: input.criticRationale,
         insightMode: input.mode,
         insightType: input.insightType,
+        // 来源细分:沉思(用户发起)与夜思(每日调度)同一 incubator 产出,
+        // 无此字段时 viewer 按夜思展示(历史提案兼容)
+        ...(input.trigger ? { insightTrigger: input.trigger } : {}),
         criticScore: input.criticScore,
         criticRationale: input.criticRationale,
         ...(input.incubationId !== undefined

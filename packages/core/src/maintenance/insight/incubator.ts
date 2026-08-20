@@ -191,6 +191,8 @@ export interface IncubationEntry {
 export interface IncubatorProposalSink {
   proposeInsight(input: {
     readonly mode: string;
+    /** 触发入口(2026-08-20 来源细分):manual=沉思(用户发起)/ scheduled=夜思(每日调度) */
+    readonly trigger?: "manual" | "scheduled";
     readonly insightType: string;
     readonly title: string;
     readonly content: string;
@@ -1486,6 +1488,7 @@ export class Incubator {
       );
       const ok = this.deps.proposalEngine.proposeInsight({
         mode: d.mode,
+        trigger: input.trigger,
         insightType: d.type,
         title: d.title,
         content: d.content,

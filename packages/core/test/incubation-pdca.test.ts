@@ -752,6 +752,11 @@ describe("诊断可达性(2026-08-20):mismatch detail / 类型级闭合出口 / 
       trigger: "manual", actor: "test",
     });
     expect(r.proposals).toBe(1); // 双来源 pattern 成案
+    // 来源细分(2026-08-20):manual 触发(本测试 trigger:"manual")透传到提案 payload
+    const prop = engine.findProposalByEntityId(
+      r.entry.timeline.at(-1)!.proposalEntityIds[0]!,
+    );
+    expect((prop?.payload as Record<string, unknown> | undefined)?.insightTrigger).toBe("manual");
     const reasons = (r.diagnosis.rejectReasons ?? []).join("\n");
     expect(reasons).toContain("[validate] 单来源伪规律");
     expect(reasons).toContain("pattern requires >=2 sources");

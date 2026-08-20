@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed(2026-08-20 提案来源细分:rem-insight 区分「沉思/夜思」,统一两族命名)
+
+- **来源标签「夜思深度思考」是拼接词,且无法区分入口**:rem-insight 在列表来源行(`sourceLine`)叫「夜思洞察」,在「为什么生成」详情面板(`why.sourceLabel`)却是拼接词「夜思深度思考」——既非夜思族命名也不属 REM 族(其余 REM 系均为「REM 模式提炼/元认知验证/标签刷新」)。且 rem-insight 实际有两个产生入口:沉思(用户发起 ponder)与夜思(条目每日调度),此前一律标「夜思」无法区分。修复:①incubator → proposal 链路透传 trigger(manual/scheduled),落 payload.insightTrigger(历史提案无此字段按夜思展示,向后兼容);②viewer 列表来源行与详情面板按 payload 区分展示「沉思洞察」/「夜思洞察」;③i18n 中英双补 `remInsightContemplation`。
+
 ### Added(2026-08-20 反思落地:REM 突触维护二期 —— 因果/时间族突触从 0 起步)
 
 - **反思判断层**(LLM 语义关系判断,12 kind / none,新 `synapse-relation-judge.ts`):REM 周期 `refineSynapsesOnActiveGraph` 的候选对(增量活跃集 + Jaccard 预筛 + 三层节流)不再占位 `similar_to`,而是 LLM 判定 kind 后按判定生成提案(判 `none` 不提、比占位更少噪音;有向关系方向由 LLM 裁定 `reverse` 时交换端点)—— 修复图谱取证「149 突触 80% similar_to、causes/depends_on/follows/supersedes/consolidates/contradicts 全 0」的结构缺口(根因:机械层只算得出相似,语义关系只有 LLM 能判)。

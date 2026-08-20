@@ -138,10 +138,22 @@ describe("rem-insight 卡片渲染回归测试", () => {
 
   it("_whyBlock:rem-insight 显示夜思来源与独立评审说明,不显「N 条独立样本」", () => {
     const html = sandbox.CO_ENGRAM_PROPOSALS._whyBlock(REM_INSIGHT_PROPOSAL);
-    expect(html).toContain("夜思深度思考");
+    expect(html).toContain("夜思洞察");
     expect(html).toContain("独立 AI 评审");
     expect(html).not.toContain("条独立样本");
     expect(html).not.toContain("对话聚类");
+  });
+
+  it("来源细分:insightTrigger=manual 显示「沉思洞察」,夜思与沉思互斥(2026-08-20)", () => {
+    const manual = { ...REM_INSIGHT_PROPOSAL, payload: { ...REM_INSIGHT_PROPOSAL.payload, insightTrigger: "manual" } };
+    // 列表来源行
+    expect(sandbox.CO_ENGRAM_PROPOSALS._sourceLine(manual)).toContain("沉思洞察");
+    expect(sandbox.CO_ENGRAM_PROPOSALS._sourceLine(manual)).not.toContain("夜思洞察");
+    // 「为什么生成」详情面板
+    expect(sandbox.CO_ENGRAM_PROPOSALS._whyBlock(manual)).toContain("沉思洞察");
+    expect(sandbox.CO_ENGRAM_PROPOSALS._whyBlock(manual)).not.toContain("夜思洞察");
+    // 无 trigger(历史提案/夜思调度)→ 夜思
+    expect(sandbox.CO_ENGRAM_PROPOSALS._sourceLine(REM_INSIGHT_PROPOSAL)).toContain("夜思洞察");
   });
 
   it("整卡渲染(fetch mock):critic chip 为「评审 0.90」且无 💬 样本 chip / 无对话聚类 / 无重复徽标", async () => {

@@ -2176,7 +2176,10 @@ window.CO_ENGRAM_PROPOSALS = {
     };
     if (REM_SOURCE_LABEL_KEY[src]) {
       const ts = p.lastSeenAt || p.createdAt || '';
-      return '<div class="proposal-source-line">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.' + REM_SOURCE_LABEL_KEY[src]))
+      // rem-insight 来源细分(2026-08-20):manual=沉思(用户发起)/ 默认=夜思(每日调度)
+      const labelKey = (src === 'rem-insight' && p.payload && p.payload.insightTrigger === 'manual')
+        ? 'remInsightContemplation' : REM_SOURCE_LABEL_KEY[src];
+      return '<div class="proposal-source-line">' + CO_ENGRAM.escapeHtml(T.t('viewer.proposals.sourceLine.' + labelKey))
         + (ts ? ' · ' + CO_ENGRAM.escapeHtml(CO_ENGRAM.relativeTime(ts)) : '') + '</div>';
     }
     // DEMO g2-proposals .src:来源彩色小徽标(ext=蓝/conv=紫/auto=中性/skill=琥珀),
@@ -2224,7 +2227,8 @@ window.CO_ENGRAM_PROPOSALS = {
       + (p.slug ? '(' + p.slug + ')' : '');
     else if (src === 'rem-pattern') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remPattern');
     else if (src === 'rem-verification') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remVerification');
-    else if (src === 'rem-insight') sourceLabel = T.t('viewer.proposals.why.sourceLabel.remInsight');
+    else if (src === 'rem-insight') sourceLabel = T.t('viewer.proposals.why.sourceLabel.'
+      + ((p.payload && p.payload.insightTrigger === 'manual') ? 'remInsightContemplation' : 'remInsight'));
     else if (src === 'skill') sourceLabel = T.t('viewer.proposals.why.sourceLabel.skill')
       + (p.sourcePath ? '(' + p.sourcePath + ')' : '');
     else sourceLabel = T.t('viewer.proposals.why.sourceLabel.conversation');
