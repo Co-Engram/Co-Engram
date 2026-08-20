@@ -1470,7 +1470,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.updatesBarTip":
     "柱高 = 当日新增或内容有更新的记忆数(印迹/突触/技能合计);点击柱子查看当日明细。",
   "viewer.stats.expandTip": "点击展开 TOP 20",
-  "viewer.stats.weeklyNew": "↑${n}",
+  "viewer.stats.weeklyNew": "↑${n}/周",
   "viewer.stats.pulseTitle": "记忆更新",
   "viewer.stats.pulseSub":
     "新增或内容有更新(印迹/突触/技能)· 近 30 天 · 点击查看当日",
@@ -1505,8 +1505,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.itemCreated": "新增",
   "viewer.stats.itemDeleted": "已删除记忆",
   "viewer.stats.itemUpdated": "更新",
-  "viewer.stats.weeklyRetrievals": "↑${n}",
-  "viewer.stats.weeklyInvocations": "↑${n}",
+  "viewer.stats.weeklyRetrievals": "↑${n}/周",
+  "viewer.stats.weeklyInvocations": "↑${n}/周",
   "viewer.stats.totalEngrams": "记忆印迹总数",
   "viewer.stats.totalEngramsTip":
     "总数 = 活跃 + 已冻结 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已冻结」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
