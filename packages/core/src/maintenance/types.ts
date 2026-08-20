@@ -146,6 +146,15 @@ export interface MaintenanceDeps {
     findProposalByEntityId(
       entityId: string,
     ): { readonly status?: string } | undefined;
+    /**
+     * 技能退役提案同步(2026-08 退役回路,light 周期调用):候选生成 +
+     * 幂等 + 僵尸撤销内聚于此。结构同 ProposalEngine.syncSkillRetireProposals。
+     */
+    syncSkillRetireProposals?(input: {
+      readonly skills: readonly import("../types/skill.js").Skill[];
+      readonly minZeroUseDays: number;
+      readonly nowMs?: number;
+    }): { readonly proposed: number; readonly withdrawn: number };
   };
   /**
    * ProcessLock 持有者(可选,写 maintenance-state.json 前 check)。
@@ -266,6 +275,22 @@ export interface MaintenanceConfig {
   readonly enabledStages?: readonly MaintenanceStage[];
   /** Trash sweep 配置。默认开启 → deep 阶段执行 trash sweep */
   readonly trash?: TrashMaintenanceConfig;
+  /**
+   * 技能退役提案配置(2026-08 退役回路)。默认开启 —— 只生成提案走用户
+   * 裁决(与 contemplation_delete 同哲学),不自动删除任何印迹/SKILL.md。
+   */
+  readonly skillRetire?: SkillRetireMaintenanceConfig;
+}
+
+/** 技能退役在 maintenance 中的配置 */
+export interface SkillRetireMaintenanceConfig {
+  /** 是否启用退役提案扫描(默认 true) */
+  readonly enabled?: boolean;
+  /**
+   * 零调用判定天数(默认 30)。判据:invocationCount===0 且锚点
+   * (lastUsedAt ?? createdAt)距今 ≥ 该天数,且 retentionStage ∈ {stale, forgotten}。
+   */
+  readonly staleZeroUseDays?: number;
 }
 
 /** Trash 在 maintenance 中的配置 */
@@ -316,6 +341,10 @@ export interface MaintenanceReport {
    * light 阶段扫描的 skill 总数(用于审计/观察)。
    */
   readonly skillsScanned?: number;
+  /** light 阶段生成的技能退役提案数(2026-08 退役回路) */
+  readonly skillsRetireProposed?: number;
+  /** light 阶段撤销的僵尸退役提案数(技能已被使用/已退役/已删除) */
+  readonly skillsRetireWithdrawn?: number;
   /** deep/rem 阶段的下游报告 */
   readonly downstreamReport?: unknown;
   /** 错误（不抛,记录后继续） */

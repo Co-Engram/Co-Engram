@@ -26,7 +26,11 @@ export function clamp01(x: number): number {
 }
 
 /** Rescorla-Wagner: U(n)=U(n-1)+α·[R(n)-U(n-1)] */
-export function updateUtility(currentU: number, reward: number, alpha = DEFAULT_LEARNING_RATE): number {
+export function updateUtility(
+  currentU: number,
+  reward: number,
+  alpha = DEFAULT_LEARNING_RATE,
+): number {
   return clamp01(currentU + alpha * (reward - currentU));
 }
 
@@ -65,9 +69,57 @@ export function projectRetentionStage(retention: number): RetentionStage {
   return "forgotten";
 }
 
-const ACQUISITION_ORDER: readonly AcquisitionStage[] = ["draft", "compiled", "tuned"];
+/**
+ * 技能退役候选判定(纯函数,light 周期经 listRetireCandidates 调用)。
+ *
+ * 判据(全部满足):
+ *   1. invocationCount === 0 —— 「零调用」:从未被使用验证过(实证:9 技能
+ *      6 个零调用,SkillsBench 测得技能库使 19% 任务负 delta;零调用技能是
+ *      潜在负资产,不是闲置资产)。「用过后来忘了」的技能不在此列 —— 它们
+ *      已被验证有价值,且 forgotten 已联动移出注入清单,叠加退役是噪音。
+ *   2. 锚点(lastUsedAt ?? createdAt,与 computeRetention 同锚)距今 ≥ minZeroUseDays
+ *      —— 未验证状态持续足够久,排除刚注册还没机会被用的技能。
+ *   3. retentionStage ∈ {stale, forgotten} —— 与衰退投影联动。注意默认参数
+ *      (T=15, never-used S≈9 天)下 30 天零调用必然已 forgotten(仅判 stale
+ *      会让规则在默认参数下永不触发);stale 分支覆盖用户调小 minZeroUseDays
+ *      的配置。
+ *   4. 未 retiredAt —— 已退役的不重复提案。
+ */
+export function isRetireCandidate(
+  skill: {
+    readonly invocationCount: number;
+    readonly lastUsedAt: string | null;
+    readonly createdAt: string | null;
+    readonly retentionStage: RetentionStage;
+    readonly retiredAt?: string;
+  },
+  nowMs: number,
+  minZeroUseDays: number,
+): boolean {
+  if (skill.retiredAt !== undefined) return false;
+  if (skill.invocationCount !== 0) return false;
+  if (
+    skill.retentionStage !== "stale" &&
+    skill.retentionStage !== "forgotten"
+  ) {
+    return false;
+  }
+  const anchor = skill.lastUsedAt ?? skill.createdAt;
+  if (!anchor) return false;
+  const ageDays = (nowMs - new Date(anchor).getTime()) / 86_400_000;
+  return ageDays >= minZeroUseDays;
+}
 
-export function canTransitionAcquisition(from: AcquisitionStage, to: AcquisitionStage): boolean {
+const ACQUISITION_ORDER: readonly AcquisitionStage[] = [
+  "draft",
+  "compiled",
+  "tuned",
+];
+
+export function canTransitionAcquisition(
+  from: AcquisitionStage,
+  to: AcquisitionStage,
+): boolean {
   if (from === to) return false;
   return ACQUISITION_ORDER.indexOf(to) - ACQUISITION_ORDER.indexOf(from) === 1;
 }

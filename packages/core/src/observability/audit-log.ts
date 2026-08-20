@@ -88,6 +88,9 @@ export type AuditAction =
   | "skill_update"
   | "skill_delete"
   | "skill_invoke"
+  // 技能退役提案生成(light 周期零调用+stale/forgotten 扫描;accept/dismiss
+  // 走通用 accept/dismiss action + metadata.source="skill-retire")
+  | "skill_retire_proposed"
   | "skill_compose_add"
   | "skill_compose_remove"
   | "skill_related_engram_add"
@@ -171,7 +174,11 @@ export class AuditLog {
    * 尊重「用户明确关闭轮转」的语义。
    */
   private autoRotationOpts:
-    | { readonly retentionDays: number; readonly highValueRetentionDays: number; readonly maxSizeMb: number }
+    | {
+        readonly retentionDays: number;
+        readonly highValueRetentionDays: number;
+        readonly maxSizeMb: number;
+      }
     | undefined;
   /** 背压冷却:上次 append 触发轮转的时间戳(防边界震荡) */
   private lastBackpressureAt = 0;
@@ -399,7 +406,9 @@ export class AuditLog {
       // 单行分类(两遍共用,确定性一致):时间维度保留决策 + 价值等级。
       // parse 失败 / 无 ts 的行 → keep=true(损坏行不擅自删除)、high=true
       // (保守:不知道内容价值时宁可占着大小预算也不先丢)。
-      const classifyLine = (trimmed: string): { keep: boolean; high: boolean } => {
+      const classifyLine = (
+        trimmed: string,
+      ): { keep: boolean; high: boolean } => {
         let entry: AuditEntry;
         try {
           entry = JSON.parse(trimmed) as AuditEntry;

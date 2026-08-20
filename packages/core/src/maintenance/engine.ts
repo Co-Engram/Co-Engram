@@ -90,7 +90,13 @@ export const SIGNAL_CLOSE_FAILURE_THRESHOLD = -0.6;
  */
 export class MaintenanceEngine {
   private readonly deps: MaintenanceDeps;
-  private readonly resolvedConfig: Required<MaintenanceConfig>;
+  private readonly resolvedConfig: Required<MaintenanceConfig> & {
+    /** 构造期已解析为具体值(skillRetire 内部字段在 MaintenanceConfig 里可选) */
+    readonly skillRetire: Readonly<{
+      enabled: boolean;
+      staleZeroUseDays: number;
+    }>;
+  };
   private lightTimer: ReturnType<typeof setInterval> | null = null;
   private deepTimer: ReturnType<typeof setInterval> | null = null;
   private remTimer: ReturnType<typeof setInterval> | null = null;
@@ -114,6 +120,12 @@ export class MaintenanceEngine {
       enabledStages:
         config.enabledStages ?? (["light", "deep", "rem"] as const),
       trash: config.trash ?? { enabled: false },
+      skillRetire: config.skillRetire
+        ? {
+            enabled: config.skillRetire.enabled ?? true,
+            staleZeroUseDays: config.skillRetire.staleZeroUseDays ?? 30,
+          }
+        : { enabled: true, staleZeroUseDays: 30 },
       remInsight: config.remInsight
         ? { ...DEFAULT_REM_INSIGHT, ...config.remInsight }
         : { ...DEFAULT_REM_INSIGHT },
@@ -265,6 +277,29 @@ export class MaintenanceEngine {
         }
       }
 
+      // 技能退役回路(2026-08):零调用 + stale/forgotten 技能生成退役提案,
+      // 用户 accept 才退役(与 contemplation_delete 同哲学:删除属用户裁决)。
+      // 提案生命周期一致性(生成/幂等/僵尸撤销)由 syncSkillRetireProposals 内聚。
+      let skillsRetireProposed: number | undefined = undefined;
+      let skillsRetireWithdrawn: number | undefined = undefined;
+      if (
+        this.resolvedConfig.skillRetire.enabled &&
+        this.deps.skillRepository &&
+        this.deps.proposalEngine?.syncSkillRetireProposals
+      ) {
+        try {
+          const skills = this.deps.skillRepository.listSkills();
+          const r = this.deps.proposalEngine.syncSkillRetireProposals({
+            skills,
+            minZeroUseDays: this.resolvedConfig.skillRetire.staleZeroUseDays,
+          });
+          skillsRetireProposed = r.proposed;
+          skillsRetireWithdrawn = r.withdrawn;
+        } catch {
+          // 退役提案失败不阻塞 light
+        }
+      }
+
       const baseResult = {
         signalsProcessed,
         rpeUpdates,
@@ -288,10 +323,22 @@ export class MaintenanceEngine {
           ...baseResult,
           skillsDecayed,
           skillsScanned,
+          ...(skillsRetireProposed !== undefined
+            ? {
+                skillsRetireProposed,
+                skillsRetireWithdrawn: skillsRetireWithdrawn ?? 0,
+              }
+            : {}),
           downstreamReport: {
             ...baseResult.downstreamReport,
             skillsDecayed,
             skillsScanned,
+            ...(skillsRetireProposed !== undefined
+              ? {
+                  skillsRetireProposed,
+                  skillsRetireWithdrawn: skillsRetireWithdrawn ?? 0,
+                }
+              : {}),
           },
         };
       }
@@ -574,7 +621,9 @@ export class MaintenanceEngine {
       try {
         deepThought = await runDeepThought({
           repository: this.deps.repository,
-          proposalEngine: this.deps.proposalEngine as import("./insight/run.js").DeepThoughtProposalSink | undefined,
+          proposalEngine: this.deps.proposalEngine as
+            | import("./insight/run.js").DeepThoughtProposalSink
+            | undefined,
           llmClient: this.deps.llmClient,
           lastRemAt: lastRemState?.stages.rem?.lastRunAt ?? null,
           config: this.resolvedConfig.remInsight,
@@ -590,7 +639,9 @@ export class MaintenanceEngine {
       // 2.6 存活期证据链衰减监测(spec §五第三关,纯代码无 LLM):
       //     rem-insight 洞察的 derives_from 对端 refute/非 active 占比 > 30%
       //     → 汇入 insight-review.json 重审摘要(不逐条出提案,防泛滥)。
-      let insightDecay: import("./insight/run.js").InsightDecayItem[] | undefined;
+      let insightDecay:
+        | import("./insight/run.js").InsightDecayItem[]
+        | undefined;
       try {
         insightDecay = await scanInsightDecay(
           this.deps.repository,
@@ -640,7 +691,9 @@ export class MaintenanceEngine {
           tagRefresh,
           synapseRefine,
           ...(deepThought ? { deepThought } : {}),
-          ...(insightDecay !== undefined ? { insightDecayCount: insightDecay.length } : {}),
+          ...(insightDecay !== undefined
+            ? { insightDecayCount: insightDecay.length }
+            : {}),
         },
       };
     });
@@ -877,6 +930,12 @@ export class MaintenanceEngine {
         : {}),
       ...(body.skillsScanned !== undefined
         ? { skillsScanned: body.skillsScanned }
+        : {}),
+      ...(body.skillsRetireProposed !== undefined
+        ? { skillsRetireProposed: body.skillsRetireProposed }
+        : {}),
+      ...(body.skillsRetireWithdrawn !== undefined
+        ? { skillsRetireWithdrawn: body.skillsRetireWithdrawn }
         : {}),
     };
 

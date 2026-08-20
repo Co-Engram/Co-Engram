@@ -870,12 +870,26 @@ async function routeApi(
   if (skillReactivateMatch && req.method === "POST") {
     const skillId = decodeURIComponent(skillReactivateMatch[1]!);
     if (!ctx.skillRepository) {
-      respondJson(res, 503, { error: "SkillRepository not available", enabled: false });
+      respondJson(res, 503, {
+        error: "SkillRepository not available",
+        enabled: false,
+      });
       return;
     }
     try {
       const skill = ctx.skillRepository.reactivateSkill(skillId);
-      respondJson(res, 200, { reactivated: true, skillId, retentionStage: skill.retentionStage });
+      // 退役技能被手动恢复 → 定点撤销其 pending 退役提案(与 skill_invoke 的
+      // 即时撤销同构;light 周期 syncSkillRetireProposals 亦有兜底清理)
+      try {
+        ctx.proposalEngine?.withdrawSkillRetire?.(skillId, "reactivated");
+      } catch {
+        // 撤销失败不阻塞恢复
+      }
+      respondJson(res, 200, {
+        reactivated: true,
+        skillId,
+        retentionStage: skill.retentionStage,
+      });
     } catch (err) {
       respondJson(res, 404, { error: `Skill not found: ${skillId}` });
     }
@@ -959,7 +973,8 @@ async function routeApi(
     // PDCA(P4):degraded run 的洞察提案默认不进审批队列 —— pending 默认
     // 排除带 payload.degraded 的(provisional 修复中 / 固化隔离),另以
     // quarantined 通道随响应返回,前端置顶展示未闭合清单。status=all 仍可见。
-    const isDegraded = (p: (typeof all)[number]) => !!(p.payload as { degraded?: unknown } | undefined)?.degraded;
+    const isDegraded = (p: (typeof all)[number]) =>
+      !!(p.payload as { degraded?: unknown } | undefined)?.degraded;
     const result = paginateWithCursor({
       items: all,
       getSortKey: (p) => p.lastSeenAt,
@@ -989,7 +1004,10 @@ async function routeApi(
               const payload = p.payload as
                 | {
                     title?: string;
-                    degraded?: { provisional: boolean; unclosedGaps: readonly string[] };
+                    degraded?: {
+                      provisional: boolean;
+                      unclosedGaps: readonly string[];
+                    };
                   }
                 | undefined;
               return {
@@ -1101,7 +1119,12 @@ async function routeApi(
     let dismissed = 0;
     let pending = 0;
     const criticScores: Array<{ accepted: boolean; score: number }> = [];
-    const usage: Array<{ engramId: string; retrievalCount: number; reinforcementScore: number; failedUses: number }> = [];
+    const usage: Array<{
+      engramId: string;
+      retrievalCount: number;
+      reinforcementScore: number;
+      failedUses: number;
+    }> = [];
     for (const p of insights) {
       if (p.status === "accepted") {
         accepted += 1;
@@ -1123,13 +1146,18 @@ async function routeApi(
       } else if (p.status === "dismissed") {
         dismissed += 1;
         const payload = p.payload as { criticScore?: number } | undefined;
-        criticScores.push({ accepted: false, score: payload?.criticScore ?? 0 });
+        criticScores.push({
+          accepted: false,
+          score: payload?.criticScore ?? 0,
+        });
       } else {
         pending += 1;
       }
     }
     // 后续使用率:accepted 洞察被检索/强化过的比例(存活期第三关不是死代码的度量)
-    const used = usage.filter((u) => u.retrievalCount > 0 || u.reinforcementScore > 0).length;
+    const used = usage.filter(
+      (u) => u.retrievalCount > 0 || u.reinforcementScore > 0,
+    ).length;
     // critic 一致性:critic 分与人工 accept 的 Pearson 相关(样本 ≥3 才有意义)
     let criticCorrelation: number | null = null;
     if (criticScores.length >= 3) {
@@ -1138,7 +1166,9 @@ async function routeApi(
       const ys = criticScores.map((c): number => (c.accepted ? 1 : 0));
       const mx = xs.reduce((a, b) => a + b, 0) / n;
       const my = ys.reduce((a, b) => a + b, 0) / n;
-      let num = 0, dx = 0, dy = 0;
+      let num = 0,
+        dx = 0,
+        dy = 0;
       for (let i = 0; i < n; i++) {
         num += (xs[i]! - mx) * (ys[i]! - my);
         dx += (xs[i]! - mx) ** 2;
@@ -1152,7 +1182,8 @@ async function routeApi(
       accepted,
       dismissed,
       pending,
-      acceptanceRate: accepted + dismissed > 0 ? accepted / (accepted + dismissed) : null,
+      acceptanceRate:
+        accepted + dismissed > 0 ? accepted / (accepted + dismissed) : null,
       laterUseRate: accepted > 0 ? used / accepted : null,
       criticCorrelation,
       usage,
@@ -1212,13 +1243,20 @@ async function routeApi(
   }
 
   // 单条完整详情(报告展开懒加载:历史轮 timeline / 全文字段)
-  const contemplationDetailMatch = /^\/api\/contemplations\/([^/]+)$/.exec(path);
+  const contemplationDetailMatch = /^\/api\/contemplations\/([^/]+)$/.exec(
+    path,
+  );
   if (contemplationDetailMatch && req.method === "GET") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      respondJson(res, 503, {
+        enabled: false,
+        error: "contemplation unavailable",
+      });
       return;
     }
-    const entry = ctx.incubator.get(decodeURIComponent(contemplationDetailMatch[1]!));
+    const entry = ctx.incubator.get(
+      decodeURIComponent(contemplationDetailMatch[1]!),
+    );
     if (!entry) {
       respondJson(res, 404, { error: "contemplation not found" });
       return;
@@ -1230,7 +1268,10 @@ async function routeApi(
   // 创建即深思:创建条目(queued)并自动起异步 job,返回 jobId 供轮询
   if (path === "/api/contemplations" && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      respondJson(res, 503, {
+        enabled: false,
+        error: "contemplation unavailable",
+      });
       return;
     }
     const body = await readJsonBodyAs<{
@@ -1252,7 +1293,8 @@ async function routeApi(
       // —— 创建若因任何原因未落盘,报 503 而非假 201 + 异步 job not found。
       if (!ctx.incubator.get(entry.id)) {
         respondJson(res, 503, {
-          error: "contemplation store write failed verification — entry did not persist; retry",
+          error:
+            "contemplation store write failed verification — entry did not persist; retry",
         });
         return;
       }
@@ -1261,7 +1303,15 @@ async function routeApi(
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // duplicate → 409(连击防重:同问题未完成态已存在);limit → 400
-      respondJson(res, /duplicate contemplation/.test(msg) ? 409 : /limit reached/.test(msg) ? 400 : 500, { error: msg });
+      respondJson(
+        res,
+        /duplicate contemplation/.test(msg)
+          ? 409
+          : /limit reached/.test(msg)
+            ? 400
+            : 500,
+        { error: msg },
+      );
       return;
     }
     return;
@@ -1269,10 +1319,14 @@ async function routeApi(
 
   // 终止进行中的 run(thinking/verifying/repairing → 可跑/降级收束):
   // 误建条目立即解锁(可删/可再思),不必等 30 分钟 TTL
-  const contemplationCancelMatch = /^\/api\/contemplations\/([^/]+)\/cancel$/.exec(path);
+  const contemplationCancelMatch =
+    /^\/api\/contemplations\/([^/]+)\/cancel$/.exec(path);
   if (contemplationCancelMatch && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      respondJson(res, 503, {
+        enabled: false,
+        error: "contemplation unavailable",
+      });
       return;
     }
     try {
@@ -1283,17 +1337,24 @@ async function routeApi(
       respondJson(res, 200, { entry: slimIncubationEntry(entry) });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /not in progress|not found/.test(msg) ? 409 : 500, { error: msg });
+      respondJson(res, /not in progress|not found/.test(msg) ? 409 : 500, {
+        error: msg,
+      });
       return;
     }
     return;
   }
 
   // 再思/手动执行:done 与 queued 均可;thinking 中域层拒绝 → 409
-  const contemplationRunMatch = /^\/api\/contemplations\/([^/]+)\/run$/.exec(path);
+  const contemplationRunMatch = /^\/api\/contemplations\/([^/]+)\/run$/.exec(
+    path,
+  );
   if (contemplationRunMatch && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      respondJson(res, 503, {
+        enabled: false,
+        error: "contemplation unavailable",
+      });
       return;
     }
     const id = decodeURIComponent(contemplationRunMatch[1]!);
@@ -1312,9 +1373,13 @@ async function routeApi(
     return;
   }
 
-  const contemplationJobMatch = /^\/api\/contemplation-jobs\/([^/]+)$/.exec(path);
+  const contemplationJobMatch = /^\/api\/contemplation-jobs\/([^/]+)$/.exec(
+    path,
+  );
   if (contemplationJobMatch && req.method === "GET") {
-    const job = incubationJobs.get(decodeURIComponent(contemplationJobMatch[1]!));
+    const job = incubationJobs.get(
+      decodeURIComponent(contemplationJobMatch[1]!),
+    );
     if (!job) {
       respondJson(res, 404, { error: "job not found" });
       return;
@@ -1326,30 +1391,36 @@ async function routeApi(
   // 删除条目(生命周期终点):进行中默认拒绝(force 可带出 —— 终止 run 后
   // 删除,误建条目即时可清理);删条目不删提案 —— 提案本体走各自
   // accept/dismiss 裁决流
-  const contemplationDeleteMatch = /^\/api\/contemplations\/([^/]+)\/delete$/.exec(path);
+  const contemplationDeleteMatch =
+    /^\/api\/contemplations\/([^/]+)\/delete$/.exec(path);
   if (contemplationDeleteMatch && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      respondJson(res, 503, {
+        enabled: false,
+        error: "contemplation unavailable",
+      });
       return;
     }
     const deleteId = decodeURIComponent(contemplationDeleteMatch[1]!);
-    const body = await readJsonBodyAs<{ readonly force?: boolean }>(req).catch(() => undefined);
+    const body = await readJsonBodyAs<{ readonly force?: boolean }>(req).catch(
+      () => undefined,
+    );
     try {
       ctx.incubator.delete(deleteId, body?.force ? { force: true } : undefined);
       respondJson(res, 200, { id: deleteId });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      respondJson(res, /in progress|not found/.test(msg) ? 409 : 500, { error: msg });
+      respondJson(res, /in progress|not found/.test(msg) ? 409 : 500, {
+        error: msg,
+      });
       return;
     }
     return;
   }
 
-
   // /api/proposals/:entityId/accept | /dismiss | /reactivate
-  const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(
-    path,
-  );
+  const proposalActionMatch =
+    /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(path);
   if (proposalActionMatch && req.method === "POST") {
     const entityId = decodeURIComponent(proposalActionMatch[1]!);
     const action = proposalActionMatch[2] as
@@ -1520,7 +1591,9 @@ async function routeApi(
     // 只读实例:origin/visibilityLookup 是写端职责,读端仅需 dataRoot。
     let allEntries: readonly AuditEntry[] = localEntries;
     if (dataRoot) {
-      const teamStore = new TeamEventStore(dataRoot, { origin: "viewer-reader" });
+      const teamStore = new TeamEventStore(dataRoot, {
+        origin: "viewer-reader",
+      });
       const teamFilter = {
         ...(actionList.length > 0
           ? { action: actionList as readonly AuditAction[] }
@@ -1531,9 +1604,7 @@ async function routeApi(
         limit: queryLimit,
       };
       const seen = new Set(
-        localEntries.map(
-          (e) => `${e.action}|${e.engramId ?? ""}|${e.ts}`,
-        ),
+        localEntries.map((e) => `${e.action}|${e.engramId ?? ""}|${e.ts}`),
       );
       const merged = [...localEntries];
       for (const ev of teamStore.query(teamFilter)) {
@@ -2160,7 +2231,11 @@ async function routeApi(
     const withFiles = url.searchParams.get("files") === "1";
     let liveStatsById: Map<
       string,
-      { importance: number; retrievalCount: number; lastRetrievedAt: number | null }
+      {
+        importance: number;
+        retrievalCount: number;
+        lastRetrievedAt: number | null;
+      }
     > | null = null;
     if (withFiles) {
       const db = (
@@ -2632,7 +2707,11 @@ function getUpdatesForDay(
     } else {
       if (
         e.action === "update" &&
-        !(m.changes && typeof m.changes === "object" && "content" in (m.changes as object))
+        !(
+          m.changes &&
+          typeof m.changes === "object" &&
+          "content" in (m.changes as object)
+        )
       ) {
         continue;
       }
@@ -2658,7 +2737,9 @@ function getUpdatesForDay(
     try {
       const placeholders = engramIds.map(() => "?").join(",");
       const rows = ctx.repository.indexDb
-        .prepare(`SELECT id, title, kind FROM engrams WHERE id IN (${placeholders})`)
+        .prepare(
+          `SELECT id, title, kind FROM engrams WHERE id IN (${placeholders})`,
+        )
         .all(...engramIds) as { id: string; title: string; kind: string }[];
       const byId = new Map(rows.map((r) => [r.id, r]));
       for (let i = items.length - 1; i >= 0; i--) {
@@ -2741,7 +2822,9 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
     const aliveEngrams = new Set<string>();
     if (ctx.repository.indexDb) {
       try {
-        const rows = ctx.repository.indexDb.prepare("SELECT id FROM engrams").all() as {
+        const rows = ctx.repository.indexDb
+          .prepare("SELECT id FROM engrams")
+          .all() as {
           id: string;
         }[];
         for (const r of rows) aliveEngrams.add(r.id);
@@ -2782,7 +2865,11 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
         if (
           e.action === "update" &&
           m.source !== "external-edit" &&
-          !(m.changes && typeof m.changes === "object" && "content" in (m.changes as object))
+          !(
+            m.changes &&
+            typeof m.changes === "object" &&
+            "content" in (m.changes as object)
+          )
         ) {
           continue; // 元数据-only 更新不计(external-edit 例外:hash 已判内容级)
         }
@@ -2956,9 +3043,7 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
        GROUP BY day`,
     )
     .all(weekAgo - 23 * DAY_MS) as { day: number; n: number }[];
-  const pulseMap = new Map<number, number>(
-    pulseRows.map((r) => [r.day, r.n]),
-  );
+  const pulseMap = new Map<number, number>(pulseRows.map((r) => [r.day, r.n]));
   const createdLast30d: { date: string; count: number }[] = [];
   for (let i = 29; i >= 0; i--) {
     const t = now - i * DAY_MS;
@@ -3387,20 +3472,24 @@ function buildGraph(ctx: ToolContext): GraphResponse {
  * status/retrievalCount/lastRetrievedAt 驱动状态筛选与活力/热力着色模式。
  * 查询失败返回空 Map,前端对缺失字段的节点放行。
  */
-function engramLiveStatsMap(
-  ctx: ToolContext,
-): Map<string, {
-  createdAtMs: number;
-  status: string;
-  retrievalCount: number;
-  lastRetrievedAt: number | null;
-}> {
-  const out = new Map<string, {
+function engramLiveStatsMap(ctx: ToolContext): Map<
+  string,
+  {
     createdAtMs: number;
     status: string;
     retrievalCount: number;
     lastRetrievedAt: number | null;
-  }>();
+  }
+> {
+  const out = new Map<
+    string,
+    {
+      createdAtMs: number;
+      status: string;
+      retrievalCount: number;
+      lastRetrievedAt: number | null;
+    }
+  >();
   const db = (
     ctx.repository as {
       indexDb?: {
@@ -3685,10 +3774,17 @@ const incubationJobs = new Map<string, IncubationJob>();
  * slim 前列表 payload 随轮数线性膨胀(50 条 × 多轮 × answer 全文,可达 MB 级),
  * 30s 轮询每次全量拉取是沉思 tab 卡顿的主因之一。
  */
-function slimIncubationEntry(e: IncubationEntry): IncubationEntry & { slimTimeline: true } {
+function slimIncubationEntry(
+  e: IncubationEntry,
+): IncubationEntry & { slimTimeline: true } {
   const last = e.timeline.at(-1);
   const timeline = last
-    ? [{ ...last, ...(typeof last.answer === "string" ? { answer: undefined } : {}) }]
+    ? [
+        {
+          ...last,
+          ...(typeof last.answer === "string" ? { answer: undefined } : {}),
+        },
+      ]
     : [];
   return {
     ...e,

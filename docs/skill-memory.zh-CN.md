@@ -20,14 +20,14 @@ Skill 系统采用三层架构，关注点分离：
 
 ### 与 Engram 的对称关系
 
-| 维度 | Engram（陈述性记忆） | Skill（程序性记忆） |
-|------|---------------------|-------------------|
-| **内容** | "是什么"（事实、模式、决策） | "怎么做"（流程、操作、能力） |
-| **科学根基** | 重要性（importance）+ 有效性验证 | 效用值（utility）+ 成功率 |
-| **遗忘机制** | fresh/stale 生命周期 + failedUses | Oblivion retention 时间衰减 |
-| **存储** | 单文件 Markdown（YAML frontmatter + body） | sidecar `imprint.json`（JSON，不碰本体 SKILL.md） |
-| **检测** | proposal engine（两层过滤） | 任意 SKILL.md 目录 → 自动提案 |
-| **组合** | synapse graph（12 种边类型） | composes 关系（skill chaining） |
+| 维度         | Engram（陈述性记忆）                       | Skill（程序性记忆）                               |
+| ------------ | ------------------------------------------ | ------------------------------------------------- |
+| **内容**     | "是什么"（事实、模式、决策）               | "怎么做"（流程、操作、能力）                      |
+| **科学根基** | 重要性（importance）+ 有效性验证           | 效用值（utility）+ 成功率                         |
+| **遗忘机制** | fresh/stale 生命周期 + failedUses          | Oblivion retention 时间衰减                       |
+| **存储**     | 单文件 Markdown（YAML frontmatter + body） | sidecar `imprint.json`（JSON，不碰本体 SKILL.md） |
+| **检测**     | proposal engine（两层过滤）                | 任意 SKILL.md 目录 → 自动提案                     |
+| **组合**     | synapse graph（12 种边类型）               | composes 关系（skill chaining）                   |
 
 ## 数据模型
 
@@ -38,27 +38,27 @@ Skill 的持久化存储在 sidecar `imprint.json` 中（不修改 SKILL.md 本�
 ```typescript
 interface SkillImprint {
   readonly schemaVersion: 1;
-  readonly skillId: string;                          // 稳定标识
-  readonly sourcePath: string;                       // SKILL.md 路径（只读引用）
-  readonly contentHash: string;                      // policy 哈希（变化检测）
-  readonly initiationSet: string;                    // Options 三元组：触发条件
-  readonly termination: string;                       // Options 三元组：终止条件
-  readonly policy: SkillPolicy;                      // Options 三元组：执行策略
-  readonly utility: number;                          // ACT-R utility [0,1]
-  readonly sampleSize: number;                       // 调用次数（n）
-  readonly invocationCount: number;                  // 总调用次数
-  readonly successCount: number;                     // 成功次数
-  readonly failureCount: number;                     // 失败次数
-  readonly lastUsedAt: string | null;               // 最后使用时间
-  readonly acquisitionStage: AcquisitionStage;       // 习得深度轴
-  readonly retentionStage: RetentionStage;           // 衰退阶段
+  readonly skillId: string; // 稳定标识
+  readonly sourcePath: string; // SKILL.md 路径（只读引用）
+  readonly contentHash: string; // policy 哈希（变化检测）
+  readonly initiationSet: string; // Options 三元组：触发条件
+  readonly termination: string; // Options 三元组：终止条件
+  readonly policy: SkillPolicy; // Options 三元组：执行策略
+  readonly utility: number; // ACT-R utility [0,1]
+  readonly sampleSize: number; // 调用次数（n）
+  readonly invocationCount: number; // 总调用次数
+  readonly successCount: number; // 成功次数
+  readonly failureCount: number; // 失败次数
+  readonly lastUsedAt: string | null; // 最后使用时间
+  readonly acquisitionStage: AcquisitionStage; // 习得深度轴
+  readonly retentionStage: RetentionStage; // 衰退阶段
   readonly visibility: "public" | "team" | "private";
   readonly createdBy: string;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly version: number;
-  readonly composes: readonly SkillId[];             // 组合关系（skill chaining）
-  readonly relatedEngrams: readonly EngramId[];      // 关联陈述性记忆
+  readonly composes: readonly SkillId[]; // 组合关系（skill chaining）
+  readonly relatedEngrams: readonly EngramId[]; // 关联陈述性记忆
 }
 ```
 
@@ -105,8 +105,8 @@ Co-Engram 会自动扫描包含 `SKILL.md` 的目录（不绑死特定路径）�
 skill_invoke({
   id: "superpowers-writing-plans",
   success: true,
-  effectiveness: 0.9  // 可选：执行效果评分 [0,1]
-})
+  effectiveness: 0.9, // 可选：执行效果评分 [0,1]
+});
 ```
 
 ### 4. 衰退（遗忘）
@@ -120,16 +120,41 @@ skill_invoke({
 
 **衰退阶段**（`retentionStage`）：
 
-| 阶段 | retention 阈值 | 行为 |
-|------|---------------|------|
-| `active` | > 0.75 | 正常调用，utility 全强度更新 |
-| `aging` | 0.5 - 0.75 | utility 更新衰减 |
-| `stale` | 0.25 - 0.5 | 仅记录调用，不更新 utility |
-| `forgotten` | < 0.25 | 移出技能注入清单；一次真实使用即自动复活（relearning），也可手动恢复 |
+| 阶段        | retention 阈值 | 行为                                                                 |
+| ----------- | -------------- | -------------------------------------------------------------------- |
+| `active`    | > 0.75         | 正常调用，utility 全强度更新                                         |
+| `aging`     | 0.5 - 0.75     | utility 更新衰减                                                     |
+| `stale`     | 0.25 - 0.5     | 仅记录调用，不更新 utility                                           |
+| `forgotten` | < 0.25         | 移出技能注入清单；一次真实使用即自动复活（relearning），也可手动恢复 |
 
 **周期性重算**：maintenance engine 的 **light stage**（每 5 分钟）调用 `recomputeRetentionAll()`，批量更新所有 skill 的 `retentionStage`。
 
 **重要**：`forgotten` 只改变投影状态，不物理删除 sidecar 或本体。复活有两条路径：① agent 再次使用该技能并调用 `skill_invoke` 记录结果（使用即复活，touch `lastUsedAt` → retention 回满 → 回 active）；② 在 viewer 手动恢复（`reactivateSkill`，touch `lastUsedAt` 但不记为一次使用）。
+
+### 4.5 退役（retirement，2026-08 退役回路）
+
+衰退是**时间驱动的投影**，退役是**用户裁决的状态**——两者正交。动机（实测证据）：技能库呈「添加 ≫ 退役」非对称，零调用技能是潜在负资产而非闲置资产（SkillsBench 测得技能库使 19% 任务负 delta；实测 9 个技能 6 个 `invocationCount=0`，部分已 stale 却无任何处置动作）。
+
+**触发**：maintenance light 周期（`recomputeRetentionAll` 之后）扫描退役候选，判据全部满足：
+
+- `invocationCount === 0`（零调用——从未被使用验证过；「用过后来忘了」不在此列，它们已有 forgotten 去注入联动）
+- 锚点（`lastUsedAt ?? createdAt`）距今 ≥ `maintenanceConfig.skillRetire.staleZeroUseDays`（默认 30 天）
+- `retentionStage ∈ {stale, forgotten}`（默认参数下 30 天零调用必然已 forgotten——仅判 stale 会让规则永不触发）
+- 未 retired（`retiredAt` 为空）
+
+**提案化**（与 contemplation_delete 同哲学：删除/退役属用户裁决，引擎只提案不执行）：候选生成 `source="skill-retire"` 提案进入提案中心（entityId = `skill-retire:<skillId>`；文案按 `resolveLanguage` 中英自适应；审计 `skill_retire_proposed`）。
+
+| 操作        | 效果                                                                                                                                                                                                    |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **accept**  | 写入 `retiredAt`（人工裁决态）：`skill_list` 默认不列（`includeRetired: true` 可查）、技能注入清单（catalog）不再注入；`skill_get` 仍可读（含 `retiredAt` 标注）；源 SKILL.md 与 sidecar 印迹完整保留   |
+| **dismiss** | 保留并重置计时：touch `lastUsedAt`（reactivate 语义，不增计数）→ retention 回 active；tombstone 永久屏蔽（用户已裁决「保留」）                                                                          |
+| **复活**    | 被真实使用（`skill_invoke`）或手动恢复（viewer reactivate）→ 清除 `retiredAt` + 自动撤销 pending 退役提案（`revivedFrom=retired` 审计标注；light 周期 `syncSkillRetireProposals` 另有僵尸提案兜底清理） |
+
+**配置**（`config.json` 的 `maintenance.skillRetire`）：
+
+```json
+{ "enabled": true, "staleZeroUseDays": 30 }
+```
 
 ### 5. 组合（Skill Chaining）
 
@@ -138,8 +163,8 @@ Skill 可以通过 `composes` 关系形成 **Skill Chaining**（高级技能由�
 ```typescript
 skill_compose_add({
   skillId: "superpowers-dispatching-parallel-agents",
-  targetSkillId: "deep-research"  // 高级 skill 包含基础 skill
-})
+  targetSkillId: "deep-research", // 高级 skill 包含基础 skill
+});
 ```
 
 **设计原则**：
@@ -156,11 +181,11 @@ skill_compose_add({
 draft → compiled → tuned
 ```
 
-| 阶段 | 含义 | 迁移条件 |
-|------|------|----------|
-| `draft` | 新捕获，未验证 | 用户手动迁移 `skill_update({ acquisitionStage: "compiled" })` |
-| `compiled` | 已验证，可用 | 成功调用 ≥ 10 次且 utility > 0.7（建议阈值，非强制） |
-| `tuned` | 高度优化，稳定 | 长期高 utility 且低 variance（未来可自动检测） |
+| 阶段       | 含义           | 迁移条件                                                      |
+| ---------- | -------------- | ------------------------------------------------------------- |
+| `draft`    | 新捕获，未验证 | 用户手动迁移 `skill_update({ acquisitionStage: "compiled" })` |
+| `compiled` | 已验证，可用   | 成功调用 ≥ 10 次且 utility > 0.7（建议阈值，非强制）          |
+| `tuned`    | 高度优化，稳定 | 长期高 utility 且低 variance（未来可自动检测）                |
 
 **重要约束**：单向不可逆。`tuned` 不能退回 `compiled`，`compiled` 不能退回 `draft`（防止误操作导致经验丢失）。
 
@@ -168,17 +193,17 @@ draft → compiled → tuned
 
 Co-Engram 提供 9 个 Skill 工具（standard profile）：
 
-| 工具 | 功能 | 审计 action |
-|------|------|-------------|
-| `skill_create` | 创建 Skill 实体（从提案或手动） | `skill_create` |
-| `skill_get` | 读取 Skill 元信息与印迹 | — |
-| `skill_list` | 列出所有 Skill，可按 stage 过滤 | — |
-| `skill_update` | 更新 initiationSet/termination/policy 或迁移 acquisitionStage | `skill_update` |
-| `skill_delete` | 删除 sidecar（不动 SKILL.md） | `skill_delete` |
-| `skill_invoke` | 记录使用结果，更新 utility + retention | `skill_invoke` |
-| `skill_compose_add` | 加组合关系 | `skill_compose_add` |
-| `skill_compose_remove` | 移除组合关系 | `skill_compose_remove` |
-| `skill_compose_list` | 列出组合关系 | — |
+| 工具                   | 功能                                                          | 审计 action            |
+| ---------------------- | ------------------------------------------------------------- | ---------------------- |
+| `skill_create`         | 创建 Skill 实体（从提案或手动）                               | `skill_create`         |
+| `skill_get`            | 读取 Skill 元信息与印迹                                       | —                      |
+| `skill_list`           | 列出所有 Skill，可按 stage 过滤                               | —                      |
+| `skill_update`         | 更新 initiationSet/termination/policy 或迁移 acquisitionStage | `skill_update`         |
+| `skill_delete`         | 删除 sidecar（不动 SKILL.md）                                 | `skill_delete`         |
+| `skill_invoke`         | 记录使用结果，更新 utility + retention                        | `skill_invoke`         |
+| `skill_compose_add`    | 加组合关系                                                    | `skill_compose_add`    |
+| `skill_compose_remove` | 移除组合关系                                                  | `skill_compose_remove` |
+| `skill_compose_list`   | 列出组合关系                                                  | —                      |
 
 **审计日志**：所有写操作（`create`/`update`/`delete`/`invoke`/`compose_add`/`compose_remove`）都会写入 `audit.jsonl`，可通过 viewer 的 **Audit** 页面或 `engram_audit_query` 工具查询。
 
@@ -264,11 +289,12 @@ Viewer 的 **Stats** tab 新增 Skill 维度：
 当团队反复执行某操作（如 code review 流程、部署检查清单），捕获为 Skill：
 
 ```markdown
-<!-- SKILL.md -->
----
+## <!-- SKILL.md -->
+
 name: code-review-checklist
 description: 标准 code review 流程
 kind: claude-skill
+
 ---
 
 1. 检查是否有对应测试
@@ -318,10 +344,10 @@ sidecar `imprint.json` 记录的 `utility` 和调用统计跨宿主共享。
 ```typescript
 skill_update({
   id: "my-skill",
-  acquisitionStage: "compiled",  // 手动迁移习得深度
-  initiationSet: "updated triggers",  // 优化触发条件
-  policy: { kind: "prompt", ref: "improved-prompt" }  // 切换执行策略
-})
+  acquisitionStage: "compiled", // 手动迁移习得深度
+  initiationSet: "updated triggers", // 优化触发条件
+  policy: { kind: "prompt", ref: "improved-prompt" }, // 切换执行策略
+});
 ```
 
 ## 最佳实践

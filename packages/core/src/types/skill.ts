@@ -43,6 +43,16 @@ export interface SkillImprint {
   readonly lastUsedAt: string | null;
   readonly acquisitionStage: AcquisitionStage;
   readonly retentionStage: RetentionStage;
+  /**
+   * 退役时间(ISO;undefined = 未退役)。
+   *
+   * 技能退役回路(2026-08):light 周期对「零调用 + stale/forgotten」技能生成
+   * skill-retire 提案,用户 accept 后写入。retired 是**人工裁决态**(区别于
+   * retentionStage 的纯派生投影):skill_list 默认不列、catalog 不注入,但
+   * skill_get 仍可读(审计/复活);被使用或 reactivate 即清除(复活,与
+   * 6db5d74 的 forgotten 复活语义同构)。源 SKILL.md 永远保留。
+   */
+  readonly retiredAt?: string;
   readonly visibility: "public" | "team" | "private";
   readonly createdBy: string;
   readonly createdAt: string;

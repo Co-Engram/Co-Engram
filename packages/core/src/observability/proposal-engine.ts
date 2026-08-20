@@ -64,6 +64,10 @@ import {
   inferSkillFields,
   inferSkillFieldsWithLlm,
 } from "../skill/skill-detector.js";
+import { isRetireCandidate } from "../skill/dynamics.js";
+import type { Skill } from "../types/skill.js";
+import { t, resolveLanguage } from "../i18n/index.js";
+import { readTeamMemoryConfigSync } from "../config/index.js";
 
 /** Embedder 接口:文本 → 向量 */
 export type Embedder = (text: string) => Promise<readonly number[]>;
@@ -84,7 +88,7 @@ export interface TopicCluster {
   readonly lastSeenAt: string;
 }
 
-/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 / skill 目录 */
+/** Proposal 来源:对话流聚类 / Claude Code auto-memory 文件 / 外部 .md 检测 / REM 产出 / skill 目录 / skill 退役 */
 export type ProposalSource =
   | "conversation"
   | "auto-memory"
@@ -94,7 +98,8 @@ export type ProposalSource =
   | "rem-synapse"
   | "rem-tag-refresh"
   | "rem-insight"
-  | "skill";
+  | "skill"
+  | "skill-retire";
 
 /**
  * 预填的 engram 字段(auto-memory 与 external-markdown 来源共用)
@@ -274,7 +279,9 @@ export function insightEntityId(
 ): string {
   const sortedIds = [...sourceIds].sort();
   const hash = createHash("sha256")
-    .update([mode, incubationId ?? "", String(round), sortedIds.join(",")].join("|"))
+    .update(
+      [mode, incubationId ?? "", String(round), sortedIds.join(",")].join("|"),
+    )
     .digest("hex")
     .slice(0, 16);
   return `rem-insight:${hash}`;
@@ -375,6 +382,17 @@ export function skillEntityId(sourcePath: string): string {
   return `${SKILL_PROPOSAL_PREFIX}${hash}`;
 }
 
+/**
+ * skill 退役提案的 entityId(2026-08 退役回路)。
+ *
+ * 不同于 skillEntityId 的 hash(sourcePath)(检测提案时 skillId 尚未确定),
+ * 退役提案生成时 skillId 已知且全局唯一——直接用明文,审计/调试可读。
+ * 前缀隔离,与检测提案的 entityId 空间不相交。
+ */
+export function skillRetireEntityId(skillId: string): string {
+  return `skill-retire:${skillId}`;
+}
+
 /** Proposal Engine 配置 */
 export interface ProposalEngineConfig {
   /** 触发阈值(默认 3) */
@@ -420,9 +438,7 @@ const MACHINE_AUTHOR_PREFIXES = ["rem-", "skill-proposal", "skill-batch"];
  * git 身份),且会让机器标签随 .md 被 external-markdown watcher 二次扫描而自我传播。
  * 命中机器标签(或空/缺省)时,accept 应回退到真人 git author(resolveCreatedByOrDefault)。
  */
-export function isMachineAuthorLabel(
-  name: string | undefined | null,
-): boolean {
+export function isMachineAuthorLabel(name: string | undefined | null): boolean {
   if (typeof name !== "string" || name.trim().length === 0) return true;
   const v = name.trim();
   if (MACHINE_AUTHOR_LABELS.has(v)) return true;
@@ -1028,7 +1044,10 @@ export class ProposalEngine {
   setInsightClosureState(
     entityIds: readonly string[],
     degraded:
-      | { readonly provisional: boolean; readonly unclosedGaps: readonly string[] }
+      | {
+          readonly provisional: boolean;
+          readonly unclosedGaps: readonly string[];
+        }
       | undefined,
   ): void {
     if (entityIds.length === 0) return;
@@ -1547,7 +1566,11 @@ export class ProposalEngine {
           weight: 0.8,
           evidence: [
             {
-              description: `REM 深度思考洞察(critic=${(payload.criticScore ?? 0).toFixed(2)}): ${payload.criticRationale ?? ""}`.slice(0, 200),
+              description:
+                `REM 深度思考洞察(critic=${(payload.criticScore ?? 0).toFixed(2)}): ${payload.criticRationale ?? ""}`.slice(
+                  0,
+                  200,
+                ),
               source: "rem-insight",
               confidence: payload.criticScore ?? 0.6,
               addedAt: timestamp,
@@ -1759,6 +1782,58 @@ export class ProposalEngine {
         at: new Date().toISOString(),
       });
       return skill.skillId;
+    }
+
+    // skill-retire proposal:accept → 退役技能(写 retiredAt;不删印迹/SKILL.md,
+    // skill_list 默认不列、catalog 不注入;被使用/reactivate 即复活)。
+    if (target.source === "skill-retire") {
+      const p = target.payload;
+      if (!p || !nonEmpty(p.skillId)) {
+        throw validationError(
+          `skill-retire proposal missing payload fields (entityId=${entityId})`,
+        );
+      }
+      if (!this.skillRepository) {
+        throw configError(
+          "skillRepository",
+          "accepting a skill-retire proposal requires skillRepository injected into ProposalEngine.",
+        );
+      }
+      const skillId = p.skillId!;
+      // 目标已被 skill_delete:提案问题消解(技能不存在,无需退役),自愈为
+      // accepted 而非报错挂起 —— 与 skill 提案的印迹级幂等自愈同构。
+      let retiredAt: string | undefined;
+      if (this.skillRepository.exists(skillId)) {
+        retiredAt = this.skillRepository.retireSkill(skillId).retiredAt;
+      }
+      const updated = proposals.map((pp) =>
+        pp.entityId === entityId
+          ? {
+              ...pp,
+              status: "accepted" as const,
+              acceptedEngramId: skillId,
+            }
+          : pp,
+      );
+      this.writeProposals(updated);
+      this.clustersCache = null;
+      this.appendAcceptAudit({
+        entityId,
+        engramId: skillId,
+        via: input.via,
+        metadata: {
+          source: "skill-retire",
+          appliedAction: "update",
+          skillId,
+          ...(retiredAt !== undefined ? { retiredAt } : { skillGone: true }),
+        },
+      });
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: skillId,
+        at: new Date().toISOString(),
+      });
+      return skillId;
     }
 
     // payload 兜底:auto-memory / external-markdown 来源的 proposal 已携带完整 engram 字段。
@@ -2560,6 +2635,222 @@ export class ProposalEngine {
   }
 
   /**
+   * 技能退役提案同步(2026-08 退役回路,maintenance light 周期调用)。
+   *
+   * 一次调用承担退役提案的**完整生命周期一致性**:
+   *   - 候选(isRetireCandidate:零调用 + stale/forgotten + 未退役 + 锚点够久)
+   *     → 生成/更新 skill-retire 提案(幂等;payload 含天数快照,定格不随时间变)
+   *   - 非 Candidate 但存在 pending 提案的技能(已被使用 / 已退役)→ 物理撤销
+   *     (withdrawn,不写 tombstone:被使用是新事实,未来再衰退是重新提案的合理依据)
+   *   - pending 提案指向已不存在的技能(被 skill_delete)→ 撤销
+   *
+   * 与 contemplation_delete 同哲学:**删除/退役属用户裁决,引擎只提案不执行**。
+   * 复活语义与 6db5d74(forgotten 可被使用复活)对齐:退役 ≠ forgotten,
+   * 被使用即撤销退役提案(recordUse 清 retiredAt + 本方法下轮兜底撤销)。
+   *
+   * @param skills 全量现存技能(skillRepository.listSkills())
+   * @param minZeroUseDays 零调用判定天数(maintenanceConfig.skillRetire.staleZeroUseDays)
+   */
+  syncSkillRetireProposals(input: {
+    readonly skills: readonly Skill[];
+    readonly minZeroUseDays: number;
+    readonly nowMs?: number;
+  }): { readonly proposed: number; readonly withdrawn: number } {
+    const nowMs = input.nowMs ?? Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const bySkillId = new Map(input.skills.map((s) => [s.skillId, s]));
+    // 单读单写(参照 dismissBatch 的 N+1 修复):循环内只改内存数组,
+    // 结束后一次 writeProposals,避免基于过期快照的多次全量写互相覆盖。
+    let proposals = this.readProposals() as Proposal[];
+    const audits: Array<{
+      readonly entityId: string;
+      readonly action: "skill_retire_proposed" | "dismiss";
+      readonly metadata: Readonly<Record<string, unknown>>;
+    }> = [];
+    let proposed = 0;
+    let withdrawn = 0;
+    let dirty = false;
+
+    // ---- 1. 候选 → ensure 提案 ----
+    for (const skill of input.skills) {
+      if (!isRetireCandidate(skill, nowMs, input.minZeroUseDays)) continue;
+      const entityId = skillRetireEntityId(skill.skillId);
+      const existing = proposals.find((p) => p.entityId === entityId);
+      if (existing && existing.status !== "pending") continue; // accepted/dismissed 行存在 → 已裁决过
+      if (this.isTombstoned(entityId)) continue; // dismiss 过(行被 purge)→ 不复活
+      const payload = this.buildSkillRetirePayload(skill, nowMs);
+      if (
+        existing &&
+        existing.payload &&
+        payloadEqual(existing.payload, payload)
+      ) {
+        continue; // pending 且内容一致 → 幂等 no-change
+      }
+
+      if (existing) {
+        const next: Proposal = {
+          ...existing,
+          sampleQuotes: [],
+          centroidExcerpt: payload.title,
+          lastSeenAt: nowIso,
+          status: "pending",
+          dismissedUntil: undefined,
+          dismissReason: undefined,
+          payload,
+        };
+        proposals = proposals.map((p) => (p.entityId === entityId ? next : p));
+      } else {
+        proposals = [
+          ...proposals,
+          {
+            entityId,
+            occurrences: 1,
+            sampleQuotes: [],
+            centroidExcerpt: payload.title,
+            firstSeenAt: nowIso,
+            lastSeenAt: nowIso,
+            createdAt: nowIso,
+            status: "pending",
+            source: "skill-retire",
+            sourcePath: skill.sourcePath,
+            payload,
+          },
+        ];
+      }
+      dirty = true;
+      proposed += 1;
+      const anchorMs = new Date(skill.lastUsedAt ?? skill.createdAt).getTime();
+      audits.push({
+        entityId,
+        action: "skill_retire_proposed",
+        metadata: {
+          entityId,
+          source: "skill-retire",
+          skillId: skill.skillId,
+          sourcePath: skill.sourcePath,
+          zeroUseDays: Math.max(0, Math.floor((nowMs - anchorMs) / 86_400_000)),
+          retentionStage: skill.retentionStage,
+        },
+      });
+    }
+
+    // ---- 2. 僵尸 pending 撤销(技能已被使用 / 已退役 / 已删除)----
+    const staleRetires = proposals.filter((p) => {
+      if (p.source !== "skill-retire" || p.status !== "pending") return false;
+      const skillId =
+        p.payload?.skillId ?? p.entityId.replace(/^skill-retire:/, "");
+      const skill = bySkillId.get(skillId);
+      return (
+        !skill || skill.invocationCount > 0 || skill.retiredAt !== undefined
+      );
+    });
+    if (staleRetires.length > 0) {
+      const staleIds = new Set(staleRetires.map((p) => p.entityId));
+      proposals = proposals.filter((p) => !staleIds.has(p.entityId));
+      dirty = true;
+      withdrawn = staleRetires.length;
+      for (const p of staleRetires) {
+        const skillId =
+          p.payload?.skillId ?? p.entityId.replace(/^skill-retire:/, "");
+        const skill = bySkillId.get(skillId);
+        const cause = !skill
+          ? "deleted"
+          : skill.invocationCount > 0
+            ? "revived"
+            : "retired";
+        audits.push({
+          entityId: p.entityId,
+          action: "dismiss",
+          metadata: {
+            entityId: p.entityId,
+            source: "skill-retire",
+            skillId,
+            withdrawn: true, // 区别于用户 dismiss:系统撤销过期事实
+            cause,
+          },
+        });
+      }
+    }
+
+    if (dirty) this.writeProposals(proposals);
+    for (const a of audits) {
+      this.auditLog.append({
+        actor: "system",
+        action: a.action,
+        metadata: a.metadata,
+      });
+    }
+    return { proposed, withdrawn };
+  }
+
+  /** skill-retire 提案的 payload(展示文案按 resolveLanguage 选语言;零调用天数定格为提案时刻快照) */
+  private buildSkillRetirePayload(
+    skill: Skill,
+    nowMs: number,
+  ): ProposalPayload {
+    const anchorMs = new Date(skill.lastUsedAt ?? skill.createdAt).getTime();
+    const zeroUseDays = Math.max(
+      0,
+      Math.floor((nowMs - anchorMs) / 86_400_000),
+    );
+    const language = resolveLanguage(
+      process.env.CO_ENGRAM_LANGUAGE,
+      readTeamMemoryConfigSync(this.dataRoot),
+    );
+    const title = t(language, "proposal.skillRetire.title", {
+      skillId: skill.skillId,
+      days: zeroUseDays,
+    });
+    const content = t(language, "proposal.skillRetire.content", {
+      skillId: skill.skillId,
+      days: zeroUseDays,
+      stage: skill.retentionStage,
+      createdAt: (skill.createdAt ?? "").slice(0, 10),
+    });
+    return {
+      title,
+      content,
+      kind: "procedure",
+      domainTags: ["skill"],
+      skillId: skill.skillId,
+      skillSourcePath: skill.sourcePath,
+    };
+  }
+
+  /**
+   * 定点撤销某技能的 pending 退役提案(skill_invoke 复活通道的即时撤销)。
+   *
+   * 与 syncSkillRetireProposals 的僵尸清理同语义,但不传全量 skills ——
+   * 单技能定点、零副作用。不写 tombstone:被使用是新事实,未来再衰退
+   * 重新提案是合理依据(invocationCount>0 后判据永不满足,实际不会重提)。
+   * @returns 是否实际撤销了提案
+   */
+  withdrawSkillRetire(skillId: string, cause: string = "revived"): boolean {
+    const entityId = skillRetireEntityId(skillId);
+    const proposals = this.readProposals();
+    const existing = proposals.find(
+      (p) =>
+        p.entityId === entityId &&
+        p.source === "skill-retire" &&
+        p.status === "pending",
+    );
+    if (!existing) return false;
+    this.writeProposals(proposals.filter((p) => p.entityId !== entityId));
+    this.auditLog.append({
+      actor: "system",
+      action: "dismiss",
+      metadata: {
+        entityId,
+        source: "skill-retire",
+        skillId,
+        withdrawn: true,
+        cause,
+      },
+    });
+    return true;
+  }
+
+  /**
    * 创建 skill 检测钩子（符合 EngramRepository.setSkillHook 签名）。
    * hook 收到 {absPath, relPath, raw} → parseSkillMd → inferSkillFields → proposeSkill。
    *
@@ -2726,6 +3017,17 @@ export class ProposalEngine {
     // dismissedUntil: null = 永久屏蔽;ISO string = 屏蔽到该时刻(过期失效)。
     this.appendTombstone(entityId, dismissedUntil, target);
 
+    // skill-retire 特例:dismiss = 用户裁决「保留」→ touch lastUsedAt 重置计时
+    // (retention 回 active、恢复正常注入地位;reactivateSkill 语义,不增计数)。
+    // touch 失败不回滚 dismiss(裁决已生效)。
+    if (target.source === "skill-retire" && this.skillRepository) {
+      try {
+        this.skillRepository.reactivateSkill(target.payload?.skillId ?? "");
+      } catch {
+        // 技能可能已被删除 —— 忽略
+      }
+    }
+
     this.auditLog.append({
       actor: "user",
       action: "dismiss",
@@ -2864,6 +3166,34 @@ export class ProposalEngine {
           acceptedIds.push(p.entityId);
           engramIds.push(sk.skillId);
           acceptedMap.set(p.entityId, sk.skillId);
+          proposalMeta.set(p.entityId, p);
+          continue;
+        }
+
+        // skill-retire proposal:acceptBatch → 退役(写 retiredAt,幂等);
+        // 目标已被删则直接计为 accepted(问题消解,见单条 accept 同构分支)
+        if (p.source === "skill-retire") {
+          if (!this.skillRepository) {
+            failures.push({
+              entityId: p.entityId,
+              reason: "skillRepository not injected",
+            });
+            continue;
+          }
+          const p2 = p.payload;
+          if (!p2?.skillId) {
+            failures.push({
+              entityId: p.entityId,
+              reason: "skill-retire payload missing skillId",
+            });
+            continue;
+          }
+          if (this.skillRepository.exists(p2.skillId)) {
+            this.skillRepository.retireSkill(p2.skillId);
+          }
+          acceptedIds.push(p.entityId);
+          engramIds.push(p2.skillId);
+          acceptedMap.set(p.entityId, p2.skillId);
           proposalMeta.set(p.entityId, p);
           continue;
         }
@@ -3080,6 +3410,23 @@ export class ProposalEngine {
         type: "proposal_dismissed",
         at: now,
       });
+    }
+
+    // skill-retire 特例:dismiss = 保留 → touch lastUsedAt 重置计时(与单条
+    // dismiss() 的特例一致)。目标不存在(已被删)则跳过。另补 tombstone:
+    // dismissBatch 通用路径不写 tombstone(既有行为),但 skill-retire 的
+    // dismissed 行若被「清空已驳回」purge 掉,技能仍是零调用候选时提案会
+    // 复活打扰 —— 补上与单条 dismiss 一致的永久屏蔽。
+    if (this.skillRepository) {
+      for (const p of target) {
+        if (p.source !== "skill-retire" || !p.payload?.skillId) continue;
+        this.appendTombstone(p.entityId, dismissedUntil, p);
+        try {
+          this.skillRepository.reactivateSkill(p.payload.skillId);
+        } catch {
+          // 技能可能已被删除 —— 忽略
+        }
+      }
     }
 
     // failures 恒为空:批量操作不调 createEngram,不涉及路径冲突;

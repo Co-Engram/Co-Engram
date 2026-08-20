@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 import { normalizeUlid } from "./normalization.js";
+import type { ProposalSource } from "../observability/proposal-engine.js";
 
 /**
  * ULID canonical 字段(P1-78 修复:ULID 大小写敏感未规范化)
@@ -99,7 +100,8 @@ export const EngramCreateInputSchema = z.object({
     .array(z.string().min(1))
     .min(1)
     .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
-      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+      message:
+        'domainTags 不接受纯点号占位(如 "...")—— 请提供真实领域标签或留空让系统分类',
     }),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
@@ -170,8 +172,10 @@ export const EngramUpdateInputSchema = z.object({
     .array(z.string().min(1))
     .min(1)
     .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
-      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
-    }).optional(),
+      message:
+        'domainTags 不接受纯点号占位(如 "...")—— 请提供真实领域标签或留空让系统分类',
+    })
+    .optional(),
   contextTags: z.array(z.string().min(1)).optional(),
   encodingContext: z.string().optional(),
   importance: z.coerce.number().min(0).max(1).optional(),
@@ -450,41 +454,53 @@ export const SkillGetInputSchema = z.object({
   id: z.string().min(1),
 });
 
-export const SkillInvokeInputSchema = z.object({
-  id: z.string().min(1),
-  success: z.boolean(),
-  effectiveness: z.number().min(0).max(1).optional(),
-  args: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+export const SkillInvokeInputSchema = z
+  .object({
+    id: z.string().min(1),
+    success: z.boolean(),
+    effectiveness: z.number().min(0).max(1).optional(),
+    args: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
 
 // ============================================================
 // skill_create / skill_list / skill_update（S1）
 // ============================================================
 
-export const SkillCreateInputSchema = z.object({
-  skillId: z.string().min(1),
-  sourcePath: z.string().min(1),
-  initiationSet: z.string().min(1),
-  allowedTools: z.array(z.string()).optional(),
-  license: z.string().optional(),
-  skillVersion: z.string().optional(),
-  metadata: z.record(z.unknown()).optional(),
-  compatibility: z.string().optional(),
-  visibility: z.enum(["public", "team", "private"]).optional(),
-  createdBy: z.string().min(1),
-}).strict();
+export const SkillCreateInputSchema = z
+  .object({
+    skillId: z.string().min(1),
+    sourcePath: z.string().min(1),
+    initiationSet: z.string().min(1),
+    allowedTools: z.array(z.string()).optional(),
+    license: z.string().optional(),
+    skillVersion: z.string().optional(),
+    metadata: z.record(z.unknown()).optional(),
+    compatibility: z.string().optional(),
+    visibility: z.enum(["public", "team", "private"]).optional(),
+    createdBy: z.string().min(1),
+  })
+  .strict();
 
-export const SkillListInputSchema = z.object({
-  acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
-  retentionStage: z.enum(["active", "aging", "stale", "forgotten"]).optional(),
-}).strict();
+export const SkillListInputSchema = z
+  .object({
+    acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
+    retentionStage: z
+      .enum(["active", "aging", "stale", "forgotten"])
+      .optional(),
+    /** 是否包含已退役(retired)技能;默认 false —— 退役技能不再列出 */
+    includeRetired: z.boolean().optional(),
+  })
+  .strict();
 
-export const SkillUpdateInputSchema = z.object({
-  id: z.string().min(1),
-  initiationSet: z.string().optional(),
-  visibility: z.enum(["public", "team", "private"]).optional(),
-  acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
-}).strict();
+export const SkillUpdateInputSchema = z
+  .object({
+    id: z.string().min(1),
+    initiationSet: z.string().optional(),
+    visibility: z.enum(["public", "team", "private"]).optional(),
+    acquisitionStage: z.enum(["draft", "compiled", "tuned"]).optional(),
+  })
+  .strict();
 
 export type SkillCreateToolInput = z.infer<typeof SkillCreateInputSchema>;
 export type SkillListToolInput = z.infer<typeof SkillListInputSchema>;
@@ -507,8 +523,12 @@ export const SkillComposeListInputSchema = z
   })
   .strict();
 
-export type SkillComposeAddToolInput = z.infer<typeof SkillComposeAddInputSchema>;
-export type SkillComposeListToolInput = z.infer<typeof SkillComposeListInputSchema>;
+export type SkillComposeAddToolInput = z.infer<
+  typeof SkillComposeAddInputSchema
+>;
+export type SkillComposeListToolInput = z.infer<
+  typeof SkillComposeListInputSchema
+>;
 
 // skill_related_engram（skill ↔ engram 关联：程序性 ↔ 陈述性）
 export const SkillRelatedEngramInputSchema = z
@@ -560,16 +580,8 @@ export interface EngramListProposalsToolResult {
     lastSeenAt: string;
     createdAt: string;
     status: "pending" | "accepted" | "dismissed";
-    source:
-      | "conversation"
-      | "auto-memory"
-      | "external-markdown"
-      | "rem-verification"
-      | "rem-pattern"
-      | "rem-synapse"
-      | "rem-tag-refresh"
-      | "rem-insight"
-      | "skill";
+    /** 与 ProposalSource 类型同源(避免字面量联合与源头 drift,skill-retire 曾漏) */
+    source: ProposalSource;
     slug?: string;
     proposedTitle?: string;
     proposedSummary?: string;
@@ -633,8 +645,10 @@ export const EngramAcceptProposalInputSchema = z.object({
     .array(z.string().min(1))
     .min(1)
     .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
-      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
-    }).optional(),
+      message:
+        'domainTags 不接受纯点号占位(如 "...")—— 请提供真实领域标签或留空让系统分类',
+    })
+    .optional(),
   /**
    * @deprecated 已废弃(2026-07 修复)。createdBy 现由系统从 git config
    * (user.name > user.email)解析,LLM 传入的值会被忽略(与 engram_create 对齐)。
@@ -679,6 +693,7 @@ export const EngramDismissProposalInputSchema = z.object({
  * 无法通过 engram_dismiss_proposals_by_filter 按 source 批量清理(95 条积压只能
  * 逐条 dismiss)。accept batch(EngramAcceptProposalsBySourceInputSchema)用独立
  * 窄 enum(仅 auto-memory/external-markdown/skill),不受本枚举扩展影响。
+ * 2026-08-20 加 skill-retire(技能退役提案,dismiss-by-filter 可批量清理)。
  */
 const ProposalSourceSchema = z.enum([
   "conversation",
@@ -690,6 +705,7 @@ const ProposalSourceSchema = z.enum([
   "rem-tag-refresh",
   "rem-insight",
   "skill",
+  "skill-retire",
 ]);
 
 export const EngramAcceptProposalsBySourceInputSchema = z
@@ -738,11 +754,16 @@ export const EngramDismissProposalsByFilterInputSchema = z
      * 匹配;若无可派生 tags,则不命中(避免误删)。
      */
     domainTags: z
-    .array(z.string().min(1))
-    .min(1)
-    .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
-      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
-    }).optional(),
+      .array(z.string().min(1))
+      .min(1)
+      .refine(
+        (tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())),
+        {
+          message:
+            'domainTags 不接受纯点号占位(如 "...")—— 请提供真实领域标签或留空让系统分类',
+        },
+      )
+      .optional(),
     /**
      * 按 createdAt 过滤(可选,ISO8601 字符串)。
      *
@@ -902,7 +923,8 @@ const InsightDraftSchema = z.object({
     .array(z.string().min(1))
     .min(1)
     .refine((tags) => tags.every((t) => !/^[.\u2026\u00B7]+$/.test(t.trim())), {
-      message: "domainTags 不接受纯点号占位(如 \"...\")—— 请提供真实领域标签或留空让系统分类",
+      message:
+        'domainTags 不接受纯点号占位(如 "...")—— 请提供真实领域标签或留空让系统分类',
     }),
   reason: z.string().min(1),
   aar: z
@@ -969,5 +991,9 @@ export const IncubationReportInputSchema = z
   })
   .strict();
 
-export type IncubationCreateToolInput = z.infer<typeof IncubationCreateInputSchema>;
-export type IncubationReportToolInput = z.infer<typeof IncubationReportInputSchema>;
+export type IncubationCreateToolInput = z.infer<
+  typeof IncubationCreateInputSchema
+>;
+export type IncubationReportToolInput = z.infer<
+  typeof IncubationReportInputSchema
+>;

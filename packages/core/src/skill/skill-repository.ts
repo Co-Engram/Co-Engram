@@ -4,15 +4,25 @@
  */
 import { computeContentHash } from "../storage/hash.js";
 import { validationError, notFoundError } from "../tools/error-schema.js";
-import type { Skill, SkillCreateInput, SkillUpdateInput } from "../types/skill.js";
+import type {
+  Skill,
+  SkillCreateInput,
+  SkillUpdateInput,
+} from "../types/skill.js";
 import {
   updateUtility,
   computeRetention,
   projectRetentionStage,
   canTransitionAcquisition,
+  isRetireCandidate,
   DEFAULT_LEARNING_RATE,
 } from "./dynamics.js";
-import { writeImprint, readImprint, deleteImprint, scanAllImprints } from "./imprint.js";
+import {
+  writeImprint,
+  readImprint,
+  deleteImprint,
+  scanAllImprints,
+} from "./imprint.js";
 
 export interface RecordUseInput {
   readonly success: boolean;
@@ -24,14 +34,20 @@ export class SkillRepository {
 
   createSkill(input: SkillCreateInput): Skill {
     if (this.exists(input.skillId)) {
-      throw validationError(`Skill already exists: ${input.skillId}`, { resourceId: input.skillId });
+      throw validationError(`Skill already exists: ${input.skillId}`, {
+        resourceId: input.skillId,
+      });
     }
     const now = new Date().toISOString();
     const skill: Skill = {
       schemaVersion: 1,
       skillId: input.skillId,
       sourcePath: input.sourcePath,
-      contentHash: computeSkillContentHash(input.skillId, input.sourcePath, input.initiationSet),
+      contentHash: computeSkillContentHash(
+        input.skillId,
+        input.sourcePath,
+        input.initiationSet,
+      ),
       initiationSet: input.initiationSet,
       ...(input.allowedTools ? { allowedTools: input.allowedTools } : {}),
       ...(input.license ? { license: input.license } : {}),
@@ -65,7 +81,9 @@ export class SkillRepository {
   }
 
   listSkills(): Skill[] {
-    return scanAllImprints(this.dataRoot).sort((a, b) => a.skillId.localeCompare(b.skillId));
+    return scanAllImprints(this.dataRoot).sort((a, b) =>
+      a.skillId.localeCompare(b.skillId),
+    );
   }
 
   exists(skillId: string): boolean {
@@ -74,8 +92,13 @@ export class SkillRepository {
 
   updateSkill(skillId: string, patch: SkillUpdateInput): Skill {
     const cur = this.readSkill(skillId);
-    if (patch.acquisitionStage && patch.acquisitionStage !== cur.acquisitionStage) {
-      if (!canTransitionAcquisition(cur.acquisitionStage, patch.acquisitionStage)) {
+    if (
+      patch.acquisitionStage &&
+      patch.acquisitionStage !== cur.acquisitionStage
+    ) {
+      if (
+        !canTransitionAcquisition(cur.acquisitionStage, patch.acquisitionStage)
+      ) {
         throw validationError(
           `Illegal acquisition transition: ${cur.acquisitionStage}→${patch.acquisitionStage} (only forward single-step draft→compiled→tuned)`,
           { resourceId: skillId },
@@ -88,11 +111,19 @@ export class SkillRepository {
       ...(patch.initiationSet !== undefined
         ? {
             initiationSet: patch.initiationSet,
-            contentHash: computeSkillContentHash(cur.skillId, cur.sourcePath, patch.initiationSet),
+            contentHash: computeSkillContentHash(
+              cur.skillId,
+              cur.sourcePath,
+              patch.initiationSet,
+            ),
           }
         : {}),
-      ...(patch.visibility !== undefined ? { visibility: patch.visibility } : {}),
-      ...(patch.acquisitionStage !== undefined ? { acquisitionStage: patch.acquisitionStage } : {}),
+      ...(patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
+      ...(patch.acquisitionStage !== undefined
+        ? { acquisitionStage: patch.acquisitionStage }
+        : {}),
       updatedAt: new Date().toISOString(),
       version: cur.version + 1,
     };
@@ -110,8 +141,11 @@ export class SkillRepository {
     const cur = this.readSkill(skillId);
     const reward = use.success ? (use.effectiveness ?? 1.0) : 0.0;
     const utility = updateUtility(cur.utility, reward, DEFAULT_LEARNING_RATE);
+    // 使用即复活:剥离 retiredAt(退役的人工裁决被真实使用翻案,与 forgotten
+    // 复活同构;调用方 skill_invoke 另行撤销 pending 的 skill-retire 提案)
+    const { retiredAt: _retiredAt, ...rest } = cur;
     const updatedSkill: Skill = {
-      ...cur,
+      ...rest,
       utility,
       sampleSize: cur.sampleSize + 1,
       invocationCount: cur.invocationCount + 1,
@@ -121,7 +155,9 @@ export class SkillRepository {
       updatedAt: new Date().toISOString(),
       version: cur.version + 1,
     };
-    const retentionStage = projectRetentionStage(computeRetention(updatedSkill, Date.now()));
+    const retentionStage = projectRetentionStage(
+      computeRetention(updatedSkill, Date.now()),
+    );
     const next: Skill = {
       ...updatedSkill,
       retentionStage,
@@ -135,7 +171,10 @@ export class SkillRepository {
    * 用 Oblivion computeRetention(projectRetentionStage)；只改 retentionStage，不动 utility/stats/lastUsedAt。
    * @returns scanned 扫描数；changed retentionStage 实际变更数
    */
-  recomputeRetentionAll(nowMs: number = Date.now()): { readonly scanned: number; readonly changed: number } {
+  recomputeRetentionAll(nowMs: number = Date.now()): {
+    readonly scanned: number;
+    readonly changed: number;
+  } {
     const all = scanAllImprints(this.dataRoot);
     let scanned = 0;
     let changed = 0;
@@ -162,13 +201,18 @@ export class SkillRepository {
    * retentionStage 是纯派生投影(无锁字段),恢复语义 = touch lastUsedAt
    * 让 computeRetention 回满 → retentionStage 回 active。与 recordUse 不同:
    * 不增 invocationCount / 不动 utility 与成败统计——人工恢复不是一次"使用"。
+   * retired 技能同此复活:清除 retiredAt(退役是人工裁决态,touch 即翻案)。
    */
   reactivateSkill(skillId: string, nowMs: number = Date.now()): Skill {
     const cur = this.readSkill(skillId);
+    const lastUsedAt = new Date(nowMs).toISOString();
+    const { retiredAt: _retiredAt, ...rest } = cur;
     const next: Skill = {
-      ...cur,
-      lastUsedAt: new Date(nowMs).toISOString(),
-      retentionStage: projectRetentionStage(computeRetention({ ...cur, lastUsedAt: new Date(nowMs).toISOString() }, nowMs)),
+      ...rest,
+      lastUsedAt,
+      retentionStage: projectRetentionStage(
+        computeRetention({ ...cur, lastUsedAt }, nowMs),
+      ),
       updatedAt: new Date(nowMs).toISOString(),
       version: cur.version + 1,
     };
@@ -177,12 +221,50 @@ export class SkillRepository {
   }
 
   /**
+   * 技能退役(2026-08 退役回路):accept skill-retire 提案时调用。
+   *
+   * 只写 retiredAt 人工裁决态——不动 retentionStage(纯派生投影)、不动
+   * utility/stats、不删印迹、不动 SKILL.md。skill_list 默认过滤、catalog
+   * 不注入由消费方按 retiredAt 判定。
+   */
+  retireSkill(skillId: string, nowMs: number = Date.now()): Skill {
+    const cur = this.readSkill(skillId);
+    if (cur.retiredAt !== undefined) return cur; // 幂等
+    const next: Skill = {
+      ...cur,
+      retiredAt: new Date(nowMs).toISOString(),
+      updatedAt: new Date(nowMs).toISOString(),
+      version: cur.version + 1,
+    };
+    writeImprint(this.dataRoot, next);
+    return next;
+  }
+
+  /**
+   * 扫描退役候选(纯判定见 dynamics.isRetireCandidate)。light 周期调用,
+   * 候选交 proposalEngine.proposeSkillRetire 生成提案——不直接退役。
+   */
+  listRetireCandidates(
+    nowMs: number,
+    minZeroUseDays: number,
+  ): readonly Skill[] {
+    return scanAllImprints(this.dataRoot).filter((s) =>
+      isRetireCandidate(s, nowMs, minZeroUseDays),
+    );
+  }
+
+  /**
    * 加组合关系（去重：已存在不重复加）。返回更新后的 skill。
    */
   addCompose(skillId: string, targetSkillId: string): Skill {
     const cur = this.readSkill(skillId);
-    if (cur.composes.includes(targetSkillId)) return cur;  // 去重
-    const next: Skill = { ...cur, composes: [...cur.composes, targetSkillId], updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    if (cur.composes.includes(targetSkillId)) return cur; // 去重
+    const next: Skill = {
+      ...cur,
+      composes: [...cur.composes, targetSkillId],
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
     writeImprint(this.dataRoot, next);
     return next;
   }
@@ -192,7 +274,12 @@ export class SkillRepository {
    */
   removeCompose(skillId: string, targetSkillId: string): Skill {
     const cur = this.readSkill(skillId);
-    const next: Skill = { ...cur, composes: cur.composes.filter((c) => c !== targetSkillId), updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    const next: Skill = {
+      ...cur,
+      composes: cur.composes.filter((c) => c !== targetSkillId),
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
     writeImprint(this.dataRoot, next);
     return next;
   }
@@ -203,7 +290,12 @@ export class SkillRepository {
   addRelatedEngram(skillId: string, engramId: string): Skill {
     const cur = this.readSkill(skillId);
     if (cur.relatedEngrams.includes(engramId)) return cur;
-    const next: Skill = { ...cur, relatedEngrams: [...cur.relatedEngrams, engramId], updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    const next: Skill = {
+      ...cur,
+      relatedEngrams: [...cur.relatedEngrams, engramId],
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
     writeImprint(this.dataRoot, next);
     return next;
   }
@@ -213,7 +305,12 @@ export class SkillRepository {
    */
   removeRelatedEngram(skillId: string, engramId: string): Skill {
     const cur = this.readSkill(skillId);
-    const next: Skill = { ...cur, relatedEngrams: cur.relatedEngrams.filter((e) => e !== engramId), updatedAt: new Date().toISOString(), version: cur.version + 1 };
+    const next: Skill = {
+      ...cur,
+      relatedEngrams: cur.relatedEngrams.filter((e) => e !== engramId),
+      updatedAt: new Date().toISOString(),
+      version: cur.version + 1,
+    };
     writeImprint(this.dataRoot, next);
     return next;
   }
@@ -240,6 +337,10 @@ export class SkillRepository {
  * skill-doctor 复用此函数检测 contentHash stale(直编 imprint 改 initiationSet 后指纹不符),
  * 保证"写入算法"与"校验算法"同源,避免双实现 drift。
  */
-export function computeSkillContentHash(skillId: string, sourcePath: string, initiationSet: string): string {
+export function computeSkillContentHash(
+  skillId: string,
+  sourcePath: string,
+  initiationSet: string,
+): string {
   return computeContentHash(`${skillId}|${sourcePath}|${initiationSet}`);
 }

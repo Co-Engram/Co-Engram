@@ -31,7 +31,7 @@ function requireSkillRepo(ctx: ToolContext) {
   if (!ctx.skillRepository) {
     throw configError(
       "ctx.skillRepository",
-      "skill tools require a SkillRepository — host adapter must inject `skillRepository` into ToolContext (S4)."
+      "skill tools require a SkillRepository — host adapter must inject `skillRepository` into ToolContext (S4).",
     );
   }
   return ctx.skillRepository;
@@ -45,7 +45,7 @@ export const skillCreateTool: Tool<SkillCreateToolInput, Skill> = {
   execute(input, ctx) {
     const parsed = validateInput<SkillCreateToolInput>(
       SkillCreateInputSchema,
-      input
+      input,
     );
     const skill = requireSkillRepo(ctx).createSkill(parsed);
     if (ctx.auditLog) {
@@ -71,16 +71,23 @@ export const skillGetTool: Tool<SkillGetToolInput, Skill> = {
 
 export const skillListTool: Tool<SkillListToolInput, { items: Skill[] }> = {
   name: "skill_list",
-  description: "列出所有 Skill，可按 acquisitionStage / retentionStage 过滤。",
+  description:
+    "列出所有 Skill，可按 acquisitionStage / retentionStage 过滤。已退役(retired,用户 accept 退役提案后)的 Skill 默认不列出;传 includeRetired: true 可查看(审计用),skill_get 对退役 Skill 仍可读。",
   inputSchema: SkillListInputSchema,
   execute(input, ctx) {
     const parsed = validateInput<SkillListToolInput>(
       SkillListInputSchema,
-      input
+      input,
     );
     let items = requireSkillRepo(ctx).listSkills();
+    // 退役过滤(2026-08 退役回路):agent 视角默认不见;管理审计可显式包含
+    if (!parsed.includeRetired) {
+      items = items.filter((s) => s.retiredAt === undefined);
+    }
     if (parsed.acquisitionStage) {
-      items = items.filter((s) => s.acquisitionStage === parsed.acquisitionStage);
+      items = items.filter(
+        (s) => s.acquisitionStage === parsed.acquisitionStage,
+      );
     }
     if (parsed.retentionStage) {
       items = items.filter((s) => s.retentionStage === parsed.retentionStage);
@@ -97,7 +104,7 @@ export const skillUpdateTool: Tool<SkillUpdateToolInput, Skill> = {
   execute(input, ctx) {
     const parsed = validateInput<SkillUpdateToolInput>(
       SkillUpdateInputSchema,
-      input
+      input,
     );
     const { id, ...patch } = parsed;
     const skill = requireSkillRepo(ctx).updateSkill(id, patch);
@@ -109,7 +116,7 @@ export const skillUpdateTool: Tool<SkillUpdateToolInput, Skill> = {
           skillId: id,
           patch: Object.keys(patch),
           acquisitionStage: skill.acquisitionStage,
-          retentionStage: skill.retentionStage
+          retentionStage: skill.retentionStage,
         },
       });
     }
@@ -117,7 +124,10 @@ export const skillUpdateTool: Tool<SkillUpdateToolInput, Skill> = {
   },
 };
 
-export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: true }> = {
+export const skillDeleteTool: Tool<
+  SkillGetToolInput,
+  { id: string; deleted: true }
+> = {
   name: "skill_delete",
   description: "删除 Skill 的 sidecar 印迹（不动 SKILL.md 本体）。",
   inputSchema: SkillGetInputSchema,
@@ -132,7 +142,7 @@ export const skillDeleteTool: Tool<SkillGetToolInput, { id: string; deleted: tru
         action: "skill_delete",
         metadata: {
           skillId: parsed.id,
-          existed
+          existed,
         },
       });
     }
@@ -149,14 +159,28 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
   async execute(input, ctx) {
     const parsed = validateInput<SkillInvokeToolInput>(
       SkillInvokeInputSchema,
-      input
+      input,
     );
     const repo = requireSkillRepo(ctx);
     const before = repo.readSkill(parsed.id);
     // forgotten 不再拒绝(原实现阻断 relearning,低频好技能被系统判死):
     // recordUse 内部 touch lastUsedAt → retention 自动回 active,使用即复活。
     const wasForgotten = before.retentionStage === "forgotten";
-    const after = repo.recordUse(parsed.id, { success: parsed.success, effectiveness: parsed.effectiveness });
+    // retired(退役)同样使用即复活:recordUse 清 retiredAt(人工裁决被真实
+    // 使用翻案);零调用技能首次使用则撤销其 pending 的退役提案(若有)。
+    const wasRetired = before.retiredAt !== undefined;
+    const wasZeroUse = before.invocationCount === 0;
+    const after = repo.recordUse(parsed.id, {
+      success: parsed.success,
+      effectiveness: parsed.effectiveness,
+    });
+    if ((wasRetired || wasZeroUse) && ctx.proposalEngine?.withdrawSkillRetire) {
+      try {
+        ctx.proposalEngine.withdrawSkillRetire(parsed.id, "revived");
+      } catch {
+        // 撤销失败不阻塞使用上报(syncSkillRetireProposals 下轮 light 兜底清僵尸)
+      }
+    }
     if (ctx.auditLog) {
       ctx.auditLog.append({
         actor: "user",
@@ -169,13 +193,14 @@ export const skillInvokeTool: Tool<SkillInvokeToolInput, SkillResult> = {
           utilityAfter: after.utility,
           retentionStage: after.retentionStage,
           ...(wasForgotten ? { revivedFrom: "forgotten" as const } : {}),
+          ...(wasRetired ? { revivedFrom: "retired" as const } : {}),
         },
       });
     }
     return {
       skillId: parsed.id,
       success: parsed.success,
-      output: `utility=${after.utility.toFixed(3)} successCount=${after.successCount} failureCount=${after.failureCount} retentionStage=${after.retentionStage}${wasForgotten ? " revivedFrom=forgotten" : ""}`,
+      output: `utility=${after.utility.toFixed(3)} successCount=${after.successCount} failureCount=${after.failureCount} retentionStage=${after.retentionStage}${wasForgotten ? " revivedFrom=forgotten" : ""}${wasRetired ? " revivedFrom=retired" : ""}`,
       effectiveness: parsed.effectiveness,
       executedAt: new Date().toISOString(),
     };
@@ -190,16 +215,19 @@ export const skillComposeAddTool: Tool<SkillComposeAddToolInput, Skill> = {
   execute(input, ctx) {
     const parsed = validateInput<SkillComposeAddToolInput>(
       SkillComposeAddInputSchema,
-      input
+      input,
     );
-    const skill = requireSkillRepo(ctx).addCompose(parsed.skillId, parsed.targetSkillId);
+    const skill = requireSkillRepo(ctx).addCompose(
+      parsed.skillId,
+      parsed.targetSkillId,
+    );
     if (ctx.auditLog) {
       ctx.auditLog.append({
         actor: "user",
         action: "skill_compose_add",
         metadata: {
           skillId: parsed.skillId,
-          targetSkillId: parsed.targetSkillId
+          targetSkillId: parsed.targetSkillId,
         },
       });
     }
@@ -215,16 +243,19 @@ export const skillComposeRemoveTool: Tool<SkillComposeAddToolInput, Skill> = {
   execute(input, ctx) {
     const parsed = validateInput<SkillComposeAddToolInput>(
       SkillComposeAddInputSchema,
-      input
+      input,
     );
-    const skill = requireSkillRepo(ctx).removeCompose(parsed.skillId, parsed.targetSkillId);
+    const skill = requireSkillRepo(ctx).removeCompose(
+      parsed.skillId,
+      parsed.targetSkillId,
+    );
     if (ctx.auditLog) {
       ctx.auditLog.append({
         actor: "user",
         action: "skill_compose_remove",
         metadata: {
           skillId: parsed.skillId,
-          targetSkillId: parsed.targetSkillId
+          targetSkillId: parsed.targetSkillId,
         },
       });
     }
@@ -243,7 +274,7 @@ export const skillComposeListTool: Tool<
   execute(input, ctx) {
     const parsed = validateInput<SkillComposeListToolInput>(
       SkillComposeListInputSchema,
-      input
+      input,
     );
     return {
       composes: requireSkillRepo(ctx).readSkill(parsed.skillId).composes,
@@ -252,7 +283,10 @@ export const skillComposeListTool: Tool<
 };
 
 // skill_related_engram_add：给 Skill 加 engram 关联（程序性 ↔ 陈述性记忆）
-export const skillRelatedEngramAddTool: Tool<SkillRelatedEngramToolInput, Skill> = {
+export const skillRelatedEngramAddTool: Tool<
+  SkillRelatedEngramToolInput,
+  Skill
+> = {
   name: "skill_related_engram_add",
   description: "给 Skill 加一个 engram 关联（程序性 ↔ 陈述性记忆）。去重。",
   inputSchema: SkillRelatedEngramInputSchema,
@@ -261,7 +295,10 @@ export const skillRelatedEngramAddTool: Tool<SkillRelatedEngramToolInput, Skill>
       SkillRelatedEngramInputSchema,
       input,
     );
-    const skill = requireSkillRepo(ctx).addRelatedEngram(parsed.skillId, parsed.engramId);
+    const skill = requireSkillRepo(ctx).addRelatedEngram(
+      parsed.skillId,
+      parsed.engramId,
+    );
     if (ctx.auditLog) {
       ctx.auditLog.append({
         actor: "user",
@@ -274,7 +311,10 @@ export const skillRelatedEngramAddTool: Tool<SkillRelatedEngramToolInput, Skill>
 };
 
 // skill_related_engram_remove：移除 Skill 的一个 engram 关联
-export const skillRelatedEngramRemoveTool: Tool<SkillRelatedEngramToolInput, Skill> = {
+export const skillRelatedEngramRemoveTool: Tool<
+  SkillRelatedEngramToolInput,
+  Skill
+> = {
   name: "skill_related_engram_remove",
   description: "移除 Skill 的一个 engram 关联。",
   inputSchema: SkillRelatedEngramInputSchema,
@@ -283,7 +323,10 @@ export const skillRelatedEngramRemoveTool: Tool<SkillRelatedEngramToolInput, Ski
       SkillRelatedEngramInputSchema,
       input,
     );
-    const skill = requireSkillRepo(ctx).removeRelatedEngram(parsed.skillId, parsed.engramId);
+    const skill = requireSkillRepo(ctx).removeRelatedEngram(
+      parsed.skillId,
+      parsed.engramId,
+    );
     if (ctx.auditLog) {
       ctx.auditLog.append({
         actor: "user",
@@ -309,7 +352,8 @@ export const skillRelatedEngramListTool: Tool<
       input,
     );
     return {
-      relatedEngrams: requireSkillRepo(ctx).readSkill(parsed.skillId).relatedEngrams,
+      relatedEngrams: requireSkillRepo(ctx).readSkill(parsed.skillId)
+        .relatedEngrams,
     };
   },
 };

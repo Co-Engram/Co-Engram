@@ -13,6 +13,7 @@
  * @module @co-engram/core/config
  */
 
+import { readFileSync } from "node:fs";
 import type { TeamMemoryConfig } from "./types.js";
 import {
   DEFAULT_AUDIT_CONFIG,
@@ -71,11 +72,7 @@ export {
   type ConfigKeyType,
   type ConfigKeyMeta,
 } from "./keys.js";
-export {
-  coerceValue,
-  setConfigField,
-  type ConfigSetResult,
-} from "./set.js";
+export { coerceValue, setConfigField, type ConfigSetResult } from "./set.js";
 
 /** config 文件名(放在 dataRoot/.co-engram/ 下) */
 export const TEAM_MEMORY_CONFIG_FILENAME = "config.json";
@@ -297,6 +294,28 @@ export async function readTeamMemoryConfig(
   const path = resolveConfigPath(dataRoot);
   try {
     const content = fsRead ? await fsRead(path) : await defaultReadFile(path);
+    const parsed = JSON.parse(content) as TeamMemoryConfig;
+    if (parsed && typeof parsed === "object" && parsed.version === 1) {
+      return parsed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * readTeamMemoryConfig 的同步版(同 parse/校验逻辑)。
+ *
+ * 消费方是同步代码路径里的低频语言解析(如 proposal-engine 生成提案文案时
+ * 调 resolveLanguage)——异步版会迫使整个 propose* 家族(全同步)改签名。
+ * 退役提案每 light 周期最多几条,readFileSync 开销可忽略。
+ */
+export function readTeamMemoryConfigSync(
+  dataRoot: string,
+): TeamMemoryConfig | undefined {
+  try {
+    const content = readFileSync(resolveConfigPath(dataRoot), "utf-8");
     const parsed = JSON.parse(content) as TeamMemoryConfig;
     if (parsed && typeof parsed === "object" && parsed.version === 1) {
       return parsed;

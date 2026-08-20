@@ -56,17 +56,19 @@ export function collectSkillCatalog(
     return [];
   }
 
-  const entries: { skillId: string; description: string; utility: number }[] = [];
+  const entries: { skillId: string; description: string; utility: number }[] =
+    [];
   for (const imp of imprints) {
-    // 衰退联动:forgotten 技能不再注入(harness 静态清单做不到的过滤)
+    // 衰退联动:forgotten 技能不再注入(harness 静态清单做不到的过滤);
+    // 退役联动:retired(用户 accept 退役提案)同样不注入
     if (imp.retentionStage === "forgotten") continue;
+    if (imp.retiredAt !== undefined) continue;
     const raw = readSkillMd(dataRoot, imp.sourcePath);
     if (raw === null) continue; // SKILL.md 缺失 → doctor 会报 dangling,注入侧跳过
     const parsed = parseSkillMd(raw, imp.sourcePath);
     if (parsed === null) continue; // frontmatter 损坏 → 跳过
     const description =
-      truncateDescription(parsed.description) ??
-      `使用 ${imp.skillId} 技能时`;
+      truncateDescription(parsed.description) ?? `使用 ${imp.skillId} 技能时`;
     entries.push({ skillId: imp.skillId, description, utility: imp.utility });
   }
 

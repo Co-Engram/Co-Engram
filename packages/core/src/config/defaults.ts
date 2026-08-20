@@ -62,6 +62,9 @@ export const DEFAULT_MAINTENANCE_CONFIG: Readonly<
   signalPruneAgeMs: 7 * 24 * 60 * 60 * 1000,
   learningRate: 0.1,
   windowSize: 10,
+  // 技能退役提案(2026-08 退役回路,与 engine.ts 源码默认对齐):
+  // 默认开启 —— 只生成提案走用户裁决,不自动删除任何印迹/SKILL.md
+  skillRetire: { enabled: true, staleZeroUseDays: 30 },
   // REM 深度思考(2026-08-16 盲评校准后默认开启:真洞察率 84-95%)
   remInsight: DEFAULT_REM_INSIGHT,
 };
