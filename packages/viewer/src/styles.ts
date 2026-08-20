@@ -1227,6 +1227,9 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
 }
 
 /* === Detail drawer (right side) === */
+/* 2026-08-20 头体分离:头部(✕)固定不滚,.drawer-body 独立滚动 —— 长详情
+   滚动后 ✕ 仍可点;详情操作条(.edit-banner)在 body 内 sticky 吸顶,
+   编辑/删除等按钮滚动后保持可达(用户反馈:滚动后操作)。 */
 .drawer {
   position: fixed;
   top: 0;
@@ -1247,14 +1250,37 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
   transform: translateX(100%);
   transition: transform .3s cubic-bezier(0.16, 1, 0.3, 1);
   z-index: 100;
-  overflow-y: auto;
-  padding: 1.5rem 1.75rem;
+  /* 头体分离:flex column,整体不滚(滚动下放到 .drawer-body) */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 .drawer.open { transform: translateX(0); }
+/* 滚动容器:承接原 .drawer 的 padding(视觉不变) */
+.drawer .drawer-body {
+  overflow-y: auto;
+  padding: 1.5rem 1.75rem;
+  flex: 1;
+  min-height: 0;
+}
+/* 详情操作条吸顶:engram 详情的「打开目录/编辑/删除」等按钮滚动后保持可达。
+   负 margin 拉通 body 左右 padding 形成通栏,不透明背景防内容透出。 */
+.drawer .drawer-body > .edit-banner {
+  position: sticky;
+  top: -1.5rem;
+  z-index: 6;
+  margin: -1.5rem -1.75rem 1rem;
+  padding: 1.5rem 1.75rem 0.85rem;
+  background: #fff;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 6px 10px -8px rgba(45, 42, 38, 0.25);
+}
 .drawer-close {
-  position: absolute;
-  top: 0.85rem;
-  right: 0.85rem;
+  position: static;
+  flex: none;
+  align-self: flex-end;
+  margin: 0.85rem 0.85rem 0;
   background: rgba(15, 118, 110, 0.08);
   border: 1px solid var(--border);
   border-radius: 4px;
