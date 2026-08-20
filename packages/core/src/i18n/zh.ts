@@ -528,16 +528,15 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 想读陈述性记忆(用 engram_search / engram_get)
 
 返回:Skill 元信息(name、description、template kind、parameters)。`,
-  "tool.skill_invoke.agent": `报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 通过一次使用报告自动复活（relearning:使用是最强的再激活信号;若 SKILL.md 长期未用建议先复核内容）。
+  "tool.skill_invoke.agent": `报告一次 Skill 使用结果，用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill**——实际执行由宿主完成；agent 用完 skill 后调用本工具报告结果，让技能印迹随使用演化。forgotten 的 skill 经一次使用报告自动复活（使用是最强的再激活信号；久未使用建议先复核 SKILL.md）。
 
 何时调用:
-- 已通过宿主实际执行完一个 skill，需要报告结果
-- skill 执行成功，调用本工具报告 success=true + effectiveness
-- skill 执行失败，调用本工具报告 success=false
+- 宿主已执行完 skill，报告结果
+- 成功:success=true + effectiveness；失败:success=false
 
 何时不调用:
-- 还没执行 skill 就想调用（应先让宿主执行 skill）
-- 只想读 skill 印迹（用 skill_get）
+- 还未执行 skill 时
+- 只想读印迹（用 skill_get）
 
 返回:更新后的 skill 印迹（utility、retentionStage、successCount、failureCount）。`,
   "tool.skill_create.agent": `创建新 skill(程序性记忆)并配置参数和策略。

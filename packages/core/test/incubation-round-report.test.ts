@@ -135,7 +135,7 @@ describe("report() diagnosis 计数", () => {
     });
     expect(r.proposals).toBe(1);
     const ev = r.entry.timeline.at(-1);
-    expect(ev?.diagnosis).toEqual({ drafts: 1, dupVetoed: 0, validateRejected: 0, criticRejected: 0, llmClientMissing: false });
+    expect(ev?.diagnosis).toEqual({ drafts: 1, dupVetoed: 0, validateRejected: 0, criticRejected: 0, criticUnparseable: 0, llmClientMissing: false });
     expect(ev?.summaries).toContain("跨域共性主题");
     expect(ev?.proposalEntityIds).toHaveLength(1);
   });

@@ -535,16 +535,15 @@ WHEN NOT TO CALL:
 - For declarative memory (use engram_search / engram_get)
 
 RETURNS: Skill metadata (name, description, template kind, parameters).`,
-  "tool.skill_invoke.agent": `Report a Skill usage result (success/effectiveness) and update utility + retention via Rescorla-Wagner. **This tool only records usage, does not execute the skill itself** — skill execution is done by the host (Claude Code/OpenClaw); agents call this after using a skill to report results, letting the skill's procedural memory imprint evolve with usage. A forgotten skill auto-revives on the first usage report (relearning: real use is the strongest reactivation signal; review SKILL.md content if it has been unused for long).
+  "tool.skill_invoke.agent": `Report a Skill usage result and update utility + retention via Rescorla-Wagner. **This tool only records usage, does not execute the skill** — the host executes; agents call this after using a skill so its procedural imprint evolves with usage. A forgotten skill auto-revives on the first usage report (real use is the strongest reactivation signal; review SKILL.md if long unused).
 
 WHEN TO CALL:
-- After executing a skill through the host, need to report results
-- Skill succeeded: call with success=true + effectiveness
-- Skill failed: call with success=false
+- After the host executed a skill, report the result
+- Success: success=true + effectiveness; Failure: success=false
 
 WHEN NOT TO CALL:
-- Before executing the skill (let host execute first)
-- Just reading skill imprint (use skill_get)
+- Before executing the skill
+- Just reading a skill imprint (use skill_get)
 
 RETURNS: Updated skill imprint (utility, retentionStage, successCount, failureCount).`,
   "tool.skill_create.agent": `Create a new skill (procedural memory) with parameters and policy.
