@@ -647,8 +647,10 @@ window.CO_ENGRAM_ENGRAMS = {
         if (freshness === 'week' && !(e.createdAt && now - e.createdAt <= 7 * DAY)) return false;
         if (freshness === 'month' && !(e.createdAt && now - e.createdAt <= 30 * DAY)) return false;
         if (freshness === 'dormant') {
-          const idle = e.lastRetrievedAt ? now - e.lastRetrievedAt : Infinity;
-          if (!(idle > 30 * DAY)) return false;
+          // 沉睡 = 曾取用过但已超 30 天;从未取用(null)不算 —— 否则刚创建、
+          // 尚未被检索的新记忆会误入沉睡列表(2026-08-20 修复)
+          if (!e.lastRetrievedAt) return false;
+          if (!(now - e.lastRetrievedAt > 30 * DAY)) return false;
         }
       }
       // path 前缀过滤:用 id→path Map(2026-07 修复,ULID id 不再当作路径)
@@ -713,9 +715,14 @@ window.CO_ENGRAM_ENGRAMS = {
     this._renderCards(visible, body);
 
     // 翻页控件:« 上一页  1 2 3 … 22  下一页 »(数字页码可点击直达)
-    // totalPages 基于 server total(整个仓库的总量),让用户感知全貌
-    // 跳到未加载的页时 gotoPage 会按需 await loadMore 扩容
-    const totalPages = Math.max(1, Math.ceil(total / VIEW_SIZE));
+    // totalPages 基数 = 过滤后命中数(filtered):本 tab 的过滤(新鲜度/kind/
+    // visibility/搜索/path:)全是 client-side,过滤激活时 server total 与显示
+    // 内容脱钩 —— 旧实现按全库 total 渲染页码,选新鲜度后页码虚高、越界页码
+    // 点击被 maxStart clamp 静默吞掉(「点击无反应」,2026-08-20 修复)。
+    // 数据未加载完(hasMore)时 filtered 是已加载部分的命中数,页码随后台
+    // 渐进加载自然增长;「下一页」的 loadMore 扩容分支不受影响。
+    // 全库总量仍由 count chip(「已加载 X / 共 Y」)表达,信息不丢失。
+    const totalPages = Math.max(1, Math.ceil(filtered.length / VIEW_SIZE));
     const currentPage = Math.floor(viewStart / VIEW_SIZE) + 1;
     const canPrev = viewStart > 0;
     // canNext:filter 后当前页未到末尾,或 server 还有更多未加载
@@ -755,7 +762,7 @@ window.CO_ENGRAM_ENGRAMS = {
       '<button class="btn secondary"' + prevDisabled + ' onclick="CO_ENGRAM_ENGRAMS.prevPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.prev')) + '</button>'
       + pageButtonsHtml
       + '<button class="btn secondary"' + nextDisabled + ' onclick="CO_ENGRAM_ENGRAMS.nextPage()">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.next')) + '</button>'
-      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: total })) + '</span>';
+      + '<span class="pager-info" style="margin-left:.6rem;color:var(--muted,#666);font-size:.85em">' + CO_ENGRAM.escapeHtml(T.t('engrams.pager.pageInfo', { current: currentPage, total: totalPages, itemTotal: filtered.length })) + '</span>';
     body.appendChild(navRow);
   },
 
