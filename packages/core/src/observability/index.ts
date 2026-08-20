@@ -17,6 +17,7 @@
  */
 
 export * from "./audit-log.js";
+export * from "./team-event-store.js";
 export * from "./effectiveness-tracker.js";
 export * from "./necessity-evaluator.js";
 export * from "./proposal-engine.js";

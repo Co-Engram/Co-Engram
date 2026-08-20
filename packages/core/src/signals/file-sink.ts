@@ -6,10 +6,14 @@
  *
  * 设计：
  *   - append 只追加一行 JSON，不做 fsync（性能优先）
- *   - drain 读取整个文件 + 截断（O(n)）
- *   - prune 读取 + 过滤 + 重写（O(n)）
+ *   - 事件文件是 append-only 证据日志:drain(维护消费)按 <file>.cursor
+ *     游标返回增量并推进水位,不清空文件;snapshot(PDCA 证据)读全部。
+ *     2026-08-19 修复:旧实现 drain 读完清空,任何进程的 runLight 都会吃掉
+ *     其他进程正在进行的沉思 run 的证据(多进程下「零盘点」必现误拒)
+ *   - prune 按年龄收缩体积(读-过滤-重写,不推进游标)
  *
- * 并发：单进程内 by-design 安全；多进程并发需要文件锁，留作 TODO（MVP 单进程场景够用）。
+ * 并发:append 多进程安全(O_APPEND 追加);drain/prune 消费方为 processLock
+ * holder 单进程;prune 重写的读-写竞态窗口为毫秒级(已知限制,派生数据可容忍)。
  *
  * @module @co-engram/core/signals
  */
@@ -67,6 +71,8 @@ function registerGlobalExitHandlerOnce(): void {
  */
 export class FileSignalSink implements SignalSink {
   private readonly filePath: string;
+  /** 消费游标文件(持久化 maxAt 水位;与事件文件一一对应) */
+  private readonly cursorPath: string;
   private readonly buffer: ToolCallEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private readonly flushIntervalMs: number;
@@ -74,29 +80,72 @@ export class FileSignalSink implements SignalSink {
 
   constructor(options: FileSignalSinkOptions) {
     this.filePath = options.filePath;
+    this.cursorPath = `${options.filePath}.cursor`;
     this.flushIntervalMs = options.flushIntervalMs ?? 5_000;
     this.flushThreshold = options.flushThreshold ?? 50;
-
-    // 注册到全局 exit handler(只真正注册一次 process listener)
+    // 兼容保留(2026-08-19 write-through 后不再使用 buffer 批量路径);
+    // 注册仍保留以便旧 subclass 行为不破
     activeSinks.add(this);
     registerGlobalExitHandlerOnce();
   }
 
+  /**
+   * write-through(2026-08-19 跨进程证据延迟修复):事件同步追加落盘。
+   *
+   * 此前 buffer(5s interval / 50 条阈值)批量 flush 在同进程内无害 ——
+   * 但 headless 沉思(auto 模式)的工具调用事件写在 headless MCP server
+   * 进程的 buffer 里,而 Incubator(report 所在进程)的 flush 只能刷
+   * 本进程 buffer:executor 返回后立即 report(≪ 5s)→ 事件仍在异进程
+   * buffer → PDCA 时间窗内零证据 → 每次 headless run 必现「零盘点」
+   * 误拒。工具调用是交互级低频操作,同步追加的可靠性 > 批量性能;
+   * flushThreshold / flushIntervalMs 配置字段保留(向后兼容,不再生效)。
+   */
   append(event: ToolCallEvent): void {
-    this.buffer.push(event);
-    if (this.buffer.length >= this.flushThreshold) {
-      void this.flush();
-    } else if (this.flushTimer === null) {
-      this.flushTimer = setInterval(() => {
-        void this.flush();
-      }, this.flushIntervalMs);
-      this.flushTimer.unref?.();
+    const line = JSON.stringify(event) + "\n";
+    try {
+      const fd = openSync(this.filePath, "a");
+      try {
+        writeFileSync(fd, line, "utf8");
+      } finally {
+        closeSync(fd);
+      }
+    } catch {
+      // 与旧 flush 同款容错:目录被删等场景丢弃该行,不阻塞工具调用
     }
   }
 
   drain(): readonly ToolCallEvent[] {
     // 同步 flush 缓冲，再读取整个文件
     this.flushSync();
+    const events = this.readAll();
+    // 消费游标化(2026-08-19 P0 修复):signals.jsonl 同时承担两种角色 ——
+    // 维护引擎的消费队列(drain)与沉思 PDCA 的证据日志(snapshot)。旧实
+    // 现 drain 读完清空文件:任何进程的 runLight(默认 5 分钟)都会吃掉
+    // **全部**事件,包括其他进程正在进行的沉思 run 的证据(实测:12 分钟
+    // run 内被清空 ≥3 次,PDCA 判「零盘点」误拒)。修复:文件改 append-only
+    // 证据日志,drain 按游标(<file>.cursor 持久化 maxAt 水位)返回增量并
+    // 推进水位,**不再清空**。消费方(maintenance)是 processLock holder 单
+    // 进程,游标单写者;holder 切换瞬间的双消费窗口与旧实现同级,已知限制。
+    const cursor = this.readCursor(events);
+    const fresh = events.filter((e) => e.at > cursor);
+    const maxAt = events.length ? Math.max(...events.map((e) => e.at)) : cursor;
+    this.writeCursor(maxAt);
+    return fresh;
+  }
+
+  /**
+   * 快照读取(PDCA 闭合证据用,2026-08-18):flush 缓冲后读全部事件,
+   * **不截断文件** —— 与 drain 的消费语义不同,维护引擎的信号消费不受
+   * 影响。2026-08-19 起 drain 也不再清空文件(游标消费),跨进程 drain
+   * 不会再吃掉本进程 run 的证据;残余限制见 prune 注释(毫秒级重写窗口)。
+   */
+  snapshot(): readonly ToolCallEvent[] {
+    this.flushSync();
+    return this.readAll();
+  }
+
+  /** 读全文件解析为事件(drain/snapshot 共用;文件不存在或空 → []) */
+  private readAll(): ToolCallEvent[] {
     if (!existsSync(this.filePath)) return [];
     const raw = readFileSync(this.filePath, "utf8").trim();
     if (raw === "") return [];
@@ -110,21 +159,47 @@ export class FileSignalSink implements SignalSink {
         // 跳过损坏行（部分写入）
       }
     }
-    // 清空文件
-    writeFileSync(this.filePath, "", "utf8");
     return events;
   }
 
   async prune(olderThanMs: number): Promise<void> {
+    // 体积收缩(2026-08-19 与 drain 游标化配套):按年龄删旧事件,**只读
+    // 不消费**(不推进游标;也不再经 drain —— 旧实现 prune 内调 drain 会
+    // 把未消费事件标记为已消费后丢弃)。证据时间窗(分钟级)≪ 收缩年龄
+    // (天级),活跃证据不会被误删。重写的读-写竞态窗口为毫秒级(期间其
+    // 他进程 append 的极端交错可能丢行),对比修复前的 5 分钟级全清是量级
+    // 改善;信号是派生数据,残余风险可接受。
     const cutoff = Date.now() - olderThanMs;
-    const events = this.drain();
+    const events = this.readAll();
     const kept = events.filter((e) => e.at >= cutoff);
     if (kept.length === 0) {
       if (existsSync(this.filePath)) writeFileSync(this.filePath, "", "utf8");
       return;
     }
+    if (kept.length === events.length) return; // 无过期事件:避免无谓重写放大竞态窗口
     const lines = kept.map((e) => JSON.stringify(e)).join("\n");
     writeFileSync(this.filePath, lines + "\n", "utf8");
+  }
+
+  /** 消费游标读(<file>.cursor 持久化 maxAt);缺失(升级首跑)= 存量视为已消费,不重放 */
+  private readCursor(events: readonly ToolCallEvent[]): number {
+    try {
+      const raw = readFileSync(this.cursorPath, "utf8").trim();
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? n : 0;
+    } catch {
+      // 无游标文件(升级首跑):把现有存量标记为已消费(旧清空语义下这些
+      // 事件大概率已被消费过;重放会导致一轮重复强化),游标从存量顶部开始
+      return events.length ? Math.max(...events.map((e) => e.at)) : 0;
+    }
+  }
+
+  private writeCursor(maxAt: number): void {
+    try {
+      writeFileSync(this.cursorPath, String(maxAt), "utf8");
+    } catch {
+      // 游标写失败(目录被删等):下次 drain 重放本段 —— 重复消费优于丢证据
+    }
   }
 
   /** 显式 flush（测试或进程退出时调） */
@@ -207,9 +282,13 @@ export class MemorySignalSink implements SignalSink {
     return this.events.length;
   }
 
-  /** 查看当前缓冲（不消费） */
+  /** 查看当前缓冲（不消费）;与 FileSignalSink.snapshot 对齐(PDCA 证据契约) */
   peek(): readonly ToolCallEvent[] {
     return [...this.events];
+  }
+
+  snapshot(): readonly ToolCallEvent[] {
+    return this.peek();
   }
 }
 

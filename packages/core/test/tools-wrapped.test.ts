@@ -187,6 +187,40 @@ describe("wrapToolWithSignalSink", () => {
     expect(event.retrievedEngramIds).toEqual(["a", "b", "c"]);
   });
 
+  it("engram_search 真实形状 {results:[{id}]}:retrievedEngramIds 提取(2026-08-19 修复 —— 此前 search 证据恒不可见)", async () => {
+    const sink = new MemorySignalSink();
+    const mockTool: Tool<{ q: string }, { results: Array<{ id: string }> }> = {
+      name: "engram_search",
+      description: "mock",
+      inputSchema: z.object({ q: z.string() }),
+      execute: async () => ({
+        results: [{ id: "e-1" }, { id: "e-2" }, { id: "e-3" }, { id: "e-4" }],
+      }),
+    };
+    const wrapped = wrapToolWithSignalSink(mockTool);
+    const ctx = makeCtx({ signalSink: sink });
+
+    await wrapped.execute({ q: "探测词原样" }, ctx);
+    const event = sink.drain()[0]!;
+    // PDCA 闭合校验按 retrievedEngramIds 认定检索证据 —— 修复前此字段恒
+    // undefined(只认 hits/裸数组),真实工具返回 {results} 形状导致
+    // evidence-mismatch 误判
+    expect(event.retrievedEngramIds).toEqual(["e-1", "e-2", "e-3", "e-4"]);
+  });
+
+  it("engram_list {items:[{id}]} 形状同样提取", async () => {
+    const sink = new MemorySignalSink();
+    const mockTool: Tool<object, { items: Array<{ id: string }> }> = {
+      name: "engram_list",
+      description: "mock",
+      inputSchema: z.object({}),
+      execute: async () => ({ items: [{ id: "l-1" }, { id: "l-2" }] }),
+    };
+    const wrapped = wrapToolWithSignalSink(mockTool);
+    await wrapped.execute({}, makeCtx({ signalSink: sink }));
+    expect(sink.drain()[0]!.retrievedEngramIds).toEqual(["l-1", "l-2"]);
+  });
+
   it("engram_get 的 retrievedEngramIds 来自 input.id", async () => {
     const sink = new MemorySignalSink();
     const mockTool: Tool<{ id: string }, { id: string; title: string }> = {

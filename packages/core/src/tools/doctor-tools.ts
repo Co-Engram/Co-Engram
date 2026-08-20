@@ -189,8 +189,11 @@ function pruneTree(
   maxDepth: number,
   currentDepth: number,
 ): PathNodeDto {
+  // maxDepth=N = 显示到第 N 层(根为第 0 层)。旧条件 `currentDepth + 1 >= maxDepth`
+  // 实际只显示到第 N-1 层:maxDepth=1 时根的 children 被整体剪掉,只剩无信息量的
+  // 根节点——「空树」(2026-08-16 loop r14)。修正为严格大于才剪。
   const children =
-    currentDepth + 1 >= maxDepth
+    currentDepth + 1 > maxDepth
       ? []
       : node.children.map((c) => pruneTree(c, maxDepth, currentDepth + 1));
   return {

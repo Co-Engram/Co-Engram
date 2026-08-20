@@ -164,6 +164,8 @@ export async function createDshRuntime(
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "dsh-plugin",
           config: {
             // hash-based embedder 必须配套更低阈值(见 core 内常量注释)
             similarityThreshold: DEFAULT_HASHER_SIMILARITY_THRESHOLD,
@@ -183,7 +185,11 @@ export async function createDshRuntime(
         dataRoot,
         ...(auditLog ? { auditLog } : {}),
         executor: createHeadlessExecutor(),
-        processLock,
+        // 注:incubator 不再接 processLock —— incubations.json 走 RMW 短临界区
+        // 锁(2026-08-19 修复:holder-only 落盘让 non-holder 假成功)
+        // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+        // 不消费 drain 队列)
+        signalEvidence: signalSink,
       })
     : undefined;
 

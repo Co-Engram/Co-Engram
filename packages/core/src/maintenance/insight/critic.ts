@@ -12,6 +12,7 @@
  */
 
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
+import type { Language } from "../../i18n/types.js";
 import type { CriticScore, DeepThoughtMode, InsightDraft, InsightSubgraph } from "./types.js";
 import { serializeSubgraph } from "./modes.js";
 
@@ -55,6 +56,7 @@ export async function critique(
   draft: InsightDraft,
   sub: InsightSubgraph,
   mode: DeepThoughtMode,
+  language: Language = "zh",
 ): Promise<CriticScore | null> {
   const prompt = [
     "You are an independent critic reviewing ONE candidate insight produced by another model.",
@@ -76,28 +78,53 @@ export async function critique(
     "",
     "Score four dimensions in [0,1]:",
     "- evidenceSufficiency: are the cited sources real, present above, and sufficient for the claim?",
-    "- novelty: is this an insight rather than a restatement of a single memory?",
+    "- novelty: does it reveal a structure/cause/mapping NOT stated in any single source? If the content is",
+    "  largely a restatement of one source's own wording or obvious keyword overlap across sources, novelty",
+    "  must be <= 0.3 (2026-08-16 blind-eval calibration: critic scored restatements 0.68-0.80 — too lax).",
     "- actionability: can a team member act on it?",
-    "- consistency: is it internally consistent and consistent with the sources?",
+    "- consistency: is it internally consistent and consistent with the sources? For analogies (inspiration",
+    "  mode): if the cross-domain mapping matches surface words instead of relational roles, consistency",
+    "  must be <= 0.4.",
     "overall = your holistic judgment (do not just average; you may veto).",
+    language === "zh"
+      ? "Write the rationale field in Simplified Chinese (简体中文); technical terms may remain in English."
+      : "Write the rationale field in English.",
     "Return ONLY a JSON object: {\"evidenceSufficiency\":n,\"novelty\":n,\"actionability\":n,\"consistency\":n,\"overall\":n,\"rationale\":\"...\"}",
   ]
     .filter((l) => l !== "")
     .join("\n");
 
-  let raw: string;
-  try {
-    raw = await llm.complete(prompt, {
-      temperature: 0.2,
-      // 效果优先(2026-08-15 用户决策):critic 输出短但思考长,真实库上
-      // 2048 仍造成大量解析失败(fail-closed 拒绝);16384 + 600s 给足
-      maxTokens: 16384,
-      timeoutMs: 600_000,
-    });
-  } catch {
-    return null; // fail-closed
+  // 间歇性输出波动重试(2026-08-16):同 prompt 同解析,失败样本复测 5/5
+  // 通过 —— GLM 偶发 thinking-only/截断属瞬态,重试 2 次而非强化解析
+  let parsed: Partial<CriticScore> | null = null;
+  for (let attempt = 0; attempt < 3 && !parsed; attempt++) {
+    let raw: string;
+    try {
+      raw = await llm.complete(prompt, {
+        temperature: 0.2,
+        // 效果优先(2026-08-15 用户决策):critic 输出短但思考长,真实库上
+        // 2048 仍造成大量解析失败(fail-closed 拒绝);16384 + 600s 给足
+        maxTokens: 16384,
+        timeoutMs: 600_000,
+      });
+    } catch {
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+        continue;
+      }
+      return null; // fail-closed
+    }
+    parsed = extractJson(raw) as Partial<CriticScore> | null;
+    // 字符串数字容错:模型偶发输出 "overall": "0.8"
+    if (parsed && typeof parsed.overall === "string") {
+      const n = Number(parsed.overall);
+      if (Number.isFinite(n)) parsed = { ...parsed, overall: n };
+      else parsed = null;
+    }
+    if (!parsed && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
+    }
   }
-  const parsed = extractJson(raw) as Partial<CriticScore> | null;
   if (!parsed || typeof parsed.overall !== "number") return null;
   return {
     overall: clamp01(parsed.overall),

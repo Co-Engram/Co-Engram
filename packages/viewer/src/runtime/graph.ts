@@ -73,10 +73,9 @@ async function renderGraphInner(container) {
     focusedId: null,
     night: false,
     timeRange: null,
-    // 2026-08 DEMO 校准:着色模式(结构/活力/冲突/热力)+ 状态筛选 + 悬停邻边高亮
+    // 2026-08 DEMO 校准:着色模式(结构/活力/冲突/热力)+ 状态筛选
     colorMode: 'structure',
-    statusFilter: 'active',
-    hoverHl: true
+    statusFilter: 'active'
   };
   CO_ENGRAM._graphState = { initialized: false, network: null, data: graph, state };
 
@@ -239,12 +238,10 @@ async function renderGraphInner(container) {
           group: n.kind,
           color: {
             background: nodeColor,
-            // DEMO:纸色描边圈(stroke #F7F4EC),节点与点阵画布清晰分离。
-            // 2026-08 用户反馈:点击选中变「带外圈的颜色」很难看 ——
-            // highlight/hover 与普通态完全一致,点击不再变色。
             border: stageBg(),
-            highlight: { background: nodeColor, border: stageBg() },
-            hover: { background: nodeColor, border: stageBg() }
+            // 字符串形式(非对象):hover/highlight = 填充色,强制覆盖 vis 默认
+            highlight: nodeColor,
+            hover: nodeColor
           },
           size,
           // DEMO .nlabel:paint-order stroke 纸色 halo(vis 用 strokeWidth/strokeColor 等价实现)
@@ -314,9 +311,10 @@ async function renderGraphInner(container) {
     // 2026-08 用户两轮反馈「点击画布后变带外圈的颜色」—— 两个来源一并根治:
     //   1. vis 默认 borderWidthSelected=6:选中时描边 2.5→6 加粗成环 → 与普通态同宽
     //   2. highlight 色(batches 前已与普通态对齐)
-    // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观
+    // chosen:false 兜底关闭其余选中/悬停默认视觉增量;点击只触发交互不改外观。
+    // hover:true 后此开关同时冻结「悬停节点换 hover 色 + label 加粗」的 vis 默认增量
     nodes: { borderWidth: 2.5, borderWidthSelected: 2.5, shadow: { enabled: false }, chosen: false },
-    edges: { smooth: { type: 'continuous' }, chosen: false, selectionWidth: 1 },
+    edges: { smooth: { type: 'continuous' }, selectionWidth: 1 },
     // 大规模图(1000+ 节点)物理引擎优化(2026-07):
     //   1. solver 切 barnesHut — O(n log n) vs forceAtlas2Based 的 O(n²),
     //      1000 节点级别单步模拟快 5-10×
@@ -340,7 +338,11 @@ async function renderGraphInner(container) {
         fit: true
       }
     },
-    interaction: { hover: true, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: state.hoverHl }
+    // hover:true 是悬停邻边高亮的必要条件 —— vis 只在 interaction.hover 开启时才派发
+    // hoverNode/blurNode 事件(2026-08「邻居高亮失效」根因:此前 hover:false 让下方
+    // handler 一直是死代码)。hoverConnectedEdges:false —— 邻边强调由自定义 handler
+    // 全权负责:原生只把邻边换成 hover 色(=普通色,无对比)且会叠加 hoverWidth 双重加粗。
+    interaction: { hover: true, selectable: false, tooltipDelay: 100, navigationButtons: false, keyboard: false, selectConnectedEdges: false, hoverConnectedEdges: false }
   };
 
   const network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, options);
@@ -530,12 +532,10 @@ async function renderGraphInner(container) {
   CO_ENGRAM_GRAPH._refreshFilterCount();
 
   // === 交互 ===
-  // 悬停邻边高亮(2026-08 用户反馈「好像没有用」→ 做成可见实效):
-  // 悬停节点 → 其邻接边全亮加粗,其余边淡出到 0.08;移开恢复。
-  // 受功能栏「邻居高亮」开关(state.hoverHl)控制,聚焦邻域时让位(已有更强的淡出)。
-  network.on('hoverNode', (params) => {
-    if (!state.hoverHl || state.focusedId) return;
-    const nid = params.node;
+  // 悬停邻边高亮(常开,2026-08 修复:根因 interaction.hover:false 导致事件从未触发,
+  // 修复后移除功能栏开关,不再暴露给用户选择):悬停节点 → 邻接边全亮加粗,其余边淡出
+  // 到 0.08;移开恢复。聚焦邻域时让位(已有更强的淡出)。
+  function applyHoverEmphasis(nid) {
     const conn = new Set();
     for (const e of graph.edges) {
       if (e.from === nid || e.to === nid) conn.add(e.id);
@@ -545,9 +545,13 @@ async function renderGraphInner(container) {
       opacity: conn.has(e2.id) ? 1 : 0.08,
       width: conn.has(e2.id) ? baseEdgeWidth(e2) + 1 : baseEdgeWidth(e2),
     })));
+  }
+  network.on('hoverNode', (params) => {
+    if (state.focusedId) return;
+    applyHoverEmphasis(params.node);
   });
   network.on('blurNode', () => {
-    if (!state.hoverHl || state.focusedId) return;
+    if (state.focusedId) return;
     edgesDataset.update(edgesDataset.get().map(e2 => ({
       id: e2.id,
       opacity: baseEdgeOpacity(e2),
@@ -555,40 +559,80 @@ async function renderGraphInner(container) {
     })));
   });
   network.on('click', (params) => {
-    // 优先处理边点击(突触详情)
-    if (params.edges && params.edges.length > 0 && (!params.nodes || params.nodes.length === 0)) {
-      const edgeId = params.edges[0];
+    // selectable:false → params.nodes/edges 为空,手动检测点击位置
+    let nodeId = params.nodes?.[0] || null;
+    let edgeId = params.edges?.[0] || null;
+    if (!nodeId && !edgeId && params.pointer?.DOM) {
+      const dom = params.pointer.DOM;
+      nodeId = network.getNodeAt(dom);
+      if (!nodeId) edgeId = network.getEdgeAt(dom);
+    }
+    if (edgeId) {
       const edge = edgesDataset.get(edgeId);
       if (edge && edge._raw) {
         CO_ENGRAM_SYNAPSES.open(edge._raw.id);
       }
       return;
     }
-    if (!params.nodes || params.nodes.length === 0) {
-      // 点空白:取消高亮
-      resetHighlight();
+    if (nodeId) {
+      focusNode(nodeId);
+      // vis bug:内部选中/悬停逻辑会重置节点颜色(不只被点节点,邻近节点也会)
+      // → 延迟恢复全图颜色,盖过 vis 内部异步处理
+      restoreAllNodeColors();
       return;
     }
-    const id = params.nodes[0];
-    focusNode(id);
+    // 点空白:关闭检查器 + 恢复全图颜色
+    resetHighlight();
+    restoreAllNodeColors();
   });
 
+  // 2026-08 用户定稿设计:点击节点 → 其他节点淡化(0.13),被点节点保持全亮
+  // → 自然突出。但 vis 内部 update({opacity}) 会重置节点颜色为默认浅蓝
+  // → 每次更新后必须立即恢复正确颜色(restoreAllNodeColors)。
+  function restoreAllNodeColors() {
+    // 同步恢复(盖过 nodesDataset.update 触发的 vis 内部颜色重置)
+    for (const nid of Object.keys(network.body.nodes)) {
+      const vn = network.body.nodes[nid];
+      const rawN = graph.nodes.find(n => n.id === nid);
+      if (!vn || !vn.options || !vn.options.color || !rawN) continue;
+      const c = nodeColorFor(rawN);
+      vn.options.color.background = c;
+      vn.options.color.border = stageBg();
+      if (typeof vn.options.color.highlight === 'object') {
+        vn.options.color.highlight.background = c;
+        vn.options.color.highlight.border = stageBg();
+      } else {
+        vn.options.color.highlight = c;
+      }
+      if (typeof vn.options.color.hover === 'object') {
+        vn.options.color.hover.background = c;
+        vn.options.color.hover.border = stageBg();
+      } else {
+        vn.options.color.hover = c;
+      }
+    }
+  }
+
   function resetHighlight() {
+    const wasFocused = state.focusedId !== null;
     state.focusedId = null;
     const insp = document.getElementById('graph-insp');
     if (insp) insp.hidden = true;
-    const allNodes = nodesDataset.get();
-    const allEdges = edgesDataset.get();
-    nodesDataset.update(allNodes.map(n => ({ id: n.id, opacity: 1.0 })));
-    edgesDataset.update(allEdges.map(e => ({
-      id: e.id,
-      opacity: baseEdgeOpacity(e),
-      width: baseEdgeWidth(e)
+    if (!wasFocused) return;
+    nodesDataset.update(nodesDataset.get().map(n => ({ id: n.id, opacity: 1.0 })));
+    edgesDataset.update(edgesDataset.get().map(e => ({
+      id: e.id, opacity: baseEdgeOpacity(e), width: baseEdgeWidth(e)
     })));
-    queueRefreshOverlay();
+    restoreAllNodeColors();
+    network.redraw();
+    // 复位重写了全部边状态;若鼠标仍停在节点上(vis 不会重发 hoverNode),此处复放悬停强调。
+    // hoverObj 是 vis 10.1.0 实例属性(vendor 版本锁定),若未来升级 vis 需复查此访问。
+    const stillHovered = network.selectionHandler && network.selectionHandler.hoverObj
+      ? Object.keys(network.selectionHandler.hoverObj.nodes)[0]
+      : undefined;
+    if (stillHovered) applyHoverEmphasis(stillHovered);
   }
 
-  // 聚焦邻域(DEMO:非邻居淡出 0.13 + 邻接边提亮加粗近似 .flow 流动):点击节点触发,Esc/点空白复位
   function focusNode(id) {
     state.focusedId = id;
     const connectedNodeIds = new Set([id]);
@@ -597,22 +641,18 @@ async function renderGraphInner(container) {
       if (e.from === id) { connectedNodeIds.add(e.to); connectedEdgeIds.add(e.id); }
       if (e.to === id) { connectedNodeIds.add(e.from); connectedEdgeIds.add(e.id); }
     }
-    const allNodes = nodesDataset.get();
-    const allEdges = edgesDataset.get();
-    nodesDataset.update(allNodes.map(n => ({
+    // 淡化非邻居(0.13)+ 邻居保持全亮 → 被点节点自然突出
+    nodesDataset.update(nodesDataset.get().map(n => ({
       id: n.id,
       opacity: connectedNodeIds.has(n.id) ? 1.0 : 0.13
     })));
-    edgesDataset.update(allEdges.map(e => {
+    edgesDataset.update(edgesDataset.get().map(e => {
       const hit = connectedEdgeIds.has(e.id);
-      return {
-        id: e.id,
-        opacity: hit ? 1.0 : 0.05,
-        // 邻接边提亮 + 加粗(vis 无 dash 流动动画,用强调近似 DEMO .flow)
-        width: hit ? baseEdgeWidth(e) + 1.2 : baseEdgeWidth(e)
-      };
+      return { id: e.id, opacity: hit ? 1.0 : 0.05, width: hit ? baseEdgeWidth(e) + 1.2 : baseEdgeWidth(e) };
     }));
-    queueRefreshOverlay();
+    // vis update 会重置颜色 → 立即恢复
+    restoreAllNodeColors();
+    network.redraw();
     renderInspector(id);
   }
 
@@ -763,7 +803,7 @@ async function renderGraphInner(container) {
     nodesDataset.update(nodesDataset.get().map(n => {
       const raw = graph.nodes.find(x => x.id === n.id);
       const c = raw ? nodeColorFor(raw) : n.color;
-      return { id: n.id, color: { background: c, border: stageBg(), highlight: { background: c, border: stageBg() }, hover: { background: c, border: stageBg() } } };
+      return { id: n.id, color: { background: c, border: stageBg(), highlight: c, hover: c } };
     }));
     renderLegend();
     queueRefreshOverlay();
@@ -773,13 +813,6 @@ async function renderGraphInner(container) {
     state.statusFilter = v || 'active';
     CO_ENGRAM._graphState.applyFilters();
     CO_ENGRAM_GRAPH._refreshFilterCount();
-  };
-  // 悬停邻边高亮(DEMO ✨邻居高亮 toggle;vis 原生 hoverConnectedEdges)
-  CO_ENGRAM._graphState.toggleHoverHl = function() {
-    state.hoverHl = !state.hoverHl;
-    network.setOptions({ interaction: { hoverConnectedEdges: state.hoverHl } });
-    const btn = document.getElementById('graph-hover-hl');
-    if (btn) btn.classList.toggle('on', state.hoverHl);
   };
 }
 
@@ -935,7 +968,6 @@ window.CO_ENGRAM_GRAPH = {
   toggleNight() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleNight(); },
   setColorMode(m) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setColorMode(m); },
   setStatusFilter(v) { CO_ENGRAM._graphState && CO_ENGRAM._graphState.setStatusFilter(v); },
-  toggleHoverHl() { CO_ENGRAM._graphState && CO_ENGRAM._graphState.toggleHoverHl(); },
   // 图例族行:toggle 该族全部 kinds(on = 该族所有 kind 开)
   toggleFamily(fam, on) {
     const s = CO_ENGRAM._graphState;

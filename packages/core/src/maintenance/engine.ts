@@ -48,6 +48,7 @@ import {
 } from "../prompt-signals/index.js";
 import { configError } from "../tools/error-schema.js";
 import { runDeepThought, scanInsightDecay } from "./insight/run.js";
+import { collectWindowActivity, writeRemState } from "./insight/activity.js";
 import { DEFAULT_REM_INSIGHT } from "./insight/types.js";
 import {
   writeStageState,
@@ -61,6 +62,19 @@ import { refineSynapsesOnActiveGraph } from "../dreaming/synapse-refiner.js";
 import { join, dirname } from "node:path";
 import { writeFileSync, mkdirSync } from "node:fs";
 import type { DoctorReport } from "../types/repository-types.js";
+
+/**
+ * 行为信号自动关观察窗口的净聚合权重阈值(2026-08-17)。
+ *
+ * 背景:观察窗口此前只能被显式 engram_reinforce 关闭,日常会话不调反馈
+ * 工具 → 96%+ 窗口超时沦为 inconclusive,「有效使用」被系统性低估。
+ * 现在 light 阶段把 RPE 聚合结果接回窗口:
+ *   - 净 weight ≥ +0.6(强规则命中或多条弱正叠加)→ closeAsEffective
+ *   - 净 weight ≤ -0.6(强负证据)→ closeAsFailure
+ * 与显式 reinforce 的语义对齐;单条 +0.4 沉默满意不足以关窗。
+ */
+export const SIGNAL_CLOSE_EFFECTIVE_THRESHOLD = 0.6;
+export const SIGNAL_CLOSE_FAILURE_THRESHOLD = -0.6;
 
 /**
  * Maintenance Engine
@@ -124,6 +138,8 @@ export class MaintenanceEngine {
 
       let signalsProcessed = 0;
       let rpeUpdates = 0;
+      // 行为信号自动关闭的观察窗口数(区别于 sweepExpired 的超时关闭)
+      let windowsClosedBySignal = 0;
       // 收集 RPE 实际强化的 engram(供 viewer 展示 Light 的实际效果,可点击跳详情)
       const lightModified: { engramId: string; delta: number }[] = [];
 
@@ -162,6 +178,22 @@ export class MaintenanceEngine {
           );
           rpeUpdates += 1;
           lightModified.push({ engramId, delta: effectiveness });
+
+          // 行为信号→观察窗口闭环:净聚合达到强正/强负阈值时自动关窗,
+          // 让「有效使用」不再依赖显式 reinforce 上报(阈值语义见常量注释)。
+          if (this.deps.effectivenessTracker) {
+            try {
+              const closed =
+                agg.sum >= SIGNAL_CLOSE_EFFECTIVE_THRESHOLD
+                  ? this.deps.effectivenessTracker.closeAsEffective(engramId)
+                  : agg.sum <= SIGNAL_CLOSE_FAILURE_THRESHOLD
+                    ? this.deps.effectivenessTracker.closeAsFailure(engramId)
+                    : false;
+              if (closed) windowsClosedBySignal += 1;
+            } catch {
+              // 关窗失败不阻塞 light
+            }
+          }
         }
       }
 
@@ -180,6 +212,19 @@ export class MaintenanceEngine {
           windowsClosed = sweep.closed;
         } catch {
           // sweep 失败不阻塞 light
+        }
+      }
+
+      // 沉思孤儿条目主动回收(2026-08-19 执行可靠性修复):job 属主进程
+      // 死亡时条目停在 in-flight 无人释放,审计实测完成率 21% 的当天另有
+      // 挂死需人工解锁的案例。TTL 读时归一化是惰性兜底,这里按 light 周期
+      // (5 分钟,holder 单进程)主动收束,不再等用户读到它。
+      let orphansReclaimed = 0;
+      if (this.deps.incubator) {
+        try {
+          orphansReclaimed = this.deps.incubator.reclaimOrphans().length;
+        } catch {
+          // 回收失败不阻塞 light
         }
       }
 
@@ -224,11 +269,14 @@ export class MaintenanceEngine {
         signalsProcessed,
         rpeUpdates,
         windowsClosed,
+        windowsClosedBySignal,
         promptSignalsUpdated,
+        orphansReclaimed,
         downstreamReport: {
           signalsProcessed,
           rpeUpdates,
           windowsClosed,
+          windowsClosedBySignal,
           promptSignalsUpdated,
           lightModified,
         },
@@ -256,14 +304,6 @@ export class MaintenanceEngine {
     // 提前触发 REM;时间兜底(remIntervalMs 定时器 + 启动 catch-up)不受影响。
     await this.maybeRunRemByActivity();
 
-    // 夜思独立日调度(spec §四):active 孵化条目 24h 一轮,不依赖 REM 节拍
-    // (REM 为 7 天级低频,与「每夜」叙事错位)。light tick(5min)检查即触发;
-    // fire-and-forget,失败不阻塞 light。仅注入 incubator 时生效。
-    if (this.deps.incubator) {
-      void this.deps.incubator.runDue().catch(() => {
-        // 单轮夜思失败下次 tick 重试
-      });
-    }
     return report;
   }
 
@@ -516,6 +556,20 @@ export class MaintenanceEngine {
       //     机械校验 + 独立 critic → rem-insight 提案(每轮硬上限 5 条)。
       //     一期兜底 REM(无事件信号)整体跳过、零 LLM 调用;enabled 默认 false
       //     (spec §九:人工盲评校准后才可默认开启)。单模式失败不阻塞 REM。
+      //     窗口活动数据(第二刀:审计日志进 REM 输入):audit 白名单事件加权 +
+      //     检索快照 diff → 种子 activityOf 连续化。数据源缺失任一退化,不阻塞。
+      const windowActivity = (() => {
+        try {
+          return collectWindowActivity({
+            repository: this.deps.repository,
+            ...(this.deps.auditLog ? { auditLog: this.deps.auditLog } : {}),
+            ...(this.deps.dataRoot ? { dataRoot: this.deps.dataRoot } : {}),
+            since: lastRemState?.stages.rem?.lastRunAt ?? null,
+          });
+        } catch {
+          return undefined;
+        }
+      })();
       let deepThought: import("./insight/run.js").DeepThoughtReport | undefined;
       try {
         deepThought = await runDeepThought({
@@ -525,6 +579,9 @@ export class MaintenanceEngine {
           lastRemAt: lastRemState?.stages.rem?.lastRunAt ?? null,
           config: this.resolvedConfig.remInsight,
           ...(this.deps.incubator ? { incubator: this.deps.incubator } : {}),
+          ...(windowActivity && windowActivity.size > 0
+            ? { windowActivity }
+            : {}),
         });
       } catch {
         // 深度思考失败不阻塞 REM 主流程
@@ -566,6 +623,12 @@ export class MaintenanceEngine {
         sourceCount: Array.isArray(p.sourceIds) ? p.sourceIds.length : 0,
         sourceIds: Array.isArray(p.sourceIds) ? [...p.sourceIds] : [],
       }));
+
+      // 第二刀:REM 完成写检索快照,下轮 diff 得窗口检索增量(失败静默,
+      // 快照是派生数据;崩溃不写 → 下轮窗口变长,单调方向安全)
+      if (this.deps.dataRoot) {
+        writeRemState(this.deps.dataRoot, this.deps.repository);
+      }
 
       return {
         downstreamReport: {
@@ -802,7 +865,11 @@ export class MaintenanceEngine {
       signalsProcessed: body.signalsProcessed,
       rpeUpdates: body.rpeUpdates,
       windowsClosed: body.windowsClosed,
+      windowsClosedBySignal: body.windowsClosedBySignal,
       promptSignalsUpdated: body.promptSignalsUpdated,
+      ...(body.orphansReclaimed !== undefined
+        ? { orphansReclaimed: body.orphansReclaimed }
+        : {}),
       decayed: body.decayed,
       downstreamReport: body.downstreamReport,
       ...(body.skillsDecayed !== undefined

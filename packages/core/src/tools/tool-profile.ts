@@ -30,13 +30,14 @@ export type ToolProfile = "minimal" | "standard" | "full";
  *   让 agent 在任何 profile 下都能闭环处理 proposal。
  *   engram_sync 进 minimal:让所有 profile 都能主动掌控提交时机。
  *
- * standard: 30 个 = minimal 12 + 学习回路 + contradiction + 数据管理 +
- *   自愈/路径树 + engram_synthesize + engram_audit_query + S1 skill CRUD(5) +
- *   S3 skill_invoke(报告使用) + S5 skill compose(3)
+ * standard: 42 个 = minimal 12 + 学习回路/contradiction/数据管理 +
+ *   自愈/路径树 + engram_synthesize + engram_audit_query + 批量 proposal(2) +
+ *   S1 skill CRUD(5) + S3 skill_invoke(报告使用) + S5 skill compose(6) +
+ *   沉思 ponder_*(5)
  *
- * full: 38 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
+ * full: 50 个 = 全部 native 工具(包含隐藏的管理类工具,调试用),
  *   含 skill_invoke(S3 已实现,用于报告 skill 使用结果) +
- *   S5 skill compose(3)
+ *   S5 skill compose(6) + 沉思 ponder_*(5)
  */
 export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
   minimal: new Set<string>([
@@ -98,12 +99,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "skill_related_engram_add",
     "skill_related_engram_remove",
     "skill_related_engram_list",
-    // 夜思(incubation_*,spec §四)
-    "incubation_create",
-    "incubation_run",
-    "incubation_list",
-    "incubation_resolve",
-    "incubation_report",
+    // 沉思(ponder_*,2026-08-17 重设计)
+    "ponder_create",
+    "ponder_run",
+    "ponder_list",
+    "ponder_report",
+    "ponder_delete",
   ]),
   full: new Set<string>([
     // 全部 native 工具(含自愈/路径树等高级工具)
@@ -155,12 +156,12 @@ export const PROFILE_TOOL_SETS: Record<ToolProfile, ReadonlySet<string>> = {
     "engram_audit_query",
     // 手动 pull/commit/push
     "engram_sync",
-    // 夜思(incubation_*,spec §四)
-    "incubation_create",
-    "incubation_run",
-    "incubation_list",
-    "incubation_resolve",
-    "incubation_report",
+    // 沉思(ponder_*,2026-08-17 重设计)
+    "ponder_create",
+    "ponder_run",
+    "ponder_list",
+    "ponder_report",
+    "ponder_delete",
   ]),
 };
 

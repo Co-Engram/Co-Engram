@@ -35,11 +35,11 @@ describe("PROFILE_TOOL_SETS / 三档 profile 工具数", () => {
     expect(PROFILE_TOOL_SETS.minimal.size).toBe(12);
   });
 
-  it("standard = 38 (S1 skill CRUD 5 + S3 skill_invoke + S5 skill compose 3 + skill_related_engram 3 + incubation 5)", () => {
+  it("standard = 42 (S1 skill CRUD 5 + S3 skill_invoke + S5 skill compose 3 + skill_related_engram 3 + ponder 5(2026-08-17:incubation 9→5))", () => {
     expect(PROFILE_TOOL_SETS.standard.size).toBe(38);
   });
 
-  it("full = 46 (含 S5 skill compose 3 + skill_related_engram 3 + incubation 5)", () => {
+  it("full = 50 (含 S5 skill compose 3 + skill_related_engram 3 + ponder 5(2026-08-17:incubation 9→5))", () => {
     expect(PROFILE_TOOL_SETS.full.size).toBe(46);
   });
 
@@ -212,7 +212,7 @@ describe("filterToolsByProfile / 过滤行为", () => {
     expect(filtered.length).toBe(12);
   });
 
-  it("standard 过滤到 38 个(含 incubation 5)", () => {
+  it("standard 过滤到 42 个(含 ponder 5(2026-08-17:incubation 9→5))", () => {
     const all = makeAll25Tools();
     const filtered = filterToolsByProfile(all, "standard");
     expect(filtered.length).toBe(38);

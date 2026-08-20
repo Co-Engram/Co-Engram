@@ -29,6 +29,118 @@ afterEach(() => {
 });
 
 describe("SqliteSearchOrchestrator", () => {
+  // 簇 B 回归(schema v7,2026-08-16):domainTags/contextTags 此前不进
+  // engram_fts——FTS MATCH 主路径不消费标签,rem tag-refresh 的语义化标签
+  // 只剩 filter 一路受益(检索三重无效的第一重)。修复后标签词进 FTS 索引:
+  // 标签-only 命中(正文/标题/摘要均不含查询词)也能被主路径召回。
+  it("标签词 FTS 主路径召回:查询词只在 domainTags → 仍命中", () => {
+    db.upsertEngram({
+      id: "tag-only",
+      title: "模型与业务流",
+      kind: "observation",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: ["ai架构"],
+      summary: "通用与垂域能力分配",
+      contentTokens: "模型 智能体 业务流 三元素",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("ai架构");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.id).toBe("tag-only");
+  });
+
+  it("标签词与正文词混合召回:标签-only 条目与正文命中条目同时返回", () => {
+    // A:正文含查询词;B:只有 domainTags 含查询词。修复前 FTS MATCH 只召回 A
+    // (且 A 存在使 FTS 非 0 召回,LIKE 兜底不触发)→ B 结构性丢失。
+    db.upsertEngram({
+      id: "content-hit",
+      title: "架构文档",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: ["文档"],
+      summary: "",
+      contentTokens: "ai架构 是原生操作系统的基础",
+    });
+    db.upsertEngram({
+      id: "tag-hit",
+      title: "一条关于系统设计的灵感",
+      kind: "observation",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 2,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: ["ai架构"],
+      summary: "",
+      contentTokens: "设计灵感记录",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("ai架构");
+    const ids = results.map((r) => r.id);
+    expect(ids).toContain("content-hit");
+    expect(ids).toContain("tag-hit");
+  });
+
+  it("contextTags 词 FTS 主路径召回(schema v7 同批)", () => {
+    db.upsertEngram({
+      id: "ctx-only",
+      title: "编码情境样例",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: ["demo"],
+      summary: "",
+      contextTags: ["深夜评审"],
+      contentTokens: "情境标签检索验证",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("深夜评审");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.id).toBe("ctx-only");
+  });
+
+  it("matchReason 重建(r12):SQLite 路径不再恒空,字段命中可解释", () => {
+    db.upsertEngram({
+      id: "mr-1",
+      title: "架构治理记录",
+      kind: "fact",
+      importance: 0.5,
+      confidence: 0.8,
+      updatedAt: 1,
+      contentSize: 0,
+      visibility: "public",
+      status: "active",
+      domainTags: ["治理"],
+      summary: "关于记忆库治理的摘要",
+      contextTags: [],
+      contentTokens: "正文提及架构治理",
+    });
+    const orchestrator = new SqliteSearchOrchestrator({ db });
+    const { results } = orchestrator.search("治理");
+    expect(results.length).toBeGreaterThan(0);
+    const reasons = results[0]!.matchReason;
+    expect(reasons.length).toBeGreaterThan(0);
+    const fields = reasons.map((r) => r.field);
+    // 治理(bigram 拆分后命中)出现在 title/domainTags/summary 多字段
+    expect(fields).toContain("title");
+    expect(fields).toContain("domainTags");
+  });
+
   it("FTS5 trigram 命中中文查询", () => {
     db.upsertEngram({
       id: "1",

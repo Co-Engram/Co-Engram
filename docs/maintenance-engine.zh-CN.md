@@ -92,7 +92,7 @@ flowchart TB
 
 每轮按信号强度选 top-K 模式执行(默认 2;存在 active 夜思条目时,灵感模式占最高优先级槽)。选材是**种子导向的扩散激活**(新编码/再激活/结构重连节点做种子,两跳衰减,子图约 30 节点上限)—— 与五因子检索打分(查询导向)不同层、非替代;同时计算重要性排序邻域 baseline 供消融度量。
 
-**纯时间兜底的 REM 整体跳过深度思考**(零 LLM 调用):安静的仓库绝不烧 token。整条管线**默认关闭**(`maintenance.remInsight.enabled: false`),待人工盲评校准 critic 阈值与 prompt 后再默认开启。
+**纯时间兜底的 REM 整体跳过深度思考**(零 LLM 调用):安静的仓库绝不烧 token。整条管线**默认开启**(2026-08-16 盲评校准:真洞察率 84-95%),待人工盲评校准 critic 阈值与 prompt 后再默认开启。
 
 每条洞察走三段校验:
 
@@ -100,20 +100,46 @@ flowchart TB
 2. **落盘时** —— 复验来源仍存在且未被反驳;accept 创建 `pattern`(或 `hypothesis`)engram,`confidence = critic 分`(机器主观初值,非客观真值),自动连 `derives_from` 证据链。
 3. **存活期** —— 洞察无特权:证据链衰减(对端反驳/失效 >30% 汇入每日重审摘要,不逐条出提案防泛滥);洞察自身 `failedUses ≥ 3` 会成为下一轮复盘种子 —— 系统复盘自己的旧产出。
 
-## 夜思(Overnight Thinking)
+## 沉思(Contemplation)
 
-核心差异化功能:*睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。*
+核心差异化功能:*提出一个问题,围绕它做一次全资源盘点式深度思考 —— 调用全部记忆图谱、行为日志、技能库、联网检索与宿主可用的 MCP 工具,本地记忆只读不写,深思一次出一份报告。*(2026-08-17 重设计,原「夜思」多轮梦境模型移除;同日晚间恢复受控联网检索并纳入 MCP 工具)
 
-孵化条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选种子记忆、状态(`active / in-flight / suggested-resolve / resolved / paused`)、轮数与完整时间线。入口:对话(`incubation_create`)、viewer「夜思实验室」页、CLI。
+条目存放在侧车文件(`.co-engram/incubations.json`):问题、可选重点记忆(`seedEngramIds`,留空自动全库检索)、五态状态(`queued → thinking → verifying → repairing → done`)与完整深思时间线。入口:对话(`ponder_create`)、viewer「沉思」页、CLI。旧数据(含更早的五态命名)在读取时自动归一化迁移(无迁移脚本);条目上限 50 条(达限拒绝创建并列出最老已答条目引导删除,不自动清理)。
 
 执行双级:
 
-- **L2 Agent 编排(主路径)** —— 一次完整 agent 会话(能力盘点 → PLAN → 只读执行 → 经 `incubation_report` 唯一写回路径回写)。claude-code 端定时/调度场景 spawn 无头 `claude -p` 会话;对话入口由当前会话按 `incubation_run` 返回的固化协议现场执行。
-- **L1 基线(降级)** —— 单次 LLM 远距类比,仅在无 agent runtime 或 L2 失败时使用。openclaw 一期走 L1。
+- **L2 Agent 编排(主路径)** —— 一次完整 agent 会话,按固化协议执行:能力盘点 → 全资源开采(记忆图谱多角度检索 / 行为日志 Read / skill_list+skill_get / 受控联网检索)→ PLAN → 只读执行 → **写回答(answer,执行现场生产,主体交付物)** → 经 `ponder_report` 唯一写回路径回写(含 `resourcesUsed` 资源申报,支撑 viewer「依据」区;engram id 过试读清洗,编造即剔)。定时/调度场景与 viewer 异步任务 spawn 无头 `claude -p` 会话(实现收敛在 core,三宿主共用);对话入口由当前会话按 `ponder_run` 返回的固化协议现场执行。
+- **L1 基线(兜底)** —— 单次 LLM 远距类比,仅宿主无 agent runtime 或环境无 claude CLI(spawn ENOENT)时使用,审计如实标注 level。**L2 其余失败(超时/解析/非零退出)显式报错,不再静默降级**(2026-08-17 修复:静默降级曾让用户长期吃到 L1 产物而无从知晓)。
 
-调度**独立于 REM 节拍**:active 条目每 24h 一轮(light tick 检查),即时触发不受限。跨进程 in-flight 锁(TTL 30 分钟)防轮次双计。每轮 prompt 首行锚定问题并携带完整梦境史(过往洞察 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本轮作废,连续 2 轮全撞自动 paused,5 轮无 accept 到限暂停待用户裁决。accept 洞察后条目进入 `suggested-resolve`,回答「是否回答了你的问题」即归档(时间线保留 —— 梦的日记)。
+**提问即深思**:viewer/CLI 创建即自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步(agent 可能先与用户确认问题)。跨进程 thinking 锁(TTL 30 分钟)防并发双跑。每次执行回灌最近 10 次深思史(洞察摘要 + accept/dismiss 理由),指令「深化或转向,不重复」;与历史 Jaccard ≥ 0.65 的洞察本次作废(veto 计数保留为诊断信号)。**报告必出回答**:L2 的 answer 由执行现场生产;缺省时综合层兜底补写,失败记 answerError,不拼接伪回答。`delete` 删除条目(已产出的提案与审计保留)。审计事件:`contemplation_create / run_start / run_done(含 level、耗时、诊断、PDCA 状态)/ run_fail / delete / gap_check`。
 
-**隐私边界(硬约束)**:联网默认关闭、按条目 opt-in;L2 prompt 只携带种子摘要级内容(不带记忆原文),外部调用写审计日志。viewer 完整展示计划与轨迹 —— 过程透明是信任来源。
+### 角度防复读、主张对手抽取与接力权转移(Phase3,2026-08-18)
+
+Phase3 收掉最后三块「同源判断」:
+
+- **P6 角度防复读**:计划终态化加两道机械保证 —— engrams 探测词任意两词字符 2-gram Jaccard ≥ 0.7 判同角度复读(第二词替换为关键词切片变体;中文无词分隔故用字符级度量);计划必含外部型(web/mcp 至少一项),LLM 计划缺失时机械补 web 项。答案相邻复读:与上一 run 最终答案 Jaccard ≥ 0.65 → timeline 标记 `answerRepeat`(标记 + 审计,不阻塞 ——「上轮结论仍成立」是正当场景,v7 要求检查而非禁止)。
+- **P7 主张对手抽取**:L2 提交答案时,独立 critic 对答案做对抗式主张审计(`extractClaims`:逐条判 `evidenced` = 答案明示有记忆/日志/探测/检索支撑 / `downgraded` = 无支撑断言、推测、待验证);**降级占比 > 30% → 本 run 洞察提案全部固化隔离**(「答案弱支撑」,同 degraded 隔离待遇但不改 run 终态 —— 资源闭合与答案支撑是两个维度)。fail-open:LLM 不可用即跳过(timeline 记 `claimsSkipped`,无 llmClient 部署的洞察产出不受罚)。主张清单与占比落 timeline,viewer 报告「主张抽取」折叠区展示。
+- **P8 接力权转移**:degraded 终束时 critic 生成**下轮验证任务**(`generateNextTasks`:2-5 条,基于未闭合缺口与本轮部分答案;机械保证至少一条外部资源型 —— LLM 任务全无外部型时引擎兜底追加);LLM 失败退化为缺口原文转写(Phase2 的机械 carryOver 行为)。acquireThinking 转存 `nextTasks ?? unclosedGaps` → 新计划按外部型分流消费(含外部关键词的任务进 web 计划项,否则 engrams 项)—— 下轮任务不再由「懒人自己布置」。
+
+### 计划先行与探测引擎生成(Phase2,2026-08-18)
+
+Phase1 的「清单自报」折中在 Phase2 收口 —— **清单生成权转移**:`ponder_run` 启动时(buildTask)由引擎生成**思考计划**(需求拓扑)并落盘(`run.plan`),执行者不再自拟清单:
+
+- **计划双源**:LLM(critic 式单次调用,从问题结构 + 种子 + 深思史生成 3-6 项:资源类型/描述/必要性/探测词);无 llmClient 或生成失败时机械模板兜底(五类型全覆盖、问题词切片作探测;`planSource` 落审计)。上轮 degraded 的未闭合缺口**机械追加**进新计划(跨轮接力,不依赖 LLM)。
+- **P5 细化防收窄**:report 的 requirements 逐条经 `planItemId` 链接计划项;计划项被删除 → 引擎合成 open 缺口;必要性降级 → 以计划为准覆写;执行者只能**追加**新需求(受缺口预算约束,计划项不占执行者预算 —— 预算是反执行者拖延的手段,不是惩罚引擎判断的)。
+- **P1 探测引擎生成**:engrams 计划项携带 ≥2 个引擎生成的探测词,执行者**逐字执行不得改写**(闭合核验按精确匹配 —— 生成权管 payload,「表演式探测」的凑数通道关闭);**自动豁免**:全部探测变体都执行且都空(引擎从调用流水的 `{hits:0}` 亲证)→ 该项自动判闭合(probe-empty 豁免),豁免权完全在引擎侧 —— 「资源确实不存在」由引擎自己的空结果证明,不依赖执行者申报。探测非空 = 资源存在,必须真实闭合(evidence.ids)。web 探测词由引擎生成(payload 受控)但执行不可观测,闭合申报仅展示;skills 盘点为机械调用;logs/mcp 无探测。
+- headless(auto)路径同样携带计划(prompt 渲染计划清单),且无修复轮 —— 一次做全,否则带缺口收束。
+
+### 闭合校验与修复回路(PDCA,2026-08-18)沉思机制的核心信任问题:过程证据曾是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可直接全引)—— 形式合规的表演即可全绿。Phase1 落地「**清单自报、证据事实化**」:清单仍由执行者在 `ponder_report` 的 `requirements` 字段提交(逐条:资源类型 / 描述 / 必要性 logic-needed·helpful / 闭合状态 / 事实锚点 `evidence.ids`),但每个闭合声明由引擎用**调用流水**(`.co-engram/signals.jsonl`,按本次 run 的时间窗过滤;快照读取,不消费维护引擎的 drain 队列)机械复核:
+
+- **假闭合拦截**:closed 的 engrams/skills 条目,`evidence.ids` 中每个 id 必须真实出现在流水(检索命中或 engram_get/skill_get 直读),否则判缺口(`evidence-mismatch`),run 转入 `repairing` 并把缺口清单随工具返回 —— 执行者补做后**全量重报**,直至闭合;
+- **瞒报拦截**:流水里有 engram/skill 读调用而清单未报对应条目(或清单整体缺失)→ 整单拒绝;run 内零 engram/skill 读调用(完全偏废)同样整单拒绝;
+- **零增量拦截**:洞察 sourceIds 全部来自任务包种子(用户指定 ∪ 引擎兜底检索)→ 该洞察拒绝 —— 种子是起点提示不是边界;
+- **logs/web/mcp 类型**:引擎无观测面(WebSearch/宿主技能/Read 不经 co-engram 工具层),closed 仅作展示(unverified);但报进清单又持续悬置同样阻塞终束 —— 不打算做的资源不要报进清单。
+
+硬限制(引擎强制,参数对齐业界基准,`maintenance.remInsight.repairRounds` 可配置 [1,10]):修复 report ≤ 6 次;单次新增缺口 ≤ 3(超额部分 deferred 不计闭合目标);单 run 累计唯一缺口 ≤ 10。**重报语义反转**:同哈希缺口重报 = 修复失败计数(连续 2 次强制升级为 logic-needed),不是终束理由 —— **终束只能由预算耗尽触发**。触顶(修复轮用尽 / 缺口总量超限 / TTL 30 分钟超时)→ **degraded 终束**:条目落「降级收束」标记与未闭合清单,本 run 洞察提案固化隔离标,**默认不进审批队列**(viewer 提案中心置顶「隔离区」展示未闭合清单,可在「全部」视图裁决)。正常终束(全闭合)自动解除隔离标。L1 与未注入证据源的部署降级跳过闭合校验(审计如实标注 `evidenceAvailable=false`)。
+
+**执行边界(硬约束)**:本地记忆仓库与文件只读不写;联网仅限只读检索(2026-08-17 恢复受控联网:白名单含 WebSearch/WebFetch,协议允许对业界趋势/对手动态/基准等外部事实做联网取证)——**隐私边界固化在协议里:记忆原文不出域,仅问题本身与摘要级内容可随检索出域**;L2 prompt 只携带种子摘要级内容(不带记忆原文)。**MCP 工具同为沉思资源**(协议要求盘点宿主连接的其他 MCP server 并按需取用只读能力,MCP 使用记入轨迹):agent 模式(现场会话)天然可达;headless 无头会话从严,默认仅白名单,宿主可经 `readOnlyMcpServers` 配置按 server 粒度显式放行(不做 `mcp__*` 通配,防连写工具一并放行)。viewer 完整展示回答、洞察提案、过程(计划/轨迹)、诊断与依据(实际读取的记忆/技能/日志/联网检索)—— 过程透明是信任来源。
 
 ## 数学原理
 

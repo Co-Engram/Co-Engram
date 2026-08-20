@@ -192,13 +192,11 @@ export interface MaintenanceDeps {
    */
   readonly skillRepository?: import("../skill/skill-repository.js").SkillRepository;
   /**
-   * 夜思孵化器(可选,结构类型)。REM 灵感模式与 active 条目合并执行;
-   * light 阶段尾部独立日调度(runDue,active 条目 24h 一轮,不依赖 REM 节拍)。
-   * 未注入时深度思考照常跑(无孵化合并),夜思不可用。
+   * 沉思孵化器(可选,结构类型)。REM 灵感模式与 queued 条目合并执行。
+   * 2026-08-17 重设计:沉思为「提问即深思」的一次性任务,无排程,
+   * 维护引擎不再挂载 runDue;未注入时深度思考照常跑(无沉思合并)。
    */
-  readonly incubator?: import("./insight/run.js").IncubationSource & {
-    runDue(): Promise<{ ran: readonly string[]; skipped: readonly string[] }>;
-  };
+  readonly incubator?: import("./insight/run.js").IncubationSource;
 }
 
 /** 默认配置常量 */
@@ -292,8 +290,18 @@ export interface MaintenanceReport {
   readonly rpeUpdates?: number;
   /** light 阶段关闭的观察窗口数（sweepExpired） */
   readonly windowsClosed?: number;
+  /**
+   * light 阶段被行为信号自动关闭的观察窗口数(2026-08-17)。
+   *
+   * 区别于 windowsClosed(超时→inconclusive):这是 RPE 净聚合达标后
+   * closeAsEffective/closeAsFailure 的自动闭环,是「知识→有效使用」
+   * 转化率的自动回填通道指标。
+   */
+  readonly windowsClosedBySignal?: number;
   /** light 阶段是否刷新了 prompt-signals.json */
   readonly promptSignalsUpdated?: boolean;
+  /** light:沉思孤儿条目回收数(job 属主进程死亡后 in-flight 无人释放,2026-08-19) */
+  readonly orphansReclaimed?: number;
   /**
    * daily 阶段实际衰减的 engram 数(importance 真的发生变化的条数;
    * 已在 0 / 1 边界无变化的 engram 不计入)。

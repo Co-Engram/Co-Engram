@@ -17,6 +17,7 @@ import { dirname, join } from "node:path";
 import type { EngramRepository } from "../../storage/repository.js";
 import type { LlmClient } from "../../observability/necessity-evaluator.js";
 import { critique } from "./critic.js";
+import { computeModeCalibration } from "./activity.js";
 import {
   buildAliasMap,
   buildModePrompt,
@@ -61,6 +62,11 @@ export interface IncubationSource {
     readonly question: string;
     readonly dreamHistory: string;
   }>;
+  /**
+   * 孤儿条目主动回收(light 周期调用;2026-08-19 执行可靠性修复):
+   * job 属主进程死亡后 in-flight 条目无人释放,超 TTL 即收束并审计。
+   */
+  reclaimOrphans(): readonly { id: string; fromStatus: string }[];
 }
 
 export interface DeepThoughtReport {
@@ -75,6 +81,15 @@ export interface DeepThoughtReport {
   readonly rejectReasons?: readonly string[];
   /** 消融对照(spec §九):主路径 vs baseline 子图重叠节点数(有模式执行时才统计) */
   readonly ablation?: { readonly subgraphNodes: number; readonly baselineNodes: number; readonly overlapNodes: number };
+  /** 模式校准因子明细(第二刀:accept 洞察模式分布,运维/校准审计用) */
+  readonly modeCalibration?: ReadonlyArray<{
+    readonly mode: string;
+    readonly factor: number;
+    readonly samples: number;
+    readonly acceptRate: number;
+  }>;
+  /** 窗口活动数据覆盖的 engram 数(0/缺省 = 无数据源,活动维度退化二值) */
+  readonly activityEngrams?: number;
 }
 
 /** 顶层入口(REM metacognition 之后调用) */
@@ -85,6 +100,11 @@ export async function runDeepThought(deps: {
   readonly lastRemAt: string | null;
   readonly config: RemInsightConfig;
   readonly incubator?: IncubationSource;
+  /**
+   * 窗口活动计数(engramId → 检索增量 + 加权 audit 事件数,第二刀)。
+   * engine 组装传入;缺省时 activityOf 退化二值(与既有行为兼容)。
+   */
+  readonly windowActivity?: ReadonlyMap<string, number>;
 }): Promise<DeepThoughtReport> {
   const config: Required<RemInsightConfig> = {
     enabled: deps.config.enabled ?? DEFAULT_REM_INSIGHT.enabled,
@@ -94,6 +114,7 @@ export async function runDeepThought(deps: {
     maxSubgraphNodes:
       deps.config.maxSubgraphNodes ?? DEFAULT_REM_INSIGHT.maxSubgraphNodes,
     webResearch: deps.config.webResearch ?? DEFAULT_REM_INSIGHT.webResearch,
+    repairRounds: deps.config.repairRounds ?? DEFAULT_REM_INSIGHT.repairRounds,
   };
   const empty = (reason: string): DeepThoughtReport => ({
     skipped: true,
@@ -110,9 +131,29 @@ export async function runDeepThought(deps: {
   if (!deps.proposalEngine) return empty("no-proposal-engine");
 
   const active = deps.incubator?.activeEntries() ?? [];
+  // 审批反馈输入(2026-08-16 用户灵感):被 dismiss 的 rem-insight 提案
+  // → 复盘模式信号 + prompt 背景(系统从自己被拒的产出中学习)
+  const since = deps.lastRemAt ?? "";
+  const dismissedInsights = deps.proposalEngine
+    .listAll()
+    .filter(
+      (p) =>
+        p.source === "rem-insight" &&
+        p.status === "dismissed" &&
+        (p.lastSeenAt ?? p.createdAt ?? "") > since,
+    )
+    .map((p) => ({
+      title: p.payload?.title ?? p.centroidExcerpt ?? "(untitled)",
+      reason: p.dismissReason,
+      sourceIds: p.payload?.remSourceIds ?? [],
+    }));
+  // 模式强度长期校准(第二刀):rem-insight 提案的 accept/dismiss 模式分布
+  const modeCalibration = computeModeCalibration(deps.proposalEngine.listAll());
   const signals = computeModeSignals(deps.repository, {
     lastRemAt: deps.lastRemAt,
     hasActiveIncubation: active.length > 0,
+    dismissedInsights,
+    modeCalibration,
   });
   // 一期兜底 REM(无事件信号)→ 深度思考整体跳过,零 LLM 调用(spec §三)
   if (signals.every((s) => s.strength <= 0)) return empty("no-mode-signals");
@@ -142,7 +183,7 @@ export async function runDeepThought(deps: {
     try {
       const seedFilter =
         mode === "retrospective"
-          ? retrospectiveSeedFilter(deps.repository)
+          ? retrospectiveSeedFilter(deps.repository, dismissedInsights)
           : mode === "inspiration"
             ? inspirationSeedFilter(deps.repository)
             : undefined;
@@ -150,6 +191,9 @@ export async function runDeepThought(deps: {
         lastRemAt: deps.lastRemAt,
         maxNodes: config.maxSubgraphNodes,
         ...(seedFilter ? { seedFilter } : {}),
+        ...(deps.windowActivity && deps.windowActivity.size > 0
+          ? { activityByEngram: deps.windowActivity }
+          : {}),
         ...(incubation
           ? {
               // 孵化条目经 incubator 单独执行(Task incubator);REM 自动灵感
@@ -177,18 +221,20 @@ export async function runDeepThought(deps: {
         };
       }
 
-      const prompt = buildModePrompt(
-        mode,
-        subgraph,
-        incubation
+      const prompt = buildModePrompt(mode, subgraph, {
+        language: deps.repository.currentLanguage,
+        ...(incubation
           ? {
               incubation: {
                 question: incubation.question,
                 dreamHistory: incubation.dreamHistory,
               },
             }
-          : undefined,
-      );
+          : {}),
+        ...(mode === "retrospective" && dismissedInsights.length > 0
+          ? { dismissedInsights }
+          : {}),
+      });
       const raw = await deps.llmClient.complete(prompt, {
         temperature: 0.4,
         // GLM 等思考型模型单次 126-263s;默认 15s 会砍掉所有调用
@@ -214,7 +260,7 @@ export async function runDeepThought(deps: {
           rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: ${v.reason}`);
           continue;
         }
-        const score = await critique(deps.llmClient, draft, subgraph, mode);
+        const score = await critique(deps.llmClient, draft, subgraph, mode, deps.repository.currentLanguage);
         if (!score || score.overall < config.criticThreshold) {
           criticRejected += 1;
           rejectReasons.push(`[${mode}] ${draft.title.slice(0, 30)}: critic=${score ? score.overall.toFixed(2) : "null"} < ${config.criticThreshold}`);
@@ -256,6 +302,19 @@ export async function runDeepThought(deps: {
     mechanicalRejected,
     ...(rejectReasons.length ? { rejectReasons } : {}),
     ...(ablation ? { ablation } : {}),
+    ...(modeCalibration.size > 0
+      ? {
+          modeCalibration: [...modeCalibration.entries()].map(([mode, c]) => ({
+            mode,
+            factor: c.factor,
+            samples: c.samples,
+            acceptRate: Math.round(c.acceptRate * 1e4) / 1e4,
+          })),
+        }
+      : {}),
+    ...(deps.windowActivity && deps.windowActivity.size > 0
+      ? { activityEngrams: deps.windowActivity.size }
+      : {}),
   };
 }
 

@@ -7,13 +7,114 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Changed(2026-08-19 侧栏分组「治理」更名「进化」)
+
+- **导航语义校准(中英同步)**:viewer 侧栏第二分组 `治理/Governance` 更名为 `进化/Evolution` —— 该组收纳提案/梦境/沉思,语义是「驱动记忆库成长变化」而非「管控」,帮助栏概览 tab 描述中的「治理入口/governance in the middle」同步改为「进化入口/evolution in the middle」;内部变量 `governanceTabs` 对齐更名 `evolutionTabs`。i18n 中英 key 集合一致(1529 keys),i18n-ui-regression 23 用例回归通过。
+
+### Fixed(2026-08-20 skill 遗忘曲线倒置:被使用过的技能反而先被遗忘)
+
+- **never-used 冻结 active + forgotten 拒绝调用 + 低样本半衰期过短(三重缺陷同根)**:`computeRetention` 把 `lastUsedAt=null` 映射为 now(n≡0)→ 从未使用的技能 retention 恒 1、永久 active,遗忘曲线只惩罚「用过」的技能(实测:被用过的 3 个技能 5 天全部 stale,从未使用的 6 个恒 active);叠加 `OBLIVION_T=10` 时用过 1 次的技能 S≈6.8 天(5 天 stale、9 天 forgotten),且 forgotten 后 `skill_invoke` 拒绝 —— relearning 通道被堵死,低频好技能被系统判死。修复:①锚点 `lastUsedAt ?? createdAt`(never-used 从注册起算,未验证技能随库龄老化);②`skill_invoke` 对 forgotten 不再拒绝,使用即自动复活(touch `lastUsedAt` → retention 回满,output/audit 标记 `revivedFrom=forgotten`);③`OBLIVION_T` 10→15(用过 1 次的技能 S≈10.5 天:7 天 aging、14 天 stale、29 天 forgotten)。行为变化(用户可感知):从未使用的技能随注册时间老化、超龄可 forgotten(移出技能注入清单);forgotten 技能一次真实使用即自动复活。测试:core 2978 + 双宿主 + contracts-test 全绿,真实调用链场景验证 8/8。文档:docs/skill-memory{,-zh-CN}.md 公式/参数/复活路径 + i18n 中英 `tool.skill_invoke.agent` + viewer 帮助栏 retention/lifecycle 同步。
+
+### Fixed(REM 突触提案三层节流 + 聚类 confidence 语义 + dismiss filter 补 REM 来源)
 
 - **REM 突触提案三层节流(`@co-engram/core` synapse-refiner)**:2026-08-17 一轮 REM 产生 95 条 pending 提案(confidence 中位数 0.20),审批队列被原始候选淹没。根因:REM 二期落地时省略了设计中的 LLM 语义判断层,Jaccard≥0.15 的原始候选全部以 `similar_to` 占位直接进审批队列;且 0.15 阈值未经校准、归档/元层 engram 天然高词重叠形成 hub(实测 top hub 单轮 13-14 条)。现按实测校准(162 engram 仓库:0.15→85 / 0.25→24 / 0.30→7)三层节流:①阈值 0.15→0.25;②单节点候选上限 5(hub 抑制,相似度降序保留 top);③每轮总量上限 30(保险丝)。实测单轮 propose 85→19 条(-78%),高置信对语义合理性显著提升。
 - **REM 聚类 add 提案 confidence 语义错位修复(`@co-engram/core` rem.ts)**:聚类驱动的 add similar_to 提案此前复用 pattern 抽象的置信度(衡量"抽象质量",曾产出 0.95)而非两记忆实际相似度(簇内门槛仅 0.3),误导审批者。现改为 rep↔member 实测 token Jaccard,reason 同步带实测值。
 - **`engram_dismiss_proposals_by_filter` source 枚举补齐 REM 来源**:此前 schema 只枚举 conversation/auto-memory/external-markdown/skill 四值(实现层 `ProposalSource` 实有九值),rem-synapse 等 REM 提案积压无法按 source 批量清理。现与 TS 类型对齐,支持 `{source:'rem-synapse', dismissDays:30}` 清理 REM 提案积压;accept batch 的独立窄 enum 不受影响。
 
+### Fixed(2026-08-19 ponder 多实例假成功:incubations.json 单写者门禁越界到用户 CRUD)
+
+- **non-holder 实例的 ponder 工具族静默丢数据(假成功)**:`Incubator.write()` 的 holder-only 落盘门禁(`processLock.isHolder === false` 静默跳过,与 maintenance-state 同款)被错误复用到用户数据通道 —— Claude Code 每会话各起一个 MCP 实例、进程锁被首实例/daemon 独占且 non-blocking 降级继续运行,多会话部署下 non-holder 是多数派:其 `ponder_create` 返回成功、audit 照写,但条目永远不落盘(`ponder_list` 不可见、`ponder_run` NOT_FOUND);`acquireThinking`/`ponder_report`/`delete` 同病 —— 一整场深思的写回可无痕蒸发。生产实证:audit 有 `contemplation_create` 记录而 incubations.json mtime 未动。修复:①新原语 `concurrency/rmw-lock.ts`(O_EXCL 锁文件 + Atomics.wait 退避 + 总超时 stale 破锁 + release 按 token 防误删他人锁;拿不到锁 fail-loud 报错);②incubations.json 写路径全部改为「RMW 短临界区锁 + tmp-rename 原子写」,`create/delete/acquireThinking/releaseThinking/buildTask 写点/report 双写点` 全 mutator 进临界区(同进程重入由深度计数支持),任何实例可写;③`IncubatorDeps` 删除 `processLock` 字段(单写者协议越界纠偏;maintenance 后台任务门禁保留不动);④claude-code-mcp / dsh-plugin 宿主删传参,openclaw 本就未传(双宿主不对称又一实证)。**测试纠偏(缺陷曾被断言为特性)**:`incubator.test.ts` 原「isHolder=false → 不写盘」用例把静默丢数据固化为预期行为(绿灯给了错误行为免疫力),改写为「双实例交错写互不丢失 + 跨工具一致性(create 成功 ⇒ 任意实例 list 可见 ⇒ get 可用)」;viewer 原「non-holder 503 read-only」用例(落盘验证症状补丁)改为「第二实例创建 201 且 job 跑通」,server 端 503 分支保留为落盘失败兜底防御;新增 `rmw-lock.test.ts` 6 用例(互斥超时 fail-loud / stale 破锁 / token 防误删 / 异常路径释放)。双进程并发实证:2 进程 × 15 create,30/30 零丢失零重复;原假成功场景回归全绿。
+
+### Fixed(2026-08-19 report 链总超时兜底:E2E 实测悬挂缺陷)
+
+- **headless 死亡后深思挂死 30 分钟无反馈**(真实 E2E 实测):executor 有 20min 超时,但 `report()` 内部存在无超时的 LLM await(critic / 综合 / 主张抽取)—— E2E 中 headless 进程中途死亡,`incubateOnce` 悬挂 20 分钟超时也未触发(spawn promise 与 report await 链均悬挂),条目挂 thinking 直到 30min TTL 读时回收,用户全程无反馈。修复:`incubateOnce` 对 report 外层总超时 25min(> executor 20min + report 余量),超时按 aborted 收束;迟到的 report 写回由既有「写前重读拦截」(commit 的 cancelled 分支:状态非 in-flight 即放弃)自然丢弃,无竞态。测试:fake timers 单测(report 悬挂 → 超时 reject + 回退 queued);incubation 系 81 全绿。
+
+### Fixed(2026-08-19 单跑缺口收束不隔离提案:计划缺口与提案质量分维)
+
+- **「⚠ 隔离区:N 条洞察提案来自未闭合的深思」对单跑场景是过度惩罚**(用户裁决):单跑沉思已交付 answer,其洞察提案过了机械校验 + critic 质量关 + 证据锚定 —— 计划部分缺口衡量的是「盘点覆盖度」,与提案可信度是两个维度;因缺口把过审提案整批打入隔离区,用户在提案面看到的是无法理解的噪音(部署实测两次成功深思的 3 条高质量洞察被打入隔离、悬在 provisional 无人终裁)。修复:`releaseThinking` 收束的隔离翻转按成因分流 —— `single-run-gaps` → **解除**隔离(提案进正常审批队列,缺口信息仍留在沉思条目的 `degraded.unclosedGaps`);修复失败 / TTL / 中断类成因保留固化隔离语义。测试:隔离分流的两个单测(解除 vs 固化);incubation 系 71 + 隔离 API 回归全绿。
+
+### Fixed(2026-08-19 单跑缺口立即收束:不再挂 repairing 等不存在的修复轮)
+
+- **两次深思「没有成功」实为卡死在 repairing/verifying**:`report()` 带 openGaps 时条目置 `repairing` 等修复轮 —— 修复轮只存在于 MCP 现场会话(执行者可再调 `ponder_report`);`incubateOnce` 驱动的 headless 单跑没有后续轮,条目挂到 30min TTL,页面呈现「无终态」,用户误以为失败(answer 与洞察提案实际已交付,部署实测两条分别 2491/1707 字)。修复:①`incubateOnce` 在 report 正常返回后,若条目停在 `repairing` 立即按缺口收束(新 degraded 成因 `"single-run-gaps"`,answer 保留、缺口清单落 `unclosedGaps`),i18n 中英同步;②`releaseThinking` 的收束路径补提案隔离标翻转(`setInsightClosureState`)—— 此前仅 report 的 finalize 分支翻转,执行器抛错 / 单跑收尾路径的提案永远停在 provisional 隔离态无人终裁。测试:incubation-single-run 新用例(部分闭合 → 立即 done + single-run-gaps + answer 保留);incubation 系 93 + viewer 452 全绿。
+
+### Fixed(2026-08-19 闭合校验拒绝的收束展示:closure-rejected)
+
+- **「执行中断,本次深思带缺口收束 / 未闭合需求:——」的矛盾展示**:headless 单跑模式被 PDCA 闭合校验整单拒绝(如零资源检索)时,`releaseThinking` 的收束写 `degraded{reason:"aborted", unclosedGaps:[]}` —— 成因名不副实(是校验拒绝不是执行中断),且整单拒绝发生在逐项缺口比对**之前**,`run.gaps` 从未填充 → 未闭合清单恒空,用户看到「有缺口收束却没有任何缺口」;失败原因也完全不落 entry(`answerError` 缺失)。修复:①`IncubationDegraded.reason` 新增 `"closure-rejected"`,incubateOnce 的 catch 按错误语义分流(闭合校验拒绝 vs 真中断)并把失败预览落 `answerError`;②缺口清单回落链:`run.gaps` open 项 → 空则 `run.plan` 计划项全量(整单被拒时计划项即全部未闭合);③i18n 中英同步 `viewer.contemplation.degradedReason.closure-rejected`。测试:incubation-single-run 新用例(零盘点拒绝 → closure-rejected + 计划全量回落 + answerError);incubation 系 84 用例与 viewer 452 全绿。
+
+### Fixed(2026-08-19 headless 沉思失败零线索)
+
+- **沉思 headless 执行失败不可诊断**:`headless executor exited 1: `(`stderr` 为空)与 `report has neither answer nor insights array`(不带原文)两类错误让四连败(2×exit 1、1×SIGTERM 143、1×解析失败)完全无从定位 —— claude CLI 部分失败模式(登录态/限流/截断)的有价值信息在 stdout,而非 stderr。修复:exit≠0 时 detail 取 `stderr` 或 stdout 尾部;解析失败时错误消息带 parse 原因 + 输出长度 + stdout 尾部 200 字符 —— 下次失败从审计 `contemplation_run_fail` 的 `errorPreview` 即可判断输出形态(截断 / 围栏异常 / turns 用尽仓促交卷)。
+
+### Fixed(2026-08-19 ghost engram 清理启动对账)
+
+- **外部 rm / git pull 删除 engram 文件后 `totalEngrams` 虚高**:`scanForDeletedEngrams`(index entry 的磁盘文件消失 → stable id 区分路径迁移与真删除 → 复用 `deleteEngram` 全清理)此前只挂 `.md` watcher 链(`startWatching` / `scheduleDataScan`),常驻宿主无事件时 index entry 与 SQLite ghost 行残留 —— 与 synapses 表「无启动填充路径」对称的「无启动清理路径」。修复:`repository.rescanDeletedEngrams()` 公开入口(返回 deleted / moved 计数),bootstrap 启动对账在 synapse 对账**之前**调用 —— ghost 清理会连 dangling synapse yaml 一起删,清理后的磁盘 yaml 数才是 synapse 对账的正确基准。成本与 cold-start 同量级(一次全盘扫),启动低频路径可接受。测试:场景 8(外部 rm → 启动后 engrams=1 / synapses=0 / index entry 清除)。
+
+### Fixed(2026-08-19 计数列第三层缺口:write-through 不再覆盖计数列)
+
+- **engram 更新把计数列清回 0**:`upsertEngramUnsafe` 是全字段 upsert,write-through(`syncEngramToIndex`)与 cold-start 投影都恒写 0 —— 部署实测:`recomputeSynapseCounts` 写入 65/100 非零后,`/api/stats` 一次调用(`rescanModifiedEngrams` 触发 sync)即回到 0/100,前两单的修复被更新路径反复冲掉。修复:突触计数三列改为**条件性覆盖** —— 调用方未提供(entry 字段 undefined)时 `ON CONFLICT … DO UPDATE` 不含该列(保留原值);`syncEngramToIndex` / `engramFileToIndexEntry` 不再提供这三列(INSERT 侧由 NOT NULL DEFAULT 0 兜底,recompute 随后写入真值)。测试:场景 7(touch + `rescanModifiedEngrams` 复现清零路径,断言计数保留)。
+
+### Fixed(2026-08-19 计数列重算补缺口:对账「一致」分支也要跑)
+
+- **`recomputeSynapseCounts` 只挂在 `rebuildSynapseTable` 内的缺口**:部署实测发现,synapses 表行数与磁盘一致的存量库(对账走「跳过」分支)永远不会触发表重建,计数列的历史全零(无回填路径时代写入)永远残留 —— 真实库踩中:表 234 行一致,计数列 100/100 全零。修复:bootstrap 对账的 else 分支(行数一致)同样执行 `recomputeSynapseCounts`(毫秒级幂等)。测试:场景 6(表一致 + 计数列人工清零 → 启动后修复)。
+
+### Fixed(2026-08-19 统计口径审计:engram_list 突触计数列恒 0)
+
+- **`engrams.outgoing/incoming_synapse_count` 无回填路径(engram_list MCP 输出恒 0)**:两处写入路径(write-through `syncEngramToIndex` 与 cold-start `engramFileToIndexEntry`)都把计数写 0,注释宣称的「maintenance / synapse-create 增量 UPDATE 回填」全项目不存在——`engram_list` 经 `readDigestBatch`(`queryEngramsForMcpList`)读 SQLite 列,LLM 看到的每条记忆突触数恒 0,对记忆连接度判断被误导(实测 100/100 行全零)。修复:`rebuildSynapseTable` 末尾同事务执行 `recomputeSynapseCounts`(对称 kind 两端计入出+入,与 `readSynapses` 实时口径一致;走 idx_synapses_from/to 索引毫秒级),bootstrap 启动对账 / .yaml watcher / doctor 全路径自动覆盖;更正两处失实注释。`active_contradiction_count` 依赖 resolutionState(synapses 表无此列)不在重算范围,注释已注明。测试:bootstrap-synapse-sync.test.ts 场景 5(计数列 vs `readSynapses` 口径对照)。
+
+### Fixed(2026-08-19 首页记忆突触 0:synapses 表启动对账 + 贡献者口径统一)
+
+- **viewer 首页「记忆突触」恒 0(存量库)**:`/api/stats` 的 totalSynapses/bySynapseKind 读取口径切到 SQLite synapses 表后,存量库的 synapses 表无任何启动填充路径——bootstrap cold-start 只灌 engrams 表,全量重建仅挂 doctor 与 dangling 清理,.yaml watcher 只在宿主进程内生效——Co-Claw 常驻 viewer 读到恒空表,首页突触 0 且 bySynapseKind 全空;同页「贡献者」突触合计仍读 graph.json 旧缓存(实测 231 vs 224 同页分裂,graph 重建只挂 viewer 写路由,MCP `synapse_create` 不触发)。修复:①`bootstrapRepositoryAndSearch` 启动对账:synapses 表行数与磁盘 `synapses/` yaml 文件数不等则从磁盘全量回填(置于 engram cold-start 之后,避开 `DELETE FROM engrams` 的 CASCADE 清空;三宿主共用装配层一次覆盖;SCHEMA_VERSION 升级 DROP 全表后同样自动恢复);②synapses 表新增 `created_by` 列(schema 7→8,DROP 重建自动迁移),topContributors 突触作者聚合从 graph.json 缓存切本表实时 `GROUP BY`,同页两口径恒一致。对账成本:一致时一次 O(1) `count` + `readdir`;不一致才付全量回填(~50ms/1000 synapse)。新增 `bootstrap-synapse-sync.test.ts` 4 用例(存量库回填 / 一致跳过 / schema v7 升级恢复 / dangling 幂等)。
+
+### Added(2026-08-18 沉思 PDCA Phase3:角度防复读 + 主张对手抽取 + 接力权转移)
+
+- **同源判断的最后三块生成权转移**:①P6 角度防复读 —— 计划终态化机械保证探测词角度多样性(任意两词字符 2-gram Jaccard ≥ 0.7 判同角度复读,替换为关键词变体;中文无词分隔故用字符级度量)与计划必含外部型(web/mcp,LLM 缺则机械补);答案与上一 run 最终答案 Jaccard ≥ 0.65 → timeline 标记 answerRepeat(标记不阻塞);②P7 主张对手抽取 —— 新模块 claims.ts:独立 critic 对 L2 答案做对抗式主张审计(逐条判 evidenced/downgraded),降级占比 > 30% → 本 run 洞察提案全部固化隔离(「答案弱支撑」,不改 run 终态);fail-open(LLM 不可用即跳过,记 claimsSkipped);主张清单与占比落 timeline,viewer 报告新增「主张抽取」折叠区;③P8 接力权转移 —— degraded 终束时 critic 生成下轮验证任务(2-5 条,机械保证至少一条外部资源型,LLM 遗漏时引擎兜底追加),acquireThinking 转存 nextTasks 并按外部型分流进新计划(web 项/engrams 项)—— 下轮议程不再由执行者自设。viewer degraded 警示区新增「下轮验证任务」展示;审计 run_done 的 pdca 扩展 claims/nextTasks 计数。测试:新增 incubation-phase3.test.ts 7 用例;真实场景验证 8/8(探测词同质替换/外部型保证/答案复读标记/健康与弱支撑答案/降档 nextTasks/外部型兜底/接力进计划)。全 workspace 回归:core 2924 / viewer 439 / claude-code-mcp 332 / openclaw 122 / dsh 19 / e2e 35 / contracts 18。
+
+### Added(2026-08-18 沉思 PDCA Phase2:计划先行 + 探测引擎生成 + 细化防收窄)
+
+- **思考计划引擎生成(清单生成权转移)**:Phase1 的「清单自报」折中收口 —— `ponder_run` 启动时(buildTask)引擎生成需求拓扑并落盘 `run.plan`(LLM critic 式单次调用从问题结构生成 3-6 项:资源类型/描述/必要性/探测词;无 llmClient 或解析失败走机械模板,五类型全覆盖;上轮 degraded 未闭合缺口机械追加进新计划,跨轮接力)。任务包携带计划,协议改为「执行附带计划」。**P5 细化防收窄**:report 需求经 `planItemId` 链接计划项,删除的计划项由引擎合成 open 缺口、必要性降级被覆写回,执行者只能追加(计划项不占执行者缺口预算)。**P1 探测引擎生成**:engrams 计划项携带 ≥2 个引擎探测词,执行者逐字执行不得改写(闭合核验精确匹配,「表演式探测」凑数通道关闭);全部探测变体执行且皆空(引擎从调用流水 `{hits:0}` 亲证)→ 自动豁免闭合,豁免权完全引擎侧。headless 路径 prompt 渲染计划清单。viewer 报告「闭合校验」段新增探测豁免/收窄拦截展示(i18n 中英)。附带两项实施中实证修复:不可观测类型(web/logs/mcp)缺口在修复轮的闭合死锁(closed 声明不落记录 → 永远 open);证据时间窗移除 5s 回溯容差(上一 run 的空探测会污染本 run 的豁免判定 —— 跨 run 证据污染)。
+
+### Added(2026-08-18 沉思 PDCA Phase1:闭合事实化 + 修复回路)
+
+- **沉思闭合校验与修复回路(清单自报、证据事实化)**:沉思报告的过程证据此前是纯自报(资源申报只验 id 存在、引用闭合用洞察自报的 sourceIds 自证、任务包种子可全引)—— 形式合规的表演即可全绿。Phase1 落地最小 PDCA 骨架:`ponder_report` 新增 `requirements` 需求清单(L2 引擎侧必填),closed 的 engrams/skills 条目由引擎用本次 run 的调用流水(`signals.jsonl` 时间窗快照,不消费维护 drain 队列)机械复核 `evidence.ids` —— **假闭合**(自报已读但流水无证据)、**瞒报**(有调用不报清单/清单缺失)、**零盘点**(run 内零 engram/skill 读调用)整单或逐条拦截;**零增量**拦截(洞察 sourceIds 全来自任务包种子 → 拒该洞察)。状态机扩展 `verifying`(校验瞬态)/`repairing`(带缺口清单退回执行者,修复后全量重报)。硬限制引擎强制(业界基准参数,`maintenance.remInsight.repairRounds` 可配置 [1,10]):修复 report ≤ 6、单次新缺口 ≤ 3(超额 deferred)、累计缺口 ≤ 10;**重报语义反转** —— 同哈希缺口重报计修复失败(连续 2 次强制升级 logic-needed),终束只能由预算耗尽触发。触顶 → **degraded 终束**:条目落「降级收束」标记与未闭合清单,洞察提案固化隔离标、默认不进审批队列(viewer 提案中心新增置顶「隔离区」展示未闭合清单,可在「全部」视图裁决);正常终束自动解除隔离。L1 与未注入证据源的部署降级跳过(审计标注 `evidenceAvailable=false`)。审计新增 `contemplation_gap_check`;三宿主(claude-code-mcp/openclaw-plugin/dsh-plugin)注入同进程证据源。文档、帮助栏与 viewer 文案中英同步。
+
+### Fixed(2026-08-16 loop r12-r33 修复工程)
+
+- **doctor×rem 字段 schema 互毁止血(`@co-engram/core`)**:`validateFrontmatter` 的 knownFields 曾是一份独立硬编码清单,缺 `updatedBy`/`visibility`/`sourceType`/`status` 四个契约字段——rem 管线写入的合法字段被 doctor autoFix 判为 unknown field 删除,两个维护子系统在字段层互相销毁产出(rem 写 → doctor 删 → rem 再写震荡)。现从 `ENGRAM_FIELD_MAP.en` 派生单一事实源:序列化会写出的字段就是校验认识的字段,新加字段只需改 map 一处。
+- **proposal accept 审计归因**:accept 决策审计统一 `action="accept"` + `metadata.appliedAction`(此前 rem-tag-refresh 记 `update`、rem-synapse 记 `create/purge`、rem-pattern/rem-verification 完全零审计——同一「用户批准」语义多种写法,按 `action=accept` 检索会漏);新增 `metadata.via`(`viewer-card` / `viewer-batch` / `mcp`,viewer「全部采纳」批量循环自动标记)与 `host`(三宿主构造注入),真人点卡、viewer 批量、MCP 工具调用在审计层可区分;rem-pattern accept 补齐决策审计与 `proposal_accepted` 事件。
+- **SQLite FTS 索引补标签列(schema v7)**:`engram_fts` 新增 `domain_tags`/`context_tags` 列——此前 FTS MATCH 主路径只查 title+summary+content,rem tag-refresh 的语义化标签对检索零收益(仅完全 0 召回时的 LIKE 兜底可查)。补列后标签词进主召回路径,与 in-memory 引擎索引字段下界对齐(title+summary+domainTags+contextTags;content_tokens 仍是 SQLite 独有增强项)。schema 6→7 自动 DROP 重建 + cold-start 灌回,升级无感。
+- **SQLite 检索 matchReason 不再恒空**:bm25 不暴露 per-field 命中,现用 query tokens 对 title/summary/domainTags/contextTags 重建命中解释(复用 in-memory `buildMatchReason` 同一逻辑),两引擎的 score 解释行为一致。
+- **`engram_list_paths` maxDepth 语义修正**:旧实现实际只显示到第 N-1 层(`maxDepth=1` 返回空树,根的子目录全被剪掉)。现 N = 显示到第 N 层(根为第 0 层),`maxDepth=1` 可见第一层目录。
+- **doctor 对 id 缺失条目不再给不可执行建议**:此前把字面量 `<unknown>` 当 id 生成 `id=<unknown>` 的 delete/update 建议(同一条目同时出现「删了重建」与「补字段」两条矛盾建议,且都无法执行);id 无效时统一给文件级引导(修 `frontmatter.id` 或删文件 `engram_create` 重建),id 修好后 doctor 再给字段级建议。
+- **验证脚本密钥不再进 curl argv**:`verify-rem-deep-thought.mts` / `blind-eval-night-thinking.mts` 的 `x-api-key`/`Bearer` 改经 stdin 的 curl config(`-K -`)传递——此前直接拼在命令行,`ps aux` 全机可见。
+- **MCP server 崩溃零日志修复**:入口加 `uncaughtException`/`unhandledRejection` 兜底,FATAL 详情(时间+stack)写 stderr——此前进程静默死亡,宿主只见断连无法归因。
+
+### Changed
+
+- **沉思资源扩展:受控联网检索 + 宿主技能应用 + MCP 工具纳入(2026-08-17)**:沉思协议 RESOURCE MANDATE 新增三条资源线——①联网检索(问题涉及业界趋势/对手动态/基准等外部事实时联网取证,替代纯记忆推测;隐私边界固化在协议:记忆原文不出域,仅问题与摘要级内容可随检索出域;headless 白名单补 WebSearch/WebFetch);②宿主技能(除 co-engram 技能印迹外,盘点并应用宿主的研究/结构化思维类技能,记入轨迹);③MCP 工具(盘点宿主连接的其他 MCP server 并按需取用只读能力,如 codegraph 核实代码主张;agent 模式天然可达,headless 经 `readOnlyMcpServers` 按 server 粒度显式放行,不做 `mcp__*` 通配防写工具混入)。同时补强既有资源线的结构性缺口:突触图谱遍历(高价值命中沿 synapse 扩展证据网)、技能效用统计(utility/invocationCount/retentionStage 本身即行为证据)、`engram_audit_query` 记忆修改史取证(headless 白名单同步补入)。`resourcesUsed` 资源申报新增 `web` 面(`{query, purpose}`,清洗去重落盘),viewer 依据区同步渲染「联网检索」;文档/帮助栏/工具描述中英同步。此前(同日凌晨重设计)联网线曾被整体移除,本次按用户反馈以更轻的结构恢复——不复活 opt-in 开关/UI 开关/externalCalls 三层旧机制。
+- **`engram_update.updatedBy` 署名契约对齐 `engram_create.createdBy`**:LLM 传入值不再透传落盘(此前机器标签如 `claude-code` 会写进 frontmatter「更新者」),统一由宿主 git 身份决定;schema 仍接受该字段以向后兼容。表达自动化情境请用 `encodingContext`。
+
+### 夜思实验室(Incubation)
+
+- **锚点时刻制调度**:默认每日 00:00,可按条目改写(`HH:mm`);错过自动补跑(原滚动 24h 间隔移除)。
+- **阶段草稿与收束**:每轮自动生成阶段性回答草稿;新增「收束」生成最终回答(`finalAnswer`)。
+- **空转诊断**:每轮时间线新增诊断计数(草稿数/重复/校验/评审/llmClient 缺失)。
+- **轮次资源最大化**:全记忆图谱 + 行为日志 + 技能库(联网调研按条目开启:viewer 表单默认勾选;agent/工具路径默认关闭)。
+- **viewer**:卡片显示下一轮预计时间、点击查看草案、排程编辑、机理简述、调度器状态。
+- **行为变更**:新建条目等首个排程时刻或手动触发(不再创建即跑)。
+- **新工具**:`incubation_conclude` / `incubation_update`。
+- **审计纳入**:轮次(`incubation_round`,含 diagnosis 与草稿 200 字预览)/收束/删除/暂停四类 action 写审计日志。
+
+#### 夜思实验室第二批(2026-08-17,单次执行语义)
+
+- **单次执行**:夜思不再分多夜 —— 排程时刻到,跑一次单次长任务,完成即 `suggested-resolve` 待用户裁决(不再自动续夜);`resolve` 选「还没有」= 用户显式授权,下个锚点自动再跑一轮,跑完再次待裁决。「连续 2 轮全撞自动 paused」「5 轮无 accept 到限暂停」路径移除(veto 计数保留为诊断信号)。
+- **新工具 `incubation_pause` / `incubation_delete`**(9 工具,standard 42 / full 50):暂停自动排程(进行中的轮与收束不受影响;恢复走 `resolve` 选「还没有」);删除条目本体(已产出的提案与审计保留,梦境时间线随条目移除)。`incubation_run` 补状态门禁 —— paused/resolved 条目明确报错并指向恢复路径(此前被误报为「已在执行中」引向死等)。
+- **viewer 夜思实验室**:条目卡片新增暂停/恢复/删除按钮(删除带 confirm 二次确认,注明提案与审计保留);活跃区默认只展开前 5 张卡(其余折叠)+ 问题文本过滤框(焦点与光标跨 re-render 保持,IME 不被打断);预算横幅并入机理块;全文案改为单次执行口径;suggested-resolve 卡片加「已跑完:收束出结论,或再来一次」引导。
+- **可观测性**:时间线轮次新增逐条拒因(`rejectReasons`)与执行轨迹(`trace`)折叠展示(旧轮数据无字段不渲染);工具描述与双语 i18n 清理过时口径(nextRunAt 仅 active 态非空;resolve 知情说明)。
+- **证据锚定与归因治理(2026-08-17)**:① 协议新增 EVIDENCE ANCHORING 硬门 —— 洞察的 `sourceIds` 必须是记忆库真实 engram id,源码/日志/网页证据写入 content(全资源盘点的产物不再被引用闭合全拒);② 阶段综合(`answerDraft`)输入面扩展 —— 注入本轮执行轨迹、外部调研 purpose 与逐条拒因,零存活轮的归因锚定真实证据(不再出现「先明确问题所指」式误导);③ 种子空兜底 —— `seedEngramIds` 为空时,任务包用问题文本对全库 FTS 检索取 top-K active 记忆作运行时种子(L1 降级路径不再结构性全灭;兜底生效写 `night_thinking_seed_fallback` 审计;索引不可用时 best-effort 降级为无种子);④ L2 headless 超时 10min → 20min(实测全资源盘点 10min 跑不完,超时降级会丢掉全部执行成果;claude-code-mcp 与 dsh-plugin 同源同步)。实测:锚点轮两条目各产出 1 条存活洞察(co-engram 条目首次非零存活),拒因逐条可查,综合归因精确到具体质量门。
+
 ### Added
+
+- **Audit log feeds REM inputs(`@co-engram/core`)**: Seed activity weight in spreading activation is now continuous instead of binary — window activity = retrieval hotness (snapshot diff against `.co-engram/rem-state.json`, zero audit growth) plus weighted whitelisted audit events (external edit ×2, reinforce/accept ×1.5). Mode strengths gain a long-term calibration factor derived from the accept/dismiss distribution of `rem-insight` proposals per mode (clamped to ±30%, cold start under 5 samples stays neutral); `DeepThoughtReport` now exposes `modeCalibration`/`activityEngrams` for ops auditing. Includes a fix found by real-library verification: the action whitelist must be pushed down into `AuditLog.query` — real libraries are 99.98% high-frequency `noise_filtered` entries, and without the pushdown early-window whitelist events were evicted from the query's ring buffer.
 
 - **新宿主:DeepSeek Harness(`@co-engram/dsh` v0.1.0)**: 原生 Cordis 插件——38 个记忆工具以裸名（`engram_*`）注册到 dsh `ctx.tools`（经官方 `defineTool` 工厂,含参数 schema 校验）;注入 `memory:co-engram` system prompt 段（order 120）,topTags／技能清单／目录概览／待审候选数在每次 prompt 组装时重新求值,写入记忆下一条消息即生效;`dsh.bundle` patch 声明使 `dsh plugin add` 安装即激活,零手动配置;ProcessLock 与 claude-code-mcp／openclaw-plugin 共享 dataRoot 协调后台任务与 viewer。与 MCP 桥接路径的差别:dsh 不透传 MCP server instructions（原生段补齐）、MCP 入口会向用户机器 auto-install Claude Code hooks（原生路径无此副作用）。有意不包含（v0.1）:necessityLlm／LLM 客户端、启动期 git pull 与语言迁移。新增包 `packages/dsh-plugin`（18 测试用例,含真实 Cordis 宿主 e2e 往返与真实 dsh boot 冒烟）;文档 `docs/host-dsh{,.zh-CN}.md`＋根 README 中英文同步。
 
@@ -30,6 +131,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **时间族突触冷启动(`@co-engram/core`)**: 矛盾裁决(`contradiction_resolve`)的 keep_old/keep_new 已在语义上确认「胜者替代被替代者」,但此前只写审计 metadata 不落图 —— 团队库 supersedes 突触因此恒 0。现裁决时自动提议 `winning → supersedes → superseded` 提案(经 rem-synapse 审批落盘,置信 0.9,带两端标题快照);merge/archive 语义不同不提议。另:`engram_create` 对含因果/依赖/替代语义的内容(verdict=NEW)返回建链 hints,提示 agent 评估 `causes/depends_on/supersedes` 建链 —— 因果/时间关系此前只隐含在正文里,从不成为图上的边。
+- **audit.jsonl 大小上限真正生效(`@co-engram/core`)**: 真实库涨到 106MB(上限 50MB)的三个叠加原因逐一修复 —— ① 轮转只有 `setInterval(24h)` 且无启动首跑,短命进程活不到首次触发,现启动 30s 后首跑;② 高频写入进程不再单纯依赖定时器,`append` 超上限 ×1.1 时写入路径自己触发异步轮转(1h 冷却防边界震荡);③ 刷屏主源是 IDE 空文件(`未命名.md`)被持续扫描重写 noise_filtered(7 天 46 万条、占 99.9%,内存去重跨进程/实例失效),空文件拦截改为完全静默。`rotate` 同步流式化(两遍扫 + 字节级截断):旧实现 `readFileSync` 全量进内存,106MB 场景堆增量仅 10MB、4 秒完成,高价值行(create/update/accept 等)完整保留。
 - 记忆动态为空(noise_filtered 刷屏挤光 limit + 空串渲染)—— 服务端动作过滤 + core 空文件噪声审计按路径去重;元数据类 update(标签维护)不再计入动态/更新图。
 - 记忆健康检查整页空白(standalone 场景 `startViewerServer` dataRoot 未兜底 `repository.rootPath`)。
 - 品牌徽标 light/dark 双显;详情抽屉 1px accent 绿线;配置 tab 暗色残留(保存栏渐变/下拉选项);图谱检查器「模式 · 模式」重复;记忆更新柱状图高度丢 `%`;检查器悬停 tooltip 对比度。
@@ -70,7 +173,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **补全 `listTrackedMarkdownFiles` 定义——修复 eee2218 遗漏的编译失败 + 补记「git tracked 合法 engram 直纳管」机制 (`@co-engram/core`)**：commit `eee2218` 在 `scanForExternalMarkdown`（repository.ts）写入了对 `listTrackedMarkdownFiles(root)` 的调用，但**遗漏了 `git.ts` 的函数定义** → HEAD 起 `tsc --noEmit` 必报「Cannot find name」，scan 一运行即 `ReferenceError`，自 `eee2218` 起后续 commit 均处编译必坏状态。本次补全 `listTrackedMarkdownFiles`（git.ts：`git ls-files` 全量列举再 filter `.md`，因 pathspec `*.md` 的 `*` 不跨 `/` 会漏子目录记忆；非 git repo 或失败返回空 Set → 调用方降级为全走提案，现状不变）。**补记用户可见行为**：合法 engram 且被团队 git 仓库 track 的文件（典型 `engram_sync` 或 `git pull` 带来的）扫描时**直接入库索引、不进提案队列**；post-merge hook 是 index 同步首选路径，此处作其未装时的 defense-in-depth 兜底；只有真正未被 track 的外部文件（裸 md、外部投递）才生成 proposal，**保留防投毒审批闸**。纯内部函数（`storage/index.ts` 未 re-export），双宿主（claude-code-mcp / openclaw-plugin）经 `@co-engram/core` 共享，无适配层改动。文档：`docs/lifecycle.md` 与 `docs/lifecycle.zh-CN.md` 中英同步补一段。测试：`packages/core/test/storage/scan-external-markdown-git-tracked.test.ts` 6 场景（批量 100 个 git tracked engram 一次 persist 纳管、真实 fs.watch 与 git pull 全链路 e2e）全绿；core typecheck 零报错。
 
-- **external-markdown 提案「伪 H1 标题」+「改文件不同步刷新」修复 (`@co-engram/core`)**: 两个用户可感知的缺陷一并治本。(1) **伪 H1 标题**:从 wiki(如 iCenter)粘贴的 .md 代码块围栏丢失,shell 步骤注释 `# 1. 切换到源分支` 被 Markdown 解析为 H1,规则版 `extractBareMarkdownDefaults`(bare-markdown-extractor.ts)的正则 `/^#\s+(.+)$/m` 不识别 fenced code block,把它当成提案标题。修复:新增 `stripFencedCodeBlocks` helper(识别 ``` 与 ~~~ 围栏、含 ≤3 空格缩进,剥离代码块行),标题提取前先剥离;剥离后**仅当恰好 1 个 H1 才用它,否则(0 个或 >1 个)用文件名**——多 H1 检测覆盖「围栏已丢失、剥离无效」的场景(用户文件有 5 个裸 `#` → fallback 文件名)。LLM 版 `buildExtractionPrompt(content, fileName)` 同步加文件名引用 + 「忽略代码块内 `#` 注释、无明确标题时用文件名」规则。(2) **改文件不同步**:`engram_list_proposals` 是纯读,刷新完全依赖 fs.watch,而 Linux 上 fs.watch 对编辑器原子写 / 进程外修改漏事件 → 用户改文件后提案标题 / 内容不更新。修复:`ProposalEngine` 新增 `refreshStaleFileProposals()`,在 `listPending()` / `listAll()` 入口同步检测 pending external-markdown 提案对应文件的 mtime(新增 `Proposal.sourceMtimeMs` 字段记录上次刷新依据),变新则用规则版同步重提取刷新 title / content(保留旧 domainTags,语义标签刷新仍走 fs.watch→scan→LLM 链路);`proposeExternalMarkdown` 生成时即写入 `sourceMtimeMs`,避免首次 list 误判 stale 而用规则版覆盖 LLM 初始结果。三端(MCP tool / viewer `/api/stats` / openclaw)经 `listPending` / `listAll` 自动受益,不改适配层与 viewer。范围:仅 external-markdown(auto-memory 的 slug 不映射磁盘路径,无法定位源文件)。改动全在 core,双宿主(claude-code-mcp / openclaw-plugin)经 `@co-engram/core` 共享,无适配层改动。测试:`packages/core/test/bare-markdown-extractor.test.ts` 10 场景(``` / ~~~ 围栏剥离、多 H1→文件名、单 H1、无 H1、content 保留、截断);`packages/core/test/proposal-refresh-stale.test.ts` 6 场景(改文件→listPending 同步 title / content、保留 domainTags、未变不重提取、多 H1 端到端、文件删除不抛错);用户实际文件 `代码分支管理.md` 端到端验证标题从「1. 切换到源分支」修正为「代码分支管理」;core typecheck + 全量 2616 测试 + 全包 typecheck(双宿主 / viewer / contracts)通过。
+- **external-markdown 提案「伪 H1 标题」+「改文件不同步刷新」修复 (`@co-engram/core`)**: 两个用户可感知的缺陷一并治本。(1) **伪 H1 标题**:从 wiki(如 iCenter)粘贴的 .md 代码块围栏丢失,shell 步骤注释 `# 1. 切换到源分支` 被 Markdown 解析为 H1,规则版 `extractBareMarkdownDefaults`(bare-markdown-extractor.ts)的正则 `/^#\s+(.+)$/m` 不识别 fenced code block,把它当成提案标题。修复:新增 `stripFencedCodeBlocks` helper(识别 `` 与 ~~~ 围栏、含 ≤3 空格缩进,剥离代码块行),标题提取前先剥离;剥离后**仅当恰好 1 个 H1 才用它,否则(0 个或 >1 个)用文件名**——多 H1 检测覆盖「围栏已丢失、剥离无效」的场景(用户文件有 5 个裸 `#` → fallback 文件名)。LLM 版 `buildExtractionPrompt(content, fileName)` 同步加文件名引用 + 「忽略代码块内 `#` 注释、无明确标题时用文件名」规则。(2) **改文件不同步**:`engram_list_proposals` 是纯读,刷新完全依赖 fs.watch,而 Linux 上 fs.watch 对编辑器原子写 / 进程外修改漏事件 → 用户改文件后提案标题 / 内容不更新。修复:`ProposalEngine` 新增 `refreshStaleFileProposals()`,在 `listPending()` / `listAll()` 入口同步检测 pending external-markdown 提案对应文件的 mtime(新增 `Proposal.sourceMtimeMs` 字段记录上次刷新依据),变新则用规则版同步重提取刷新 title / content(保留旧 domainTags,语义标签刷新仍走 fs.watch→scan→LLM 链路);`proposeExternalMarkdown` 生成时即写入 `sourceMtimeMs`,避免首次 list 误判 stale 而用规则版覆盖 LLM 初始结果。三端(MCP tool / viewer `/api/stats` / openclaw)经 `listPending` / `listAll` 自动受益,不改适配层与 viewer。范围:仅 external-markdown(auto-memory 的 slug 不映射磁盘路径,无法定位源文件)。改动全在 core,双宿主(claude-code-mcp / openclaw-plugin)经 `@co-engram/core` 共享,无适配层改动。测试:`packages/core/test/bare-markdown-extractor.test.ts` 10 场景(`` / ~~~ 围栏剥离、多 H1→文件名、单 H1、无 H1、content 保留、截断);`packages/core/test/proposal-refresh-stale.test.ts` 6 场景(改文件→listPending 同步 title / content、保留 domainTags、未变不重提取、多 H1 端到端、文件删除不抛错);用户实际文件 `代码分支管理.md` 端到端验证标题从「1. 切换到源分支」修正为「代码分支管理」;core typecheck + 全量 2616 测试 + 全包 typecheck(双宿主 / viewer / contracts)通过。
 
 - **engram .md 外部编辑后 viewer 不同步——fs.watch 漏事件 + 启动不补扫 (`@co-engram/core`, `@co-engram/viewer`)**: 用户直接改已 accept 的 engram .md 标题后,网页 viewer 内容不更新。根因两层:(1) fs.watch(inotify)对编辑器原子写(临时文件 + rename)漏事件 → scheduleDataScan 不触发 → scanForModifiedEngrams 不跑 → SQLite 派生层不同步(而 viewer /api/engrams 走 queryEngramsForList 读 SQLite);(2) startWatching 启动即扫只调 scanForExternalMarkdown / scanForSkills / scanForDeletedEngrams,**唯独不调 scanForModifiedEngrams** → 重启 co-engram 都不补救(要等偶然 fs.watch 事件)。修复:(A) startWatching 启动即扫补 scanForModifiedEngrams(repository.ts),覆盖「co-engram 未运行时被改的 engram」+ 重启即同步;(B) EngramRepository 暴露 public rescanModifiedEngrams(),viewer /api/stats 入口(getStats)按需调用,补救 fs.watch 漏事件(同 proposal 的 listPending 补救思路);(C) scanForModifiedEngrams 同步 SQLite 后 updateIndexEntry 回写 index.json entry.mtime(之前不回写,每次扫描重复 readEngramFile + upsert)。scanForModifiedEngrams 本身逻辑正确(检测 mtime 变化 → syncEngramToIndex 同步 title 等),问题只在「没被触发」。改动在 core(repository.ts)+ viewer(server.ts),双宿主(claude-code-mcp / openclaw-plugin)共享 core 自动受益。测试:packages/core/test/storage/engram-rescan-modified.test.ts 4 场景(rescan public 入口同步、无 indexDb noop、index mtime 回写、startWatching 启动即扫);core typecheck + 全量 2620 测试 + 全包 typecheck 通过。
 

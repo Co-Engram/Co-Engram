@@ -9,17 +9,34 @@
  */
 
 import type { EngramRepository } from "../../storage/repository.js";
+import type { Language } from "../../i18n/types.js";
 import {
   GENERIC_DOMAIN_TAGS,
   type DeepThoughtMode,
   type InsightSubgraph,
+  type ModeCalibration,
   type ModeSignal,
 } from "./types.js";
+import { saturate } from "./activity.js";
 
-/** 饱和归一:x/(x+k),k 为半饱和点(初值 3:3 个事件 ≈ 0.5) */
-function saturate(x: number, k = 3): number {
-  if (x <= 0) return 0;
-  return x / (x + k);
+/**
+ * 洞察产出语言指令(2026-08-18 修复:洞察草稿此前无语言约束,LLM 结构化
+ * JSON 输出系统性落英文,用户在提案页看到英文标题/摘要)。语言取自仓库
+ * 配置(repository.currentLanguage),中英混排术语合法、正文必须用户语言。
+ */
+export function insightLanguageDirective(language: Language): string {
+  return language === "zh"
+    ? "LANGUAGE (hard requirement): write ALL insight fields — title, summary, content, domainTags, reason — in Simplified Chinese (简体中文). Technical terms and proper nouns (e.g. co-engram, LLM, MCP, port) may remain in English; every other word must be Chinese."
+    : "LANGUAGE (hard requirement): write ALL insight fields — title, summary, content, domainTags, reason — in English.";
+}
+
+/**
+ * 历史质量校准:strength × factor 后夹回 [0,1](factor 由 accept 分布派生,
+ * 见 activity.computeModeCalibration)。factor 缺失(冷启动/无数据)不干预。
+ */
+function calibrateStrength(raw: number, cal: ModeCalibration | undefined): number {
+  if (!cal) return raw;
+  return Math.min(1, raw * cal.factor);
 }
 
 /** active engram digest(与 spread.ts 同源查询;SQLite 主路径批量,无 N+1) */
@@ -56,11 +73,22 @@ function specificDomains(tags: readonly string[]): Set<string> {
  *
  * 一期兜底 REM(无任何事件信号)→ 三个强度全 0,深度思考整体跳过。
  */
+/** 被拒洞察快照(REM 审批反馈信号,2026-08-16 用户灵感) */
+export interface DismissedInsight {
+  readonly title: string;
+  readonly reason: string | undefined;
+  readonly sourceIds: readonly string[];
+}
+
 export function computeModeSignals(
   repo: EngramRepository,
   opts: {
     readonly lastRemAt: string | null;
     readonly hasActiveIncubation: boolean;
+    /** 自 lastRemAt 起被 dismiss 的 rem-insight 提案(系统复盘自己的产出) */
+    readonly dismissedInsights?: readonly DismissedInsight[];
+    /** 各模式长期校准因子(accept 洞察的模式分布,2026-08-16 第二刀) */
+    readonly modeCalibration?: ReadonlyMap<DeepThoughtMode, ModeCalibration>;
   },
 ): ModeSignal[] {
   const digests = activeDigests(repo);
@@ -82,16 +110,22 @@ export function computeModeSignals(
     }
   }
   const maxSameDomainNew = Math.max(0, ...domainNewCount.values());
+  const calIntegration = opts.modeCalibration?.get("integration");
   const integration: ModeSignal = {
     mode: "integration",
-    strength: Math.min(
-      1,
-      0.6 * saturate(newSynapses.length) + 0.4 * saturate(maxSameDomainNew),
+    strength: calibrateStrength(
+      Math.min(
+        1,
+        0.6 * saturate(newSynapses.length) + 0.4 * saturate(maxSameDomainNew),
+      ),
+      calIntegration,
     ),
     detail: {
       newSynapses: newSynapses.length,
       sameDomainNew: maxSameDomainNew,
       newEngrams: newEngrams.length,
+      calibrationFactor: calIntegration?.factor ?? 1,
+      calibrationSamples: calIntegration?.samples ?? 0,
     },
   };
 
@@ -103,12 +137,22 @@ export function computeModeSignals(
       : digests.filter(
           (d) => d.verificationStatus === "refuted" && d.updatedAt > since,
         ).length;
+  // 审批反馈(2026-08-16):洞察被 dismiss = 最直接的人工质量否决 ——
+  // 比失败使用更早到达的负信号,纳入复盘强度(系统复盘自己的产出)
+  const dismissed = opts.dismissedInsights ?? [];
+  const calRetrospective = opts.modeCalibration?.get("retrospective");
   const retrospective: ModeSignal = {
     mode: "retrospective",
-    strength: saturate(failing.length + newlyRefuted),
+    strength: calibrateStrength(
+      saturate(failing.length + newlyRefuted + dismissed.length),
+      calRetrospective,
+    ),
     detail: {
       failingEngrams: failing.length,
       newlyRefuted,
+      dismissedInsights: dismissed.length,
+      calibrationFactor: calRetrospective?.factor ?? 1,
+      calibrationSamples: calRetrospective?.samples ?? 0,
     },
   };
 
@@ -125,12 +169,15 @@ export function computeModeSignals(
     // 孵化条目占据灵感模式最高优先级槽:强度提升保证入 top-K 首位
     inspirationStrength = Math.min(1, inspirationStrength + 0.5);
   }
+  const calInspiration = opts.modeCalibration?.get("inspiration");
   const inspiration: ModeSignal = {
     mode: "inspiration",
-    strength: inspirationStrength,
+    strength: calibrateStrength(inspirationStrength, calInspiration),
     detail: {
       crossDomainNew: crossDomainNew.length,
       hasActiveIncubation: opts.hasActiveIncubation ? 1 : 0,
+      calibrationFactor: calInspiration?.factor ?? 1,
+      calibrationSamples: calInspiration?.samples ?? 0,
     },
   };
 
@@ -143,12 +190,17 @@ export function computeModeSignals(
  */
 export function retrospectiveSeedFilter(
   repo: EngramRepository,
+  dismissedInsights?: readonly DismissedInsight[],
 ): (id: string) => boolean {
   const failing = new Set(
     activeDigests(repo)
       .filter((d) => d.failedUses >= 3)
       .map((d) => d.id),
   );
+  // 被拒洞察的来源记忆:产出被否决的"原料"同入复盘视野
+  for (const d of dismissedInsights ?? []) {
+    for (const id of d.sourceIds) failing.add(id);
+  }
   return (id: string) => failing.has(id);
 }
 
@@ -253,6 +305,10 @@ export function buildModePrompt(
       readonly question: string;
       readonly dreamHistory: string;
     } | null;
+    /** 复盘模式:近期被拒洞察(审批反馈闭环) */
+    readonly dismissedInsights?: readonly DismissedInsight[];
+    /** 洞察产出语言(缺省 zh;来源 repository.currentLanguage) */
+    readonly language?: Language;
   } = {},
 ): string {
   const parts: string[] = [];
@@ -267,32 +323,51 @@ export function buildModePrompt(
     }
     parts.push("");
   }
+  if (mode === "retrospective" && (opts.dismissedInsights ?? []).length > 0) {
+    const lines = opts.dismissedInsights!
+      .map((d) => `- "${d.title}" — dismissed reason: ${d.reason ?? "(未填)"}`)
+      .join("\n");
+    parts.push(
+      "## Recently dismissed insights (human feedback on YOUR previous outputs)",
+      lines,
+      "Retrospect on WHY they were rejected (insufficient evidence? restatement? far-fetched?)",
+      "and produce a lesson on how insight generation should improve.",
+      "",
+    );
+  }
   parts.push(MODE_INSTRUCTIONS[mode]);
   parts.push("");
   parts.push(serializeSubgraph(sub));
   parts.push("");
   parts.push(OUTPUT_CONTRACT);
+  parts.push(insightLanguageDirective(opts.language ?? "zh"));
   return parts.join("\n");
 }
 
 /** L1 夜思基线 prompt(spec §四:单次 LLM 远距类比;锚定 + 梦境史 + 跨域种子) */
-export function buildNightThinkingL1Prompt(question: string, seeds: string, dreamHistory: string): string {
+export function buildNightThinkingL1Prompt(
+  question: string,
+  seeds: string,
+  dreamHistory: string,
+  language: Language = "zh",
+): string {
   const parts = [`TASK (repeat): ${question}`];
   if (dreamHistory.trim().length > 0) {
     parts.push(
       "",
-      "## Dream history (previous rounds — deepen or pivot, do not repeat)",
+      "## Previous thinking sessions (deepen or pivot, do not repeat)",
       dreamHistory,
     );
   }
   parts.push(
     "",
-    "You are the baseline night-thinking engine. Think about the task above using the seed memories below.",
+    "You are the baseline contemplation engine (this host has no agent runtime). Think about the task above using the seed memories below.",
     "Deliberately connect across domains with low surface similarity, mapping relational structure.",
     "",
     seeds,
     "",
     OUTPUT_CONTRACT,
   );
+  parts.push(insightLanguageDirective(language));
   return parts.join("\n");
 }

@@ -162,3 +162,33 @@ describe("accept(rem-insight 分支)", () => {
     expect(p.payload!.insightRound).toBe(2);
   });
 });
+
+// ============================================================
+// sampleQuotes 语义(2026-08-18 修复:不再泄漏引擎调试串/假样本计数)
+// ============================================================
+describe("proposeInsight sampleQuotes = 来源记忆标题(非调试串)", () => {
+  it("sampleQuotes 为来源记忆标题(≤3 条),不含 mode=/critic= 调试串与 criticRationale", () => {
+    const a = makeSource("来源记忆甲");
+    const b = makeSource("来源记忆乙");
+    propose({
+      sourceIds: [a.id, b.id],
+      criticScore: 0.9,
+      criticRationale: "structurally grounded analogy",
+    });
+    const p = engine.listAll().find((x) => x.source === "rem-insight")!;
+    expect(p.sampleQuotes).toEqual(["来源记忆甲", "来源记忆乙"]);
+    // 旧实现的调试串泄漏形态,回归防线
+    expect(p.sampleQuotes.join(" ")).not.toContain("mode=");
+    expect(p.sampleQuotes.join(" ")).not.toContain("critic=");
+    expect(p.sampleQuotes.join(" ")).not.toContain("structurally grounded");
+  });
+
+  it("来源 >3 条时截断为前 3;已删除的来源跳过不炸", () => {
+    const sources = ["甲", "乙", "丙", "丁"].map((t) => makeSource(t));
+    const deleted = makeSource("已删除");
+    repo.deleteEngram(deleted.id);
+    propose({ sourceIds: [sources[0]!.id, deleted.id, sources[1]!.id, sources[2]!.id, sources[3]!.id] });
+    const p = engine.listAll().find((x) => x.source === "rem-insight")!;
+    expect(p.sampleQuotes).toEqual(["甲", "乙", "丙"]);
+  });
+});

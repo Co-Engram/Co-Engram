@@ -79,7 +79,8 @@ export function startMaintenanceRuntime(
       ...(deps.proposalEngine ? { proposalEngine: deps.proposalEngine } : {}),
       // S4 Task 2: 注入 skillRepository(供 light stage skill retention 衰退用)
       ...(deps.skillRepository ? { skillRepository: deps.skillRepository } : {}),
-      // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+      // 沉思孵化器(2026-08-17 重设计):REM 灵感模式消费 queued 条目;
+      // 深思由提问动作触发,无排程(旧锚点日调度已移除)
       ...(deps.incubator ? { incubator: deps.incubator } : {}),
     },
     config,

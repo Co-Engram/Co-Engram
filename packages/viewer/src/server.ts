@@ -42,6 +42,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   type AuditAction,
+  type AuditEntry,
   type ToolContext,
   type EngramUpdateInput,
   type EngramVisibility,
@@ -71,10 +72,12 @@ import {
   DEFAULT_LIGHT_INTERVAL_MS,
   DEFAULT_DEEP_INTERVAL_MS,
   DEFAULT_REM_INTERVAL_MS,
+  TeamEventStore,
   type EngramRepository,
   type Skill,
   type AcquisitionStage,
   type RetentionStage,
+  type IncubationEntry,
 } from "@co-engram/core";
 import { renderSpaHtml } from "./html.js";
 import {
@@ -953,6 +956,10 @@ async function routeApi(
     const cursor = url.searchParams.get("cursor") ?? undefined;
 
     const all = ctx.proposalEngine.listAll();
+    // PDCA(P4):degraded run 的洞察提案默认不进审批队列 —— pending 默认
+    // 排除带 payload.degraded 的(provisional 修复中 / 固化隔离),另以
+    // quarantined 通道随响应返回,前端置顶展示未闭合清单。status=all 仍可见。
+    const isDegraded = (p: (typeof all)[number]) => !!(p.payload as { degraded?: unknown } | undefined)?.degraded;
     const result = paginateWithCursor({
       items: all,
       getSortKey: (p) => p.lastSeenAt,
@@ -960,7 +967,12 @@ async function routeApi(
       descending: true,
       limit,
       cursor,
-      filter: status === "all" ? undefined : (p) => p.status === status,
+      filter:
+        status === "all"
+          ? undefined
+          : status === "pending"
+            ? (p) => p.status === status && !isDegraded(p)
+            : (p) => p.status === status,
     });
 
     // statusCounts:让前端按钮显示「已采纳(N) / 已驳回(N) / 全部(N)」。
@@ -968,12 +980,34 @@ async function routeApi(
     // 而 result 只反应当前 status filter 下的当前页。
     const statusCounts = ctx.proposalEngine.statusCounts();
 
+    // 隔离提案摘要(置顶展示):pending 且带 degraded 标的洞察提案
+    const quarantined =
+      status === "pending"
+        ? all
+            .filter((p) => p.status === "pending" && isDegraded(p))
+            .map((p) => {
+              const payload = p.payload as
+                | {
+                    title?: string;
+                    degraded?: { provisional: boolean; unclosedGaps: readonly string[] };
+                  }
+                | undefined;
+              return {
+                entityId: p.entityId,
+                title: payload?.title ?? p.centroidExcerpt,
+                provisional: payload?.degraded?.provisional ?? false,
+                unclosedGaps: [...(payload?.degraded?.unclosedGaps ?? [])],
+              };
+            })
+        : [];
+
     respondJson(res, 200, {
       results: result.results,
       total: result.total,
       nextCursor: result.nextCursor,
       enabled: true,
       statusCounts,
+      ...(quarantined.length ? { quarantined } : {}),
     });
     return;
   }
@@ -1127,58 +1161,16 @@ async function routeApi(
   }
 
   // ============================================================
-  // /api/incubations(夜思实验室,spec §四/§六)+ 异步任务 + 轮询
   // ============================================================
-  if (path === "/api/incubations" && req.method === "GET") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, items: [] });
-      return;
-    }
-    respondJson(res, 200, { enabled: true, items: ctx.incubator.list() });
-    return;
-  }
-
-  if (path === "/api/incubations" && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const body = await readJsonBodyAs<{
-      readonly question?: string;
-      readonly seedEngramIds?: readonly string[];
-      readonly webResearchOptIn?: boolean;
-    }>(req);
-    if (!body?.question || body.question.trim().length < 4) {
-      respondJson(res, 400, { error: "question required (min 4 chars)" });
-      return;
-    }
-    try {
-      const entry = ctx.incubator.create({
-        question: body.question,
-        ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
-        webResearchOptIn: body.webResearchOptIn === true,
-      });
-      respondJson(res, 201, { entry });
-    } catch (err) {
-      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
-      return;
-    }
-    return;
-  }
-
-  // 「立即夜思」走异步任务:viewer 是独立 HTTP server,同步等待分钟级
-  // L2 会话必超时 —— 创建后台任务 + GUI 轮询进度,完成后通知(spec §六)。
-  const incubationRunMatch = /^\/api\/incubations\/([^/]+)\/run$/.exec(path);
-  if (incubationRunMatch && req.method === "POST") {
-    if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false, error: "night-thinking unavailable" });
-      return;
-    }
-    const id = decodeURIComponent(incubationRunMatch[1]!);
+  // /api/contemplations(沉思,2026-08-17 重设计:提问即深思、一次一份报告)
+  // ============================================================
+  /** 起异步深思任务:viewer 是独立 HTTP server,同步等待分钟级 L2 会话必超时
+   *  —— 创建后台任务 + GUI 轮询进度,完成后通知。 */
+  const startContemplationJob = (incubationId: string): string => {
     const jobId = randomUUID();
     const job: IncubationJob = {
       id: jobId,
-      incubationId: id,
+      incubationId,
       status: "running",
       startedAt: new Date().toISOString(),
     };
@@ -1186,7 +1178,7 @@ async function routeApi(
     trimIncubationJobs();
     void (async () => {
       try {
-        const r = await ctx.incubator!.incubateOnce(id, "manual");
+        const r = await ctx.incubator!.incubateOnce(incubationId, "manual");
         job.status = "done";
         job.finishedAt = new Date().toISOString();
         job.level = r.level;
@@ -1200,13 +1192,129 @@ async function routeApi(
         job.error = err instanceof Error ? err.message : String(err);
       }
     })();
+    return jobId;
+  };
+
+  if (path === "/api/contemplations" && req.method === "GET") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, items: [] });
+      return;
+    }
+    respondJson(res, 200, {
+      enabled: true,
+      // 列表 slim 化(2026-08-19):timeline 只留最后一轮(去 answer 全文,
+      // 条目级 answer 已有),历史轮由 /api/contemplations/:id 按需取 ——
+      // 50 条 × 多轮全文可达 MB 级,30s 轮询每次拉全量是列表慢的主因
+      items: ctx.incubator.list().map(slimIncubationEntry),
+      limit: ctx.incubator.limitInfo(),
+    });
+    return;
+  }
+
+  // 单条完整详情(报告展开懒加载:历史轮 timeline / 全文字段)
+  const contemplationDetailMatch = /^\/api\/contemplations\/([^/]+)$/.exec(path);
+  if (contemplationDetailMatch && req.method === "GET") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const entry = ctx.incubator.get(decodeURIComponent(contemplationDetailMatch[1]!));
+    if (!entry) {
+      respondJson(res, 404, { error: "contemplation not found" });
+      return;
+    }
+    respondJson(res, 200, { entry });
+    return;
+  }
+
+  // 创建即深思:创建条目(queued)并自动起异步 job,返回 jobId 供轮询
+  if (path === "/api/contemplations" && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const body = await readJsonBodyAs<{
+      readonly question?: string;
+      readonly seedEngramIds?: readonly string[];
+    }>(req);
+    if (!body?.question || body.question.trim().length < 4) {
+      respondJson(res, 400, { error: "question required (min 4 chars)" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.create({
+        question: body.question,
+        ...(body.seedEngramIds ? { seedEngramIds: body.seedEngramIds } : {}),
+      });
+      // 落盘验证(fail-loud 兜底):2026-08-19 修复 incubations.json 为 RMW
+      // 短临界区锁后任何实例可写,此分支不再对应 non-holder(旧 holder-only
+      // 落盘模式会静默丢条目,曾靠它拦为 503);保留作为落盘失败的显式防御
+      // —— 创建若因任何原因未落盘,报 503 而非假 201 + 异步 job not found。
+      if (!ctx.incubator.get(entry.id)) {
+        respondJson(res, 503, {
+          error: "contemplation store write failed verification — entry did not persist; retry",
+        });
+        return;
+      }
+      const jobId = startContemplationJob(entry.id);
+      respondJson(res, 201, { entry: slimIncubationEntry(entry), jobId });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // duplicate → 409(连击防重:同问题未完成态已存在);limit → 400
+      respondJson(res, /duplicate contemplation/.test(msg) ? 409 : /limit reached/.test(msg) ? 400 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 终止进行中的 run(thinking/verifying/repairing → 可跑/降级收束):
+  // 误建条目立即解锁(可删/可再思),不必等 30 分钟 TTL
+  const contemplationCancelMatch = /^\/api\/contemplations\/([^/]+)\/cancel$/.exec(path);
+  if (contemplationCancelMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    try {
+      const entry = ctx.incubator.cancel(
+        decodeURIComponent(contemplationCancelMatch[1]!),
+        "viewer",
+      );
+      respondJson(res, 200, { entry: slimIncubationEntry(entry) });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /not in progress|not found/.test(msg) ? 409 : 500, { error: msg });
+      return;
+    }
+    return;
+  }
+
+  // 再思/手动执行:done 与 queued 均可;thinking 中域层拒绝 → 409
+  const contemplationRunMatch = /^\/api\/contemplations\/([^/]+)\/run$/.exec(path);
+  if (contemplationRunMatch && req.method === "POST") {
+    if (!ctx.incubator) {
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
+      return;
+    }
+    const id = decodeURIComponent(contemplationRunMatch[1]!);
+    // 前置存在性/状态检查给即时 4xx(不占 job);竞态由域层 thinking 锁兜底
+    const existing = ctx.incubator.get(id);
+    if (!existing) {
+      respondJson(res, 404, { error: "contemplation not found" });
+      return;
+    }
+    if (existing.status === "thinking") {
+      respondJson(res, 409, { error: "contemplation already thinking" });
+      return;
+    }
+    const jobId = startContemplationJob(id);
     respondJson(res, 202, { jobId, status: "running" });
     return;
   }
 
-  const incubationJobMatch = /^\/api\/incubation-jobs\/([^/]+)$/.exec(path);
-  if (incubationJobMatch && req.method === "GET") {
-    const job = incubationJobs.get(decodeURIComponent(incubationJobMatch[1]!));
+  const contemplationJobMatch = /^\/api\/contemplation-jobs\/([^/]+)$/.exec(path);
+  if (contemplationJobMatch && req.method === "GET") {
+    const job = incubationJobs.get(decodeURIComponent(contemplationJobMatch[1]!));
     if (!job) {
       respondJson(res, 404, { error: "job not found" });
       return;
@@ -1215,23 +1323,28 @@ async function routeApi(
     return;
   }
 
-  const incubationResolveMatch = /^\/api\/incubations\/([^/]+)\/resolve$/.exec(path);
-  if (incubationResolveMatch && req.method === "POST") {
+  // 删除条目(生命周期终点):进行中默认拒绝(force 可带出 —— 终止 run 后
+  // 删除,误建条目即时可清理);删条目不删提案 —— 提案本体走各自
+  // accept/dismiss 裁决流
+  const contemplationDeleteMatch = /^\/api\/contemplations\/([^/]+)\/delete$/.exec(path);
+  if (contemplationDeleteMatch && req.method === "POST") {
     if (!ctx.incubator) {
-      respondJson(res, 503, { enabled: false });
+      respondJson(res, 503, { enabled: false, error: "contemplation unavailable" });
       return;
     }
-    const id = decodeURIComponent(incubationResolveMatch[1]!);
-    const body = await readJsonBodyAs<{ readonly answered?: boolean }>(req);
+    const deleteId = decodeURIComponent(contemplationDeleteMatch[1]!);
+    const body = await readJsonBodyAs<{ readonly force?: boolean }>(req).catch(() => undefined);
     try {
-      const updated = ctx.incubator.resolve(id, body?.answered === true);
-      respondJson(res, 200, { entry: updated });
+      ctx.incubator.delete(deleteId, body?.force ? { force: true } : undefined);
+      respondJson(res, 200, { id: deleteId });
     } catch (err) {
-      respondJson(res, 500, { error: err instanceof Error ? err.message : String(err) });
+      const msg = err instanceof Error ? err.message : String(err);
+      respondJson(res, /in progress|not found/.test(msg) ? 409 : 500, { error: msg });
       return;
     }
     return;
   }
+
 
   // /api/proposals/:entityId/accept | /dismiss | /reactivate
   const proposalActionMatch = /^\/api\/proposals\/(.+)\/(accept|dismiss|reactivate)$/.exec(
@@ -1259,6 +1372,8 @@ async function routeApi(
       readonly visibility?: string;
       readonly reason?: string;
       readonly dismissDays?: number;
+      /** H7 归因:前端「全部采纳」批量循环逐条 POST 时带 true → audit via=viewer-batch */
+      readonly batch?: boolean;
     }>(req);
     try {
       if (action === "accept") {
@@ -1310,7 +1425,11 @@ async function routeApi(
             : {}),
         };
         try {
-          const engramId = ctx.proposalEngine.accept(entityId, acceptInput);
+          // H7 归因:accept 决策审计记 via(viewer-card 单卡 / viewer-batch 全部采纳)
+          const engramId = ctx.proposalEngine.accept(entityId, {
+            ...acceptInput,
+            via: body?.batch ? "viewer-batch" : "viewer-card",
+          });
           // 异步触发 graph.json 重建,让 /api/graph 立即看到新节点。
           // batch accept 时 200ms debounce 合并成一次重建。
           if (ctx.repository) scheduleGraphRebuild(ctx.repository);
@@ -1383,7 +1502,7 @@ async function routeApi(
     const cursor = url.searchParams.get("cursor") ?? undefined;
     const queryLimit = Math.min(Math.max(limit * 10, 2000), 10000);
 
-    const allEntries = ctx.auditLog.query({
+    const localEntries = ctx.auditLog.query({
       ...(actionList.length === 1
         ? { action: actionList[0] as AuditAction }
         : actionList.length > 1
@@ -1394,6 +1513,49 @@ async function routeApi(
       ...(until ? { until } : {}),
       limit: queryLimit,
     });
+
+    // 团队动态事件合并(2026-08-19):events/ 分片携带其他机器(git 同步)的
+    // 高价值动作,与本机 audit 合并成统一动态流。本机事件双写(audit + events)
+    // 产生重复,按 action|engramId|ts 语义键去重,本机条目优先(metadata 更全)。
+    // 只读实例:origin/visibilityLookup 是写端职责,读端仅需 dataRoot。
+    let allEntries: readonly AuditEntry[] = localEntries;
+    if (dataRoot) {
+      const teamStore = new TeamEventStore(dataRoot, { origin: "viewer-reader" });
+      const teamFilter = {
+        ...(actionList.length > 0
+          ? { action: actionList as readonly AuditAction[] }
+          : {}),
+        ...(engramId ? { engramId } : {}),
+        ...(since ? { since } : {}),
+        ...(until ? { until } : {}),
+        limit: queryLimit,
+      };
+      const seen = new Set(
+        localEntries.map(
+          (e) => `${e.action}|${e.engramId ?? ""}|${e.ts}`,
+        ),
+      );
+      const merged = [...localEntries];
+      for (const ev of teamStore.query(teamFilter)) {
+        const key = `${ev.action}|${ev.engramId ?? ""}|${ev.ts}`;
+        if (seen.has(key)) continue; // 本机双写去重
+        seen.add(key);
+        merged.push({
+          ts: ev.ts,
+          actor: ev.actor,
+          action: ev.action,
+          ...(ev.engramId ? { engramId: ev.engramId } : {}),
+          ...(ev.host ? { host: ev.host } : {}),
+          metadata: {
+            ...(ev.metadata ?? {}),
+            // 操作者标识:authorFor 兜底链展示用(跨机事件无 updatedBy/
+            // createdBy 时,显示 origin 而非机器 actor)
+            _teamOrigin: ev.origin,
+          },
+        });
+      }
+      allEntries = merged;
+    }
 
     // 附加 _idx 作 tiebreak(同 ts 时稳定排序);ts 是毫秒精度,碰撞概率低
     // 但密集审计场景仍可能,用 _idx 兜底
@@ -2597,10 +2759,22 @@ function enrichStats(ctx: ToolContext, base: StatsBaseResponse): StatsResponse {
       } else if (e.action === "skill_invoke") {
         if (e.ts >= weekAgoIso) weeklySkillInvocations++;
         continue;
-      } else if (m.target === "synapse") {
+      } else if (
+        m.target === "synapse" ||
+        (m.source === "rem-synapse" && m.appliedAction === "create")
+      ) {
         type = "synapse";
-        id = String(m.synapseId ?? e.engramId ?? "");
-        if (e.action === "create" && e.ts >= weekAgoIso && id) {
+        // target=synapse 路径有真 synapseId;夜思 accept 路径只有提案 entityId,
+        // 用作去重键即可(一提案一 accept,数量语义不受影响)
+        id = String(m.synapseId ?? m.entityId ?? e.engramId ?? "");
+        // 周新增突触 = 直接 create + 夜思提案 accept 落地(appliedAction=create)。
+        // 旧口径漏掉 accept 路径:夜思批量采纳的突触不计入「本周 ↑N」(2026-08 修复)
+        if (
+          (e.action === "create" ||
+            (e.action === "accept" && m.appliedAction === "create")) &&
+          e.ts >= weekAgoIso &&
+          id
+        ) {
           weekSynapses.add(id);
         }
       } else {
@@ -2737,12 +2911,17 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
         .get() as { n: number }
     )?.n ?? 0;
 
-  // 2. bySynapseKind / totalSynapses:走 graph.json 缓存(避免 collectAllSynapses 47s)
-  const graph = readGraphCache(ctx);
+  // 2. bySynapseKind / totalSynapses:SQLite 实时聚合。synapses 表的维护路径:
+  //    bootstrap 启动对账(行数 vs 磁盘 yaml 文件数,不等则回填)+ .yaml watcher
+  //    + doctor;CASCADE 跟随 engram 删除。旧口径读 graph.json 缓存 —— 滞后,
+  //    且存量库 synapses 表曾无任何启动填充路径,首页「记忆突触」恒 0
+  //    (2026-08 用户报告,本注释所述「写路径同步维护」当时并不存在)。
   let totalSynapses = 0;
-  for (const edge of graph.edges) {
-    bySynapseKind[edge.kind] = (bySynapseKind[edge.kind] ?? 0) + 1;
-    totalSynapses++;
+  for (const r of db
+    .prepare(`SELECT kind, count(*) AS n FROM synapses GROUP BY kind`)
+    .all() as { kind: string; n: number }[]) {
+    bySynapseKind[r.kind] = r.n;
+    totalSynapses += r.n;
   }
 
   // 3. topTags(SQLite ORDER BY count DESC LIMIT 10)
@@ -2832,34 +3011,29 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
     }[]
   ).map((r) => ({ ...r, importance: Number(r.importance.toFixed(2)) }));
 
-  // 4. topContributors:engram 作者走 SQLite GROUP BY(毫秒级);
-  //    synapse 作者走 graph.json edges 的 createdBy 字段(GraphBuilder 2026-07 加)。
-  //    修复 Bug 3(2026-07):之前 synapseCount 写死 0,「印迹+突触合计」标题误导用户。
-  //    旧 graph.json 缺 createdBy 字段时,该 synapse 不计入(下次 graph rebuild 后补齐)。
-  const engramContributorRows = db
-    .prepare(
-      `SELECT created_by AS actor, count(*) AS n
-     FROM engrams
-     WHERE created_by != ''
-     GROUP BY created_by`,
-    )
-    .all() as { actor: string; n: number }[];
-
+  // 4. topContributors:engram / synapse 作者都走 SQLite GROUP BY(毫秒级,与
+  //    step 2 同一数据源,同页两口径恒一致)。synapse created_by 是 schema v8
+  //    列,由 bootstrap 对账 / .yaml watcher / doctor 回填。此前 synapse 作者读
+  //    graph.json edges(GraphBuilder 2026-07 加),其重建只挂 viewer 写路由,
+  //    MCP 写入不触发 —— 同页「突触总数」与「贡献者突触合计」分裂(2026-08
+  //    实测 231 vs 224)。
   const contributorMap = new Map<string, { engram: number; synapse: number }>();
-  for (const r of engramContributorRows) {
-    contributorMap.set(r.actor, { engram: r.n, synapse: 0 });
-  }
-  // 从 graph.json edges 聚合 synapse createdBy(graph cache 已在 step 2 读)
-  for (const edge of graph.edges) {
-    const edgeWithCreatedBy = edge as { createdBy?: string };
-    const actor = edgeWithCreatedBy.createdBy;
-    if (!actor) continue; // 旧 graph.json 缺字段,跳过
-    const entry = contributorMap.get(actor);
-    if (entry) {
-      entry.synapse += 1;
+  for (const r of db
+    .prepare(
+      `SELECT 'engram' AS src, created_by AS actor, count(*) AS n
+       FROM engrams WHERE created_by != '' GROUP BY created_by
+       UNION ALL
+       SELECT 'synapse' AS src, created_by AS actor, count(*) AS n
+       FROM synapses WHERE created_by != '' GROUP BY created_by`,
+    )
+    .all() as { src: string; actor: string; n: number }[]) {
+    const entry = contributorMap.get(r.actor) ?? { engram: 0, synapse: 0 };
+    if (r.src === "engram") {
+      entry.engram += r.n;
     } else {
-      contributorMap.set(actor, { engram: 0, synapse: 1 });
+      entry.synapse += r.n;
     }
+    contributorMap.set(r.actor, entry);
   }
   const topContributors = Array.from(contributorMap.entries())
     .map(([actor, counts]) => ({
@@ -2942,28 +3116,6 @@ function getStatsFromSqlite(ctx: ToolContext): StatsBaseResponse {
  * graph.json 由 GraphBuilder 维护(startMaintenance / engram create 路径同步),
  * 最新可能略有延迟但对 stats 这种聚合可接受。
  */
-function readGraphCache(ctx: ToolContext): {
-  nodes: readonly { id: string }[];
-  edges: readonly { kind: string }[];
-} {
-  // 通过 repository.rootPath 拿 dataRoot(ctx 上没有 dataRoot 字段直接传到这里,
-  // 用 repository 的 config.rootPath 兜底)
-  const rootPath = (
-    ctx as unknown as { repository: { config: { rootPath: string } } }
-  ).repository.config.rootPath;
-  const graphPath = join(rootPath, ".co-engram", "graph.json");
-  try {
-    const raw = readFileSync(graphPath, "utf8");
-    const parsed = JSON.parse(raw) as {
-      nodes: { id: string }[];
-      edges: { kind: string }[];
-    };
-    return { nodes: parsed.nodes ?? [], edges: parsed.edges ?? [] };
-  } catch {
-    return { nodes: [], edges: [] };
-  }
-}
-
 /** Legacy fallback:小规模或 SQLite 不可用时走老路径(N+1 readEngram) */
 function getStatsLegacy(ctx: ToolContext): StatsBaseResponse {
   const entries = ctx.repository.listEngrams();
@@ -3510,7 +3662,7 @@ async function readJsonBody(req: IncomingMessage): Promise<UpdateInputBody> {
  * 读取请求体并按给定 schema 解析,失败返回 undefined。
  * 用于 POST endpoint(proposals/trash)。
  */
-/** 夜思异步任务注册表(server 进程内;「立即夜思」不挂起 HTTP 请求,spec §六) */
+/** 沉思异步任务注册表(server 进程内;深思不挂起 HTTP 请求) */
 interface IncubationJob {
   readonly id: string;
   readonly incubationId: string;
@@ -3525,6 +3677,25 @@ interface IncubationJob {
   error?: string;
 }
 const incubationJobs = new Map<string, IncubationJob>();
+
+/**
+ * 列表条目瘦身(2026-08-19):timeline 只留最后一轮,且去掉轮内 answer 全文
+ * (条目级 answer 已有,报告 ① 直接用)。历史轮全文由 /api/contemplations/:id
+ * 按需取。slimTimeline 标记供前端判断"报告历史区需懒加载详情"。
+ * slim 前列表 payload 随轮数线性膨胀(50 条 × 多轮 × answer 全文,可达 MB 级),
+ * 30s 轮询每次全量拉取是沉思 tab 卡顿的主因之一。
+ */
+function slimIncubationEntry(e: IncubationEntry): IncubationEntry & { slimTimeline: true } {
+  const last = e.timeline.at(-1);
+  const timeline = last
+    ? [{ ...last, ...(typeof last.answer === "string" ? { answer: undefined } : {}) }]
+    : [];
+  return {
+    ...e,
+    timeline: timeline as IncubationEntry["timeline"],
+    slimTimeline: true,
+  };
+}
 const INCUBATION_JOB_CAP = 50;
 
 function trimIncubationJobs(): void {

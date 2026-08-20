@@ -49,7 +49,7 @@ describe("skill memory S3 decay e2e", () => {
     expect(["aging", "stale", "forgotten"]).toContain(decayed.retentionStage);
   });
 
-  it("forgotten skill → skill_invoke 返回 success:false + 不更新 utility", async () => {
+  it("forgotten skill → skill_invoke 使用即复活(utility 正常更新 + retention 回 active)", async () => {
     create("s1");
     await skillInvokeTool.execute({ id: "s1", success: true }, ctx); // 先用一次（lastUsedAt=now, utility>0.5）
     const utilityBefore = repo.readSkill("s1").utility;
@@ -57,12 +57,13 @@ describe("skill memory S3 decay e2e", () => {
     const veryFuture = Date.now() + 10 * 365 * 86_400_000; // 10 年后
     repo.recomputeRetentionAll(veryFuture);
     expect(repo.readSkill("s1").retentionStage).toBe("forgotten");
-    // forgotten skill invoke → 拒绝（不更新 utility）
+    // forgotten skill invoke → relearning：记录使用并自动复活
     const r = await skillInvokeTool.execute({ id: "s1", success: true }, ctx);
-    expect(r.success).toBe(false);
-    expect(r.error).toContain("forgotten");
-    // utility 未变（forgotten 分支在 recordUse 前返回）
-    expect(repo.readSkill("s1").utility).toBe(utilityBefore);
+    expect(r.success).toBe(true);
+    expect(r.output).toContain("revivedFrom=forgotten");
+    const after = repo.readSkill("s1");
+    expect(after.retentionStage).toBe("active"); // 复活
+    expect(after.utility).toBeGreaterThan(utilityBefore); // Rescorla-Wagner 正常更新
   });
 
   it("持久化：新 repo 读回衰退后的 retentionStage", () => {
@@ -76,11 +77,11 @@ describe("skill memory S3 decay e2e", () => {
     expect(repo2.readSkill("s1").retentionStage).toBe(stage1);
   });
 
-  it("刚创建未用（lastUsedAt=null）→ 时间推进也不衰退（n=0）", () => {
+  it("刚创建未用（lastUsedAt=null）→ 时间推进也衰退（从 createdAt 起算）", () => {
     create("s1");
     const futureMs = Date.now() + 365 * 86_400_000;
     const r = repo.recomputeRetentionAll(futureMs);
-    expect(r.changed).toBe(0); // null lastUsedAt → n=0 → active 不变
-    expect(repo.readSkill("s1").retentionStage).toBe("active");
+    expect(r.changed).toBe(1); // never-used 以 createdAt 为锚 → 衰退
+    expect(repo.readSkill("s1").retentionStage).toBe("forgotten");
   });
 });

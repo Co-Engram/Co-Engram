@@ -325,48 +325,57 @@ export const zh = {
 何时不调用:无不一致;看具体 engram 用 engram_get。
 
 返回:时间戳、计数、自动修复数、待审核数、issues[](kind/path/message/autoFixed)。`,
-  "tool.incubation_create.agent": `创建夜思(overnight thinking)孵化条目:睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。
+  "tool.ponder_create.agent": `提出一个沉思问题:围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志、技能库、联网检索与宿主可用的 MCP 工具,本地只读不写,深思一次出一份报告(回答 + 洞察提案)。
 
-WHEN TO CALL:
-- 用户说"晚上帮我想想 X""睡前喂个问题""让 agent 夜里深想"等夜思意图
-- 用户给出一个值得多轮深挖、暂不需要即时答案的问题
+何时调用:
+- 用户说"帮我沉思 X""深想一下这个问题""围绕 X 做一次深度思考"等沉思意图
+- 用户给出一个值得动用全部记忆资产深挖、但不急需即时回答的问题
 
-WHEN NOT TO CALL:
-- 用户要即时答案(直接回答或用 engram_search)
+何时不要调用:
+- 用户要即时答案(直接回答或 engram_search)
 - 一次性琐碎问题
 
-RETURNS: { id, status, question, rounds }。webResearchOptIn 默认 false,开启前必须向用户确认(问题摘要会发至搜索引擎)。`,
-  "tool.incubation_run.agent": `立即执行一轮夜思。
+返回: { id, status: "queued", question }。条目创建后为 queued,配合 ponder_run 执行(对话场景由你按协议现场执行);可选 seedEngramIds 指定重点记忆(留空自动全库检索);条目上限 50。`,
+  "tool.ponder_run.agent": `执行一次深思(queued 首思 / done 再思)。
 
-WHEN TO CALL:
-- 用户说"现在就想""立即夜思"(对话入口,默认 mode=agent)
-- viewer/CLI 异步任务或日调度(mode=auto)
+何时调用:
+- ponder_create 创建后立即执行(对话场景默认 mode=agent,由你现场按协议执行)
+- 用户对已答条目说"再想一次/换个角度再思"(done 条目回灌全部过往深思史)
 
-WHEN NOT TO CALL:
-- 条目已 in-flight(30 分钟过期自动回收)
+何时不要调用:
+- 条目 thinking 中(LOCK_BUSY,TTL 30min 回收)
 
-RETURNS: mode=agent 时返回固化协议任务包(问题/种子摘要/梦境史/协议)—— 你按「盘点→PLAN→只读执行→incubation_report 回写」现场执行;mode=auto 时同步返回 { level, proposals, cycleVetoed, rounds }。`,
-  "tool.incubation_list.agent": `列出夜思孵化条目。
+返回: mode=agent → { task }(固化协议任务包:盘点→全资源开采→PLAN→只读执行→写回答→ponder_report 回写);mode=auto → { level, proposals, rounds }。`,
+  "tool.ponder_list.agent": `列出沉思条目。
 
-WHEN TO CALL:
-- 用户问"我的夜思条目""孵化到第几夜了""有没有暂停的条目"
+何时调用:
+- 用户问"我沉思过什么/上次深思的结果/条目列表"
+- 需要条目 id 供 run/delete 使用
 
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, lastHatchedAt, timelineRounds }], total }。status ∈ active|in-flight|suggested-resolve|resolved|paused。`,
-  "tool.incubation_resolve.agent": `夜思 resolve 仪式:accept 洞察后条目进入 suggested-resolve,由你问用户「是否回答了你的问题」。
+何时不要调用:
+- 只想要某条报告细节(条目 timeline 已含,无需重复查询)
 
-WHEN TO CALL:
-- 条目 status=suggested-resolve 且用户已表态
+返回: { items: [{ id, question, status(queued|thinking|done), rounds, lastRunAt, answer?, timeline }], total, limit }。timeline 为深思时间线摘要(answer 仅最近 2 次全文)。`,
+  "tool.ponder_report.agent": `沉思回写(L2 agent 的唯一写回路径):把一次深思的结构化产出写回。
 
-RETURNS: { id, status } —— answered=true → resolved(梦境时间线归档保留);false → 继续 active 孵化。`,
-  "tool.incubation_report.agent": `夜思回写(L2 agent 的唯一写回路径)。
+何时调用:
+- 你按 ponder_run 返回的协议执行完全资源盘点后,交回答与洞察(协议第 6 步,恰好一次)
 
-WHEN TO CALL:
-- 你按 incubation_run(agent 模式)返回的协议完成「盘点→PLAN→只读执行」之后,恰好调用一次
+何时不要调用:
+- 协议未执行完(先完成盘点与回答撰写)
+- 非 L2 现场执行路径(auto 模式由引擎内部写回,无需调用)
 
-WHEN NOT TO CALL:
-- 未执行协议就调用;或已回写过本轮
+返回: { incubationId, proposals, cycleVetoed, rounds, status, hasAnswer }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察(与深思史 Jaccard ≥ 0.65)本次作废。`,
+  "tool.ponder_delete.agent": `删除沉思条目本体(生命周期终点;仅非 thinking 态可删)。
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }。每条洞察即时走机械校验 + 独立 critic → rem-insight 提案(用户 accept 才落盘);重复洞察本轮作废,连续 2 轮全撞自动 paused。`,
+何时调用:
+- 用户说"删掉这个沉思问题/不要了"
+
+何时不要调用:
+- 条目 thinking 中(等结束或 TTL 回收)
+- 用户只是想要新报告(用 ponder_run 再思,不必删)
+
+返回: { id }。已产出的 rem-insight 提案与审计记录保留,走各自裁决流;深思历史随条目移除。`,
   "tool.engram_sync.agent": `手动触发记忆仓库的 pull → commit → push 同步。
 
 流程:fetch → pull --rebase --autostash(冲突 abort + 报告清单)→ add -A + commit(无变更跳过)→ push(无 remote 降级为 commit-only)。缺失时自动创建 .gitignore 排除 .co-engram/。
@@ -519,16 +528,15 @@ items 按时间正序;每条含 ts / actor / action / engramId / metadata。`,
 - 想读陈述性记忆(用 engram_search / engram_get)
 
 返回:Skill 元信息(name、description、template kind、parameters)。`,
-  "tool.skill_invoke.agent": `报告一次 Skill 使用结果（success/effectiveness），用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill 本身**——skill 的实际执行由宿主（Claude Code/OpenClaw）完成；agent 在实际用完一个 skill 后，调用本工具报告结果（成功/失败/效能），让 skill 的程序性记忆印迹随使用演化。forgotten 阶段的 skill 会拒绝。
+  "tool.skill_invoke.agent": `报告一次 Skill 使用结果，用 Rescorla-Wagner 更新 utility + retention。**本工具只记录使用、不执行 skill**——实际执行由宿主完成；agent 用完 skill 后调用本工具报告结果，让技能印迹随使用演化。forgotten 的 skill 经一次使用报告自动复活（使用是最强的再激活信号；久未使用建议先复核 SKILL.md）。
 
 何时调用:
-- 已通过宿主实际执行完一个 skill，需要报告结果
-- skill 执行成功，调用本工具报告 success=true + effectiveness
-- skill 执行失败，调用本工具报告 success=false
+- 宿主已执行完 skill，报告结果
+- 成功:success=true + effectiveness；失败:success=false
 
 何时不调用:
-- 还没执行 skill 就想调用（应先让宿主执行 skill）
-- 只想读 skill 印迹（用 skill_get）
+- 还未执行 skill 时
+- 只想读印迹（用 skill_get）
 
 返回:更新后的 skill 印迹（utility、retentionStage、successCount、failureCount）。`,
   "tool.skill_create.agent": `创建新 skill(程序性记忆)并配置参数和策略。
@@ -889,7 +897,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.nav.primary": "浏览",
   "engrams.tree.expandAll": "展开全部",
   "engrams.tree.collapseAll": "折叠全部",
-  "viewer.nav.governance": "治理",
+  "viewer.nav.evolution": "进化",
   "viewer.tab.stats": "统计",
   "viewer.tab.engrams": "记忆印迹",
   "viewer.tab.skills": "技能记忆",
@@ -898,9 +906,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.audit": "审计",
   "viewer.tab.trash": "记忆回收站",
   "viewer.page.trash.title": "记忆回收站",
-  "viewer.page.trash.sub": "30 天保留期后自动彻底清除 · 恢复的印迹回到活跃池并重置衰减计数",
+  "viewer.page.trash.sub":
+    "30 天保留期后自动彻底清除 · 恢复的印迹回到活跃池并重置衰减计数",
   "viewer.page.health.title": "记忆健康检查",
-  "viewer.page.health.sub": "索引一致性 / 悬空突触 / 孤儿文件 / skill 元数据 / 缓存状态 · 建议每周运行一次",
+  "viewer.page.health.sub":
+    "索引一致性 / 悬空突触 / 孤儿文件 / skill 元数据 / 缓存状态 · 建议每周运行一次",
   "viewer.page.merges.title": "团队记忆合并",
   "viewer.page.merges.sub": "多端同步的冲突统计与裁决(merge driver 审计聚合)",
   "viewer.page.config.title": "配置",
@@ -923,7 +933,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.proposals.tip":
     "隐式捕获但尚未审批的候选记忆;接受则转为正式 engram,驳回则丢弃",
   "viewer.tab.merges.tip":
-    "团队记忆合并:相似记忆去重、矛盾记忆(contradicts)三阶段解决工作流",
+    "相似记忆去重、矛盾记忆(contradicts)三阶段解决工作流",
   "viewer.tab.audit.tip":
     "记忆变更时间线:创建/更新/删除/强化/矛盾解决的历史记录",
   "viewer.tab.maintenance.tip":
@@ -931,61 +941,145 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.tab.trash.tip": "软删除的印迹与突触;可恢复或彻底清除",
 
   // ===== 夜思实验室(spec §四/§六) =====
-  "viewer.tab.incubations": "夜思实验室",
-  "viewer.tab.incubations.tip": "睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察",
+  "viewer.tab.contemplation": "沉思",
+  "viewer.tab.experimentalSuffix": "实验特性",
+  "viewer.tab.contemplation.tip":
+    "提出一个问题，盘点全部记忆、日志与技能，深思一次出报告",
   "viewer.proposals.insight.badge": "深度洞察",
   "viewer.proposals.insight.mode.integration": "整合模式",
   "viewer.proposals.insight.mode.retrospective": "复盘模式",
   "viewer.proposals.insight.mode.inspiration": "灵感模式",
-  "viewer.proposals.insight.criticTip": "独立 critic 评审分(机器主观初值,非客观真值)",
-  "viewer.proposals.insight.incubationTip": "源自夜思条目",
-  "viewer.incubations.title": "夜思实验室",
-  "viewer.incubations.intro": "睡前喂一个问题,夜里 Agent 替你深想,醒来收洞察。洞察先成提案,经审批才落为记忆。",
-  "viewer.incubations.createTitle": "播种一个新问题",
-  "viewer.incubations.questionPlaceholder": "你想让 Agent 夜里深想的问题……",
-  "viewer.incubations.seedPlaceholder": "种子记忆 id(可选,逗号分隔)",
-  "viewer.incubations.webOptIn": "允许联网调研",
-  "viewer.incubations.webOptInHint": "允许夜思联网查资料:问题摘要将发送至搜索引擎;关闭则完全离线思考",
-  "viewer.incubations.createBtn": "播种",
-  "viewer.incubations.l2BudgetNotice": "夜思会调用外部 LLM(可能消耗较多 token)。L2 会话过程(计划/轨迹)全部透明可查;联网调研默认开启,可按条目关闭。",
-  "viewer.incubations.inFlightTip": "该条目正在夜思中,完成后可再次运行",
-  "viewer.incubations.inFlightSince": "夜思进行中 · ${t}",
-  "viewer.incubations.inFlightHint": "L2 会话阶段:计划 → 检索阅读 → 批判评审 → 洞察提炼。完成后此处更新梦境时间线,洞察以提案呈现;通常需要几分钟,本页每 30 秒自动刷新。",
-  "viewer.incubations.empty": "还没有孵化条目。播种第一个问题,今晚开始夜思。",
-  "viewer.incubations.loadFailed": "加载失败:${err}",
-  "viewer.incubations.unavailable": "当前部署未启用夜思(需注入孵化器)。",
-  "viewer.incubations.status.active": "孵化中",
-  "viewer.incubations.status.in-flight": "正在夜思…",
-  "viewer.incubations.status.suggested-resolve": "待确认:是否回答了你的问题?",
-  "viewer.incubations.status.resolved": "已解决",
-  "viewer.incubations.status.paused": "已暂停",
-  "viewer.incubations.rounds": "第 ${n} 夜",
-  "viewer.incubations.level.L1": "L1 基线思考",
-  "viewer.incubations.level.L2": "L2 Agent 编排",
-  "viewer.incubations.runNow": "立即夜思",
-  "viewer.incubations.running": "夜思进行中……(L2 会话为分钟级,可稍后刷新查看)",
-  "viewer.incubations.jobDone": "完成:${proposals} 条洞察提案,执行级别 ${level}",
-  "viewer.incubations.jobError": "失败:${err}",
-  "viewer.incubations.resolvePrompt": "是否回答了你的问题?",
-  "viewer.incubations.resolveYes": "已回答,归档",
-  "viewer.incubations.resolveNo": "还没有,继续孵化",
-  "viewer.incubations.timeline": "梦境时间线",
-  "viewer.incubations.timelineEmpty": "尚无夜思记录",
-  "viewer.incubations.timelineRound": "第 ${round} 夜 · ${trigger}",
-  "viewer.incubations.trigger.manual": "手动",
-  "viewer.incubations.trigger.scheduled": "定时",
-  "viewer.incubations.externalCalls": "外部调用 ${n} 次(审计留痕)",
-  "viewer.incubations.note": "备注:${note}",
+  "viewer.proposals.insight.criticTip":
+    "AI 评审员对这条洞察的可信度打分(0~1,越高越可信,仅供参考)",
+  "viewer.proposals.insight.criticChip": "评审 ${score}",
+  "viewer.proposals.insight.incubationTip": "源自沉思",
+  "viewer.contemplation.title": "沉思",
+  "viewer.contemplation.intro":
+    "提出一个问题，围绕它做一次全资源盘点式深度思考——调用全部记忆图谱、行为日志、技能库、联网检索与可用的 MCP 工具，深思一次、出一份报告。记忆库全程只读，联网仅限只读检索（记忆原文不出域）。",
+  "viewer.contemplation.createTitle": "想清楚什么？",
+  "viewer.contemplation.questionPlaceholder":
+    "想清楚什么？描述你的问题，越具体越好……",
+  "viewer.contemplation.seedPlaceholder":
+    "重点记忆 id，可选（留空自动全库检索）",
+  "viewer.contemplation.createBtn": "深思",
+  "viewer.contemplation.createHint":
+    "提交即开始深思，可能耗时较久，可离开本页，完成后在此出报告。也可以在对话里直接说「帮我沉思这个问题」。",
+  "viewer.contemplation.filterPlaceholder": "按问题过滤…",
+  "viewer.contemplation.filterNoMatch": "没有匹配的问题",
+  "viewer.contemplation.empty": "还没有沉思过问题",
+  "viewer.contemplation.emptySub":
+    "在上面提出第一个问题——围绕它盘点全部记忆、日志与技能，深思一次",
+  "viewer.contemplation.limitWarn":
+    "条目接近上限（${n}/${max}），请先删除旧的已答条目",
+  "viewer.contemplation.status.queued": "排队中",
+  "viewer.contemplation.status.thinking": "深思中",
+  "viewer.contemplation.degradedReason.single-run-gaps":
+    "单轮深思存在未闭合缺口，已按缺口收束（回答与洞察提案已交付，提案默认隔离）",
+  "viewer.contemplation.status.verifying": "校验中",
+  "viewer.contemplation.status.repairing": "修复缺口",
+  "viewer.contemplation.status.done": "已答",
+  "viewer.contemplation.degradedBadge": "降级收束",
+  "viewer.contemplation.degradedUnclosed": "未闭合需求：",
+  "viewer.contemplation.degradedReason.repair-budget-exhausted":
+    "修复轮预算耗尽，本次深思带缺口收束（洞察提案已隔离，默认不进审批队列）",
+  "viewer.contemplation.degradedReason.gap-budget-exhausted":
+    "累计缺口超出预算上限，本次深思带缺口收束（洞察提案已隔离，默认不进审批队列）",
+  "viewer.contemplation.degradedReason.ttl-expired":
+    "修复超时（30 分钟无重报），本次深思带缺口收束",
+  "viewer.contemplation.degradedReason.aborted": "执行中断，本次深思带缺口收束",
+  "viewer.contemplation.degradedReason.closure-rejected":
+    "闭合校验拒绝：报告未通过证据核验（全程零资源检索），本次深思带缺口收束",
+  "viewer.contemplation.section.pdca": "闭合校验",
+  "viewer.contemplation.pdca.repairRound": "修复轮次：第 ${n} 次重报",
+  "viewer.contemplation.pdca.closedThisRound": "本轮复核闭合 ${n} 项需求",
+  "viewer.contemplation.pdca.openGaps": "未闭合缺口：",
+  "viewer.contemplation.pdca.exempted": "探测豁免(全部引擎探测皆空,引擎亲证):",
+  "viewer.contemplation.pdca.narrowed":
+    "计划收窄拦截(被删除/降级的需求,引擎已还原):",
+  "viewer.contemplation.pdca.answerRepeat":
+    "答案与上一轮深思高度重复(再思未深化,仅标记)",
+  "viewer.contemplation.pdca.claimsRatio": "主张抽取:降级主张占比 ${pct}%",
+  "viewer.contemplation.pdca.claimsWeak": "超过 30% 阈值 —— 洞察提案已隔离",
+  "viewer.contemplation.pdca.claimsSkipped":
+    "主张抽取跳过(无 LLM 配置或答案缺失)",
+  "viewer.contemplation.section.claims": "主张抽取",
+  "viewer.contemplation.claimsSummary": "共 ${n} 条主张,${d} 条降级(对手抽取)",
+  "viewer.contemplation.nextTasks": "下轮验证任务(引擎生成):",
+  "viewer.contemplation.pdca.degradedFinal": "本次深思以降级收束（degraded）",
+  "viewer.contemplation.thinkingSince": "深思开始于 ${t}",
+  "viewer.contemplation.thinkingHint":
+    "正在盘点记忆图谱、行为日志与技能库……深思可能耗时较久，完成后自动出报告，可离开本页",
+  "viewer.contemplation.rethinkBtn": "再思一次",
+  "viewer.contemplation.rethinkConfirm":
+    "再思一次将回灌全部过往深思史，重新盘点全库；已有提案保留。继续？",
+  "viewer.contemplation.evidenceBtn": "依据",
+  "viewer.contemplation.deleteBtn": "删除",
+  "viewer.contemplation.deleteConfirm":
+    "删除这个问题与全部深思历史？已产出的洞察提案保留，可在提案中心裁决。",
+  "viewer.contemplation.deleteFlightConfirm":
+    "该条目正在深思中。删除将终止本次运行并移除条目与全部深思历史；已产出的洞察提案保留，可在提案中心裁决。继续？",
+  "viewer.contemplation.cancelBtn": "终止",
+  "viewer.contemplation.cancelConfirm":
+    "终止本次深思？条目将回到可跑状态（已产出的报告保留），可随时再思。",
+  "viewer.contemplation.cancelling": "终止中…",
+  "viewer.contemplation.creating": "提交中…",
+  "viewer.contemplation.tooShort": "问题描述太短（至少 4 个字符）",
+  "viewer.contemplation.duplicateQuestion":
+    "已有相同问题在队列或深思中，请在下方列表查看；可等它完成、再思或删除，无需重复提交。",
+  "viewer.contemplation.showMore": "显示更多（还有 ${n} 条）",
+  "viewer.contemplation.running": "深思中…",
+  "viewer.contemplation.jobDone": "深思完成：成案 ${proposals} 条提案",
+  "viewer.contemplation.jobError": "失败：${err}",
+  "viewer.contemplation.loadFailed": "加载失败：${err}",
+  "viewer.contemplation.unavailable": "沉思不可用（部署未注入孵化器）",
+  "viewer.contemplation.answerLabel": "回答：",
+  "viewer.contemplation.answerMissing": "（本次深思未产出回答）",
+  "viewer.contemplation.answerError": "回答生成失败",
+  "viewer.contemplation.answerSkippedNoLlm": "无 LLM 配置，未生成回答",
+  "viewer.contemplation.expandReport": "展开完整报告",
+  "viewer.contemplation.collapseReport": "收起报告",
+  "viewer.contemplation.section.answer": "回答",
+  "viewer.contemplation.section.insights": "洞察提案（去提案中心裁决）",
+  "viewer.contemplation.section.process": "过程",
+  "viewer.contemplation.section.diagnosis": "诊断",
+  "viewer.contemplation.section.history": "历史深思",
+  "viewer.contemplation.planSummary": "思考计划（${n} 步）",
+  "viewer.contemplation.traceSummary": "执行轨迹（${n} 步）",
+  "viewer.contemplation.historySummary": "此前深思过 ${n} 次（回灌防重复）",
+  "viewer.contemplation.evidence.engrams": "读取的记忆（${n}，点击打开）",
+  "viewer.contemplation.evidence.skills": "使用的技能（${n}）",
+  "viewer.contemplation.evidence.logs": "读取的日志（${n}）",
+  "viewer.contemplation.evidence.web": "联网检索（${n}）",
+  "viewer.contemplation.diagnosis.drafts": "草稿 ${n} 条",
+  "viewer.contemplation.diagnosis.dup": "重复剔除 ${n}",
+  "viewer.contemplation.diagnosis.validate": "引用校验拒 ${n}",
+  "viewer.contemplation.diagnosis.critic": "critic 拒 ${n}",
+  "viewer.contemplation.diagnosis.residual": "其余 ${n} 条未成案",
+  "viewer.contemplation.diagnosis.noLlm":
+    "llmClient 未注入：提案评审与回答生成均不可用",
+  "viewer.contemplation.diagnosis.rejectReasons":
+    "拒因明细（${n} 条，点开查看）",
+  // 夜思 T10:机理简述 / 调度器状态 / 收束与排程 / 播种反馈 / 诊断人话化
   "viewer.maintenance.insightStats.title": "洞察质量度量",
   "viewer.maintenance.insightStats.total": "洞察提案 ${n} 条",
   "viewer.maintenance.insightStats.acceptance": "采纳率 ${v}",
   "viewer.maintenance.insightStats.laterUse": "后续使用率 ${v}",
-  "viewer.help.nightThinkingTitle": "夜思(Overnight Thinking)",
-  "viewer.help.nightThinkingDesc": "<strong>夜思</strong>:在「更多 → 夜思实验室」播种一个问题,Agent 每夜深想一轮(也可「立即夜思」),洞察以提案呈现,审批后才成为记忆。联网调研默认关闭,需按条目开启;过程计划与轨迹完全透明。",
+  "viewer.help.contemplationTitle": "沉思（Contemplation）",
+  "viewer.help.contemplationDesc":
+    "<strong>沉思</strong>：在「沉思」页提出一个问题，系统围绕它做一次<strong>全资源盘点式深度思考</strong>——调用全部记忆图谱、行为日志、技能库、联网检索与可用的 MCP 工具，记忆库全程只读、记忆原文不出域，深思一次出一份报告。",
+  "viewer.help.contemplation.pace":
+    "提问即深思：提交后立即开始（也可在对话里直接说「帮我沉思这个问题」）；可能耗时较久，可离开页面，完成后自动出报告。同一问题未完成时不会重复创建；进行中的深思可「终止」回到可跑状态，误建条目也可直接删除（终止后删除）。",
+  "viewer.help.contemplation.answer":
+    "报告以<strong>回答</strong>为主体；洞察以提案呈现，审批后才落为记忆；计划、轨迹与拒因在「过程」「诊断」折叠区完全透明。",
+  "viewer.help.contemplation.rethink":
+    "对已答条目可「再思一次」——回灌全部过往深思史重新盘点；「依据」按钮展示本次实际读取的记忆、使用的技能与日志。",
+  "viewer.help.contemplation.closure":
+    "闭合校验:每次深思启动时引擎先生成<strong>思考计划</strong>(需求清单与探测词 —— 执行者逐字执行探测、只能追加不能删改),报告按计划核覆盖:被删除或降级的需求由引擎还原,自报「已读」但无真实调用会被退回修复(对话内自动补做后重报)。全部探测皆空的需求由引擎亲证自动豁免;提交的答案还会经独立 critic 做**主张审计**(无证据支撑的降级主张占比超过 30% 时,洞察提案同样隔离)。反复不闭合或超出修复预算(默认 6 轮)时,本次深思以<strong>降级收束</strong>结束:卡片带「降级」标记并列出未闭合需求,其洞察提案进入提案中心的<strong>隔离区</strong>,默认不进审批队列(可在「全部」视图中裁决)。",
+  "viewer.help.contemplation.limits":
+    "条目上限 50 条，接近上限时页面提示，达限需先删除旧的已答条目；历史深思按时间戳呈现。",
   "viewer.tab.health.tip":
     "记忆仓库一致性自检:悬空 synapse 引用、孤儿文件、索引漂移;支持自愈",
-  "viewer.tab.config.tip":
-    "配置:dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
+  "viewer.tab.config.tip": "dataRoot、端口、语言、维护计划(衰退/巩固/REM 周期)",
   "viewer.tab.help.tip":
     "使用说明:概念释义、端口与 dataRoot、Claude Code 与 OpenClaw 双宿主说明",
 
@@ -996,10 +1090,14 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.engram.openDirCopy": "复制路径",
   "viewer.engram.openDirCopied": "已复制",
   "viewer.engram.openDirCopyFailed": "复制失败",
-  "viewer.engram.openDirReason.no-desktop": "当前环境无桌面(SSH / 容器 / headless),无法唤起文件管理器,可复制下面的路径手动定位:",
-  "viewer.engram.openDirReason.spawn-failed": "未找到系统文件管理器命令,可复制下面的路径手动定位:",
-  "viewer.engram.openDirReason.dir-not-found": "该记忆的物理目录已不存在(可能被外部移动),原路径:",
-  "viewer.engram.openDirReason.fallback": "无法打开目录,可复制下面的路径手动定位:",
+  "viewer.engram.openDirReason.no-desktop":
+    "当前环境无桌面(SSH / 容器 / headless),无法唤起文件管理器,可复制下面的路径手动定位:",
+  "viewer.engram.openDirReason.spawn-failed":
+    "未找到系统文件管理器命令,可复制下面的路径手动定位:",
+  "viewer.engram.openDirReason.dir-not-found":
+    "该记忆的物理目录已不存在(可能被外部移动),原路径:",
+  "viewer.engram.openDirReason.fallback":
+    "无法打开目录,可复制下面的路径手动定位:",
   "viewer.engram.visibilityBadge.private": "私有",
   "viewer.engram.visibilityBadge.public": "公开",
   "viewer.engram.visibilityBadge.team": "团队",
@@ -1361,12 +1459,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.feedGoAudit": "在审计中查看全部历史 →",
   "viewer.stats.feedExternalTag": "外部编辑",
   "viewer.stats.feedChangedFields": "变更字段:${fields}",
-  "viewer.stats.effectiveRateTip": "被检索率 = 取用后在观察期内收到强化反馈的次数占比。agent 未回报反馈的取用计为未闭环,会拉低该比例 —— 它衡量「反馈闭环率」,不代表取用质量。",
-  "viewer.stats.updatesBarTip": "柱高 = 当日新增或内容有更新的记忆数(印迹/突触/技能合计);点击柱子查看当日明细。",
+  "viewer.stats.effectiveRateTip":
+    "被检索率 = 取用后在观察期内收到强化反馈的次数占比。agent 未回报反馈的取用计为未闭环,会拉低该比例 —— 它衡量「反馈闭环率」,不代表取用质量。",
+  "viewer.stats.updatesBarTip":
+    "柱高 = 当日新增或内容有更新的记忆数(印迹/突触/技能合计);点击柱子查看当日明细。",
   "viewer.stats.expandTip": "点击展开 TOP 20",
-  "viewer.stats.weeklyNew": "本周 ↑${n}",
+  "viewer.stats.weeklyNew": "↑${n}",
   "viewer.stats.pulseTitle": "记忆更新",
-  "viewer.stats.pulseSub": "新增或内容有更新(印迹/突触/技能)· 近 30 天 · 点击查看当日",
+  "viewer.stats.pulseSub":
+    "新增或内容有更新(印迹/突触/技能)· 近 30 天 · 点击查看当日",
   "viewer.stats.pulsePeak": "峰值 ${date} · ${n} 条",
   "viewer.stats.feedTitle": "记忆动态",
   "viewer.stats.feedSub": "库中最近发生的变化 · 数据源:审计事件",
@@ -1398,8 +1499,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.stats.itemCreated": "新增",
   "viewer.stats.itemDeleted": "已删除记忆",
   "viewer.stats.itemUpdated": "更新",
-  "viewer.stats.weeklyRetrievals": "本周检索 ↑${n}",
-  "viewer.stats.weeklyInvocations": "本周调用 ↑${n}",
+  "viewer.stats.weeklyRetrievals": "↑${n}",
+  "viewer.stats.weeklyInvocations": "↑${n}",
   "viewer.stats.totalEngrams": "记忆印迹总数",
   "viewer.stats.totalEngramsTip":
     "总数 = 活跃 + 已冻结 + 已遗忘(含主索引全部行)。从回收站恢复一条「已遗忘/已冻结」时,活跃数 +1,总数不变——这是正确的,因为那条记忆本来就在仓库里。",
@@ -1434,6 +1535,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.status.accepted": "已采纳",
   "viewer.proposals.status.dismissed": "已驳回",
   "viewer.proposals.status.all": "全部",
+  "viewer.proposals.quarantined.title":
+    "隔离区：${n} 条洞察提案来自未闭合的深思",
+  "viewer.proposals.quarantined.hint":
+    "这些提案出自带缺口收束（degraded）或仍在修复中的深思 —— 默认不进审批队列。展开「全部」视图可裁决它们。",
+  "viewer.proposals.quarantined.provisional": "修复中",
+  "viewer.proposals.quarantined.degraded": "降级收束",
+  "viewer.proposals.quarantined.unclosed": "未闭合需求：",
   "viewer.proposals.empty": "没有 ${status} 提案",
   "viewer.proposals.emptyHint":
     "系统正在后台观察候选记忆,新提案会自动出现在这里。",
@@ -1454,7 +1562,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.rem.tagRefresh.to": "刷新后标签",
   "viewer.proposals.rem.tagRefresh.accept": "应用刷新",
   "viewer.proposals.rem.tagRefresh.drift": "漂移 ${drift}",
-  "viewer.proposals.rem.tagRefresh.driftTip": "内容漂移度 ${drift}——内容显著变化触发标签重提",
+  "viewer.proposals.rem.tagRefresh.driftTip":
+    "内容漂移度 ${drift}——内容显著变化触发标签重提",
   "viewer.proposals.rem.band.veryHigh": "可信度很高",
   "viewer.proposals.rem.band.high": "可信度较高",
   "viewer.proposals.rem.band.medium": "可信度中等",
@@ -1494,6 +1603,11 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.sourceLine.external": "外部文件",
   "viewer.proposals.sourceLine.autoMemory": "auto-memory",
   "viewer.proposals.sourceLine.skill": "技能提案",
+  "viewer.proposals.sourceLine.remInsight": "夜思洞察",
+  "viewer.proposals.sourceLine.remPattern": "模式提炼",
+  "viewer.proposals.sourceLine.remSynapse": "突触建议",
+  "viewer.proposals.sourceLine.remTagRefresh": "标签刷新",
+  "viewer.proposals.sourceLine.remVerification": "存活校验",
   "viewer.proposals.skillBadge": "技能",
   "viewer.proposals.skill.usage": "用途",
   "viewer.proposals.skillIdLabel": "技能 ID",
@@ -1503,21 +1617,32 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.why.window": "时间",
   "viewer.proposals.why.necessity": "为什么",
   "viewer.proposals.why.samples": "代表片段",
-  "viewer.proposals.why.necessity.conversation": "相似主题反复出现，${n} 条独立样本通过必要性校验",
+  "viewer.proposals.why.necessity.conversation":
+    "相似主题反复出现，${n} 条独立样本通过必要性校验",
   "viewer.proposals.why.necessity.fallback": "多次出现相似内容",
-  "viewer.proposals.why.necessity.external": "在记忆仓库中检测到新的未跟踪 .md 文件，内容已预填，可直接采纳",
-  "viewer.proposals.why.necessity.skill": "dataRoot 下检测到未登记的 skill 目录（SKILL.md），采纳后创建程序性记忆（skill）印迹。",
-  "viewer.proposals.why.necessity.autoMemory": "宿主 agent（Claude Code / OpenClaw）自动写入系统记忆文件，内容已预填，可直接采纳",
-  "viewer.proposals.why.necessity.remPattern": "REM 睡眠期从多条已有记忆中提炼出的抽象模式",
-  "viewer.proposals.why.necessity.remVerification": "REM 元认知评估建议的验证状态变更",
-  "viewer.proposals.why.necessity.remTagRefresh": "REM 检测到该记忆仍为笼统占位标签(imported/uncategorized)或内容已漂移,用 LLM 重提了内容语义标签,待审批后应用",
+  "viewer.proposals.why.necessity.external":
+    "在记忆仓库中检测到新的未跟踪 .md 文件，内容已预填，可直接采纳",
+  "viewer.proposals.why.necessity.skill":
+    "dataRoot 下检测到未登记的 skill 目录（SKILL.md），采纳后创建程序性记忆（skill）印迹。",
+  "viewer.proposals.why.necessity.autoMemory":
+    "宿主 agent（Claude Code / OpenClaw）自动写入系统记忆文件，内容已预填，可直接采纳",
+  "viewer.proposals.why.necessity.remPattern":
+    "REM 睡眠期从多条已有记忆中提炼出的抽象模式",
+  "viewer.proposals.why.necessity.remVerification":
+    "REM 元认知评估建议的验证状态变更",
+  "viewer.proposals.why.necessity.remInsight":
+    "深度思考(整合/复盘/灵感)从多条记忆中提炼的洞察,已通过独立 AI 评审",
+  "viewer.proposals.why.necessity.remTagRefresh":
+    "REM 检测到该记忆仍为笼统占位标签(imported/uncategorized)或内容已漂移,用 LLM 重提了内容语义标签,待审批后应用",
   "viewer.proposals.why.sourceLabel.conversation": "对话聚类",
   "viewer.proposals.why.sourceLabel.skill": "技能目录检测",
   "viewer.proposals.why.sourceLabel.external": "外部文件检测",
-  "viewer.proposals.why.sourceLabel.autoMemory": "auto-memory · Claude Code / OpenClaw 宿主系统记忆",
+  "viewer.proposals.why.sourceLabel.autoMemory":
+    "auto-memory · Claude Code / OpenClaw 宿主系统记忆",
   "viewer.proposals.why.sourceLabel.remPattern": "REM 模式提炼",
   "viewer.proposals.why.sourceLabel.remVerification": "REM 元认知验证",
   "viewer.proposals.why.sourceLabel.remTagRefresh": "REM 标签刷新",
+  "viewer.proposals.why.sourceLabel.remInsight": "夜思深度思考",
   "viewer.proposals.why.window.within": "${dur} 内 ${n} 次出现",
   "viewer.proposals.why.window.minute": "分钟",
   "viewer.proposals.why.window.hour": "小时",
@@ -1583,16 +1708,16 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.proposals.batch.dismissAllToast":
     "批量驳回完成:成功 ${ok} 条,失败 ${fail} 条",
   "viewer.proposals.batch.noPending": "当前没有待审提案可批量操作",
-  "viewer.proposals.batch.purgeDismissed": "彻底清空(${n})",
+  "viewer.proposals.batch.purgeDismissed": "清空已驳回(${n})",
   "viewer.proposals.batch.purgeConfirm":
-    "确认从磁盘物理删除 ${n} 条已驳回提案?\n\n物理删除不可恢复(audit log 仍保留)。该操作只影响 status=dismissed 的提案,不影响 pending / accepted。",
-  "viewer.proposals.batch.purgeToast": "已物理清空 ${n} 条已驳回提案",
+    "确认清空 ${n} 条已驳回提案?\n\n将从磁盘物理删除,不可恢复(audit log 仍保留)。只影响已驳回提案,不影响待审 / 已采纳。",
+  "viewer.proposals.batch.purgeToast": "已清空 ${n} 条已驳回提案",
   "viewer.proposals.batch.purgeFailed": "清空失败:${err}",
   "viewer.proposals.batch.purgeNoDismissed": "当前没有已驳回提案可清空",
-  "viewer.proposals.batch.purgeAccepted": "清空已采纳记录(${n})",
+  "viewer.proposals.batch.purgeAccepted": "清空已采纳(${n})",
   "viewer.proposals.batch.purgeNoAccepted": "当前没有已采纳记录可清空",
   "viewer.proposals.batch.purgeAcceptedConfirm":
-    "确认清空 ${n} 条已采纳记录?\n\n只清空 proposals.jsonl 中的采纳记录,accept 时已创建的 engram 不受影响。",
+    "确认清空 ${n} 条已采纳记录?\n\n只清空 proposals.jsonl 中的采纳记录,采纳时已创建的记忆(engram)不受影响。",
   "viewer.proposals.batch.purgeAcceptedToast": "已清空 ${n} 条已采纳记录",
 
   // ===== Audit 面板(viewer.audit.*) =====
@@ -1718,13 +1843,20 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.audit.actionLabel.skill_related_engram_add": "关联记忆",
   "viewer.audit.actionLabel.skill_related_engram_remove": "取消关联",
   "viewer.audit.actionTip.skill_create": "skill_create:创建新技能(程序性记忆)",
-  "viewer.audit.actionTip.skill_update": "skill_update:修改技能字段(initiation/termination/policy 等)",
-  "viewer.audit.actionTip.skill_delete": "skill_delete:删除技能 sidecar 印迹(不动 SKILL.md)",
-  "viewer.audit.actionTip.skill_invoke": "skill_invoke:记录技能使用,Rescorla-Wagner 更新 utility + retention",
-  "viewer.audit.actionTip.skill_compose_add": "skill_compose_add:添加技能组合关系(A 编排进 B)",
-  "viewer.audit.actionTip.skill_compose_remove": "skill_compose_remove:移除技能组合关系",
-  "viewer.audit.actionTip.skill_related_engram_add": "skill_related_engram_add:添加技能与记忆的关联(程序性 ↔ 陈述性)",
-  "viewer.audit.actionTip.skill_related_engram_remove": "skill_related_engram_remove:移除技能与记忆的关联",
+  "viewer.audit.actionTip.skill_update":
+    "skill_update:修改技能字段(initiation/termination/policy 等)",
+  "viewer.audit.actionTip.skill_delete":
+    "skill_delete:删除技能 sidecar 印迹(不动 SKILL.md)",
+  "viewer.audit.actionTip.skill_invoke":
+    "skill_invoke:记录技能使用,Rescorla-Wagner 更新 utility + retention",
+  "viewer.audit.actionTip.skill_compose_add":
+    "skill_compose_add:添加技能组合关系(A 编排进 B)",
+  "viewer.audit.actionTip.skill_compose_remove":
+    "skill_compose_remove:移除技能组合关系",
+  "viewer.audit.actionTip.skill_related_engram_add":
+    "skill_related_engram_add:添加技能与记忆的关联(程序性 ↔ 陈述性)",
+  "viewer.audit.actionTip.skill_related_engram_remove":
+    "skill_related_engram_remove:移除技能与记忆的关联",
   // audit pager(审计栏底部分页器,与 engrams.pager 同结构,允许跨页 cursor loadMore)
   // 长期漏译导致 UI 显示 "viewer.audit.pager.prev" 等 key 本身,2026-07 补齐
   "viewer.audit.pager.prev": "« 上一页",
@@ -1757,7 +1889,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.trash.restoreConfirm": "恢复 ${id} 到主索引?",
   "viewer.trash.purgeBtn": "彻底清除",
   "viewer.trash.purgeTip": "从回收站物理删除此文件,无法恢复",
-  "viewer.trash.purgeConfirm": "彻底清除 ${id}?\n\n该文件将从回收站物理删除,无法恢复(不同于「永久清空」,此操作只删除这一条)。",
+  "viewer.trash.purgeConfirm":
+    "彻底清除 ${id}?\n\n该文件将从回收站物理删除,无法恢复(不同于「永久清空」,此操作只删除这一条)。",
   "viewer.trash.restoreFailed": "恢复失败:${err}",
   "viewer.trash.purgeAllScopeAll": "全部(跨所有分区)",
   "viewer.trash.purgeAllScopePartition": "分区 ${p} 内",
@@ -1784,7 +1917,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.merges.loading": "加载合并统计中",
   "viewer.merges.auditDisabledHint": "audit log 未启用,无合并数据。",
   "viewer.merges.title": "合并统计 · 最近 ${days} 天",
-  "viewer.merges.summaryLine": "最近 ${days} 天 · ${total} 次文件合并 · ${auto} 次已由 merge driver 自动解决(成功率 ${rate})· ${esc} 次升级为冲突标记",
+  "viewer.merges.summaryLine":
+    "最近 ${days} 天 · ${total} 次文件合并 · ${auto} 次已由 merge driver 自动解决(成功率 ${rate})· ${esc} 次升级为冲突标记",
   "viewer.merges.mgConflicts": "${n} 次冲突 · 逐字段裁决记录见审计 tab",
   "viewer.merges.mgShare": "占比",
   "viewer.merges.kpi.totalMerges": "总合并",
@@ -1805,7 +1939,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== Maintenance 面板(viewer.maintenance.*) — 方案 A viewer tab =====
   "viewer.maintenance.loading": "加载维护状态中",
   "viewer.maintenance.sleep.title": "睡眠报告",
-  "viewer.maintenance.sleep.sub": "deep(衰减整合)+ rem(元认知)两阶段 · 每晚自动运行",
+  "viewer.maintenance.sleep.sub":
+    "deep(衰减整合)+ rem(元认知)两阶段 · 每晚自动运行",
   "viewer.maintenance.sleep.when": "最近一次:${t}",
   "viewer.maintenance.sleep.reinforce": "强化(RPE)",
   "viewer.maintenance.sleep.decay": "衰减(deep)",
@@ -1814,12 +1949,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.sleep.archive": "归档/遗忘",
   "viewer.maintenance.sleep.upgradeSub": "rem 元认知 · 验证状态跃迁",
   "viewer.maintenance.sleep.reinforceSub": "RPE · 取用后正向反馈",
-  "viewer.maintenance.sleep.decaySub": "deep · 30 天未取用自动降权(软降权,不删除)",
+  "viewer.maintenance.sleep.decaySub":
+    "deep · 30 天未取用自动降权(软降权,不删除)",
   "viewer.maintenance.sleep.patternSub": "梦境提炼 · 以提案呈现,审批后成为记忆",
   "viewer.maintenance.sleep.noise": "噪声驳回",
-  "viewer.maintenance.sleep.noiseSub": "提案引擎 Layer 1/2 噪声过滤 · 同窗口审计计数",
+  "viewer.maintenance.sleep.noiseSub":
+    "提案引擎 Layer 1/2 噪声过滤 · 同窗口审计计数",
   "viewer.maintenance.sleep.contradict": "矛盾送审",
-  "viewer.maintenance.sleep.contradictSub": "contradicts 突触建立 · 等待人工裁决",
+  "viewer.maintenance.sleep.contradictSub":
+    "contradicts 突触建立 · 等待人工裁决",
   "viewer.maintenance.sleep.noiseItem": "原因:${reason} · ${path}",
   "viewer.maintenance.sleep.contraItem": "与 ${by} 矛盾 · 点击查看",
   "viewer.maintenance.sleep.empty": "最近一轮维护没有产生记忆变更",
@@ -1847,7 +1985,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分,产出升级/反驳/模式提案待审批",
-  "viewer.maintenance.stageSubtitle.deep": "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
+  "viewer.maintenance.stageSubtitle.deep":
+    "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
   "viewer.maintenance.stageSubtitle.light":
     "信号处理:把工具调用行为流转化为记忆的强化/衰减(RPE 加性更新)",
   "viewer.maintenance.stageTip.rem":
@@ -1952,13 +2091,15 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.modes.vitality": "取用次数着色",
   "viewer.graph.modes.conflict": "矛盾高亮",
   "viewer.graph.modes.heat": "取用热度着色",
-  "viewer.graph.modes.heatTitle": "按最近取用时间着色:一周内深暖、一月内橙、更久灰",
+  "viewer.graph.modes.heatTitle":
+    "按最近取用时间着色:一周内深暖、一月内橙、更久灰",
   "viewer.graph.legend.pickFilter": "点选筛选",
   "viewer.graph.status.activeOnly": "状态:仅活跃",
   "viewer.graph.status.all": "状态:含归档 / 已取代",
   "viewer.graph.status.contradictionsOnly": "状态:仅矛盾待裁决",
   "viewer.graph.reading.title": "阅读方式",
-  "viewer.graph.reading.hint": "节点大小 = 重要度<br>虚线框 = 记忆聚类(自动归组的同类记忆群)",
+  "viewer.graph.reading.hint":
+    "节点大小 = 重要度<br>虚线框 = 记忆聚类(自动归组的同类记忆群)",
   "viewer.graph.countLine.items": "条",
   "viewer.graph.countLine.visible": "可见(重要度 ≥${imp})",
   "viewer.graph.countLine.clusters": "个 Louvain 簇",
@@ -1972,8 +2113,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.graph.insp.degrees": "入边 / 出边",
   "viewer.graph.insp.neighborhood": "一跳邻域 · ${n}(流动边)",
   "viewer.graph.insp.noNeighbors": "无邻接",
-  "viewer.graph.tools.hoverHl": "邻居高亮",
-  "viewer.graph.tools.hoverHlTitle": "悬停时高亮邻接边",
   "viewer.graph.filter.impTitle": "重要度阈值",
   "viewer.graph.filter.visibleUnit": "可见",
   "viewer.graph.replay.title": "时间回放",
@@ -2041,7 +2180,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.config.pendingBanner": "${fields} 已保存,重启 ${host} 后生效",
   "viewer.config.runtimeHintPrefix": "(当前: ",
   "viewer.config.runtimeDiffHint": "运行中:${val},保存并重启后生效",
-  "viewer.config.saveBarHint": "写入仓库 config.json;语言 / Profile 等重启后生效",
+  "viewer.config.saveBarHint":
+    "写入仓库 config.json;语言 / Profile 等重启后生效",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(未设置)",
   "viewer.config.field.language": "语言",
@@ -2155,8 +2295,10 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.common.confirmDeleteSynapse": "确定删除此记忆突触?\n此操作不可撤销。",
   "viewer.common.saveFailed": "保存失败:${err}",
   "viewer.common.restoreBtn": "恢复",
-  "viewer.engram.restoreConfirm": "确认恢复此记忆?将清除遗忘锁定,重新进入默认检索。",
-  "viewer.skill.restoreConfirm": "确认恢复此技能?将重置使用时间,保留阶段回到活跃。",
+  "viewer.engram.restoreConfirm":
+    "确认恢复此记忆?将清除遗忘锁定,重新进入默认检索。",
+  "viewer.skill.restoreConfirm":
+    "确认恢复此技能?将重置使用时间,保留阶段回到活跃。",
   "viewer.common.deleteFailed": "删除失败:${err}",
   "viewer.common.unknown": "(未知)",
   "viewer.common.langZh": "中文",
@@ -2224,7 +2366,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "<strong>已反驳</strong>:被 contradiction_resolve 标记为失败方;默认从检索结果中排除。",
   "viewer.help.tabsTitle": "各 tab 用途",
   "viewer.help.tabStats":
-    "<strong>概览</strong>—核心 KPI(印迹/突触/技能/检索,含本周增量)+ 30 天记忆脉搏 + 记忆动态(审计事件时间线)+ 右侧 TOP 榜卡(领域热度/检索热点/冷却记忆/贡献者,点击卡片展开 TOP 20)。顶部搜索框做全文检索。导航在左侧栏:高频入口在上,治理入口居中,体检/合并/配置/帮助收进底部图标行。",
+    "<strong>概览</strong>—核心 KPI(印迹/突触/技能/检索,含本周增量)+ 30 天记忆脉搏 + 记忆动态(审计事件时间线,含 git 同步而来的团队成员操作)+ 右侧 TOP 榜卡(领域热度/检索热点/冷却记忆/贡献者,点击卡片展开 TOP 20)。顶部搜索框做全文检索。导航在左侧栏:高频入口在上,进化入口居中,体检/合并/配置/帮助收进底部图标行。",
   "viewer.help.tabEngrams":
     "<strong>记忆印迹</strong>—全部 engram 的卡片/目录视图,支持按 tag/kind/status/可见性/新鲜度(本周/本月/沉睡 30 天未取用)过滤。卡片含类型/可见性/验证状态徽标、摘要、创建者、取用与突触数、重要度趋势符(▲ 近期取用强化 · ▼ 沉睡衰减 · ▬ 平稳);点击进入详情(可编辑/删除/查看突触)。目录视图是一棵从「团队记忆库」根节点出发的整体树,目录行带累积数与平均重要度,点击行展开/折叠,顶部可展开/折叠全部。",
   "viewer.help.tabSkills":
@@ -2284,7 +2426,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== 工具 profile =====
   "viewer.help.profilesTitle": "工具 profile",
   "viewer.help.profilesBody":
-    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,数值来自源码中的 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal(12)</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(21,默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>),以及批量提案清理(<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>)。<strong>full(30)</strong>:全部原生工具,实验性的 <code>skill_invoke</code>(P0 占位)除外。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
+    "<strong>三档 profile</strong> 按用途收缩 LLM 工具表面,各档工具数见源码 <code>PROFILE_TOOL_COUNTS</code>(经 <code>.size</code> 自动算出,不会漂移)。<strong>minimal</strong>:核心读写 + proposal 处理三件套 + <code>engram_sync</code> —— 只做回忆和记录的 chat agent。<strong>standard(默认)</strong>:加上学习回路、矛盾仲裁、自愈(<code>engram_doctor</code>)、渐进式披露(<code>engram_list_paths</code>)、LLM 综合(<code>engram_synthesize</code>)与审计查询(<code>engram_audit_query</code>),以及批量提案清理(<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>)。<strong>full(全量)</strong>:全部原生工具。切换:<code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>;无效值会告警并回退到 standard。",
 
   // ===== 保存与同步 =====
   "viewer.help.syncTitle": "保存与同步到远端",
@@ -2303,13 +2445,13 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.help.skill.conceptEngramVsSkill":
     "<strong>engram vs skill</strong>:engram 记录静态知识(事实、模式、流程),skill 记录可调用的动态技能(带参数的模板、推理链)。engram 是「名词」,skill 是「动词」——当 agent 需要执行某个动作序列时,它调用 <code>skill_invoke</code> 并传入参数,skill 返回执行结果。",
   "viewer.help.skill.lifecycle":
-    "<strong>生命周期</strong>:<code>检测(提案) → accept(落盘) → invoke(使用) → 衰退 → forgotten</code>。<code>检测</code>:扫描 <code>SKILL.md</code> 所在目录,生成候选提案。<code>accept</code>:创建 Skill 实体,acquisitionStage=draft,retentionStage=active。<code>invoke</code>:记录使用次数,按 <strong>Rescorla-Wagner 规则</strong> 更新 utility(成功时提升,失败时降低)。<code>衰退</code>:light 维护周期重算 retention,utility 持续低下时会从 active 降为 aging/stale。<code>forgotten</code>:长期未用或 utility 极低的 skill 自动遗忘。",
+    "<strong>生命周期</strong>:<code>检测(提案) → accept(落盘) → invoke(使用) → 衰退 → forgotten</code>。<code>检测</code>:扫描 <code>SKILL.md</code> 所在目录,生成候选提案。<code>accept</code>:创建 Skill 实体,acquisitionStage=draft,retentionStage=active。<code>invoke</code>:记录使用次数,按 <strong>Rescorla-Wagner 规则</strong> 更新 utility(成功时提升,失败时降低)。<code>衰退</code>:light 维护周期重算 retention,随时间从 active 降为 aging/stale(从未使用的技能也随注册时间老化)。<code>forgotten</code>:长期未用的 skill 自动遗忘,不注入技能清单;一次真实使用即可复活(relearning)。",
   "viewer.help.skill.acquisition":
     "<strong>习得深度轴(acquisitionStage)</strong>:<code>draft(草稿) → compiled(已编译) → tuned(已调优)</code>。<code>draft</code>:刚接受提案,未被充分验证的 skill。<code>compiled</code>:经过一定次数的成功调用,utility 稳定在较高水平,可进入编译阶段(ACT-R production compilation,从显式推理转为内化模式)。<code>tuned</code>:长期高频使用且表现稳定的 skill,经过人工或自动调优,达到专家级水平。阶段迁移需人工触发(或未来版本自动迁移),体现技能从「有意识执行」到「自动化」的学习曲线。",
   "viewer.help.skill.utility":
     "<strong>utility(效用)</strong>:0-1 之间,反映技能被调用的期望收益。初始值 0.5。每次成功调用(返回有效结果)按 Rescorla-Wagner 规则提升,失败调用降低。utility 高的 skill 在同类技能竞选中优先被选中。utility 按 Ebbinghaus 曲线时间衰减,久未使用的 skill utility 会自动下降。",
   "viewer.help.skill.retention":
-    "<strong>retention(保持)</strong>:反映技能在记忆中的保持强度,分 4 档:<code>active(活跃)</code>:近期使用频繁,保持强度高。<code>aging(老化)</code>:开始遗忘但仍可召回。<code>stale(陈旧)</code>:保持强度低,可能需重新学习。<code>forgotten(遗忘)</code>:已从默认技能池移除,需手动重新激活。",
+    "<strong>retention(保持)</strong>:反映技能在记忆中的保持强度,按遗忘曲线随时间衰减(用过没用的技能距上次使用、从未使用的技能距注册时间起算),分 4 档:<code>active(活跃)</code>:近期使用频繁,保持强度高。<code>aging(老化)</code>:开始遗忘但仍可召回。<code>stale(陈旧)</code>:保持强度低,可能需重新学习。<code>forgotten(遗忘)</code>:已从默认技能池移除;<strong>使用一次即自动复活</strong>(relearning,下次 agent 触发时正常调用并报告即可),也可在网页上手动恢复。",
   "viewer.help.skill.composes":
     "<strong>composes(skill 间组合)</strong>:skill 可以声明对其他 skill 的依赖,形成 <code>Skill Chaining</code>(技能链)。例如「发布流程」skill 可能由「测试」「构建」「部署」三个子 skill 组合而成。调用父 skill 时会自动按依赖顺序调用子 skill,实现复杂任务的分解与复用。组合关系用 <code>composes</code> 字段声明。",
   "viewer.help.skill.sidecar":
@@ -2389,10 +2531,14 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "模式 (pattern):从多次观察归纳出的规律,可预测未来行为。例:「每周一早上构建时间会变长」。",
   "tip.kind.procedure":
     "流程 (procedure):步骤序列,执行后可复现某结果。例:「发布前需跑 pnpm check」。",
-  "tip.acquisitionStage.draft": "认知期 (draft)：新接受、未经使用验证。对应 Fitts-Posner 认知期 —— 需大量意识参与、易出错。",
-  "tip.acquisitionStage.compiled": "熟练期 (compiled)：经使用验证、模式稳定。对应联系期 —— 错误减少、表现趋于一致。",
-  "tip.acquisitionStage.tuned": "精通期 (tuned)：充分使用 + 调优、专家级。对应自动期 —— 自动化、可并行其他任务。",
-  "tip.retentionStage.active": "活跃 (active)：近期被使用，记忆保持强，在召回池中权重高。",
+  "tip.acquisitionStage.draft":
+    "认知期 (draft)：新接受、未经使用验证。对应 Fitts-Posner 认知期 —— 需大量意识参与、易出错。",
+  "tip.acquisitionStage.compiled":
+    "熟练期 (compiled)：经使用验证、模式稳定。对应联系期 —— 错误减少、表现趋于一致。",
+  "tip.acquisitionStage.tuned":
+    "精通期 (tuned)：充分使用 + 调优、专家级。对应自动期 —— 自动化、可并行其他任务。",
+  "tip.retentionStage.active":
+    "活跃 (active)：近期被使用，记忆保持强，在召回池中权重高。",
   "tip.retentionStage.aging": "渐衰 (aging)：一段时间未使用，开始衰退。",
   "tip.retentionStage.stale": "过时 (stale)：长期未使用，即将被遗忘。",
   "tip.retentionStage.forgotten": "遗忘 (forgotten)：已标记为遗忘，可恢复。",
@@ -2500,10 +2646,14 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.skill.openDirCopy": "复制路径",
   "viewer.skill.openDirCopied": "已复制",
   "viewer.skill.openDirCopyFailed": "复制失败",
-  "viewer.skill.openDirReason.no-desktop": "当前环境无桌面(SSH / 容器 / headless),无法唤起文件管理器,可复制下面的路径手动定位:",
-  "viewer.skill.openDirReason.spawn-failed": "未找到系统文件管理器命令,可复制下面的路径手动定位:",
-  "viewer.skill.openDirReason.dir-not-found": "该技能的物理目录已不存在(可能被外部移动),原路径:",
-  "viewer.skill.openDirReason.fallback": "无法打开目录,可复制下面的路径手动定位:",
+  "viewer.skill.openDirReason.no-desktop":
+    "当前环境无桌面(SSH / 容器 / headless),无法唤起文件管理器,可复制下面的路径手动定位:",
+  "viewer.skill.openDirReason.spawn-failed":
+    "未找到系统文件管理器命令,可复制下面的路径手动定位:",
+  "viewer.skill.openDirReason.dir-not-found":
+    "该技能的物理目录已不存在(可能被外部移动),原路径:",
+  "viewer.skill.openDirReason.fallback":
+    "无法打开目录,可复制下面的路径手动定位:",
   "skills.searchPlaceholder": "搜索技能 ID 或源路径",
   "skills.filter.acquisitionStage": "习得阶段",
   "skills.filter.retentionStage": "记忆保持",
@@ -2517,7 +2667,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "skills.empty": "暂无技能记忆",
   "skills.pager.prev": "上一页",
   "skills.pager.next": "下一页",
-  "skills.pager.pageInfo": "第 {{current}} / {{total}} 页 (共 {{itemTotal}} 条)",
+  "skills.pager.pageInfo":
+    "第 {{current}} / {{total}} 页 (共 {{itemTotal}} 条)",
   "skills.pager.loadingHint": "后台加载中",
   "skills.utility": "实用性",
   "skills.successCount.tip": "成功次数",
@@ -2531,7 +2682,8 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "skills.compatibility": "兼容性",
   "skills.sourceIcon.openclaw": "OpenClaw 技能(compatibility 声明)",
   "skills.sourceIcon.claude": "Claude 技能(compatibility 声明)",
-  "skills.sourceIcon.generic": "通用技能(compatibility 未声明 Claude/OpenClaw,跨运行时)",
+  "skills.sourceIcon.generic":
+    "通用技能(compatibility 未声明 Claude/OpenClaw,跨运行时)",
   "skills.composes.tip": "组合的子技能数",
   "skills.composesInto": "编排进 → ${first}",
   "skills.relatedEngrams": "关联的记忆印迹(程序性 ↔ 陈述性)",

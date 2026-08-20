@@ -123,6 +123,31 @@ describe("getFollowedByActionRule", () => {
     expect(getFollowedByActionRule.match(events)).toHaveLength(1);
   });
 
+  it("get 后 synapse_create → +0.8(边界内落地动作)", () => {
+    const events = [
+      makeEvent({ toolName: "engram_get", retrievedEngramIds: ["a"], at: 1 }),
+      makeEvent({
+        toolName: "synapse_create",
+        input: { from: "a", to: "b", kind: "extends" },
+        at: 2,
+      }),
+    ];
+    const signals = getFollowedByActionRule.match(events);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.engramId).toBe("a");
+    expect(signals[0]!.evidence.actionFound).toEqual(["synapse_create"]);
+  });
+
+  it("get 后 engram_create / engram_update / engram_synthesize → +0.8", () => {
+    for (const tool of ["engram_create", "engram_update", "engram_synthesize"]) {
+      const events = [
+        makeEvent({ toolName: "engram_get", retrievedEngramIds: ["a"], at: 1 }),
+        makeEvent({ toolName: tool, at: 2 }),
+      ];
+      expect(getFollowedByActionRule.match(events)).toHaveLength(1);
+    }
+  });
+
   it("get 后只有 search（无 action）→ 不产生", () => {
     const events = [
       makeEvent({ toolName: "engram_get", retrievedEngramIds: ["a"], at: 1 }),
@@ -167,13 +192,16 @@ describe("getFollowedByNoSearchRule", () => {
     expect(getFollowedByNoSearchRule.match(events)).toHaveLength(0);
   });
 
-  it("前一个是 search → 跳过（避免和 immediate_search 重复）", () => {
+  it("search→get→安静 → +0.4(2026-08-17 修正:最健康模式不再被排除)", () => {
     const events = [
       makeEvent({ toolName: "engram_search", at: 0 }),
       makeEvent({ toolName: "engram_get", retrievedEngramIds: ["a"], at: 1 }),
       makeEvent({ toolName: "file_edit", at: 2 }),
     ];
-    expect(getFollowedByNoSearchRule.match(events)).toHaveLength(0);
+    const signals = getFollowedByNoSearchRule.match(events);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]!.weight).toBe(0.4);
+    expect(signals[0]!.engramId).toBe("a");
   });
 });
 

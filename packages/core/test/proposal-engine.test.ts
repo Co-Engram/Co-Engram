@@ -1309,6 +1309,16 @@ describe("ProposalEngine.proposeExternalMarkdown", () => {
     expect(engine.listAll()).toHaveLength(0);
   });
 
+  it("createExternalMarkdownHook:空文件不写 noise audit(2026-08-16 停写修复)", () => {
+    const hook = engine.createExternalMarkdownHook();
+    // 同一路径反复触发(IDE 持续 touch 的空文件)—— 曾经每 2 秒刷一条,
+    // 真实库 7 天 46 万条占 audit 99.9%;现在完全静默
+    for (let i = 0; i < 100; i++) {
+      hook({ absPath: "/root/未命名.md", relPath: "未命名.md", raw: "", parsed: null });
+    }
+    expect(audit.query({ action: "noise_filtered" })).toHaveLength(0);
+  });
+
   it("相同 sourcePath + 相同 payload → no-change", () => {
     engine.proposeExternalMarkdown({
       sourcePath: "x.md",
@@ -2338,5 +2348,84 @@ describe("statusCounts / purgeDismissed · viewer 按钮计数与清空(Bug 5/6 
     expect(keptEngram).toBeDefined();
     expect(keptEngram.title).toBe("E1");
     expect(keptEngram.content).toBe("engram content");
+  });
+});
+
+describe("proposeAutoMemory 库级幂等(purge-复活修复,2026-08-17)", () => {
+  const amInput = {
+    slug: "deploy-hotfix",
+    title: "deploy-hotfix",
+    content: "重新部署 co-engram 时 sync-deps 会 noop,需要手动 cp dist",
+    summary: "deploy",
+    kind: "observation" as const,
+    domainTags: ["claude-code-auto-memory"],
+    contextTags: ["auto-sync"],
+  };
+  const eid = () => autoMemoryEntityId(amInput.slug);
+
+  /** 模拟 accept 产物:同 title+tag engram 已在库(memory-sync 引擎注入同款字段) */
+  function ensureEngram() {
+    return repo.createEngram({
+      title: amInput.title,
+      content: amInput.content,
+      kind: amInput.kind,
+      domainTags: amInput.domainTags,
+      createdBy: "test",
+    });
+  }
+
+  it("库内已有同 title+tag engram → 不新建提案(no-change)", () => {
+    ensureEngram();
+    expect(engine.proposeAutoMemory(amInput)).toBe("no-change");
+    expect(
+      engine.readProposals().filter((p) => p.entityId === eid()).length,
+    ).toBe(0);
+  });
+
+  it("purge 复活血案回归:propose→accept→purge→重扫不复活", () => {
+    expect(engine.proposeAutoMemory(amInput)).toBe("proposed");
+    engine.accept(eid(), { createdBy: "test-user" });
+    // accept 产物可被库级键命中(title=slug + 来源 tag)
+    expect(
+      repo.listEngrams().some(
+        (e) => e.title === amInput.title && (e.domainTags ?? []).includes("claude-code-auto-memory"),
+      ),
+    ).toBe(true);
+
+    // viewer「清空已接受」物理删行
+    const purged = engine.purgeAccepted();
+    expect(purged).toContain(eid());
+
+    // 新 session 重扫(memory watcher 对库外源 .md 重新 propose)→ 库级幂等拦截
+    expect(engine.proposeAutoMemory(amInput)).toBe("no-change");
+    expect(
+      engine.readProposals().filter((p) => p.entityId === eid()).length,
+    ).toBe(0);
+  });
+
+  it("存量 pending 复活行 → 自愈对齐为 accepted + audit 留痕", () => {
+    engine.proposeAutoMemory(amInput);
+    ensureEngram(); // 行是 pending 时库内产物已存在(purge 后复活态)
+    expect(engine.proposeAutoMemory(amInput)).toBe("no-change");
+
+    const healed = engine.readProposals().find((p) => p.entityId === eid());
+    expect(healed?.status).toBe("accepted");
+    expect(healed?.acceptedEngramId).toBeDefined();
+    const auditHit = audit
+      .query()
+      .find((e) => e.action === "propose" && e.metadata.selfHealed === "engram-exists");
+    expect(auditHit).toBeDefined();
+  });
+
+  it("删除 engram 后同 slug 重扫 → 合理复活(proposed)", () => {
+    const created = ensureEngram();
+    repo.deleteEngram(created.id);
+    expect(engine.proposeAutoMemory(amInput)).toBe("proposed");
+  });
+
+  it("未声明 domainTags(空数组) → 降级旧行为,不触发库级幂等", () => {
+    ensureEngram();
+    const noTags = { ...amInput, domainTags: [] as string[] };
+    expect(engine.proposeAutoMemory(noTags)).toBe("proposed");
   });
 });

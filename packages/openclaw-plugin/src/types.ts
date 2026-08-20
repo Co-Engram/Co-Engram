@@ -226,6 +226,16 @@ export interface CoEngramPluginConfig {
    * auditEnabled=false 时本字段被忽略(无 auditLog 自然无 rotation)。
    */
   readonly auditRotationConfig?: AuditRotationConfig;
+  /**
+   * 团队动态事件同步(2026-08-19)。启用时(默认),高价值动作除写本地
+   * audit 外,另落 events/<日期>/<origin>.jsonl 分片随 git 同步——
+   * 「各自 clone + sync」拓扑下,viewer「记忆动态」由此显示团队成员的
+   * 操作流。private engram 的事件被过滤,不进同步目录。
+   */
+  readonly auditTeamEvents?: {
+    enabled?: boolean;
+    retentionDays?: number;
+  };
   /** 是否启用 effectiveness 追踪（默认 true） */
   readonly effectivenessEnabled?: boolean;
   /** 是否启用 proposal engine（默认 true） */

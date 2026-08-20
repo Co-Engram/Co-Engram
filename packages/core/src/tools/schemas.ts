@@ -177,7 +177,17 @@ export const EngramUpdateInputSchema = z.object({
   importance: z.coerce.number().min(0).max(1).optional(),
   confidence: z.coerce.number().min(0).max(1).optional(),
   visibility: EngramVisibilitySchema.optional(),
-  updatedBy: z.string().min(1),
+  // 署名契约对齐(r15 修复):与 engram_create 的 createdBy 同一原则——
+  // 「人类责任归属」字段由宿主 git 身份决定,LLM 传入值不生效(schema 仍
+  // 接受该字段以向后兼容)。此前 update 直接透传 parsed.updatedBy 落盘,
+  // LLM 自填的机器标签(如 "claude-code")会写进 frontmatter「更新者」,
+  // 与 create 的忽略策略分裂。
+  updatedBy: z
+    .string()
+    .min(1)
+    .describe(
+      "Ignored (kept for backward compat): authorship is resolved from the host git identity, same as engram_create.createdBy. Use encodingContext to convey automation context.",
+    ),
 });
 
 // ============================================================
@@ -661,6 +671,7 @@ export const EngramDismissProposalInputSchema = z.object({
 // batch 工具让 LLM 一次工具调用清空一批,避免 N 次往返。
 // ============================================================
 
+/** proposal source enum 复用 */
 /**
  * proposal source 枚举(与 ProposalSource TS 类型对齐)。
  *
@@ -848,17 +859,15 @@ export type EngramSynthesizeToolInput = z.infer<
 >;
 
 // ============================================================
-// incubation_*(夜思,spec §四)
+// ponder_*(沉思,2026-08-17 重设计:提问即深思、纯本地、无排程)
 // ============================================================
 
 export const IncubationCreateInputSchema = z
   .object({
-    /** 夜思问题(自由文本,可以比记忆更丰富) */
+    /** 沉思问题(自由文本,可以比记忆更丰富) */
     question: z.string().min(4).max(2000),
-    /** 可选种子记忆 id */
+    /** 可选重点记忆 id(留空自动全库检索;种子是起点提示不是边界) */
     seedEngramIds: z.array(z.string().min(1)).max(20).optional(),
-    /** 联网调研 opt-in(默认 false;开启后问题摘要将发送至搜索引擎) */
-    webResearchOptIn: z.boolean().optional(),
   })
   .strict();
 
@@ -867,7 +876,8 @@ export const IncubationRunInputSchema = z
     id: z.string().min(1),
     /**
      * agent(默认,对话入口):返回固化协议任务包,当前会话现场执行;
-     * auto(viewer/CLI 异步任务):直接跑 L2 headless / L1 降级,同步返回。
+     * auto(viewer/CLI 异步任务):直接跑 L2 headless(失败显式报错,
+     * 仅环境无 claude CLI 时降级 L1),同步返回。
      */
     mode: z.enum(["agent", "auto"]).optional(),
   })
@@ -875,11 +885,10 @@ export const IncubationRunInputSchema = z
 
 export const IncubationListInputSchema = z.object({}).strict();
 
-export const IncubationResolveInputSchema = z
+/** ponder_delete:删除条目本体(已产出的提案与审计保留) */
+export const IncubationDeleteInputSchema = z
   .object({
     id: z.string().min(1),
-    /** 是否回答了用户的问题:true → resolved;false → 继续 active */
-    answered: z.boolean(),
   })
   .strict();
 
@@ -910,6 +919,8 @@ export const IncubationReportInputSchema = z
   .object({
     incubationId: z.string().min(1),
     report: z.object({
+      /** 回答(M1:执行现场生产;缺省由 core 综合层兜底补写) */
+      answer: z.string().min(1).optional(),
       insights: z.array(InsightDraftSchema),
       plan: z.array(
         z.object({ step: z.string().min(1), capability: z.string().min(1) }),
@@ -921,13 +932,39 @@ export const IncubationReportInputSchema = z
           detail: z.string(),
         }),
       ),
-      externalCalls: z.array(
-        z.object({
-          tool: z.string().min(1),
-          purpose: z.string().min(1),
-          at: z.string().min(1),
-        }),
-      ),
+      /** 资源使用申报(「依据」区;engram id 过试读清洗) */
+      resourcesUsed: z
+        .object({
+          engrams: z.array(z.string().min(1)),
+          skills: z.array(z.string().min(1)),
+          logs: z.array(z.string().min(1)),
+        })
+        .optional(),
+      /**
+       * 需求清单(PDCA Phase1,L2 引擎侧必填;Phase2 按计划核覆盖):
+       * 计划项经 planItemId 链接(缺失的计划项由引擎合成缺口,降级被
+       * 覆写);closed 的 engrams/skills 条目由引擎用调用流水复核
+       * (evidence.ids 必须真实调用过);瞒报/零盘点整单拒绝;有未闭合
+       * 缺口时 report 被退回,修复后全量重报。
+       */
+      requirements: z
+        .array(
+          z
+            .object({
+              /** Phase2 计划先行:任务包 task.plan[].id(计划项必带) */
+              planItemId: z.string().min(1).max(40).optional(),
+              resourceType: z.enum(["engrams", "skills", "logs", "web", "mcp"]),
+              description: z.string().min(1).max(500),
+              necessity: z.enum(["logic-needed", "helpful"]),
+              closed: z.boolean(),
+              evidence: z
+                .object({ ids: z.array(z.string().min(1)).max(50) })
+                .optional(),
+            })
+            .strict(),
+        )
+        .max(50)
+        .optional(),
     }),
   })
   .strict();

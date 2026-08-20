@@ -419,9 +419,11 @@ export class EngramRepository {
       createdBy: frontmatter.createdBy ?? "",
       // v4 schema 投影:覆盖 DigestLine / readDigestBatch 需要的所有字段,
       // 让 engram_list / collectNeighborDigests / findCandidatesSync 等
-      // 高频路径完全脱离 readEngram。synapse counts(out/in/contradiction)
-      // frontmatter 不持有,这里写 0,由 maintenance / synapse-create 路径
-      // 增量 UPDATE 回填(schema 已为此预留 idx_engrams_verification 等索引)。
+      // 高频路径完全脱离 readEngram。synapse counts(out/in)frontmatter 不
+      // 持有,这里写 0;真实计数由 rebuildSynapseTable 末尾的
+      // recomputeSynapseCounts 从 synapses 表重算(bootstrap 启动对账 /
+      // .yaml watcher / doctor 路径覆盖)。active_contradiction_count 依赖
+      // resolutionState(synapses 表无此列),不在该重算范围。
       kinds: frontmatter.kinds ?? [frontmatter.kind],
       contextTags: frontmatter.contextTags ?? frontmatter.tags ?? [],
       freshness,
@@ -437,9 +439,9 @@ export class EngramRepository {
       failedUses: frontmatter.failedUses ?? 0,
       reinforcementScore: frontmatter.reinforcementScore ?? 0,
       lastRetrievalScore: frontmatter.lastRetrievalScore,
-      outgoingSynapseCount: 0,
-      incomingSynapseCount: 0,
-      activeContradictionCount: 0,
+      // 突触计数三列不提供(2026-08-19):upsert 对未提供列保留原值 —— 此处
+      // 写 0 会把 recomputeSynapseCounts 的正确值覆盖清零。真实计数由
+      // recomputeSynapseCounts(bootstrap 对账 / watcher / doctor)维护。
       verificationStatus: frontmatter.verificationStatus,
     };
     try {
@@ -951,7 +953,7 @@ export class EngramRepository {
    * index(防 untrusted 投毒),只处理「新增」方向走 hook,「删除」方向
    * 完全未处理。本方法补齐删除方向的自动同步。
    */
-  private scanForDeletedEngrams(): void {
+  private scanForDeletedEngrams(): { deleted: number; moved: number } {
     // 直接读 index.json(不调 getIndex —— getIndex 在 index.json 缺失时会
     // 触发 rebuildIndex,把所有合法 .md 灌入,污染孤儿判定)。
     // index.json 损坏时 readEngramIndex 抛错,catch 后跳过本次扫描。
@@ -959,7 +961,7 @@ export class EngramRepository {
     try {
       index = readEngramIndex(this.config.rootPath);
     } catch {
-      return;
+      return { deleted: 0, moved: 0 };
     }
     const root = this.config.rootPath;
     // 磁盘合法 engram 的 id→path 映射,用于区分「路径迁移」与「真删除」。
@@ -972,7 +974,7 @@ export class EngramRepository {
     const diskIds = this.collectDiskEngramIds();
     // 先收集再清理:readEngramIndex 快照不会被 deleteEngram 修改,先收集让语义清晰。
     const orphans: StableEngramId[] = [];
-    let moved = false;
+    let moved = 0;
     for (const [id, entry] of index.entries) {
       // path 校验:理论上是 trusted,但 doctor 自愈后可能含异常路径
       if (!isPathWithinRoot(root, entry.path)) continue;
@@ -991,12 +993,12 @@ export class EngramRepository {
           // 用旧 mtime 兜底,scanForModifiedEngrams 下轮校正
         }
         index.entries.set(id, { ...entry, path: diskPath, mtime });
-        moved = true;
+        moved++;
       } else {
         orphans.push(id);
       }
     }
-    if (moved) {
+    if (moved > 0) {
       this.persistIndex(index);
     }
     for (const id of orphans) {
@@ -1009,6 +1011,7 @@ export class EngramRepository {
         // 部分清理失败不阻塞其他孤儿,下次扫描重试
       }
     }
+    return { deleted: orphans.length, moved };
   }
 
   /**
@@ -1141,6 +1144,19 @@ export class EngramRepository {
    */
   rescanModifiedEngrams(): { id: string; contentChanged: boolean }[] {
     return this.scanForModifiedEngrams();
+  }
+
+  /**
+   * 按需触发删除方向同步(public 入口,2026-08-19):扫描 index entry 中
+   * 磁盘文件已消失的真删除(stable id 区分路径迁移),复用 deleteEngram
+   * 完整清理 index / 磁盘 / synapse yaml / SQLite。此前只挂 .md watcher 链
+   * (startWatching / scheduleDataScan),常驻宿主无事件时 ghost 行残留,
+   * totalEngrams 虚高 —— bootstrap 启动对账调用本方法兜底。
+   *
+   * @returns deleted:清理的真删除数;moved:路径迁移修正数(仅改 index entry)
+   */
+  rescanDeletedEngrams(): { deleted: number; moved: number } {
+    return this.scanForDeletedEngrams();
   }
 
   /** 停止 watcher(主要用于测试隔离) */
@@ -3621,10 +3637,20 @@ export class EngramRepository {
               path: invalidPath,
               message: vi.message,
               autoFixed: false,
-              nextAction: this.nextActionFor(
-                vi,
-                typeof fmId === "string" ? fmId : "<unknown>",
-              ),
+              // id 有效 → 字段级 nextAction(可精确执行);
+              // id 缺失/无效 → 一律文件级引导。此前会把字面量 "<unknown>" 当
+              // stableId 传给 nextActionFor,生成 `id=<unknown>` 的 delete/update
+              // 建议——同一条目同时出现「delete 重建」与「update 补字段」且都
+              // 无法执行(2026-08-16 loop r12 P0)。id 定位不了时字段级建议没有
+              // 意义,统一引导先修 id(或文件级重建),修好后 doctor 再给字段级建议。
+              nextAction: stableId
+                ? this.nextActionFor(vi, stableId)
+                : {
+                    tool: "(manual edit)",
+                    argsHint: `Fix frontmatter.id in ${invalidPath} to a valid ULID (or delete the file and engram_create to rebuild)`,
+                    explanation:
+                      "id is missing/invalid, so field-level engram_update/engram_delete cannot locate this entry. Restore a valid id first, then re-run engram_doctor for per-field nextActions.",
+                  },
             };
             issues.push(issue);
             pendingManualReview.push(issue);

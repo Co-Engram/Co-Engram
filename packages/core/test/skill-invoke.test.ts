@@ -75,7 +75,7 @@ describe("skill_invoke", () => {
     expect(r.effectiveness).toBeUndefined();
   });
 
-  it("forgotten skill → success:false + error", async () => {
+  it("forgotten skill → 使用即复活(relearning):正常记录 + retention 回 active + 提示 revived", async () => {
     create();
     // 手动构造 forgotten skill（直接写 imprint）
     const skill = ctx.skillRepository!.readSkill("s1");
@@ -87,8 +87,12 @@ describe("skill_invoke", () => {
     writeImprint(root, forgottenSkill);
 
     const r = await skillInvokeTool.execute({ id: "s1", success: true }, ctx);
-    expect(r.success).toBe(false);
-    expect(r.error).toMatch(/decayed to forgotten/);
+    expect(r.success).toBe(true); // 使用结果透传,不再被 forgotten 拒绝
+    expect(r.error).toBeUndefined();
+    expect(r.output).toContain("revivedFrom=forgotten");
+    const after = ctx.skillRepository!.readSkill("s1");
+    expect(after.retentionStage).toBe("active"); // recordUse touch lastUsedAt → 复活
+    expect(after.utility).toBeGreaterThan(0.01); // Rescorla-Wagner 正常更新
   });
 
   it("连续成功 → utility 持续上升", async () => {

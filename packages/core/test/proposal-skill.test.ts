@@ -145,6 +145,53 @@ describe("proposeSkill", () => {
     expect(p?.payload?.skillVersion).toBe("1.0");
     expect(p?.payload?.compatibility).toBe("Claude Code");
   });
+
+  // —— 2026-08-16 purge-复活 bug 回归(血案:viewer「清空已接受」删掉 accepted 行
+  //    后,watcher 重扫把 9 个已注册技能当新发现重新提议) ——
+  it("purgeAccepted 删行后重扫 → 印迹已注册,不复活为 pending", () => {
+    engine.proposeSkill(mockInput);
+    engine.accept(skillEntityId("tools/a"), { createdBy: "test-user" });
+    expect(skillRepo.exists("a")).toBe(true);
+
+    // 模拟 viewer「清空已接受」:物理删除 accepted 行,不留 tombstone
+    const purged = engine.purgeAccepted();
+    expect(purged.length).toBe(1);
+    expect(
+      engine.readProposals().find((p) => p.entityId === skillEntityId("tools/a"))
+    ).toBeUndefined();
+
+    // watcher 重扫同一 skill 目录 → 印迹级幂等拦截,不新建 pending
+    const result = engine.proposeSkill(mockInput);
+    expect(result).toBe("no-change");
+    expect(
+      engine.readProposals().find((p) => p.entityId === skillEntityId("tools/a"))
+    ).toBeUndefined();
+  });
+
+  it("印迹已注册 + 存量 pending 复活行 → 自愈对齐为 accepted", () => {
+    engine.proposeSkill(mockInput);
+    // 模拟印迹已注册但 proposal 行是 purge 后复活的 pending
+    skillRepo.createSkill({
+      skillId: "a",
+      sourcePath: "tools/a",
+      initiationSet: "用时：",
+      createdBy: "test-user",
+    });
+
+    const result = engine.proposeSkill(mockInput);
+    expect(result).toBe("no-change");
+
+    const proposals = engine.readProposals();
+    const healed = proposals.find((p) => p.entityId === skillEntityId("tools/a"));
+    expect(healed?.status).toBe("accepted");
+    expect(healed?.acceptedEngramId).toBe("a");
+
+    // 自愈留 audit 痕迹
+    const healedAudit = audit
+      .query()
+      .find((e) => e.action === "propose" && e.metadata.selfHealed === "imprint-exists");
+    expect(healedAudit).toBeDefined();
+  });
 });
 
 describe("createSkillHook", () => {
@@ -249,6 +296,35 @@ describe("accept skill proposal", () => {
     expect(() => {
       engineWithoutSkillRepo.accept(skillEntityId("tools/a"), { createdBy: "test-user" });
     }).toThrow("skillRepository");
+  });
+
+  it("印迹已注册时 accept pending 提案 → 幂等成功,不抛 Skill already exists", () => {
+    // 复活场景:purge 后提案回到 pending,但印迹早已注册
+    engine.proposeSkill(mockInput);
+    skillRepo.createSkill({
+      skillId: "a",
+      sourcePath: "tools/a",
+      initiationSet: "用时：",
+      createdBy: "test-user",
+    });
+
+    // 旧实现这里抛 validationError "Skill already exists: a"
+    const skillId = engine.accept(skillEntityId("tools/a"), { createdBy: "test-user" });
+    expect(skillId).toBe("a");
+
+    // proposal 置 accepted,印迹不重复(skillList 仍只有一条 a)
+    const proposal = engine
+      .readProposals()
+      .find((p) => p.entityId === skillEntityId("tools/a"));
+    expect(proposal?.status).toBe("accepted");
+    expect(proposal?.acceptedEngramId).toBe("a");
+    expect(skillRepo.listSkills().filter((s) => s.skillId === "a").length).toBe(1);
+
+    // 幂等路径留 audit 归因
+    const idempotentAudit = audit
+      .query()
+      .find((e) => e.action === "accept" && e.metadata.idempotent === true);
+    expect(idempotentAudit).toBeDefined();
   });
 
   it("acceptBatch source=skill", () => {

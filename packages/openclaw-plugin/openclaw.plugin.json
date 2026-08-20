@@ -49,11 +49,11 @@
       "engram_synthesize",
       "engram_audit_query",
       "engram_sync",
-      "incubation_create",
-      "incubation_run",
-      "incubation_list",
-      "incubation_resolve",
-      "incubation_report"
+      "ponder_create",
+      "ponder_run",
+      "ponder_list",
+      "ponder_report",
+      "ponder_delete"
     ]
   },
   "name": "Co-Engram",

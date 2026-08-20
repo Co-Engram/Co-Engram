@@ -192,7 +192,7 @@ describe("renderSpaHtml", () => {
     expect(html).toContain('data-tab="engrams"');
     expect(html).toContain(">Engrams</button>");
     expect(html).toContain('data-tab="audit"');
-    expect(html).toContain(">Audit</button>");
+    expect(html).toContain('<span class="sr-only">Audit</span>'); // 2026-08 audit 为图标入口(sr-only);旧断言系基线遗留红
     expect(html).toContain("Full-text search engrams");
     // 中文 UI 不应该有英文 tab 标签
     expect(html).not.toContain(">统计</button>");
@@ -1558,6 +1558,58 @@ describe("守护 · Bug 3: topContributors 合计 engram + synapse 作者", () =
       // 因为没有作者跨 engram/synapse 重复,dave 的 synapseCount=2 算 2 条
       expect(sumTotal).toBeLessThanOrEqual(data.totalEngrams + data.totalSynapses);
       expect(sumTotal).toBe(5); // alice 1 + bob 1 + carol 1 + dave 2
+    });
+  });
+
+  it("totalSynapses 实时反映新突触(repository 层写入,不依赖 graph.json 重建)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    const b = ctx.repository.createEngram({
+      title: "B", content: "b", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    // 2026-08 修复回归:MCP 工具(synapse_create 等)走 repository 层写入,不经过
+    // viewer 写路由 → 不触发 graph.json 重建;旧口径读 graph.json(此场景不存在)
+    // → totalSynapses 恒 0。新口径 SQLite 聚合,写入后立即可见。
+    ctx.repository.addOutgoingSynapse(
+      a.id,
+      makeSynapse(a.id, b.id, "extends"),
+    );
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      expect(data.totalSynapses).toBe(1);
+      expect(data.bySynapseKind.extends).toBe(1);
+    });
+  });
+
+  it("weeklyNewSynapses 计入夜思提案 accept 落地的突触(rem-synapse)", async () => {
+    const ctx = makeCtx(tmpDir);
+    const a = ctx.repository.createEngram({
+      title: "A", content: "a", kind: "fact",
+      domainTags: ["t"], createdBy: "alice",
+    });
+    // 2026-08 修复回归:夜思批量采纳产生的突触只落 accept + source=rem-synapse +
+    // appliedAction=create 审计事件,旧口径只认 action=create + target=synapse,
+    // 这些突触不计入「本周 ↑N」。
+    ctx.auditLog?.append({
+      actor: "user",
+      action: "accept",
+      engramId: a.id,
+      metadata: {
+        entityId: "rem-synapse:add:0001",
+        via: "viewer-batch",
+        source: "rem-synapse",
+        appliedAction: "create",
+      },
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/stats");
+      const data = JSON.parse(res.body);
+      expect(data.weeklyNewSynapses).toBe(1);
     });
   });
 });

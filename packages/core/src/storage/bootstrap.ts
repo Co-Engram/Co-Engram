@@ -17,7 +17,7 @@
 // memory(适用于嵌入式 / 只读 fs / 显式不想要 .co-engram/index.db 副作用的部署)。
 //
 // @module @co-engram/core/storage
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Language } from "../i18n/index.js";
 import {
@@ -31,6 +31,7 @@ import { type FiveFactorWeights } from "../retrieval/scoring.js";
 import { readEngramFile, type EngramFile } from "./engram-store.js";
 import { EngramRepository } from "./repository.js";
 import { IndexDb, type EngramIndexEntry } from "./index-db.js";
+import { IndexOrchestrator } from "../index/orchestrator.js";
 import { computeFreshness } from "../lifecycle/freshness.js";
 
 export interface BootstrapOptions {
@@ -60,6 +61,30 @@ export interface BootstrapResult {
    *  关闭时显式 close()(进程退出时 OS 自动回收 fd,但测试 / 显式资源管理
    *  需要确定性释放)。 */
   readonly indexDb?: IndexDb;
+}
+
+/**
+ * 数磁盘 synapses/{kind}/*.yaml|.yml 文件数(bootstrap 启动对账用)。
+ *
+ * 只 readdir 不 parse(几 ms,万级文件也快);dangling(端点 engram 不存在)的
+ * 文件也计入 —— 对账语义是「磁盘文件数 vs SQLite 行数」,不一致即回填,
+ * rebuildSynapseTable 内部再做 dangling 过滤。
+ */
+function countSynapseFiles(dataRoot: string): number {
+  const root = join(dataRoot, "synapses");
+  if (!existsSync(root)) return 0;
+  let n = 0;
+  for (const kindDir of readdirSync(root, { withFileTypes: true })) {
+    if (!kindDir.isDirectory()) continue;
+    for (const f of readdirSync(join(root, kindDir.name), {
+      withFileTypes: true,
+    })) {
+      if (f.isFile() && (f.name.endsWith(".yaml") || f.name.endsWith(".yml"))) {
+        n++;
+      }
+    }
+  }
+  return n;
 }
 
 /**
@@ -101,7 +126,9 @@ export function bootstrapRepositoryAndSearch(
       );
 
       // Cold start:db 空时全量重建
-      const count = indexDb.prepare("SELECT count(*) as n FROM engrams").get() as {
+      const count = indexDb
+        .prepare("SELECT count(*) as n FROM engrams")
+        .get() as {
         n: number;
       };
       const coldStart = count.n === 0;
@@ -128,6 +155,53 @@ export function bootstrapRepositoryAndSearch(
         indexedCount = entries.length;
       }
 
+      // Engram ghost 清理(2026-08-19,对称 synapse 对账):scanForDeletedEngrams
+      // 此前只挂 .md watcher 链(startWatching / scheduleDataScan),外部 rm /
+      // git pull 删除文件后,常驻宿主无事件时 index entry 与 SQLite 行残留,
+      // totalEngrams 虚高。启动清一次(stable id 区分路径迁移与真删除,复用
+      // deleteEngram 全清理:含 synapse yaml)—— 必须放在 synapse 对账之前,
+      // 清理后的磁盘 yaml 数才是对账的正确基准。成本与 cold-start 同量级
+      // (一次全盘扫),启动低频路径可接受。
+      let ghostCleanup: string | undefined;
+      try {
+        const r = repository.rescanDeletedEngrams();
+        if (r.deleted > 0 || r.moved > 0) {
+          ghostCleanup = `${r.deleted} deleted, ${r.moved} moved`;
+        }
+      } catch {
+        // 清理失败不阻塞启动;doctor 与 watcher 仍是修复路径
+      }
+
+      // Synapse 表对账(2026-08 首页突触 0 修复):上方 cold-start 只灌 engrams
+      // 表,synapses 表此前没有任何启动填充路径(仅 .yaml watcher / doctor 触发),
+      // 存量库切到「stats 读 SQLite」口径后首页突触恒 0;SCHEMA_VERSION 升级
+      // DROP 全表后同样只剩空表。这里每次启动对账:SQLite 行数与磁盘 synapses/
+      // 目录 yaml 文件数不等 → 从磁盘全量回填。
+      // 顺序必须在 engram cold-start 之后:rebuildFromEntries 的 DELETE FROM
+      // engrams 会 CASCADE 清空 synapses 表。
+      // 成本:一致时一次 O(1) count + readdir(几 ms);不一致才付全量回填
+      // (~50ms/1000 synapse)。dangling yaml 文件会让「文件数 > 行数」持续成立,
+      // 每次启动多付一次幂等重建 —— 可接受(dangling 本身待 doctor 清理)。
+      let synapseSync: string | undefined;
+      try {
+        const diskSynapseFiles = countSynapseFiles(opts.dataRoot);
+        if (indexDb.countSynapses() !== diskSynapseFiles) {
+          const r = new IndexOrchestrator(
+            repository,
+            dbDir,
+          ).rebuildSynapseTableFromDisk();
+          synapseSync = `rebuilt ${r.inserted} rows (${r.skippedDangling} dangling skipped)`;
+        } else {
+          // 行数一致也重算 engrams 突触计数列(毫秒级幂等):该列的历史错误
+          // (无回填路径时代写入的全零)只在 rebuildSynapseTable 内被顺带修复,
+          // 表一致的对账跳过分支若不补,存量库计数列会永远残留 —— 2026-08-19
+          // 真实库实测踩中(表 234 行一致,计数列 100/100 全零)。
+          indexDb.recomputeSynapseCounts();
+        }
+      } catch {
+        // 对账 / 回填失败不阻塞启动;doctor 与 .yaml watcher 仍是修复路径
+      }
+
       const searchEngine = createSearchEngine({
         type: "sqlite",
         indexDb,
@@ -143,6 +217,14 @@ export function bootstrapRepositoryAndSearch(
         `[co-engram] search engine: sqlite ` +
           `(cold-start: ${coldStart ? `yes, ${indexedCount} engrams indexed in ${elapsedMs}ms` : `no, ${count.n} engrams already indexed`})`,
       );
+      if (synapseSync) {
+        // eslint-disable-next-line no-console
+        console.warn(`[co-engram] synapse table sync: ${synapseSync}`);
+      }
+      if (ghostCleanup) {
+        // eslint-disable-next-line no-console
+        console.warn(`[co-engram] ghost engram cleanup: ${ghostCleanup}`);
+      }
 
       return { repository, searchEngine, engineType: "sqlite", indexDb };
     } catch (err) {
@@ -170,7 +252,9 @@ export function bootstrapRepositoryAndSearch(
 
   if (wantedEngine === "memory") {
     // eslint-disable-next-line no-console
-    console.warn(`[co-engram] search engine: memory (opt-out via CO_ENGRAM_SEARCH_ENGINE=memory)`);
+    console.warn(
+      `[co-engram] search engine: memory (opt-out via CO_ENGRAM_SEARCH_ENGINE=memory)`,
+    );
   } else {
     // sqlite 失败 fallback 路径已经 warn 过原因,这里只标记最终态
     // eslint-disable-next-line no-console
@@ -188,7 +272,8 @@ export function bootstrapRepositoryAndSearch(
  * 等派生数据)。SQLite index.db 不存 synapse 字段,所以投影等价。
  *
  * v4:synapse counts(outgoing/incoming/activeContradiction)在 cold-start
- * 时为 0;maintenance 周期性 UPDATE 全表回填。这样 cold-start 路径不需要
+ * 时为 0;由 rebuildSynapseTable 末尾的 recomputeSynapseCounts 重算覆盖
+ * (bootstrap 启动对账 / .yaml watcher / doctor 全路径)。cold-start 本身不
  * 扫 synapses/ 目录(N+1 痛点),保留"冷启动 10s 完成"的体验。
  */
 function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
@@ -202,7 +287,10 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     importance,
     confidence: f.confidence ?? 0.5,
     updatedAt: Date.parse(f.updatedAt),
-    contentSize: typeof f.contentSize === "number" ? f.contentSize : computeContentSize(content),
+    contentSize:
+      typeof f.contentSize === "number"
+        ? f.contentSize
+        : computeContentSize(content),
     visibility: f.visibility ?? "public",
     status: f.status ?? "active",
     domainTags: [...(f.domainTags ?? [])],
@@ -216,7 +304,9 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     // v4 schema 投影:与 syncEngramToIndex 对齐
     kinds: [...(f.kinds ?? [f.kind])],
     contextTags: [...(f.contextTags ?? f.tags ?? [])],
-    freshness: f.forcedFreshness ?? computeFreshness(f.lastEffectiveAt, f.createdAt, importance),
+    freshness:
+      f.forcedFreshness ??
+      computeFreshness(f.lastEffectiveAt, f.createdAt, importance),
     sourceType: f.sourceType ?? "firsthand",
     contentHash: f.contentHash ?? "",
     lastRetrievedAt: f.lastRetrievedAt,
@@ -225,9 +315,9 @@ function engramFileToIndexEntry(file: EngramFile): EngramIndexEntry {
     failedUses: f.failedUses ?? 0,
     reinforcementScore: f.reinforcementScore ?? 0,
     lastRetrievalScore: f.lastRetrievalScore,
-    outgoingSynapseCount: 0,
-    incomingSynapseCount: 0,
-    activeContradictionCount: 0,
+    // 突触计数三列不提供(2026-08-19):INSERT 侧 NOT NULL DEFAULT 0 兜底,
+    // UPDATE 侧保留原值(不再把 recompute 的正确值覆盖回 0);cold-start
+    // 后由对账 else 分支的 recomputeSynapseCounts 全量写入真值。
     verificationStatus: f.verificationStatus,
   };
 }

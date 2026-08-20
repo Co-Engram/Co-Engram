@@ -110,6 +110,26 @@ export function manualResolveContradiction(
     readonly auditLog?: AuditLog;
     /** 宿主标识(透传到 audit entry) */
     readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
+    /**
+     * supersedes 自动提议(2026-08-16 突触类型失衡修复):verdict 为
+     * keep_old / keep_new 时,胜者→被替代者的 supersedes 关系已被裁决确认,
+     * 但此前只写 audit metadata 不落图 —— 时间族突触因此恒 0(系统已在
+     * 语义上识别「替代」,只是不写进图)。现经 rem-synapse 提案落图,
+     * 用户审批后生效(与 REM 审批化架构一致,不直接写)。
+     * merge / archive 语义不同(合并/归档 ≠ 替代),不提议。
+     */
+    readonly proposalEngine?: {
+      proposeSynapseOp(input: {
+        readonly op: "add" | "delete" | "retype";
+        readonly from: string;
+        readonly to: string;
+        readonly kind: import("../types/synapse.js").SynapseKind;
+        readonly reason: string;
+        readonly confidence: number;
+        readonly fromTitle?: string;
+        readonly toTitle?: string;
+      }): boolean;
+    };
   } = {},
 ): { resolved: boolean; finalStatus: SynapseResolutionState["status"] } {
   const now = options.now ?? new Date();
@@ -171,6 +191,37 @@ export function manualResolveContradiction(
             input.verdict === "keep_old" ? synapse.to : input.fromId,
         },
       });
+    }
+
+    // supersedes 自动提议(2026-08-16):裁决确认的替代关系落图(经提案审批)。
+    // 方向 = winning supersedes superseded(「A supersedes B」= A 替代 B,有向)。
+    // 失败静默:提议是增益路径,不阻塞裁决本身。
+    if (options.proposalEngine && (input.verdict === "keep_old" || input.verdict === "keep_new")) {
+      try {
+        const supersededId =
+          input.verdict === "keep_old" ? input.fromId : synapse.to;
+        const winningId =
+          input.verdict === "keep_old" ? synapse.to : input.fromId;
+        const readTitle = (id: string): string | undefined => {
+          try {
+            return repo.readEngram(id).title;
+          } catch {
+            return undefined;
+          }
+        };
+        options.proposalEngine.proposeSynapseOp({
+          op: "add",
+          from: winningId,
+          to: supersededId,
+          kind: "supersedes",
+          reason: `矛盾裁决 ${input.verdict}:胜者替代被替代者(${input.rationale.slice(0, 100)})`,
+          confidence: 0.9,
+          fromTitle: readTitle(winningId),
+          toTitle: readTitle(supersededId),
+        });
+      } catch {
+        // 提议失败不影响裁决结果
+      }
     }
   }
 

@@ -26,7 +26,21 @@ import {
 const MODEL = process.env.VERIFY_MODEL ?? process.env.ANTHROPIC_MODEL ?? "glm-5.3[1m]";
 const ENDPOINT = (process.env.ANTHROPIC_BASE_URL ?? "https://api.anthropic.com").replace(/\/+$/, "");
 
-/** LLM 调用经 curl 子进程(node fetch 不走 https_proxy 代理环境) */
+/**
+ * curl config 值转义:双引号字符串内仅 \\ 与 \" 需转义(\\n 等控制序列在
+ * config 语法里是字面反斜杠,JSON body 自身的转义不受影响)。
+ */
+function escapeCurlConfigValue(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+/**
+ * LLM 调用经 curl 子进程(node fetch 不走 https_proxy 代理环境)。
+ *
+ * 安全(2026-08-16 loop r13 修复):密钥与请求体全部经 stdin 的 curl config
+ * (`-K -`)传递,argv 零敏感信息——此前 `-H "x-api-key: <key>"` 直接进 argv,
+ * ps aux 全机可见。stdin 管道不落盘、不经 /proc/*/cmdline 暴露。
+ */
 function curlComplete(prompt: string, opts: { maxTokens?: number; temperature?: number; timeoutMs?: number }): Promise<string> {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
@@ -35,27 +49,35 @@ function curlComplete(prompt: string, opts: { maxTokens?: number; temperature?: 
       ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
       messages: [{ role: "user", content: prompt }],
     });
-    const args = [
-      "-sS", "--max-time", "300",
-      "-X", "POST", `${ENDPOINT}/v1/messages`,
-      "-H", "content-type: application/json",
-      "-H", "anthropic-version: 2023-06-01",
-      "-H", `x-api-key: ${process.env.ANTHROPIC_API_KEY ?? ""}`,
-      ...(process.env.ANTHROPIC_AUTH_TOKEN ? ["-H", `authorization: Bearer ${process.env.ANTHROPIC_AUTH_TOKEN}`] : []),
-      "-d", body,
+    const configLines = [
+      `url = "${escapeCurlConfigValue(`${ENDPOINT}/v1/messages`)}"`,
+      `header = "content-type: application/json"`,
+      `header = "anthropic-version: 2023-06-01"`,
+      `header = "x-api-key: ${escapeCurlConfigValue(process.env.ANTHROPIC_API_KEY ?? "")}"`,
+      ...(process.env.ANTHROPIC_AUTH_TOKEN
+        ? [`header = "authorization: Bearer ${escapeCurlConfigValue(process.env.ANTHROPIC_AUTH_TOKEN)}"`]
+        : []),
+      `data = "${escapeCurlConfigValue(body)}"`,
     ];
-    execFile("curl", args, { maxBuffer: 16 * 1024 * 1024 }, (err, stdout) => {
-      if (err) { reject(err); return; }
-      try {
-        const json = JSON.parse(stdout) as { content?: Array<{ type: string; text?: string }>; error?: { message?: string } };
-        if (json.error) { reject(new Error(json.error.message ?? "api error")); return; }
-        const text = (json.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
-        if (!text) { resolve("(empty)"); return; }
-        resolve(text);
-      } catch {
-        reject(new Error(`bad response: ${String(stdout).slice(0, 200)}`));
-      }
-    });
+    const child = execFile(
+      "curl",
+      ["-sS", "--max-time", "300", "-K", "-"],
+      { maxBuffer: 16 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err) { reject(err); return; }
+        try {
+          const json = JSON.parse(stdout) as { content?: Array<{ type: string; text?: string }>; error?: { message?: string } };
+          if (json.error) { reject(new Error(json.error.message ?? "api error")); return; }
+          const text = (json.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
+          if (!text) { resolve("(empty)"); return; }
+          resolve(text);
+        } catch {
+          reject(new Error(`bad response: ${String(stdout).slice(0, 200)}`));
+        }
+      },
+    );
+    child.stdin?.on("error", () => {/* EPIPE:curl 早退时忽略*/});
+    child.stdin?.end(configLines.join("\n") + "\n");
   });
 }
 

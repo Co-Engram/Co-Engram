@@ -45,7 +45,7 @@ describe("recomputeRetentionAll", () => {
     expect(["aging", "stale", "forgotten"]).toContain(stage);
   });
 
-  it("多个 skill：部分衰退部分不变 → changed 只数变更的", () => {
+  it("多个 skill：never-used 从 createdAt 起算也衰退 → changed 计入两者", () => {
     repo.createSkill({
       skillId: "fresh",
       sourcePath: "tools/fresh",
@@ -62,8 +62,10 @@ describe("recomputeRetentionAll", () => {
     const futureMs = Date.now() + 365 * 86_400_000;
     const r = repo.recomputeRetentionAll(futureMs);
     expect(r.scanned).toBe(2);
-    expect(r.changed).toBe(1); // 只有 old 衰退
-    expect(repo.readSkill("fresh").retentionStage).toBe("active"); // fresh 不变
+    // 两者都衰退:old 距上次使用、fresh 距创建(never-used 不再冻结 active)
+    expect(r.changed).toBe(2);
+    expect(repo.readSkill("fresh").retentionStage).toBe("forgotten");
+    expect(repo.readSkill("old").retentionStage).toBe("forgotten");
   });
 
   it("空仓库 → scanned=0 changed=0", () => {

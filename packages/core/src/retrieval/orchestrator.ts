@@ -343,9 +343,9 @@ function clamp01(x: number): number {
  *   - 用等权而非真实分数贡献(四因子权重与 FTS title 加权纠缠,清晰拆分需重写)
  *   - LLM 据此可判断"这条结果为什么命中",具体权重交给 LLM 解读
  */
-function buildMatchReason(
+export function buildMatchReason(
   matchedTokens: readonly string[],
-  line: DigestLine,
+  line: Pick<DigestLine, "title" | "summary" | "domainTags" | "contextTags">,
 ): readonly MatchReason[] {
   if (matchedTokens.length === 0) return [];
 

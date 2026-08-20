@@ -91,12 +91,16 @@ CREATE TABLE IF NOT EXISTS engram_domains (
 CREATE INDEX IF NOT EXISTS idx_domains_domain ON engram_domains(domain);
 
 -- 突触
+-- schema v8:加 created_by —— viewer /api/stats topContributors 的突触作者
+-- 聚合从 graph.json 缓存切到本表实时 GROUP BY(graph 重建只挂 viewer 写路由,
+-- MCP synapse_create 不触发,贡献者突触数会滞后;2026-08 首页口径分裂修复)。
 CREATE TABLE IF NOT EXISTS synapses (
   id TEXT PRIMARY KEY,
   from_id TEXT NOT NULL,
   to_id TEXT NOT NULL,
   kind TEXT NOT NULL,
   weight REAL NOT NULL DEFAULT 0.5,
+  created_by TEXT NOT NULL DEFAULT '',
   FOREIGN KEY (from_id) REFERENCES engrams(id) ON DELETE CASCADE,
   FOREIGN KEY (to_id) REFERENCES engrams(id) ON DELETE CASCADE
 );
@@ -104,10 +108,18 @@ CREATE INDEX IF NOT EXISTS idx_synapses_from ON synapses(from_id);
 CREATE INDEX IF NOT EXISTS idx_synapses_to ON synapses(to_id);
 
 -- FTS5 trigram
+-- schema v7:加 domain_tags / context_tags 两列(簇 B 修复:rem tag-refresh 改写的
+-- 标签此前不进 FTS 索引——FTS MATCH 只查 title+summary+content_tokens,标签词
+-- 查询仅在完全 0 召回时才 fallback LIKE 兜底,标签语义化对主检索路径零收益。
+-- 补列后与 in-memory 引擎的索引字段下界对齐:两者都至少索引
+-- title+summary+domainTags+contextTags;content_tokens 仍是 SQLite 独有增强项
+-- (in-memory 是 digest 级轻量引擎,不索引全文,属设计取舍而非漂移)。
 CREATE VIRTUAL TABLE IF NOT EXISTS engram_fts USING fts5(
   id UNINDEXED,
   title,
   summary,
+  domain_tags,
+  context_tags,
   content_tokens,
   tokenize = 'trigram'
 );
@@ -151,7 +163,9 @@ CREATE TABLE IF NOT EXISTS schema_version (
 // bump 触发现有库 migrateSchema DROP 全表(空库)→ open() 在建表前设
 // auto_vacuum=INCREMENTAL(SQLite 语义:有表时设不生效,空库才生效)→ 建表
 // → cold-start rebuild 灌回。一次性切到增量回收 + 回收历史膨胀(实测 29MB→~1.5MB)。
-const SCHEMA_VERSION = 6;
+// v7(2026-08):engram_fts 加 domain_tags / context_tags 列(簇 B 修复,见建表注释)。
+// bump → DROP 全表重建,cold-start 从 .md 灌回,rem 标签自此进主检索路径。
+const SCHEMA_VERSION = 8;
 
 export interface IndexDbOptions {
   readonly dbPath: string;
@@ -215,6 +229,8 @@ export interface SynapseIndexEntry {
   readonly toId: string;
   readonly kind: string;
   readonly weight: number;
+  /** 作者(schema v8;旧调用方可省略,落 '') */
+  readonly createdBy?: string;
 }
 
 /**
@@ -297,9 +313,9 @@ export class IndexDb {
   /** 把 SCHEMA_VERSION 写入 schema_version 表(单行) */
   private writeSchemaVersion(): void {
     this.db!.exec("DELETE FROM schema_version");
-    this.db!.prepare(
-      "INSERT INTO schema_version (version) VALUES (?)",
-    ).run(SCHEMA_VERSION);
+    this.db!.prepare("INSERT INTO schema_version (version) VALUES (?)").run(
+      SCHEMA_VERSION,
+    );
   }
 
   close(): void {
@@ -391,7 +407,18 @@ export class IndexDb {
     const incomingSynapseCount = entry.incomingSynapseCount ?? 0;
     const activeContradictionCount = entry.activeContradictionCount ?? 0;
     const verificationStatus = entry.verificationStatus ?? null;
-    this.prepare(`
+    // 突触计数列条件性覆盖(2026-08-19 第三层缺口):调用方未提供时 UPDATE
+    // 保留原值 —— write-through(syncEngramToIndex)与 cold-start
+    // (engramFileToIndexEntry)都不知道真实计数,若无条件覆盖 excluded 的 0,
+    // 任何 engram 更新(含 /api/stats 的 rescanModifiedEngrams)都会把
+    // recomputeSynapseCounts 写入的正确值清回 0(部署实测踩中)。INSERT 侧
+    // 行尚不存在,?? 0 兜底(NOT NULL 列),随后 recompute 覆盖为真值。
+    const synapseCountUpdateSql =
+      `${entry.outgoingSynapseCount !== undefined ? ",\n        outgoing_synapse_count = excluded.outgoing_synapse_count" : ""}` +
+      `${entry.incomingSynapseCount !== undefined ? ",\n        incoming_synapse_count = excluded.incoming_synapse_count" : ""}` +
+      `${entry.activeContradictionCount !== undefined ? ",\n        active_contradiction_count = excluded.active_contradiction_count" : ""}`;
+    this.prepare(
+      `
       INSERT INTO engrams (
         id, title, kind, importance, confidence, updated_at, content_size,
         visibility, status, summary, retrieval_count, created_at, created_by,
@@ -426,11 +453,9 @@ export class IndexDb {
         failed_uses = excluded.failed_uses,
         reinforcement_score = excluded.reinforcement_score,
         last_retrieval_score = excluded.last_retrieval_score,
-        outgoing_synapse_count = excluded.outgoing_synapse_count,
-        incoming_synapse_count = excluded.incoming_synapse_count,
-        active_contradiction_count = excluded.active_contradiction_count,
-        verification_status = excluded.verification_status
-    `).run(
+        verification_status = excluded.verification_status${synapseCountUpdateSql}
+    `,
+    ).run(
       entry.id,
       entry.title,
       entry.kind,
@@ -461,18 +486,29 @@ export class IndexDb {
       verificationStatus,
     );
     // domains 全量替换
-    this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(entry.id);
+    this.prepare("DELETE FROM engram_domains WHERE engram_id = ?").run(
+      entry.id,
+    );
     const insertDomain = this.prepare(
       "INSERT OR IGNORE INTO engram_domains (engram_id, domain) VALUES (?, ?)",
     );
     for (const d of entry.domainTags) {
       insertDomain.run(entry.id, d);
     }
-    // FTS5 不支持 ON CONFLICT,delete + insert
+    // FTS5 不支持 ON CONFLICT,delete + insert。
+    // domain_tags / context_tags:逗号 join 纯文本进 FTS(schema v7,簇 B 修复)
+    // ——标签词自此可被 FTS MATCH 主路径召回,不再依赖 LIKE 兜底。
     this.prepare("DELETE FROM engram_fts WHERE id = ?").run(entry.id);
     this.prepare(
-      "INSERT INTO engram_fts (id, title, summary, content_tokens) VALUES (?, ?, ?, ?)",
-    ).run(entry.id, entry.title, entry.summary, entry.contentTokens);
+      "INSERT INTO engram_fts (id, title, summary, domain_tags, context_tags, content_tokens) VALUES (?, ?, ?, ?, ?, ?)",
+    ).run(
+      entry.id,
+      entry.title,
+      entry.summary,
+      entry.domainTags.join(", "),
+      (entry.contextTags ?? []).join(", "),
+      entry.contentTokens,
+    );
   }
 
   /**
@@ -510,7 +546,12 @@ export class IndexDb {
     readonly kind?: string;
     readonly domainTags?: readonly string[];
     readonly status?: readonly string[];
-    readonly sort?: "createdAt" | "updatedAt" | "importance" | "retrievalCount" | "title";
+    readonly sort?:
+      | "createdAt"
+      | "updatedAt"
+      | "importance"
+      | "retrievalCount"
+      | "title";
     readonly descending?: boolean;
     readonly limit?: number;
     readonly cursor?: string;
@@ -574,9 +615,10 @@ export class IndexDb {
     }
 
     const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-    const countWhereClause = preCursorWhereCount > 0
-      ? `WHERE ${where.slice(0, preCursorWhereCount).join(" AND ")}`
-      : "";
+    const countWhereClause =
+      preCursorWhereCount > 0
+        ? `WHERE ${where.slice(0, preCursorWhereCount).join(" AND ")}`
+        : "";
     const countParams = params.slice(0, preCursorParamCount);
 
     // total:不依赖 cursor,UI 显示总量用
@@ -627,7 +669,12 @@ export class IndexDb {
     let total = 0;
     const rows = this.prepare(
       `SELECT status, kind, visibility, count(*) as n FROM engrams GROUP BY status, kind, visibility`,
-    ).all() as { status: string; kind: string; visibility: string; n: number }[];
+    ).all() as {
+      status: string;
+      kind: string;
+      visibility: string;
+      n: number;
+    }[];
     for (const r of rows) {
       const n = r.n;
       total += n;
@@ -674,9 +721,10 @@ export class IndexDb {
     const params: (string | number)[] = [];
 
     // status 隐式默认:与 matchesFilter 一致(active / draft)
-    const statusFilter = filter?.status && filter.status.length > 0
-      ? filter.status
-      : ["active", "draft"];
+    const statusFilter =
+      filter?.status && filter.status.length > 0
+        ? filter.status
+        : ["active", "draft"];
     const statusPlaceholders = statusFilter.map(() => "?").join(",");
     where.push(`e.status IN (${statusPlaceholders})`);
     for (const s of statusFilter) params.push(s);
@@ -792,9 +840,7 @@ export class IndexDb {
    *
    * 实现:JOIN engram_fts(FTS 表存 content_tokens),一次 SQL 拿齐。
    */
-  readContentBatch(
-    ids: readonly string[],
-  ): readonly ContentBatchRow[] {
+  readContentBatch(ids: readonly string[]): readonly ContentBatchRow[] {
     if (ids.length === 0) return [];
     // SQLite 参数上限通常 999;为兼容默认配置,每批最多 500。
     // 调用方可能传 5000+ ids(findCandidatesSync 全表扫),分批合并结果。
@@ -988,15 +1034,29 @@ export class IndexDb {
    * UPSERT 一条 synapse。无 FTS,单语句即可,不需要事务包裹。
    */
   upsertSynapse(s: SynapseIndexEntry): void {
-    this.prepare(`
-      INSERT INTO synapses (id, from_id, to_id, kind, weight)
-      VALUES (?, ?, ?, ?, ?)
+    this.prepare(
+      `
+      INSERT INTO synapses (id, from_id, to_id, kind, weight, created_by)
+      VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         from_id = excluded.from_id,
         to_id = excluded.to_id,
         kind = excluded.kind,
-        weight = excluded.weight
-    `).run(s.id, s.fromId, s.toId, s.kind, s.weight);
+        weight = excluded.weight,
+        created_by = excluded.created_by
+    `,
+    ).run(s.id, s.fromId, s.toId, s.kind, s.weight, s.createdBy ?? "");
+  }
+
+  /** synapses 表行数(bootstrap 启动对账用,O(1))。 */
+  countSynapses(): number {
+    return (
+      (
+        this.prepare(`SELECT count(*) AS n FROM synapses`).get() as {
+          n: number;
+        }
+      )?.n ?? 0
+    );
   }
 
   /**
@@ -1032,8 +1092,43 @@ export class IndexDb {
         this.upsertSynapse(s);
         inserted++;
       }
+      // 同步重算 engrams 表的突触计数列(2026-08 审计修复):该列此前无任何
+      // 回填路径 —— syncEngramToIndex / engramFileToIndexEntry 都写 0,注释
+      // 宣称的「maintenance / synapse-create 增量 UPDATE」并不存在,queryEngrams-
+      // ForMcpList(engram_list MCP 输出)经 readDigestBatch 读到恒 0。挂在
+      // rebuildSynapseTable 末尾让 bootstrap 对账 / watcher / doctor 全路径覆盖。
+      this.recomputeSynapseCountsUnsafe();
     });
     return { inserted, skippedDangling };
+  }
+
+  /**
+   * 从 synapses 表重算 engrams.outgoing/incoming_synapse_count(对称 kind 语义,
+   * 与 repository.readSynapses 口径一致:similar_to / contradicts 两端都计入出+入)。
+   *
+   * active_contradiction_count 不在此回填 —— 该列语义依赖 resolutionState
+   * (仅未终态的 contradicts 计入),synapses 表无此列,无法从表派生。
+   *
+   * 走 idx_synapses_from / idx_synapses_to 索引,毫秒级;幂等。
+   */
+  recomputeSynapseCounts(): void {
+    this.transaction(() => this.recomputeSynapseCountsUnsafe());
+  }
+
+  private recomputeSynapseCountsUnsafe(): void {
+    this.exec(`
+      UPDATE engrams SET
+        outgoing_synapse_count = (
+          SELECT count(*) FROM synapses s
+          WHERE s.from_id = engrams.id
+             OR (s.kind IN ('similar_to','contradicts') AND s.to_id = engrams.id)
+        ),
+        incoming_synapse_count = (
+          SELECT count(*) FROM synapses s
+          WHERE s.to_id = engrams.id
+             OR (s.kind IN ('similar_to','contradicts') AND s.from_id = engrams.id)
+        )
+    `);
   }
 
   /**
@@ -1083,9 +1178,7 @@ export class IndexDb {
   }
 
   /** 读单条基线;不存在返回 undefined。 */
-  readTagRefreshBaseline(
-    engramId: string,
-  ):
+  readTagRefreshBaseline(engramId: string):
     | {
         readonly engramId: string;
         readonly tokenSet: readonly string[];
@@ -1156,9 +1249,9 @@ export class IndexDb {
 
   /** 删单条基线(engram 删除时由 FK CASCADE 自动触发,此方法供显式清理/测试用)。 */
   deleteTagRefreshBaseline(engramId: string): void {
-    this.prepare(
-      "DELETE FROM tag_refresh_baseline WHERE engram_id = ?",
-    ).run(engramId);
+    this.prepare("DELETE FROM tag_refresh_baseline WHERE engram_id = ?").run(
+      engramId,
+    );
   }
 }
 

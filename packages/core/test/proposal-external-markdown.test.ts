@@ -18,6 +18,7 @@ import {
   ProposalEngine,
   DEFAULT_HASHER_EMBEDDER,
   DEFAULT_HASHER_SIMILARITY_THRESHOLD,
+  externalMarkdownEntityId,
 } from "../src/observability/proposal-engine.js";
 import {
   engramAcceptProposalTool,
@@ -532,6 +533,11 @@ describe("engram_accept_proposal · external-markdown 原地纳管", () => {
     });
     const bytesBefore = readFileSync(join(tmpDir, rel), "utf8");
 
+    // 2026-08-18 库级幂等后,已入 index 的源文件不再产生提案(no-change)。
+    // 删 index 文件模拟真实场景:index 未同步/丢失,合法 engram 文件待收编
+    // (readEngramIndex 纯磁盘读 → 空 → propose 放行;accept 走原地 adopt)。
+    rmSync(join(tmpDir, ".co-engram", "engram-index.json"));
+
     engine.proposeExternalMarkdown({
       sourcePath: rel,
       title: "Existing",
@@ -640,5 +646,85 @@ describe("engram_accept_proposal · external-markdown 原地纳管", () => {
     // 原地提升为合法 engram，imported/ 无新建（死循环根除）
     expect(repo.readEngramByPath(rel)?.title).toBeTruthy();
     expect(existsSync(join(tmpDir, "imported"))).toBe(false);
+  });
+});
+
+describe("proposeExternalMarkdown 库级幂等(purge-复活修复,2026-08-18)", () => {
+  const srcRel = "imported/裸文档.md";
+  const baseInput = {
+    sourcePath: srcRel,
+    title: "裸文档",
+    content: "裸 markdown 内容",
+    domainTags: ["imported"],
+    kind: "observation" as const,
+  };
+  const eid = () => externalMarkdownEntityId(srcRel);
+
+  function writeBareMd() {
+    mkdirSync(join(tmpDir, "imported"), { recursive: true });
+    writeFileSync(join(tmpDir, srcRel), "# 裸文档\n\n裸 markdown 内容", "utf8");
+  }
+
+  /** 构造「已纳管」态:原 .md 原地提升(生产 accept 路径同款) */
+  function ingestBareMd() {
+    writeBareMd();
+    return repo.adoptOrPromoteEngramAt(srcRel, {
+      title: baseInput.title,
+      content: baseInput.content,
+      kind: baseInput.kind,
+      domainTags: baseInput.domainTags,
+      createdBy: "test",
+    })!;
+  }
+
+  it("sourcePath 已在 index(已纳管) → 不新建提案(no-change)", () => {
+    ingestBareMd();
+    expect(engine.proposeExternalMarkdown(baseInput)).toBe("no-change");
+    expect(
+      engine.readProposals().filter((p) => p.entityId === eid()).length,
+    ).toBe(0);
+  });
+
+  it("purge 复活血案回归:propose→accept→purge→重扫不复活", () => {
+    writeBareMd();
+    expect(engine.proposeExternalMarkdown(baseInput)).toBe("proposed");
+    engine.accept(eid(), { createdBy: "test-user" });
+    // accept 走原地纳管 → index 含该 path(库级键可命中)
+    const inIndex = Object.entries(
+      (JSON.parse(readFileSync(join(tmpDir, ".co-engram/engram-index.json"), "utf8")) as { engrams?: Record<string, { path?: string }> }).engrams ?? {},
+    ).some(([, e]) => e.path === srcRel);
+    expect(inIndex).toBe(true);
+
+    engine.purgeAccepted(); // viewer「清空已接受」物理删行
+    expect(
+      engine.readProposals().find((p) => p.entityId === eid()),
+    ).toBeUndefined();
+
+    // 重扫(与 scan hook 同步路径等价)→ 库级幂等拦截
+    expect(engine.proposeExternalMarkdown(baseInput)).toBe("no-change");
+    expect(
+      engine.readProposals().filter((p) => p.entityId === eid()).length,
+    ).toBe(0);
+  });
+
+  it("存量 pending 复活行 → 自愈对齐为 accepted + audit 留痕", () => {
+    writeBareMd();
+    engine.proposeExternalMarkdown(baseInput); // pending
+    const adopted = ingestBareMd(); // 行 pending 时库内已纳管(purge 后复活态)
+
+    expect(engine.proposeExternalMarkdown(baseInput)).toBe("no-change");
+    const healed = engine.readProposals().find((p) => p.entityId === eid());
+    expect(healed?.status).toBe("accepted");
+    expect(healed?.acceptedEngramId).toBe(adopted.id);
+    const auditHit = audit
+      .query()
+      .find((e) => e.action === "propose" && e.metadata.selfHealed === "ingested-path");
+    expect(auditHit).toBeDefined();
+  });
+
+  it("删除 engram(index 移除)后重扫 → 合理复活(proposed)", () => {
+    const adopted = ingestBareMd();
+    repo.deleteEngram(adopted.id);
+    expect(engine.proposeExternalMarkdown(baseInput)).toBe("proposed");
   });
 });

@@ -79,8 +79,8 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     : "";
   const authPlaceholder = t(language, "viewer.auth.placeholder");
 
-  // 侧栏导航(2026-08 改版):按使用频率与治理语义分组。
-  // 主功能:高频浏览入口;治理:需要人裁决的入口;管理:低频工具(图标行,极度降权)。
+  // 侧栏导航(2026-08 改版):按使用频率与进化语义分组。
+  // 主功能:高频浏览入口;进化:驱动记忆库成长变化的入口;管理:低频工具(图标行,极度降权)。
   // .tab 类与 data-tab 属性保持不变 —— app.ts 的 showTab 依赖这两个选择器。
   const primaryTabs = [
     ["stats", t(language, "viewer.tab.stats"), t(language, "viewer.tab.stats.tip")],
@@ -89,18 +89,20 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     ["skills", t(language, "viewer.tab.skills"), t(language, "viewer.tab.skills.tip")],
   ] as const;
 
-  const governanceTabs = [
+  const evolutionTabs = [
     ["proposals", t(language, "viewer.tab.proposals"), t(language, "viewer.tab.proposals.tip"), true],
     ["maintenance", t(language, "viewer.tab.maintenance"), t(language, "viewer.tab.maintenance.tip"), false],
-    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), false],
-    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), false],
-    ["incubations", t(language, "viewer.tab.incubations"), t(language, "viewer.tab.incubations.tip"), false],
+    ["contemplation", t(language, "viewer.tab.contemplation"), t(language, "viewer.tab.contemplation.tip"), false],
   ] as const;
 
-  // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)
+  // 低频管理入口:仅图标,标签以 title + 屏幕阅读器文本呈现(i18n 契约要求文案可渲染)。
+  // 2026-08:审计/回收站按用户要求从进化组移到左栏底部(与合并/健康同为图标入口,
+  // 图标复用 DEMO 定稿 i-clock / i-trash)
   const adminTabs = [
     ["merges", t(language, "viewer.tab.merges"), t(language, "viewer.tab.merges.tip"), "i-merge"],
     ["health", t(language, "viewer.tab.health"), t(language, "viewer.tab.health.tip"), "i-pulse"],
+    ["audit", t(language, "viewer.tab.audit"), t(language, "viewer.tab.audit.tip"), "i-clock"],
+    ["trash", t(language, "viewer.tab.trash"), t(language, "viewer.tab.trash.tip"), "i-trash"],
     ["config", t(language, "viewer.tab.config"), t(language, "viewer.tab.config.tip"), "i-gear"],
     ["help", t(language, "viewer.tab.help"), t(language, "viewer.tab.help.tip"), "i-help"],
   ] as const;
@@ -113,11 +115,14 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
   };
 
   const primaryTabButtons = primaryTabs.map(navButton).join("\n      ");
-  const governanceTabButtons = governanceTabs.map(navButton).join("\n      ");
+  const evolutionTabButtons = evolutionTabs.map(navButton).join("\n      ");
   const adminTabButtons = adminTabs
     .map(
       ([id, label, tip, icon]) =>
-        `<button data-tab="${id}" class="tab side-admin-btn" title="${tip.replace(/"/g, "&quot;")}"><svg class="side-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#${icon}"/></svg><span class="sr-only">${label}</span></button>`,
+        // 图标入口悬停说明统一「名字 · 说明」(用户 2026-08 要求,格式一致)。
+        // tip 文案本身不再带名字前缀(merges/config 的前缀已从 i18n 源头去除),
+        // 拼接永远只出现一次名字。
+        `<button data-tab="${id}" class="tab side-admin-btn" title="${(label + " · " + tip).replace(/"/g, "&quot;")}"><svg class="side-ico" viewBox="0 0 16 16" aria-hidden="true"><use href="#${icon}"/></svg><span class="sr-only">${label}</span></button>`,
     )
     .join("\n        ");
 
@@ -128,6 +133,9 @@ export function renderSpaHtml(options: SpaHtmlOptions = {}): string {
     <symbol id="i-pulse" viewBox="0 0 16 16"><path d="M1.5 8h3L6.5 4l2.5 8 1.5-4h3"/></symbol>
     <symbol id="i-gear" viewBox="0 0 16 16"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.5 3.5l1.4 1.4M11.1 11.1l1.4 1.4M12.5 3.5l-1.4 1.4M4.9 11.1l-1.4 1.4"/></symbol>
     <symbol id="i-help" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M6.3 6.3A1.8 1.8 0 1 1 8 8.7v.8"/><circle cx="8" cy="11.4" r="0.4"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.5"/><path d="M8 5v3l2.2 1.5"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 16 16"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.7 9h5.6l.7-9"/></symbol>
+    <symbol id="i-ponder" viewBox="0 0 16 16"><path d="M8 2.5a5 5 0 0 1 0 10c-.9 0-1.8-.25-2.5-.7L3 12.5l.7-2.5A5 5 0 1 1 8 2.5z"/><path d="M5.8 7.3h.01M8 7.3h.01M10.2 7.3h.01"/></symbol>
   </svg>`;
 
   return `<!DOCTYPE html>
@@ -161,9 +169,9 @@ ${SIDE_ICONS}
       ${primaryTabButtons}
     </nav>
 
-    <div class="side-sec">${t(language, "viewer.nav.governance")}</div>
-    <nav class="side-group" aria-label="${t(language, "viewer.nav.governance")}">
-      ${governanceTabButtons}
+    <div class="side-sec">${t(language, "viewer.nav.evolution")}</div>
+    <nav class="side-group" aria-label="${t(language, "viewer.nav.evolution")}">
+      ${evolutionTabButtons}
     </nav>
 
     <div class="side-admin">
@@ -238,7 +246,6 @@ ${SIDE_ICONS}
         <span class="chip" id="graph-filter-count"></span>
         <span class="spacer"></span>
         <button class="tb" onclick="CO_ENGRAM_GRAPH.fit()" title="${t(language, "viewer.graph.toolbar.fitTitle")}">⤢ ${t(language, "viewer.graph.toolbar.fit")}</button>
-        <button class="tb on" id="graph-hover-hl" onclick="CO_ENGRAM_GRAPH.toggleHoverHl()" title="${t(language, "viewer.graph.tools.hoverHlTitle")}">✨ ${t(language, "viewer.graph.tools.hoverHl")}</button>
         <button class="tb" onclick="CO_ENGRAM_GRAPH.togglePhysics()" title="${t(language, "viewer.graph.toolbar.physicsTitle")}">⚛ ${t(language, "viewer.graph.toolbar.physics")}</button>
         <button class="btn secondary mini" id="graph-night-btn" onclick="CO_ENGRAM_GRAPH.toggleNight()" title="${t(language, "viewer.graph.night.title")}">🌙 ${t(language, "viewer.graph.night.enable")}</button>
       </div>
@@ -292,9 +299,9 @@ ${SIDE_ICONS}
       <div id="trash-content"></div>
     </section>
 
-    <!-- Incubations(夜思实验室,spec §四/§六) -->
-    <section class="tab-panel" data-tab="incubations">
-      <div id="incubations-content"></div>
+    <!-- Contemplation(沉思,2026-08-17 重设计:提问即深思、一次一份报告) -->
+    <section class="tab-panel" data-tab="contemplation">
+      <div id="contemplation-content"></div>
     </section>
 
     <!-- Health -->

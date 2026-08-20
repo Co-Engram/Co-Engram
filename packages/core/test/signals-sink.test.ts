@@ -111,21 +111,23 @@ describe("FileSignalSink", () => {
     expect(content).toContain('"id":"x"');
   });
 
-  it("未达 flushThreshold 时不自动写入文件", async () => {
+  it("write-through:append 即时落盘(2026-08-19 跨进程证据延迟修复)", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
     const sink = new FileSignalSink({ filePath, flushThreshold: 3 });
 
     sink.append(makeEvent({ toolName: "a" }));
     sink.append(makeEvent({ toolName: "b" }));
-    // 此时 buffer.length = 2 < threshold = 3，文件不存在
-    expect(existsSync(filePath)).toBe(false);
-
-    await sink.flush(); // 手动 flush
+    // write-through:每条事件同步追加 —— headless 沉思的跨进程证据
+    // 不再依赖 5s 批量 flush(此前 buffer 滞留异进程导致 PDCA 零盘点误拒)
     const lines = readFileSync(filePath, "utf8").trim().split("\n");
     expect(lines.length).toBe(2);
+    expect(lines[0]).toContain('"toolName":"a"');
+
+    await sink.flush(); // 兼容:no-op,不重复不丢失
+    expect(readFileSync(filePath, "utf8").trim().split("\n").length).toBe(2);
   });
 
-  it("drain 返回文件中的事件并清空", async () => {
+  it("drain 游标消费(2026-08-19):首次(无游标)存量视为已消费返回空,此后只返回增量且不清空文件", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
     const sink = new FileSignalSink({ filePath, flushThreshold: 10 });
 
@@ -133,14 +135,60 @@ describe("FileSignalSink", () => {
     sink.append(makeEvent({ toolName: "b", input: { y: 2 }, sessionId: "s2" }));
     await sink.flush();
 
-    const drained = sink.drain();
-    expect(drained).toHaveLength(2);
-    expect(drained[0]!.toolName).toBe("a");
-    expect(drained[1]!.toolName).toBe("b");
+    // 升级迁移:旧清空语义下存量大概率已被消费,重放会重复强化 → 返回空,
+    // 游标从存量顶部开始
+    const first = sink.drain();
+    expect(first).toEqual([]);
 
-    // drain 后文件应被清空
-    const drained2 = sink.drain();
-    expect(drained2).toEqual([]);
+    // 游标后的新事件:drain 返回增量
+    sink.append(makeEvent({ toolName: "c", sessionId: "s3" }));
+    const drained = sink.drain();
+    expect(drained).toHaveLength(1);
+    expect(drained[0]!.toolName).toBe("c");
+
+    // 事件文件不被清空(append-only 证据日志):snapshot 仍可见全部
+    const snap = sink.snapshot();
+    expect(snap.map((e) => e.toolName)).toEqual(["a", "b", "c"]);
+
+    // 无新事件 → 空(不重复消费)
+    expect(sink.drain()).toEqual([]);
+  });
+
+  it("跨进程证据不被消费方吃掉(P0 修复核心场景):A 进程 run 证据 append 后,B 进程(holder)drain,A 的 snapshot 仍可见", async () => {
+    const filePath = join(tmpDir, "signals.jsonl");
+    // A 进程(沉思执行者,non-holder)与 B 进程(holder 消费者)各持 sink 实例
+    const a = new FileSignalSink({ filePath });
+    const b = new FileSignalSink({ filePath });
+
+    // A 的 run 证据(write-through 追加)
+    a.append(makeEvent({ toolName: "engram_search", sessionId: "run-A" }));
+    a.append(makeEvent({ toolName: "engram_get", sessionId: "run-A" }));
+
+    // B 的 runLight 到点消费(旧实现:drain 读全部 + 清空 → A 的证据被吃)
+    const consumed = b.drain();
+    // 迁移语义:B 首次 drain 把存量标为已消费返回空(或游标已由 A 侧建立
+    // 的话同样为空)—— 关键是不清空文件
+    expect(consumed).toEqual([]);
+
+    // A 的 PDCA snapshot 仍能看到自己的证据(旧实现此处为空 → 零盘点误拒)
+    const snap = a.snapshot();
+    expect(snap.filter((e) => e.sessionId === "run-A")).toHaveLength(2);
+  });
+
+  it("prune 收缩体积但不推进游标:未消费的新事件在 prune 后仍可 drain", async () => {
+    const filePath = join(tmpDir, "signals.jsonl");
+    const now = Date.now();
+    const sink = new FileSignalSink({ filePath });
+
+    sink.append(makeEvent({ toolName: "old", at: now - 10 * 24 * 3600_000 }));
+    sink.drain(); // 建立游标
+    sink.append(makeEvent({ toolName: "recent", at: now - 1 * 3600_000 }));
+
+    await sink.prune(7 * 24 * 3600_000);
+    // old 被收缩掉,recent 保留且仍可消费
+    const names = sink.snapshot().map((e) => e.toolName);
+    expect(names).toEqual(["recent"]);
+    expect(sink.drain().map((e) => e.toolName)).toEqual(["recent"]);
   });
 
   it("drain 不存在的文件 → []", () => {
@@ -151,6 +199,8 @@ describe("FileSignalSink", () => {
 
   it("drain 容忍损坏行", async () => {
     const filePath = join(tmpDir, "signals.jsonl");
+    // 预置游标(0):损坏行测试关注解析容错,不做迁移语义
+    writeFileSync(`${filePath}.cursor`, "0", "utf8");
     // 写入一行损坏数据 + 一行合法数据
     writeFileSync(
       filePath,
@@ -170,6 +220,7 @@ describe("FileSignalSink", () => {
     const sink = new FileSignalSink({ filePath, flushThreshold: 100 });
 
     sink.append(makeEvent({ toolName: "old", at: now - 10 * 24 * 3600_000 }));
+    sink.drain(); // 建立消费游标(迁移语义:存量视为已消费)
     sink.append(makeEvent({ toolName: "recent", at: now - 1 * 3600_000 }));
     await sink.flush();
 
@@ -206,11 +257,12 @@ describe("FileSignalSink", () => {
     const migrated = readFileSync(newPath, "utf8");
     expect(migrated).toContain('"toolName":"legacy"');
 
-    // 4. 新 sink 应能 drain 出迁移过来的事件
+    // 4. 迁移后的存量对新 sink 可见(2026-08-19 游标语义:drain 首次将存量
+    // 视为已消费不重放 —— 证据可见性改由 snapshot 断言)
     const sink2 = createDefaultSignalSink(tmpDir);
-    const drained = sink2.drain();
-    expect(drained).toHaveLength(1);
-    expect(drained[0]!.toolName).toBe("legacy");
+    const snap = sink2.snapshot();
+    expect(snap).toHaveLength(1);
+    expect(snap[0]!.toolName).toBe("legacy");
   });
 
   it("createDefaultSignalSink 迁移：新路径已存在时不覆盖(用户已在 .co-engram/ 写过)", () => {

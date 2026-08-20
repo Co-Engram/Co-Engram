@@ -30,6 +30,7 @@ import {
   type MaintenanceConfig,
   type ProposalEngineConfig,
   type AuditRotationConfig,
+  TeamEventStore,
   type NecessityEvaluator,
   type LlmClient,
   type Tool,
@@ -126,6 +127,18 @@ export interface CoEngramMcpServerConfig {
    * auditEnabled=false 时本字段被忽略(无 auditLog 自然无 rotation)。
    */
   readonly auditRotationConfig?: AuditRotationConfig;
+  /**
+   * 团队动态事件同步(2026-08-19,config.json 的 audit.teamEvents 透传)。
+   *
+   * 启用时(默认),高价值动作(create/update/reinforce/contradicted/accept/
+   * skill_*)除写本地 audit 外,另落 events/<日期>/<origin>.jsonl 分片随
+   * git 同步——「各自 clone + sync」拓扑下,viewer「记忆动态」才能看到
+   * 团队成员的操作流。private engram 的事件被过滤,不进同步目录。
+   */
+  readonly auditTeamEvents?: {
+    enabled?: boolean;
+    retentionDays?: number;
+  };
   /** 是否启用 effectiveness 追踪（默认 true） */
   readonly effectivenessEnabled?: boolean;
   /** 是否启用 proposal engine（默认 false,需显式开启） */
@@ -303,6 +316,32 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
   // M1: 构造 observability 三件套（按需）
   const auditEnabled = config.auditEnabled !== false; // 默认 true
   const auditLog = auditEnabled ? new AuditLog(config.dataRoot) : undefined;
+  // 团队动态事件出口(2026-08-19):高价值动作双写 events/ 分片随 git 同步。
+  // visibilityLookup 走 SQLite 单查;indexDb 缺失时不装配 lookup →
+  // TeamEventStore 宁缺勿漏(private 不可判定就不落盘)。
+  const teamEventsConfig = config.auditTeamEvents;
+  const teamEventStore =
+    auditLog && teamEventsConfig?.enabled !== false
+      ? new TeamEventStore(config.dataRoot, {
+          origin: detectGitAuthor() ?? "unknown",
+          ...(teamEventsConfig?.retentionDays
+            ? { retentionDays: teamEventsConfig.retentionDays }
+            : {}),
+          ...(repository.indexDb
+            ? {
+                visibilityLookup: (engramId: string): string | undefined => {
+                  const row = repository.indexDb!.prepare(
+                    "SELECT visibility FROM engrams WHERE id = ?",
+                  ).get(engramId) as { visibility: string } | undefined;
+                  return row?.visibility;
+                },
+              }
+            : {}),
+        })
+      : undefined;
+  if (auditLog && teamEventStore) {
+    auditLog.setTeamEventRecorder(teamEventStore);
+  }
   const effectivenessEnabled = config.effectivenessEnabled !== false; // 默认 true
   const effectivenessTracker =
     effectivenessEnabled && auditLog
@@ -315,6 +354,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot: config.dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "claude-code-mcp",
           config: {
             // hash-based embedder 必须配套更低阈值,详见 DEFAULT_HASHER_SIMILARITY_THRESHOLD 注释。
             // 用户在 proposalConfig 里显式给的值优先。
@@ -335,8 +376,9 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         })
       : undefined;
 
-  // 夜思孵化器(spec §四):L2 headless 执行器(claude -p,PoC 已验证)+
-  // L1 降级由 Incubator 内部处理。提案引擎缺位(最小部署)时夜思不可用。
+  // 沉思孵化器(2026-08-17 重设计):L2 headless 执行器(实现收敛在 core);
+  // L2 失败显式报错(M2),仅 spawn ENOENT(环境无 claude CLI)降级 L1。
+  // 提案引擎缺位(最小部署)时沉思不可用。
   const incubator = proposalEngine
     ? new Incubator({
         repository,
@@ -345,7 +387,14 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
         ...(auditLog ? { auditLog } : {}),
         ...(config.llmClient ? { llmClient: config.llmClient } : {}),
         executor: createHeadlessExecutor(),
-        processLock,
+        // 注:incubator 不再接 processLock —— incubations.json 走 RMW 短临界区
+        // 锁(2026-08-19 修复:holder-only 落盘让 non-holder 假成功)
+        // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+        // 不消费 drain 队列)+ 修复轮上限(可配置,clamp [1,10])
+        signalEvidence: signalSink,
+        ...(config.maintenanceConfig?.remInsight?.repairRounds
+          ? { repairRoundLimit: config.maintenanceConfig.remInsight.repairRounds }
+          : {}),
       })
     : undefined;
 
@@ -369,6 +418,11 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     ...(config.llmClient ? { llmClient: config.llmClient } : {}),
     ...(incubator ? { incubator } : {}),
   };
+
+  // 启动恢复(2026-08-19):固化超时 in-flight 深思条目的 TTL 收束。
+  // 宿主进程死亡时一切进程内超时失效(timer 随进程消失),条目悬挂且
+  // 零审计;每次装配时扫描一次,恢复有痕。幂等,无可恢复时零写盘。
+  incubator?.recoverStale();
 
   const language = config.language ?? DEFAULT_LANGUAGE;
   const profile = config.profile ?? resolveProfile({}).profile;
@@ -462,7 +516,8 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 2: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(skillRepository ? { skillRepository } : {}),
-          // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+          // 沉思孵化器(2026-08-17 重设计):REM 灵感模式消费 queued 条目;
+          // 深思由提问动作触发,无排程(旧锚点日调度已移除)
           ...(incubator ? { incubator } : {}),
         },
         config.maintenanceConfig ?? {},

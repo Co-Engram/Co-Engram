@@ -33,6 +33,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 
 import type { EngramRepository } from "../storage/repository.js";
+import { readEngramIndex } from "../storage/engram-index.js";
 import type { VerificationStatus } from "../types/engram.js";
 import type { AuditLog } from "./audit-log.js";
 import type { EngramCreateInput, EngramVisibility } from "../types/engram.js";
@@ -187,6 +188,16 @@ export interface ProposalPayload {
   readonly incubationId?: string;
   /** rem-insight 专用:夜思轮次(entityId 防撞车的关键成分) */
   readonly insightRound?: number;
+  /**
+   * rem-insight 专用(PDCA Phase1):产出该洞察的 run 未全闭合 → 提案隔离。
+   * provisional=true(修复中,终态未定)/ false(degraded 终束固化);
+   * unclosedGaps=未闭合缺口描述(viewer 审批面置顶展示)。正常终束时
+   * 引擎调 setInsightClosureState 解除(删除本字段)。
+   */
+  readonly degraded?: {
+    readonly provisional: boolean;
+    readonly unclosedGaps: readonly string[];
+  };
 }
 
 /** REM 元认知验证 proposal 的 payload（accept 时改 verificationStatus,不创建 engram） */
@@ -267,6 +278,30 @@ export function insightEntityId(
     .digest("hex")
     .slice(0, 16);
   return `rem-insight:${hash}`;
+}
+
+/**
+ * rem-insight 提案的「样本引用」= 来源记忆标题(≤3 条)。
+ *
+ * 2026-08-18 修复:此前硬编码 [引擎调试串 `mode=… critic=…`, criticRationale
+ * 截断] —— 内部指标泄漏到用户可见的「N 条样本」计数(假样本),critic 分也
+ * 因此在卡片上以裸串形式出现。来源标题才是用户审批时关心的「依据」;
+ * criticScore 等机器指标由 payload 字段承载,不进 sampleQuotes。
+ */
+function insightSourceTitles(
+  repo: EngramRepository,
+  sourceIds: readonly string[],
+): string[] {
+  const titles: string[] = [];
+  for (const id of sourceIds) {
+    if (titles.length >= 3) break;
+    try {
+      titles.push(repo.readEngram(id).title);
+    } catch {
+      // 来源记忆可能已删除/不可读,跳过(不占名额,继续收下一条)
+    }
+  }
+  return titles;
 }
 
 /** external-markdown proposal 的 entityId 前缀(命名空间隔离,永不与其他来源冲突) */
@@ -415,16 +450,6 @@ export class ProposalEngine {
   private readonly necessityEvaluator: NecessityEvaluator;
   private readonly skillRepository?: SkillRepository;
   /**
-   * 空文件 noise_filtered 已记录过的 sourcePath 集合(内存去重)。
-   *
-   * 背景(2026-08 修复):IDE 新建的空文件会持续触发 watcher(每次编辑器
-   * 保存/聚焦都可能再 fire),旧实现每次都写一条 noise_filtered audit ——
-   * 实测同一空文件每 2 秒刷一条,audit.jsonl 被淹没,viewer 动态流/审计
-   * tab 全是同一行。这里保证每个空路径只记一次;文件有实质内容真正进入
-   * 提案流程时从集合移除,再次变空可再记一次。
-   */
-  private readonly emptyNoiseLogged = new Set<string>();
-  /**
    * 默认创建者(host adapter 注入的 git author:user.name > user.email)。
    *
    * accept 内部 createdBy 兜底链:
@@ -442,6 +467,8 @@ export class ProposalEngine {
    * 优先于 defaultCreatedBy 启动快照。git user.name 改动后无需重启即生效。
    */
   private readonly resolveCreatedBy?: () => string | undefined;
+  /** 宿主标识(构造注入);所有 proposal 审计 append 自动携带,见 appendAcceptAudit */
+  private readonly host?: string;
   /**
    * readProposals / readClusters 的 mtime-based cache。
    *
@@ -501,6 +528,13 @@ export class ProposalEngine {
      * 启动快照。让 git user.name 改动后无需重启即生效。
      */
     readonly resolveCreatedBy?: () => string | undefined;
+    /**
+     * 宿主标识(claude-code-mcp / openclaw-plugin / dsh-plugin / viewer)。
+     * H7 归因修复(2026-08-16 loop r24):accept 决策审计此前不带 host,
+     * 真人点卡 / viewer 批量 / MCP 工具调用在 audit 里不可区分,「rem 自执行」
+     * 误判正源于此。host 注入后所有 proposal 审计自动可归因。
+     */
+    readonly host?: string;
   }) {
     this.repository = deps.repository;
     this.embedder = deps.embedder;
@@ -523,6 +557,34 @@ export class ProposalEngine {
     this.skillRepository = deps.skillRepository;
     this.defaultCreatedBy = deps.defaultCreatedBy;
     this.resolveCreatedBy = deps.resolveCreatedBy;
+    this.host = deps.host;
+  }
+
+  /**
+   * proposal accept 决策审计(H7 归因修复)。
+   *
+   * 统一 action="accept"(此前各分支记 update/create/purge 或漏记,同一「用户批准
+   * 提案」语义多种写法,r24 按 action=accept 检索误判「audit 零 accept 事件」;
+   * rem-pattern 分支则完全零审计)。具体落盘动作放 metadata.appliedAction,
+   * 调用通道放 metadata.via(viewer-card / viewer-batch / mcp),host 来自构造注入。
+   */
+  private appendAcceptAudit(params: {
+    readonly entityId: string;
+    readonly engramId: string;
+    readonly via?: string;
+    readonly metadata?: Readonly<Record<string, unknown>>;
+  }): void {
+    this.auditLog.append({
+      actor: "user",
+      action: "accept",
+      engramId: params.engramId,
+      ...(this.host ? { host: this.host } : {}),
+      metadata: {
+        entityId: params.entityId,
+        ...(params.via ? { via: params.via } : {}),
+        ...params.metadata,
+      },
+    });
   }
 
   /**
@@ -882,6 +944,11 @@ export class ProposalEngine {
     readonly criticRationale: string;
     readonly incubationId?: string;
     readonly round?: number;
+    /** PDCA:run 未闭合时提案带 provisional degraded 标(终态落定时翻转) */
+    readonly degraded?: {
+      readonly provisional: boolean;
+      readonly unclosedGaps: readonly string[];
+    };
   }): boolean {
     const entityId = insightEntityId(
       input.mode,
@@ -894,7 +961,9 @@ export class ProposalEngine {
 
     if (existing?.status === "accepted") return false;
     // 已 pending 的同案(同 mode+incubationId+round+sources)不重写、返回 false:
-    // 让调用方(runner 限流计数 / incubator 循环检测)以返回值区分「新提案」
+    // 让调用方(runner 限流计数 / incubator 循环检测)以返回值区分「新提案」。
+    // 例外:仅隔离标变化(同 run 修复轮终态翻转)由 setInsightClosureState
+    // 单独处理,不经 proposeInsight。
     if (existing?.status === "pending") return false;
     if (
       existing?.status === "dismissed" &&
@@ -910,10 +979,7 @@ export class ProposalEngine {
     const proposal: Proposal = {
       entityId,
       occurrences: (existing?.occurrences ?? 0) + 1,
-      sampleQuotes: [
-        `mode=${input.mode} type=${input.insightType} critic=${input.criticScore.toFixed(2)}`,
-        input.criticRationale.slice(0, 120),
-      ],
+      sampleQuotes: insightSourceTitles(this.repository, input.sourceIds),
       centroidExcerpt: input.title.slice(0, 80),
       firstSeenAt: existing?.firstSeenAt ?? now,
       lastSeenAt: now,
@@ -941,6 +1007,7 @@ export class ProposalEngine {
           ? { incubationId: input.incubationId }
           : {}),
         ...(input.round !== undefined ? { insightRound: input.round } : {}),
+        ...(input.degraded !== undefined ? { degraded: input.degraded } : {}),
       },
     };
 
@@ -950,6 +1017,36 @@ export class ProposalEngine {
     ];
     this.writeProposals(updated);
     return true;
+  }
+
+  /**
+   * PDCA(Phase1):run 终态落定时翻转本 run 提案的隔离标。
+   * degraded=undefined → 解除隔离(删除 payload.degraded,恢复正常审批);
+   * degraded={provisional:false,...} → 固化(degraded 终束)。
+   * 只改 pending 提案(accepted/dismissed 已有用户裁决,不回写)。
+   */
+  setInsightClosureState(
+    entityIds: readonly string[],
+    degraded:
+      | { readonly provisional: boolean; readonly unclosedGaps: readonly string[] }
+      | undefined,
+  ): void {
+    if (entityIds.length === 0) return;
+    const ids = new Set(entityIds);
+    const proposals = this.readProposals();
+    let changed = false;
+    const updated = proposals.map((p) => {
+      if (!ids.has(p.entityId) || p.status !== "pending") return p;
+      changed = true;
+      if (!p.payload) return p;
+      if (degraded) {
+        return { ...p, payload: { ...p.payload, degraded } };
+      }
+      // 解除隔离:剔除 degraded 键(readonly payload 用解构重建)
+      const { degraded: _dropped, ...rest } = p.payload;
+      return { ...p, payload: rest };
+    });
+    if (changed) this.writeProposals(updated);
   }
 
   proposeTagRefresh(input: {
@@ -1161,6 +1258,8 @@ export class ProposalEngine {
       readonly createdBy?: string;
       readonly kind?: EngramCreateInput["kind"];
       readonly visibility?: EngramVisibility;
+      /** 调用通道标识(viewer-card / viewer-batch / mcp),写入 audit metadata.via 供归因 */
+      readonly via?: string;
     },
   ): string {
     const proposals = this.readProposals();
@@ -1223,6 +1322,18 @@ export class ProposalEngine {
       );
       this.writeProposals(updated);
       this.clustersCache = null;
+      // H7 修复:rem-verification accept 决策此前零审计(字段变更靠
+      // upgradeVerification/refuteEngram 内部留痕,但「谁批准」不可追溯),补齐。
+      this.appendAcceptAudit({
+        entityId,
+        engramId,
+        via: input.via,
+        metadata: {
+          source: "rem-verification",
+          ...(newStatus ? { appliedAction: newStatus } : {}),
+          ...(pipeParts[0] ? { title: pipeParts[0].slice(0, 80) } : {}),
+        },
+      });
       return engramId;
     }
 
@@ -1285,18 +1396,18 @@ export class ProposalEngine {
         }
       }
 
-      this.auditLog.append({
-        actor: "user",
-        action:
-          p.synapseOp === "add"
-            ? "create"
-            : p.synapseOp === "delete"
-              ? "purge"
-              : "update",
+      this.appendAcceptAudit({
+        entityId,
         engramId: p.synapseFrom,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-synapse",
+          appliedAction:
+            p.synapseOp === "add"
+              ? "create"
+              : p.synapseOp === "delete"
+                ? "purge"
+                : "update",
           op: p.synapseOp,
           from: p.synapseFrom,
           to: p.synapseTo,
@@ -1343,13 +1454,13 @@ export class ProposalEngine {
         domainTags: [...p.tagNewTags],
         updatedBy: createdBy,
       });
-      this.auditLog.append({
-        actor: "user",
-        action: "update",
+      this.appendAcceptAudit({
+        entityId,
         engramId: p.tagEngramId,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-tag-refresh",
+          appliedAction: "update",
           oldTags: p.tagOldTags,
           newTags: p.tagNewTags,
           reason: p.tagReason,
@@ -1450,12 +1561,11 @@ export class ProposalEngine {
         };
         this.repository.addOutgoingSynapse(insightEngram.id, synapse);
       }
-      this.auditLog.append({
-        actor: "user",
-        action: "accept",
+      this.appendAcceptAudit({
+        entityId,
         engramId: insightEngram.id,
+        via: input.via,
         metadata: {
-          entityId,
           source: "rem-insight",
           mode: payload.insightMode,
           criticScore: payload.criticScore,
@@ -1544,6 +1654,22 @@ export class ProposalEngine {
       );
       this.writeProposals(updated);
       this.clustersCache = null;
+      // H7 修复:rem-pattern accept 此前零审计(其余 accept 分支均留痕),补齐决策审计。
+      this.appendAcceptAudit({
+        entityId,
+        engramId: patternEngram.id,
+        via: input.via,
+        metadata: {
+          source: "rem-pattern",
+          appliedAction: "create",
+          confidence: payload.remConfidence,
+        },
+      });
+      safeEmit({
+        type: "proposal_accepted",
+        engramId: patternEngram.id,
+        at: new Date().toISOString(),
+      });
       return patternEngram.id;
     }
 
@@ -1565,6 +1691,36 @@ export class ProposalEngine {
           "skillRepository",
           "accepting a skill proposal requires skillRepository injected into ProposalEngine (S4 host wiring).",
         );
+      }
+      // 幂等 accept(2026-08-16 修复):印迹已注册时 createSkill 会抛
+      // "Skill already exists" 挡住审批 —— 场景:purgeAccepted 清掉 accepted 行后
+      // 提案复活为 pending,或用户曾 skill_create 过同名技能。改为直接采纳现有
+      // 印迹:proposal 置 accepted、返回现有 skillId,不重复创建(与 proposeSkill
+      // 的印迹级幂等对称)。
+      if (this.skillRepository.exists(p.skillId!)) {
+        const updated = proposals.map((pp) =>
+          pp.entityId === entityId
+            ? {
+                ...pp,
+                status: "accepted" as const,
+                acceptedEngramId: p.skillId!,
+              }
+            : pp,
+        );
+        this.writeProposals(updated);
+        this.clustersCache = null;
+        this.appendAcceptAudit({
+          entityId,
+          engramId: p.skillId!,
+          via: input.via,
+          metadata: { source: "skill", skillId: p.skillId, idempotent: true },
+        });
+        safeEmit({
+          type: "proposal_accepted",
+          engramId: p.skillId!,
+          at: new Date().toISOString(),
+        });
+        return p.skillId!;
       }
       const skill = this.skillRepository.createSkill({
         skillId: p.skillId!, // nonEmpty 已确保非空
@@ -1591,11 +1747,11 @@ export class ProposalEngine {
       );
       this.writeProposals(updatedSkill);
       this.clustersCache = null;
-      this.auditLog.append({
-        actor: "user",
-        action: "accept",
+      this.appendAcceptAudit({
+        entityId,
         engramId: skill.skillId,
-        metadata: { entityId, source: "skill", skillId: skill.skillId },
+        via: input.via,
+        metadata: { source: "skill", skillId: skill.skillId },
       });
       safeEmit({
         type: "proposal_accepted",
@@ -1722,13 +1878,13 @@ export class ProposalEngine {
     // 移除对应的 cluster(已转化);auto-memory proposal 无对应 cluster,filter 是 noop
     this.writeClusters(this.readClusters().filter((c) => c.id !== entityId));
 
-    this.auditLog.append({
-      actor: "user",
-      action: "accept",
+    this.appendAcceptAudit({
+      entityId,
       engramId: engram.id,
+      via: input.via,
       metadata: {
-        entityId,
         occurrences: target.occurrences,
+        appliedAction: "create",
         ...(target.source ? { source: target.source } : {}),
         ...(target.slug ? { slug: target.slug } : {}),
       },
@@ -1829,6 +1985,49 @@ export class ProposalEngine {
 
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
+
+    // —— 库级幂等(2026-08-17 修复 am purge-复活 bug,与 proposeSkill 印迹级幂等同构) ——
+    // am 的 accept 产物 = 库内 engram(memory-sync 引擎注入 title=slug、domainTags
+    // 含来源类别 tag),比「proposal 行存在性」更强且耐 purgeAccepted:此前只查
+    // 行级幂等,viewer「清空已接受」物理删掉 accepted 行后,新 session 的
+    // AutoMemoryWatcher 重扫库外源 .md(持续存在)会重新提议(2026-08-17 实证:
+    // am:co-engram-deploy-hotfix purge 后复活为 pending)。库内已有同 title+tag
+    // 产物时:无 proposal 行 → 不新建;存量 pending 复活行 → 自愈对齐为
+    // accepted(acceptedEngramId=现有 engram id,audit 留 selfHealed 痕迹)。
+    // caller 未声明 domainTags → 降级为旧行为(仅行级幂等)。
+    // engram_delete 删掉产物后同 slug 重扫会重新提议 —— 合理复活。
+    if (nonEmpty(normalized.domainTags)) {
+      const engramHit = this.findEngramByTitleAndTags(
+        normalized.title,
+        normalized.domainTags,
+      );
+      if (engramHit) {
+        if (existing?.status === "pending") {
+          this.writeProposals(
+            proposals.map((p) =>
+              p.entityId === entityId
+                ? {
+                    ...p,
+                    status: "accepted" as const,
+                    acceptedEngramId: engramHit.id,
+                  }
+                : p,
+            ),
+          );
+          this.auditLog.append({
+            actor: "system",
+            action: "propose",
+            metadata: {
+              entityId,
+              source: "auto-memory",
+              slug: input.slug,
+              selfHealed: "engram-exists",
+            },
+          });
+        }
+        return "no-change";
+      }
+    }
 
     if (existing?.status === "accepted") {
       return "no-change";
@@ -1980,6 +2179,50 @@ export class ProposalEngine {
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
 
+    // —— 库级幂等(2026-08-18 修复 ext purge-复活 bug,与 proposeSkill/am 库级幂等同构) ——
+    // 幂等键 = sourcePath 已在 engram-index(已原地纳管)。此前只查提案行:
+    // purgeAccepted 物理删 accepted 行后,任何一轮 scanForExternalMarkdown /
+    // proposeBareMarkdownAsync 重扫都会对同一 .md 重新提议。实证(2026-08-16):
+    // ext:a15d7b705bc4d9d4 在 purge 后 3 秒复活,二次 accept 产生新 engram——
+    // 根因是旧版 accept 异地 create(adoptOrPromoteEngramAt 引入前),原 .md
+    // 永久 orphan,scan 的 knownPaths 防线从未生效,仅靠 accepted 行静默压制。
+    // 本检查是 scan 防线(repository 层 knownPaths)的引擎级镜像 —— 纵深防御,
+    // 覆盖 scan 时序/index 读取异常等绕过路径。存量 pending 复活行自愈为
+    // accepted(acceptedEngramId=index entry id,audit 留 selfHealed 痕迹)。
+    // engram_delete 删掉 entry 后同 sourcePath 重扫会重新提议 —— 合理复活。
+    // 用 readEngramIndex 纯函数(与 scanForExternalMarkdown 同款)而非
+    // repository.listEngramIndex —— 后者走 getIndex,index 缺失时会触发
+    // rebuildIndex 把外部合法 engram 灌入 index,绕过提案审批防线。
+    const ingested = Array.from(
+      readEngramIndex(this.dataRoot).entries.values(),
+    ).find((e) => e.path === input.sourcePath);
+    if (ingested) {
+      if (existing?.status === "pending") {
+        this.writeProposals(
+          proposals.map((p) =>
+            p.entityId === entityId
+              ? {
+                  ...p,
+                  status: "accepted" as const,
+                  acceptedEngramId: ingested.id,
+                }
+              : p,
+          ),
+        );
+        this.auditLog.append({
+          actor: "system",
+          action: "propose",
+          metadata: {
+            entityId,
+            source: "external-markdown",
+            sourcePath: input.sourcePath,
+            selfHealed: "ingested-path",
+          },
+        });
+      }
+      return "no-change";
+    }
+
     if (existing?.status === "accepted") {
       return "no-change";
     }
@@ -2089,26 +2332,19 @@ export class ProposalEngine {
       // 的无价值候选(用户实测均 dismiss)。跳过首次提案,等文件有实质内容后
       // watcher 再次触发才生成。仅作用于"首次生成";已 pending 提案的内容
       // 刷新走 proposeExternalMarkdown 的 existing(upsert)分支,不受此拦截影响。
+      // 空文件拦截:IDE 新建文件瞬间文件常为空,此时提案只会得到 content=""
+      // 的无价值候选(用户实测均 dismiss)。跳过首次提案,等文件有实质内容后
+      // watcher 再次触发才生成。仅作用于"首次生成";已 pending 提案的内容
+      // 刷新走 proposeExternalMarkdown 的 existing(upsert)分支,不受此拦截影响。
+      //
+      // 2026-08-16 停写 audit:曾按 (relPath) 内存 Set 去重写 noise_filtered,
+      // 但多宿主实例 / 进程重启即失效 —— 真实库一个 IDE 空文件
+      // (「未命名.md」)被持续扫描重写,7 天 46 万条、占 audit.jsonl 的
+      // 99.9%(106MB),轮转 50MB 上限形同虚设。「空文件不进提案」是显然
+      // 正确的行为,无诊断价值,不值得为它持久化去重状态 —— 直接静默。
       if (raw.trim().length === 0) {
-        // 去重:同一路径只记一次空文件噪声(见 emptyNoiseLogged 注释),
-        // 后续 watcher 重复触发静默跳过,不再刷 audit。
-        if (!this.emptyNoiseLogged.has(relPath)) {
-          this.emptyNoiseLogged.add(relPath);
-          this.auditLog.append({
-            actor: "system",
-            action: "noise_filtered",
-            metadata: {
-              entityId: externalMarkdownEntityId(relPath),
-              source: "external-markdown",
-              sourcePath: relPath,
-              reason: "empty-content",
-            },
-          });
-        }
         return;
       }
-      // 文件已有实质内容:清掉空文件噪声标记,此后若再变空可再记一次
-      this.emptyNoiseLogged.delete(relPath);
 
       // 路径 1:合法 engram(有 frontmatter 且含 title + kind)→ 现有同步逻辑
       if (parsed) {
@@ -2175,8 +2411,9 @@ export class ProposalEngine {
 
   /**
    * 把 watcher 检测到的 skill 目录转成 pending 提案（source="skill"）。
-   * 幂等：同 entityId 的 accepted/dismissed/tombstone → no-change；
-   * pending 且 payload 变 → updated；无 existing → proposed。
+   * 幂等：印迹已注册（skillRepository.exists）→ no-change（顺带自愈存量
+   * pending 复活行为 accepted）；同 entityId 的 accepted/dismissed/tombstone
+   * → no-change；pending 且 payload 变 → updated；无 existing → proposed。
    */
   proposeSkill(input: {
     readonly sourcePath: string;
@@ -2216,6 +2453,45 @@ export class ProposalEngine {
     // —— 以下完全参照 proposeExternalMarkdown 的幂等分支 ——
     const proposals = this.readProposals();
     const existing = proposals.find((p) => p.entityId === entityId);
+
+    // —— 印迹级幂等(2026-08-16 修复 purge-复活 bug) ——
+    // skillId 已注册(skill-imprints/ 有印迹)说明「是否纳入记忆库」这个提案问题
+    // 已有答案 —— 比同 entityId proposal 行存在性更强的幂等键。此前只查后者:
+    // purgeAccepted 物理删除 accepted 行且不留 tombstone,watcher 重扫 `.claude/skills/`
+    // 时 9 个已注册技能被当新发现重新提议。印迹存在时:
+    //   - 无 proposal 行 → 不新建(直接 no-change)
+    //   - 存量 pending 复活行 → 自愈对齐为 accepted(acceptedEngramId=现有 skillId),
+    //     免去用户逐条清理;自愈写盘留 audit 痕迹
+    //   - accepted/dismissed 行 → 维持原分支语义(下方)
+    // 未注入 skillRepository 的宿主降级为旧行为(仅查 proposal 行)。
+    // skill_delete 删掉印迹后同 sourcePath 重扫会重新提议 —— 合理复活。
+    if (this.skillRepository?.exists(input.skillId)) {
+      if (existing?.status === "pending") {
+        this.writeProposals(
+          proposals.map((p) =>
+            p.entityId === entityId
+              ? {
+                  ...p,
+                  status: "accepted" as const,
+                  acceptedEngramId: input.skillId,
+                }
+              : p,
+          ),
+        );
+        this.auditLog.append({
+          actor: "system",
+          action: "propose",
+          metadata: {
+            entityId,
+            source: "skill",
+            sourcePath: input.sourcePath,
+            skillId: input.skillId,
+            selfHealed: "imprint-exists",
+          },
+        });
+      }
+      return "no-change";
+    }
 
     if (existing?.status === "accepted") {
       return "no-change";
@@ -2511,6 +2787,8 @@ export class ProposalEngine {
     input: {
       readonly createdBy?: string;
       readonly visibility?: EngramVisibility;
+      /** 调用通道标识(mcp / viewer-batch),写入 audit metadata.via;缺省 "batch" */
+      readonly via?: string;
     } = {},
   ): {
     readonly acceptedIds: readonly string[];
@@ -2682,12 +2960,11 @@ export class ProposalEngine {
       // audit + emit:逐条(auditLog.append 是 O(1) 追加)
       for (const [entityId, engramId] of acceptedMap) {
         const proposal = proposalMeta.get(entityId)!;
-        this.auditLog.append({
-          actor: "user",
-          action: "accept",
+        this.appendAcceptAudit({
+          entityId,
           engramId,
+          via: input.via ?? "batch",
           metadata: {
-            entityId,
             occurrences: proposal.occurrences,
             ...(proposal.source ? { source: proposal.source } : {}),
             ...(proposal.slug ? { slug: proposal.slug } : {}),
@@ -3032,6 +3309,24 @@ export class ProposalEngine {
       if (hits >= 2) return true;
     }
     return false;
+  }
+
+  /**
+   * 库级查重:按 title + domainTags 全包含查找 engram(listEngrams 轻量投影,
+   * 零额外 IO)。auto-memory 库级幂等键用 —— am 产物 title=slug、domainTags
+   * 含来源类别 tag(memory-sync 引擎注入),耐 purgeAccepted;title 可被用户改
+   * (改后弱一致:复活一次,二次 accept 修复),可接受的权衡。
+   */
+  private findEngramByTitleAndTags(
+    title: string,
+    tags: readonly string[],
+  ): { readonly id: string } | undefined {
+    for (const entry of this.repository.listEngrams()) {
+      if (entry.title !== title) continue;
+      const entryTags = entry.domainTags ?? [];
+      if (tags.every((t) => entryTags.includes(t))) return entry;
+    }
+    return undefined;
   }
 
   private readClusters(): TopicCluster[] {

@@ -625,6 +625,77 @@ describe("manualResolveContradiction", () => {
     expect(synapse.resolutionState!.rationale).toBe("human decided");
   });
 
+  it("keep_old → 自动提议 supersedes(胜者→被替代者,2026-08-16 时间族冷启动修复)", () => {
+    const a = makeEngram({ title: "旧方案A", content: "a" });
+    const b = makeEngram({ title: "新方案B", content: "b" });
+    const sid = linkContradicts(a.id, b.id); // from=A, to=B
+    const calls: Array<Record<string, unknown>> = [];
+    const proposalEngine = {
+      proposeSynapseOp: (input: Record<string, unknown>) => {
+        calls.push(input);
+        return true;
+      },
+    };
+    manualResolveContradiction(
+      repo,
+      { fromId: a.id, synapseId: sid, verdict: "keep_old", rationale: "新版正确", resolvedBy: "y" },
+      { proposalEngine },
+    );
+    // keep_old:胜者 = synapse.to(B),被替代 = from(A);方向 B supersedes A
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.op).toBe("add");
+    expect(calls[0]!.kind).toBe("supersedes");
+    expect(calls[0]!.from).toBe(b.id);
+    expect(calls[0]!.to).toBe(a.id);
+    expect(calls[0]!.fromTitle).toBe("新方案B");
+    expect(calls[0]!.toTitle).toBe("旧方案A");
+  });
+
+  it("keep_new → 提议方向反转;merge/archive 不提议", () => {
+    const a = makeEngram({ title: "A", content: "a" });
+    const b = makeEngram({ title: "B", content: "b" });
+    const sid = linkContradicts(a.id, b.id);
+    const calls: Array<Record<string, unknown>> = [];
+    const proposalEngine = {
+      proposeSynapseOp: (input: Record<string, unknown>) => {
+        calls.push(input);
+        return true;
+      },
+    };
+    manualResolveContradiction(
+      repo,
+      { fromId: a.id, synapseId: sid, verdict: "keep_new", rationale: "r", resolvedBy: "y" },
+      { proposalEngine },
+    );
+    // keep_new:胜者 = from(A),被替代 = to(B)
+    expect(calls[0]!.from).toBe(a.id);
+    expect(calls[0]!.to).toBe(b.id);
+
+    calls.length = 0;
+    manualResolveContradiction(
+      repo,
+      { fromId: a.id, synapseId: sid, verdict: "merge", rationale: "r", resolvedBy: "y" },
+      { proposalEngine },
+    );
+    manualResolveContradiction(
+      repo,
+      { fromId: a.id, synapseId: sid, verdict: "archive", rationale: "r", resolvedBy: "y" },
+      { proposalEngine },
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  it("未注入 proposalEngine → 裁决正常,无提议路径", () => {
+    const a = makeEngram({ title: "A", content: "a" });
+    const b = makeEngram({ title: "B", content: "b" });
+    const sid = linkContradicts(a.id, b.id);
+    expect(() =>
+      manualResolveContradiction(repo, {
+        fromId: a.id, synapseId: sid, verdict: "keep_old", rationale: "r", resolvedBy: "y",
+      }),
+    ).not.toThrow();
+  });
+
   it("非 contradicts synapse → 抛错", () => {
     const a = makeEngram({ title: "A", content: "a" });
     const b = makeEngram({ title: "B", content: "b" });

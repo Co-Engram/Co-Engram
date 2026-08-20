@@ -107,7 +107,7 @@ describe("engram_list_paths tool", () => {
     expect(topDirs).toEqual(["baz", "foo"]);
   });
 
-  it("maxDepth 限制深度", () => {
+  it("maxDepth 限制深度(r14 语义修正:N=显示到第 N 层,根为第 0 层)", () => {
     repo.createEngram({
       title: "X",
       content: "x",
@@ -116,10 +116,18 @@ describe("engram_list_paths tool", () => {
       createdBy: "a",
       pathHint: "a/b/c/d/e/x.md",
     });
+    // maxDepth=2 → 第 0(root)+1(a)+2(b) 层可见,b 的 children 剪掉。
+    // 旧条件实际只显示到第 N-1 层(maxDepth=1 时「空树」)。
     const result = engramListPathsTool.execute({ maxDepth: 2 }, ctx);
     expect(result.root.children.length).toBe(1);
     expect(result.root.children[0]!.path).toBe("a");
-    expect(result.root.children[0]!.children.length).toBe(0);
+    expect(result.root.children[0]!.children.length).toBe(1);
+    expect(result.root.children[0]!.children[0]!.path).toBe("a/b");
+    expect(result.root.children[0]!.children[0]!.children.length).toBe(0);
+    // maxDepth=1 → root + 第一层目录(不再是空树)
+    const r1 = engramListPathsTool.execute({ maxDepth: 1 }, ctx);
+    expect(r1.root.children.length).toBe(1);
+    expect(r1.root.children[0]!.children.length).toBe(0);
   });
 
   it("无 repository 抛错", () => {

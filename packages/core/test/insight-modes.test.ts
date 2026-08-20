@@ -8,6 +8,7 @@ import { EngramRepository } from "../src/storage/repository.js";
 import type { Synapse } from "../src/types/synapse.js";
 import {
   buildModePrompt,
+  insightLanguageDirective,
   buildNightThinkingL1Prompt,
   computeModeSignals,
   inspirationSeedFilter,
@@ -231,5 +232,103 @@ describe("buildModePrompt", () => {
     expect(p.split("\n")[0]).toContain("问题 Q");
     expect(p).toContain("R1: 已探索 X");
     expect(p).toContain("across domains");
+  });
+});
+
+// ============================================================
+// 审批反馈闭环(2026-08-16 用户灵感):被拒洞察 → 复盘信号/种子/prompt
+// ============================================================
+import { type DismissedInsight } from "../src/maintenance/insight/modes.js";
+
+describe("审批反馈:被拒洞察进复盘", () => {
+  const dismissed: readonly DismissedInsight[] = [
+    { title: "被拒洞察甲", reason: "证据不足", sourceIds: [] },
+    { title: "被拒洞察乙", reason: undefined, sourceIds: [] },
+  ];
+
+  it("dismissed 计数加权复盘强度", () => {
+    const withD = computeModeSignals(repo, { lastRemAt: PAST, hasActiveIncubation: false, dismissedInsights: dismissed });
+    const noD = computeModeSignals(repo, { lastRemAt: PAST, hasActiveIncubation: false });
+    expect(withD.find((s) => s.mode === "retrospective")!.strength).toBeGreaterThan(noD.find((s) => s.mode === "retrospective")!.strength);
+    expect(withD.find((s) => s.mode === "retrospective")!.detail.dismissedInsights).toBe(2);
+  });
+
+  it("被拒洞察来源纳入复盘种子", () => {
+    const src = make("洞察来源", ["t"]);
+    const ok = retrospectiveSeedFilter(repo, [{ title: "x", reason: "r", sourceIds: [src.id] }]);
+    expect(ok(src.id)).toBe(true);
+  });
+
+  it("复盘 prompt 含被拒标题/理由/反思指令;无被拒或非复盘不含", () => {
+    const p = buildModePrompt("retrospective", EMPTY_SUB, { dismissedInsights: dismissed });
+    expect(p).toContain("被拒洞察甲");
+    expect(p).toContain("证据不足");
+    expect(p).toContain("dismissed reason: (未填)");
+    expect(p).toContain("Retrospect on WHY");
+    expect(buildModePrompt("retrospective", EMPTY_SUB)).not.toContain("dismissed reason");
+    expect(buildModePrompt("integration", EMPTY_SUB, { dismissedInsights: dismissed })).not.toContain("dismissed reason");
+  });
+});
+
+describe("模式长期校准(第二刀:accept 洞察模式分布)", () => {
+  it("strength × factor 后夹回 [0,1];detail 暴露因子与样本数", () => {
+    make("A", ["x"]);
+    const noCal = computeModeSignals(repo, { lastRemAt: null, hasActiveIncubation: false });
+    const cal = computeModeSignals(repo, {
+      lastRemAt: null,
+      hasActiveIncubation: false,
+      modeCalibration: new Map([
+        ["integration", { factor: 1.3, samples: 8, acceptRate: 1 }],
+      ]),
+    });
+    const raw = noCal.find((s) => s.mode === "integration")!;
+    const boosted = cal.find((s) => s.mode === "integration")!;
+    expect(boosted.strength).toBeCloseTo(Math.min(1, raw.strength * 1.3), 9);
+    expect(boosted.strength).toBeLessThanOrEqual(1);
+    expect(boosted.detail.calibrationFactor).toBe(1.3);
+    expect(boosted.detail.calibrationSamples).toBe(8);
+    // 未校准的模式 detail 默认 factor=1 / samples=0
+    expect(cal.find((s) => s.mode === "inspiration")!.detail.calibrationFactor).toBe(1);
+    expect(cal.find((s) => s.mode === "inspiration")!.detail.calibrationSamples).toBe(0);
+  });
+
+  it("冷启动 factor=1 不改变强度", () => {
+    make("A", ["x"]);
+    const noCal = computeModeSignals(repo, { lastRemAt: null, hasActiveIncubation: false });
+    const cal = computeModeSignals(repo, {
+      lastRemAt: null,
+      hasActiveIncubation: false,
+      modeCalibration: new Map([
+        ["integration", { factor: 1, samples: 2, acceptRate: 1 }],
+      ]),
+    });
+    expect(cal.find((s) => s.mode === "integration")!.strength).toBe(
+      noCal.find((s) => s.mode === "integration")!.strength,
+    );
+  });
+});
+
+// ============================================================
+// 洞察产出语言指令(2026-08-18 修复:洞察草稿此前无语言约束,LLM 落英文)
+// ============================================================
+describe("insightLanguageDirective(洞察语言约束)", () => {
+  it("zh:要求全部洞察字段用简体中文", () => {
+    expect(insightLanguageDirective("zh")).toContain("Simplified Chinese");
+  });
+
+  it("en:要求全部洞察字段用英文", () => {
+    expect(insightLanguageDirective("en")).toContain("in English");
+  });
+
+  it("buildModePrompt 缺省 language=zh 注入指令;显式 en 注入英文指令", () => {
+    const zh = buildModePrompt("integration", EMPTY_SUB);
+    expect(zh).toContain(insightLanguageDirective("zh"));
+    const en = buildModePrompt("integration", EMPTY_SUB, { language: "en" });
+    expect(en).toContain(insightLanguageDirective("en"));
+  });
+
+  it("buildNightThinkingL1Prompt 注入语言指令(缺省 zh)", () => {
+    const prompt = buildNightThinkingL1Prompt("问题", "(no seeds)", "");
+    expect(prompt).toContain(insightLanguageDirective("zh"));
   });
 });

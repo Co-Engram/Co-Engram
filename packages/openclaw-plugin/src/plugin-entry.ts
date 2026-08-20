@@ -66,12 +66,14 @@ import {
   type NecessityEvaluator,
   type PathOverviewItem,
   DEFAULT_AUDIT_CONFIG,
+  TeamEventStore,
   acquireProcessLock,
   verifyDerivedIntegrity,
   IndexOrchestrator,
   defaultCachePath,
   SkillRepository,
   Incubator,
+  createHeadlessExecutor,
 } from "@co-engram/core";
 import type { CoEngramPluginConfig, CoEngramPluginHostApi } from "./types.js";
 import { DEFAULT_CONFIG } from "./types.js";
@@ -232,6 +234,32 @@ export function createCoEngramContext(
   const auditLog = fullConfig.auditEnabled
     ? new AuditLog(fullConfig.dataRoot)
     : undefined;
+  // 团队动态事件出口(2026-08-19,与 claude-code-mcp register.ts 同款装配):
+  // 高价值动作双写 events/ 分片随 git 同步;visibilityLookup 走 SQLite 单查,
+  // indexDb 缺失时不装配 → TeamEventStore 宁缺勿漏(private 不可判定就不落盘)。
+  const teamEventsConfig = fullConfig.auditTeamEvents;
+  const teamEventStore =
+    auditLog && teamEventsConfig?.enabled !== false
+      ? new TeamEventStore(fullConfig.dataRoot, {
+          origin: detectGitAuthor() ?? "unknown",
+          ...(teamEventsConfig?.retentionDays
+            ? { retentionDays: teamEventsConfig.retentionDays }
+            : {}),
+          ...(repository.indexDb
+            ? {
+                visibilityLookup: (engramId: string): string | undefined => {
+                  const row = repository.indexDb!.prepare(
+                    "SELECT visibility FROM engrams WHERE id = ?",
+                  ).get(engramId) as { visibility: string } | undefined;
+                  return row?.visibility;
+                },
+              }
+            : {}),
+        })
+      : undefined;
+  if (auditLog && teamEventStore) {
+    auditLog.setTeamEventRecorder(teamEventStore);
+  }
   const effectivenessTracker =
     fullConfig.effectivenessEnabled && auditLog
       ? new EffectivenessTracker(fullConfig.dataRoot, auditLog)
@@ -247,6 +275,8 @@ export function createCoEngramContext(
           embedder: DEFAULT_HASHER_EMBEDDER,
           auditLog,
           dataRoot: fullConfig.dataRoot,
+          // H7 归因:proposal 审计 accept 决策带宿主标识,跨宿主可追溯
+          host: "openclaw-plugin",
           ...(config.proposalConfig ? { config: config.proposalConfig } : {}),
           ...(necessityEvaluator ? { necessityEvaluator } : {}),
           // S4 Task 3: 注入 skillRepository(供 proposal skill hook 用)
@@ -279,8 +309,9 @@ export function createCoEngramContext(
     // 动态解析器:每次读 git,改 user.name 无需重启即生效
     resolveCreatedBy: () => detectGitAuthor() ?? userSpecifiedCreatedBy,
     ...(llmClient ? { llmClient } : {}),
-    // 夜思孵化器(spec §四):openclaw 一期降级 L1(headless L2 执行器未接入,
-    // PoC 记录于降级矩阵);即时触发经 incubation_run 同步执行 + GUI 标注差异。
+    // 沉思孵化器(2026-08-17 重设计):M3 —— openclaw 接入 L2 headless 执行器
+    //(与 claude-code-mcp 同款,实现收敛在 core);L2 失败显式报错,仅环境无
+    // claude CLI(ENOENT)时降级 L1(审计标注)。
     ...(proposalEngine
       ? {
           incubator: new Incubator({
@@ -289,10 +320,24 @@ export function createCoEngramContext(
             dataRoot: fullConfig.dataRoot,
             ...(auditLog ? { auditLog } : {}),
             ...(llmClient ? { llmClient } : {}),
+            executor: createHeadlessExecutor(),
+            // PDCA(Phase1):引擎侧调用流水快照(同进程 sink;flush+snapshot
+            // 不消费 drain 队列)
+            signalEvidence: signalSink,
+            ...(fullConfig.maintenanceConfig?.remInsight?.repairRounds
+              ? {
+                  repairRoundLimit:
+                    fullConfig.maintenanceConfig.remInsight.repairRounds,
+                }
+              : {}),
           }),
         }
       : {}),
   };
+  // 启动恢复(2026-08-19):固化超时 in-flight 深思条目的 TTL 收束。
+  // 宿主进程死亡时一切进程内超时失效(timer 随进程消失),条目悬挂且
+  // 零审计;每次装配时扫描一次,恢复有痕。幂等,无可恢复时零写盘。
+  ctx.incubator?.recoverStale();
   return ctx;
 }
 
@@ -633,7 +678,8 @@ export function registerCoEngramTools(
         ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
         // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
         ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
-        // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+        // 夜思独立日调度(锚点时刻制,spec §四):light tick 触发;
+        // active 条目每日 schedule 时刻一轮(默认 00:00),错过补跑
         ...(ctx.incubator ? { incubator: ctx.incubator } : {}),
       },
       config.maintenanceConfig ?? {},
@@ -719,7 +765,8 @@ export function registerCoEngramTools(
           ...(ctx.proposalEngine ? { proposalEngine: ctx.proposalEngine } : {}),
           // S4 Task 3: 注入 skillRepository(供 maintenance engine skill retention 衰退用)
           ...(ctx.skillRepository ? { skillRepository: ctx.skillRepository } : {}),
-          // 夜思独立日调度(light tick → active 条目 24h 一轮,spec §四)
+          // 夜思独立日调度(锚点时刻制,spec §四):light tick 触发;
+          // active 条目每日 schedule 时刻一轮(默认 00:00),错过补跑
           ...(ctx.incubator ? { incubator: ctx.incubator } : {}),
         },
         config.maintenanceConfig ?? {},

@@ -120,6 +120,36 @@ describe("engram_create", () => {
     expect(repo.exists(result.id)).toBe(true);
   });
 
+  it("内容含因果/替代语义 → 返回建链 hints(2026-08-16 因果族冷启动修复)", () => {
+    const result = engramCreateTool.execute(
+      {
+        title: "构建提速决策",
+        content: "因为远程缓存命中率过低,导致构建时间翻倍,现已改用本地缓存方案",
+        kind: "fact",
+        domainTags: ["ci"],
+        createdBy: "yang",
+      },
+      ctx,
+    );
+    expect(result.hints).toBeDefined();
+    expect(result.hints!.length).toBeGreaterThan(0);
+    expect(result.hints![0]).toContain("synapse_create");
+  });
+
+  it("无因果语义 → 不产生 hints 字段", () => {
+    const result = engramCreateTool.execute(
+      {
+        title: "普通事实",
+        content: "今天天气晴朗,适合户外活动。",
+        kind: "fact",
+        domainTags: ["life"],
+        createdBy: "yang",
+      },
+      ctx,
+    );
+    expect(result.hints).toBeUndefined();
+  });
+
   it("无效 kind 被拒绝", () => {
     expect(() =>
       engramCreateTool.execute(
@@ -1443,11 +1473,12 @@ describe("skill_invoke", () => {
         { id: "skill-1", success: true, effectiveness: 0.9 },
         extCtx,
       );
-      expect(result.success).toBe(false);
-      expect(result.error).toMatch(/forgotten/);
-      // 验证 utility 未变（forgotten 分支在 recordUse 前返回）
+      // forgotten 不再拒绝:使用即复活(relearning),正常记录并提示
+      expect(result.success).toBe(true);
+      expect(result.output).toContain("revivedFrom=forgotten");
       const after = repo.readSkill("skill-1");
-      expect(after.utility).toBe(skill.utility);
+      expect(after.retentionStage).toBe("active"); // 复活
+      expect(after.utility).toBeGreaterThan(skill.utility); // Rescorla-Wagner 正常更新
     } finally {
       rmSync(tmpDir, { recursive: true, force: true });
     }
@@ -1459,7 +1490,7 @@ describe("skill_invoke", () => {
 // ============================================================
 
 describe("ToolRegistry", () => {
-  it("列出所有工具（46 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1 + skill CRUD 5 + skill invoke 1 + skill compose 3 + skill related_engram 3 + incubation 5）", () => {
+  it("列出所有工具（46 个：P0 12 + P1 5 + P2 2 + P3 2 + M1 proposal 3 + AI-8 batch proposal 2 + doctor/list_paths 2 + synthesize 1 + engram_sync 1 + audit_query 1 + skill CRUD 5 + skill invoke 1 + skill compose 3 + skill related_engram 3 + ponder 5[2026-08-17:incubation 9 → 5,砍 resolve/conclude/update/pause]）", () => {
     const reg = createToolRegistry();
     expect(reg.list().length).toBe(46);
   });

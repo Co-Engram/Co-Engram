@@ -102,6 +102,21 @@ export interface AuditSectionConfig {
    * 仅适合测试或主动运维的场景)。
    */
   readonly rotation?: AuditRotationConfig;
+  /**
+   * 团队动态事件同步(2026-08-19,默认 true)。
+   *
+   * 高价值动作(create/update/reinforce/contradicted/accept/skill_*)除写
+   * 本地 audit 外,另落 <dataRoot>/events/<日期>/<origin>.jsonl 分片随 git
+   * 同步——「各自 clone + sync」拓扑下,viewer「记忆动态」由此显示团队成员
+   * 的操作流。写者隔离分片(每文件单写者)使 git 合并零冲突;private engram
+   * 事件被过滤,不进同步目录;过期日期目录整目录清理(默认保留 14 天)。
+   */
+  readonly teamEvents?: {
+    /** 关闭后 append 不再双写 events/(本地 audit 行为不变) */
+    readonly enabled?: boolean;
+    /** 事件保留天数(默认 14) */
+    readonly retentionDays?: number;
+  };
 }
 
 /**

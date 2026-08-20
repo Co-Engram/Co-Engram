@@ -332,48 +332,57 @@ WHEN TO CALL:
 WHEN NOT TO CALL: no inconsistency; for a specific engram use engram_get.
 
 RETURNS: timestamps, counts, autoFixesApplied, pendingManualReview, issues[] (kind/path/message/autoFixed).`,
-  "tool.incubation_create.agent": `Create an overnight-thinking (night) incubation entry: feed a question before sleep; the agent thinks deeply overnight; you harvest insights on waking.
+  "tool.ponder_create.agent": `Ask a contemplation question: one full-resource-inventory deep think around it — memory graph, behavioral logs, skills, web research and MCP tools; the memory repo stays read-only, one report per run (answer + insight proposals).
 
 WHEN TO CALL:
-- User expresses night-thinking intent ("think about X overnight", "feed a question before sleep")
-- User raises a question worth multi-round deep exploration that needs no immediate answer
+- The user says "think this through for me" / "deep-dive this question" / "contemplate X"
+- The user raises a question worth mining the full memory assets, not needing an instant answer
 
 WHEN NOT TO CALL:
-- User wants an immediate answer (answer directly or use engram_search)
+- The user wants an immediate answer (answer directly or use engram_search)
 - One-off trivial questions
 
-RETURNS: { id, status, question, rounds }. webResearchOptIn defaults to false — confirm with the user before enabling (the question summary will be sent to search engines).`,
-  "tool.incubation_run.agent": `Run one night-thinking round immediately.
+RETURNS: { id, status: "queued", question }. The entry starts queued; pair with ponder_run to execute (in a chat you execute the protocol in-session). Optional seedEngramIds for focus memories (blank = full-library search); entry cap 50.`,
+  "tool.ponder_run.agent": `Run one contemplation (queued first think / done re-think).
 
 WHEN TO CALL:
-- User says "think now" / "run night thinking now" (conversational entry, default mode=agent)
-- Viewer/CLI async job or daily schedule (mode=auto)
+- Right after ponder_create (chat default mode=agent: you execute the fixed protocol in-session)
+- The user says "think again / another angle" on an answered entry (done entries feed back all previous sessions)
 
 WHEN NOT TO CALL:
-- Entry already in-flight (30-min TTL auto-recovery)
+- Entry is thinking (LOCK_BUSY; TTL 30min reclaim)
 
-RETURNS: mode=agent returns the fixed-protocol task package (question / seed digests / dream history / protocol) — execute inventory→plan→read-only work→incubation_report in the current session; mode=auto returns synchronously { level, proposals, cycleVetoed, rounds }.`,
-  "tool.incubation_list.agent": `List night-thinking incubation entries.
-
-WHEN TO CALL:
-- User asks "my night-thinking entries", "which night are we on", "any paused entries"
-
-RETURNS: { items: [{ id, question, status, rounds, webResearchOptIn, lastHatchedAt, timelineRounds }], total }. status ∈ active|in-flight|suggested-resolve|resolved|paused.`,
-  "tool.incubation_resolve.agent": `Night-thinking resolve ritual: after an insight is accepted the entry becomes suggested-resolve; ask the user "did it answer your question?".
+RETURNS: mode=agent → { task } (fixed-protocol package: inventory → mine all resources → PLAN → read-only execute → write answer → ponder_report); mode=auto → { level, proposals, rounds }.`,
+  "tool.ponder_list.agent": `List contemplation entries.
 
 WHEN TO CALL:
-- Entry status=suggested-resolve and the user has given a verdict
-
-RETURNS: { id, status } — answered=true → resolved (dream timeline archived); false → stays active.`,
-  "tool.incubation_report.agent": `Night-thinking write-back (the ONLY write path for the L2 agent).
-
-WHEN TO CALL:
-- Exactly once, after you complete inventory→plan→read-only work per the protocol returned by incubation_run (agent mode)
+- The user asks "what have I contemplated / last result / entry list"
+- You need an entry id for run/delete
 
 WHEN NOT TO CALL:
-- Before executing the protocol; or when the round was already reported
+- Only report details are wanted (timeline already carries them)
 
-RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, note? }. Each insight is immediately mechanically validated + independently critiqued → rem-insight proposal (engram created only on user accept); duplicate insights are vetoed for the round; 2 fully-duplicate rounds auto-pause the entry.`,
+RETURNS: { items: [{ id, question, status (queued|thinking|done), rounds, lastRunAt, answer?, timeline }], total, limit }. Timeline digest with answers for the last 2 sessions only.`,
+  "tool.ponder_report.agent": `Contemplation write-back (the only write-back path for the L2 agent).
+
+WHEN TO CALL:
+- After you finish the full-resource inventory per the ponder_run protocol (step 6, exactly once)
+
+WHEN NOT TO CALL:
+- Protocol not finished (complete the inventory and the answer first)
+- Non-L2 paths (auto mode writes back internally)
+
+RETURNS: { incubationId, proposals, cycleVetoed, rounds, status, hasAnswer }. Each insight goes through mechanical validation + independent critic into a rem-insight proposal (lands only after user accept); duplicates (Jaccard ≥ 0.65 vs history) are vetoed.`,
+  "tool.ponder_delete.agent": `Delete a contemplation entry (lifecycle end; not while thinking).
+
+WHEN TO CALL:
+- The user says "delete this contemplation"
+
+WHEN NOT TO CALL:
+- Entry is thinking (wait or TTL reclaim)
+- The user just wants a fresh report (use ponder_run)
+
+RETURNS: { id }. Produced rem-insight proposals and audit records are kept; the thinking history is removed with the entry.`,
   "tool.engram_sync.agent": `Manually trigger a full memory sync: pull → commit → push.
 
 Flow: fetch → pull --rebase --autostash (abort + report on conflict) → add -A + commit (skip if nothing to commit) → push (auto-degrades to commit-only without remote). Creates .gitignore excluding .co-engram/ if missing.
@@ -526,16 +535,15 @@ WHEN NOT TO CALL:
 - For declarative memory (use engram_search / engram_get)
 
 RETURNS: Skill metadata (name, description, template kind, parameters).`,
-  "tool.skill_invoke.agent": `Report a Skill usage result (success/effectiveness) and update utility + retention via Rescorla-Wagner. **This tool only records usage, does not execute the skill itself** — skill execution is done by the host (Claude Code/OpenClaw); agents call this after using a skill to report results, letting the skill's procedural memory imprint evolve with usage. Forgotten skills reject.
+  "tool.skill_invoke.agent": `Report a Skill usage result and update utility + retention via Rescorla-Wagner. **This tool only records usage, does not execute the skill** — the host executes; agents call this after using a skill so its procedural imprint evolves with usage. A forgotten skill auto-revives on the first usage report (real use is the strongest reactivation signal; review SKILL.md if long unused).
 
 WHEN TO CALL:
-- After executing a skill through the host, need to report results
-- Skill succeeded: call with success=true + effectiveness
-- Skill failed: call with success=false
+- After the host executed a skill, report the result
+- Success: success=true + effectiveness; Failure: success=false
 
 WHEN NOT TO CALL:
-- Before executing the skill (let host execute first)
-- Just reading skill imprint (use skill_get)
+- Before executing the skill
+- Just reading a skill imprint (use skill_get)
 
 RETURNS: Updated skill imprint (utility, retentionStage, successCount, failureCount).`,
   "tool.skill_create.agent": `Create a new skill (procedural memory) with parameters and policy.
@@ -897,7 +905,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.nav.primary": "Browse",
   "engrams.tree.expandAll": "Expand all",
   "engrams.tree.collapseAll": "Collapse all",
-  "viewer.nav.governance": "Governance",
+  "viewer.nav.evolution": "Evolution",
   "viewer.tab.stats": "Stats",
   "viewer.tab.engrams": "Engrams",
   "viewer.tab.skills": "Skills",
@@ -906,13 +914,17 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.audit": "Audit",
   "viewer.tab.trash": "Trash",
   "viewer.page.trash.title": "Memory Trash",
-  "viewer.page.trash.sub": "Auto-purged after the 30-day retention window · restored items return to the active pool with decay reset",
+  "viewer.page.trash.sub":
+    "Auto-purged after the 30-day retention window · restored items return to the active pool with decay reset",
   "viewer.page.health.title": "Memory Health Check",
-  "viewer.page.health.sub": "Index consistency / dangling synapses / orphan files / skill metadata / cache state · weekly recommended",
+  "viewer.page.health.sub":
+    "Index consistency / dangling synapses / orphan files / skill metadata / cache state · weekly recommended",
   "viewer.page.merges.title": "Team Memory Merges",
-  "viewer.page.merges.sub": "Conflict stats and resolutions from multi-client sync (merge-driver audit aggregation)",
+  "viewer.page.merges.sub":
+    "Conflict stats and resolutions from multi-client sync (merge-driver audit aggregation)",
   "viewer.page.config.title": "Configuration",
-  "viewer.page.config.sub": "Persisted config (dataRoot .co-engram/config.json)",
+  "viewer.page.config.sub":
+    "Persisted config (dataRoot .co-engram/config.json)",
   "viewer.tab.config": "Config",
   "viewer.tab.help": "Help",
   "viewer.tab.merges": "Team Memory Merges",
@@ -932,7 +944,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.tab.proposals.tip":
     "Candidate memories implicitly captured but not yet approved; accept to promote to a real engram, dismiss to discard",
   "viewer.tab.merges.tip":
-    "Team memory merges: deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
+    "Deduplication of similar memories and the 3-phase resolution workflow for contradicts synapses",
   "viewer.tab.audit.tip":
     "Memory change timeline: create/update/delete/reinforce/contradiction-resolution history",
   "viewer.tab.maintenance.tip":
@@ -941,61 +953,158 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Soft-deleted engrams and synapses; restore or permanently purge",
 
   // ===== Night-thinking lab (spec §4/§6) =====
-  "viewer.tab.incubations": "Night Lab",
-  "viewer.tab.incubations.tip": "Feed a question before sleep; the agent thinks overnight; harvest insights on waking",
+  "viewer.tab.contemplation": "Contemplation",
+  "viewer.tab.experimentalSuffix": "Beta",
+  "viewer.tab.contemplation.tip":
+    "Ask a question; inventory all memories, logs and skills; one deep-thinking report",
   "viewer.proposals.insight.badge": "Deep insight",
   "viewer.proposals.insight.mode.integration": "Integration mode",
   "viewer.proposals.insight.mode.retrospective": "Retrospective mode",
   "viewer.proposals.insight.mode.inspiration": "Inspiration mode",
-  "viewer.proposals.insight.criticTip": "Independent critic score (machine-subjective initial value, not ground truth)",
-  "viewer.proposals.insight.incubationTip": "From a night-thinking entry",
-  "viewer.incubations.title": "Night-thinking Lab",
-  "viewer.incubations.intro": "Feed a question before sleep; the agent thinks deeply overnight; harvest insights on waking. Insights become proposals first and only turn into memories after approval.",
-  "viewer.incubations.createTitle": "Seed a new question",
-  "viewer.incubations.questionPlaceholder": "The question you want the agent to think through overnight…",
-  "viewer.incubations.seedPlaceholder": "Seed memory ids (optional, comma-separated)",
-  "viewer.incubations.webOptIn": "Allow web research",
-  "viewer.incubations.webOptInHint": "Allow web research: the question summary is sent to search engines; turn off for fully offline thinking",
-  "viewer.incubations.createBtn": "Seed",
-  "viewer.incubations.l2BudgetNotice": "Night thinking calls an external LLM (may consume significant tokens). The L2 session process (plan/trace) is fully transparent; web research is on by default and can be turned off per entry.",
-  "viewer.incubations.inFlightTip": "This entry is currently thinking; run again after it finishes",
-  "viewer.incubations.inFlightSince": "Night thinking in progress · ${t}",
-  "viewer.incubations.inFlightHint": "L2 session stages: plan → retrieval reading → critique → insight distillation. The dream timeline updates here on completion and insights surface as proposals; usually takes a few minutes — this page auto-refreshes every 30s.",
-  "viewer.incubations.empty": "No incubation entries yet. Seed your first question and start tonight.",
-  "viewer.incubations.loadFailed": "Failed to load: ${err}",
-  "viewer.incubations.unavailable": "Night thinking is not enabled in this deployment (incubator not injected).",
-  "viewer.incubations.status.active": "Incubating",
-  "viewer.incubations.status.in-flight": "Thinking…",
-  "viewer.incubations.status.suggested-resolve": "Confirm: did it answer your question?",
-  "viewer.incubations.status.resolved": "Resolved",
-  "viewer.incubations.status.paused": "Paused",
-  "viewer.incubations.rounds": "Night ${n}",
-  "viewer.incubations.level.L1": "L1 baseline thinking",
-  "viewer.incubations.level.L2": "L2 agent orchestration",
-  "viewer.incubations.runNow": "Run now",
-  "viewer.incubations.running": "Night thinking in progress… (an L2 session takes minutes; refresh later)",
-  "viewer.incubations.jobDone": "Done: ${proposals} insight proposals, level ${level}",
-  "viewer.incubations.jobError": "Failed: ${err}",
-  "viewer.incubations.resolvePrompt": "Did it answer your question?",
-  "viewer.incubations.resolveYes": "Answered — archive",
-  "viewer.incubations.resolveNo": "Not yet — keep incubating",
-  "viewer.incubations.timeline": "Dream timeline",
-  "viewer.incubations.timelineEmpty": "No nights recorded yet",
-  "viewer.incubations.timelineRound": "Night ${round} · ${trigger}",
-  "viewer.incubations.trigger.manual": "manual",
-  "viewer.incubations.trigger.scheduled": "scheduled",
-  "viewer.incubations.externalCalls": "${n} external call(s) (audited)",
-  "viewer.incubations.note": "Note: ${note}",
+  "viewer.proposals.insight.criticTip":
+    "AI reviewer's confidence score for this insight (0–1, higher = more credible; advisory only)",
+  "viewer.proposals.insight.criticChip": "Review ${score}",
+  "viewer.proposals.insight.incubationTip": "From a contemplation",
+  "viewer.contemplation.title": "Contemplation",
+  "viewer.contemplation.intro":
+    "Ask a question and think it through once with a full resource inventory — the entire memory graph, behavioral logs, skill library, web research and available MCP tools. One report per run. The memory repo stays read-only; web research is read-only and never leaks raw memory content.",
+  "viewer.contemplation.createTitle": "What would you like to think through?",
+  "viewer.contemplation.questionPlaceholder":
+    "What would you like to think through? Describe your question — the more specific, the better…",
+  "viewer.contemplation.seedPlaceholder":
+    "Focus memory ids, optional (blank = full-library search)",
+  "viewer.contemplation.createBtn": "Think",
+  "viewer.contemplation.createHint":
+    "Submitting starts the deep thinking immediately. It may take a while — you can leave this page; the report appears here when done. You can also just say 'help me think this through' in a chat.",
+  "viewer.contemplation.filterPlaceholder": "Filter by question…",
+  "viewer.contemplation.filterNoMatch": "No matching questions",
+  "viewer.contemplation.empty": "No contemplations yet",
+  "viewer.contemplation.emptySub":
+    "Ask your first question above — a full inventory of memories, logs and skills, thought through once",
+  "viewer.contemplation.limitWarn":
+    "Near the entry limit (${n}/${max}) — delete old answered entries first",
+  "viewer.contemplation.degradedReason.single-run-gaps":
+    "Single-run finalized with open gaps — answer and insight proposals delivered (proposals quarantined by default)",
+  "viewer.contemplation.status.queued": "Queued",
+  "viewer.contemplation.status.thinking": "Thinking",
+  "viewer.contemplation.status.verifying": "Verifying",
+  "viewer.contemplation.status.repairing": "Repairing gaps",
+  "viewer.contemplation.status.done": "Answered",
+  "viewer.contemplation.degradedBadge": "Degraded",
+  "viewer.contemplation.degradedUnclosed": "Unclosed requirements:",
+  "viewer.contemplation.degradedReason.repair-budget-exhausted":
+    "Repair budget exhausted — this run finalized with open gaps (insight proposals quarantined from the default approval queue)",
+  "viewer.contemplation.degradedReason.gap-budget-exhausted":
+    "Cumulative gap budget exceeded — this run finalized with open gaps (insight proposals quarantined from the default approval queue)",
+  "viewer.contemplation.degradedReason.ttl-expired":
+    "Repair timed out (no re-report within 30 min) — finalized with open gaps",
+  "viewer.contemplation.degradedReason.aborted":
+    "Execution aborted — finalized with open gaps",
+  "viewer.contemplation.degradedReason.closure-rejected":
+    "Closure check rejected — report failed evidence verification (zero resource calls); finalized with open gaps",
+  "viewer.contemplation.section.pdca": "Closure check",
+  "viewer.contemplation.pdca.repairRound": "Repair round: re-report #${n}",
+  "viewer.contemplation.pdca.closedThisRound":
+    "${n} requirement(s) verified closed this round",
+  "viewer.contemplation.pdca.openGaps": "Open gaps:",
+  "viewer.contemplation.pdca.exempted":
+    "Probe-exempted (all engine probes ran empty, engine-verified):",
+  "viewer.contemplation.pdca.narrowed":
+    "Plan-narrowing blocked (dropped/downgraded items restored by the engine):",
+  "viewer.contemplation.pdca.answerRepeat":
+    "Answer largely repeats the previous run's final answer (re-think did not deepen; marker only)",
+  "viewer.contemplation.pdca.claimsRatio":
+    "Claim audit: ${pct}% of claims downgraded",
+  "viewer.contemplation.pdca.claimsWeak":
+    "above the 30% threshold — insight proposals quarantined",
+  "viewer.contemplation.pdca.claimsSkipped":
+    "Claim audit skipped (no LLM configured or answer missing)",
+  "viewer.contemplation.section.claims": "Claim audit",
+  "viewer.contemplation.claimsSummary":
+    "${n} claims, ${d} downgraded (adversarial extraction)",
+  "viewer.contemplation.nextTasks":
+    "Next-run verification tasks (engine-generated):",
+  "viewer.contemplation.pdca.degradedFinal": "This run finalized as degraded",
+  "viewer.contemplation.thinkingSince": "Thinking since ${t}",
+  "viewer.contemplation.thinkingHint":
+    "Inventorying the memory graph, behavioral logs and skills… thinking may take a while; the report appears automatically when done",
+  "viewer.contemplation.rethinkBtn": "Think again",
+  "viewer.contemplation.rethinkConfirm":
+    "Thinking again re-feeds all previous sessions and re-inventories the whole library; existing proposals are kept. Continue?",
+  "viewer.contemplation.evidenceBtn": "Evidence",
+  "viewer.contemplation.deleteBtn": "Delete",
+  "viewer.contemplation.deleteConfirm":
+    "Delete this question and all its thinking history? Produced insight proposals are kept for adjudication in the proposals tab.",
+  "viewer.contemplation.deleteFlightConfirm":
+    "This entry is still thinking. Deleting will stop the run and remove the entry with all its history; produced insight proposals are kept for adjudication in the proposals tab. Continue?",
+  "viewer.contemplation.cancelBtn": "Stop",
+  "viewer.contemplation.cancelConfirm":
+    "Stop this run? The entry returns to a runnable state (reports already produced are kept) and can be re-thunk anytime.",
+  "viewer.contemplation.cancelling": "Stopping…",
+  "viewer.contemplation.creating": "Submitting…",
+  "viewer.contemplation.tooShort": "Question too short (min 4 characters)",
+  "viewer.contemplation.duplicateQuestion":
+    "An identical question is already queued or thinking — find it in the list below; wait for it, rethink it, or delete it instead of re-submitting.",
+  "viewer.contemplation.showMore": "Show more (${n} more)",
+  "viewer.contemplation.running": "Thinking…",
+  "viewer.contemplation.jobDone": "Done: ${proposals} proposal(s)",
+  "viewer.contemplation.jobError": "Failed: ${err}",
+  "viewer.contemplation.loadFailed": "Failed to load: ${err}",
+  "viewer.contemplation.unavailable":
+    "Contemplation unavailable (no incubator injected)",
+  "viewer.contemplation.answerLabel": "Answer:",
+  "viewer.contemplation.answerMissing": "(no answer produced this run)",
+  "viewer.contemplation.answerError": "Answer generation failed",
+  "viewer.contemplation.answerSkippedNoLlm":
+    "No LLM configured — answer not generated",
+  "viewer.contemplation.expandReport": "Expand full report",
+  "viewer.contemplation.collapseReport": "Collapse report",
+  "viewer.contemplation.section.answer": "Answer",
+  "viewer.contemplation.section.insights":
+    "Insight proposals (adjudicate in proposals)",
+  "viewer.contemplation.section.process": "Process",
+  "viewer.contemplation.section.diagnosis": "Diagnosis",
+  "viewer.contemplation.section.history": "Previous sessions",
+  "viewer.contemplation.planSummary": "Plan (${n} steps)",
+  "viewer.contemplation.traceSummary": "Trace (${n} steps)",
+  "viewer.contemplation.historySummary":
+    "${n} previous session(s) (fed back to avoid repeats)",
+  "viewer.contemplation.evidence.engrams":
+    "Memories read (${n}, click to open)",
+  "viewer.contemplation.evidence.skills": "Skills used (${n})",
+  "viewer.contemplation.evidence.logs": "Logs read (${n})",
+  "viewer.contemplation.evidence.web": "Web research (${n})",
+  "viewer.contemplation.diagnosis.drafts": "${n} drafts",
+  "viewer.contemplation.diagnosis.dup": "${n} duplicates vetoed",
+  "viewer.contemplation.diagnosis.validate": "${n} rejected by citation gate",
+  "viewer.contemplation.diagnosis.critic": "${n} rejected by critic",
+  "viewer.contemplation.diagnosis.residual": "${n} others not proposed",
+  "viewer.contemplation.diagnosis.noLlm":
+    "llmClient missing: review and answer generation unavailable",
+  "viewer.contemplation.diagnosis.rejectReasons":
+    "Rejection reasons (${n}, click to view)",
+  // Night-thinking T10: explainer / scheduler status / conclude & schedule / sown feedback / diagnosis
   "viewer.maintenance.insightStats.title": "Insight quality metrics",
   "viewer.maintenance.insightStats.total": "${n} insight proposals",
   "viewer.maintenance.insightStats.acceptance": "Acceptance ${v}",
   "viewer.maintenance.insightStats.laterUse": "Later-use ${v}",
-  "viewer.help.nightThinkingTitle": "Night Thinking (Overnight Thinking)",
-  "viewer.help.nightThinkingDesc": "<strong>Night thinking</strong>: seed a question in More → Night Lab; the agent thinks one round every night (or run immediately). Insights appear as proposals and only become memories after approval. Web research is off by default (per-entry opt-in); plans and traces are fully transparent.",
+  "viewer.help.contemplationTitle": "Contemplation",
+  "viewer.help.contemplationDesc":
+    "<strong>Contemplation</strong>: ask a question on the Contemplation page; the system does one <strong>full-resource-inventory deep think</strong> around it — the entire memory graph, behavioral logs, skill library, web research and available MCP tools; the memory repo stays read-only and raw memory content never leaves the machine, one report per run.",
+  "viewer.help.contemplation.pace":
+    'Asking starts the think immediately (you can also just say "help me think this through" in a chat); it may take a while — leave the page freely, the report appears when done. An identical unfinished question is never created twice; an in-flight run can be stopped back to a runnable state, and mistaken entries can be deleted directly (stop-then-delete).',
+  "viewer.help.contemplation.answer":
+    "The report is anchored by the <strong>answer</strong>; insights surface as proposals and land as memories only after approval; plan, trace and reject reasons are fully transparent in the Process/Diagnosis folds.",
+  "viewer.help.contemplation.rethink":
+    'Answered entries can be re-thought ("Think again" feeds back all previous sessions); the Evidence button shows the memories read, skills used and logs touched this run.',
+  "viewer.help.contemplation.closure":
+    'Closure check: at run startup the engine first generates a <strong>think plan</strong> (requirement list with probe queries — the executor runs probes verbatim and may only append, never drop or downgrade). Reports are validated against the plan: dropped or downgraded items are restored by the engine, and claiming "already read" without real calls sends the run back for repair (in-chat agents fix and re-report). Items whose probes all ran empty are auto-exempted on engine-witnessed evidence; the submitted answer is additionally audited by an independent critic (**claim audit** — if downgraded, unsupported claims exceed 30%, its insight proposals are quarantined too). Persistently open gaps or an exhausted repair budget (default 6 rounds) finalizes the run as <strong>degraded</strong>: the card shows a degraded badge with the unclosed requirements, and its insight proposals go to the proposals tab\'s <strong>quarantine zone</strong> — excluded from the default approval queue (adjudicate them from the "All" view).',
+  "viewer.help.contemplation.limits":
+    "Entry cap is 50; the page warns near the limit and oldest answered entries must be deleted first; previous sessions are listed by timestamp.",
   "viewer.tab.health.tip":
     "Memory repository consistency check: dangling synapse references, orphan files, index drift; supports self-healing",
   "viewer.tab.config.tip":
-    "Configuration: dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
+    "dataRoot, port, language, maintenance schedule (decay/consolidation/REM cycles)",
   "viewer.tab.help.tip":
     "Usage guide: concept glossary, ports and dataRoot, Claude Code and OpenClaw dual-host notes",
 
@@ -1006,10 +1115,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.engram.openDirCopy": "Copy path",
   "viewer.engram.openDirCopied": "Copied",
   "viewer.engram.openDirCopyFailed": "Copy failed",
-  "viewer.engram.openDirReason.no-desktop": "No desktop environment (SSH / container / headless) — can't launch the file manager. Copy the path below to locate it manually:",
-  "viewer.engram.openDirReason.spawn-failed": "File manager command not found. Copy the path below to locate it manually:",
-  "viewer.engram.openDirReason.dir-not-found": "This engram's directory no longer exists (may have been moved externally). Original path:",
-  "viewer.engram.openDirReason.fallback": "Could not open the directory. Copy the path below to locate it manually:",
+  "viewer.engram.openDirReason.no-desktop":
+    "No desktop environment (SSH / container / headless) — can't launch the file manager. Copy the path below to locate it manually:",
+  "viewer.engram.openDirReason.spawn-failed":
+    "File manager command not found. Copy the path below to locate it manually:",
+  "viewer.engram.openDirReason.dir-not-found":
+    "This engram's directory no longer exists (may have been moved externally). Original path:",
+  "viewer.engram.openDirReason.fallback":
+    "Could not open the directory. Copy the path below to locate it manually:",
   "viewer.engram.visibilityBadge.private": "Private",
   "viewer.engram.visibilityBadge.public": "Public",
   "viewer.engram.visibilityBadge.team": "Team",
@@ -1145,7 +1258,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.health.doctor.fixKind.derived_field_stale":
     "Recomputed stale derived field (content hash/size)",
   "viewer.search.placeholder": "Full-text search engrams...",
-  "viewer.search.placeholderCount": "Search titles, tags & full text across ${n} memories",
+  "viewer.search.placeholderCount":
+    "Search titles, tags & full text across ${n} memories",
   "viewer.search.button": "Search",
   "viewer.search.clear": "Clear",
   "viewer.search.clear_title":
@@ -1328,7 +1442,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "engrams.filter.freshnessWeek": "New this week",
   "engrams.filter.freshnessMonth": "New this month",
   "engrams.filter.freshnessDormant": "Dormant (unused 30d)",
-  "engrams.trend.tip": "Importance ${imp}; trend glyph derived from retrieval recency",
+  "engrams.trend.tip":
+    "Importance ${imp}; trend glyph derived from retrieval recency",
   "engrams.tree.rootName": "Team memory library",
   "engrams.tree.itemsUnit": "items",
   "engrams.tree.domainsUnit": "domains",
@@ -1387,12 +1502,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.stats.feedGoAudit": "See full history in Audit →",
   "viewer.stats.feedExternalTag": "external edit",
   "viewer.stats.feedChangedFields": "changed fields: ${fields}",
-  "viewer.stats.effectiveRateTip": "Retrieved rate = share of retrievals followed by reinforcement feedback within the observation window. Retrieves the agent never reported feedback for count as unclosed and lower the ratio — it measures feedback-loop closure, not retrieval quality.",
-  "viewer.stats.updatesBarTip": "Bar height = memories created or content-updated that day (engrams/synapses/skills combined); click a bar for the day's details.",
+  "viewer.stats.effectiveRateTip":
+    "Retrieved rate = share of retrievals followed by reinforcement feedback within the observation window. Retrieves the agent never reported feedback for count as unclosed and lower the ratio — it measures feedback-loop closure, not retrieval quality.",
+  "viewer.stats.updatesBarTip":
+    "Bar height = memories created or content-updated that day (engrams/synapses/skills combined); click a bar for the day's details.",
   "viewer.stats.expandTip": "Click to expand TOP 20",
-  "viewer.stats.weeklyNew": "↑${n} this week",
+  "viewer.stats.weeklyNew": "↑${n}/wk",
   "viewer.stats.pulseTitle": "Memory Updates",
-  "viewer.stats.pulseSub": "created or content-updated (engrams/synapses/skills) · last 30 days · click a day",
+  "viewer.stats.pulseSub":
+    "created or content-updated (engrams/synapses/skills) · last 30 days · click a day",
   "viewer.stats.pulsePeak": "peak ${date} · ${n}",
   "viewer.stats.feedTitle": "Memory Activity",
   "viewer.stats.feedSub": "recent changes · source: audit events",
@@ -1424,8 +1542,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.stats.itemCreated": "created",
   "viewer.stats.itemDeleted": "deleted memory",
   "viewer.stats.itemUpdated": "updated",
-  "viewer.stats.weeklyRetrievals": "↑${n} retrievals this week",
-  "viewer.stats.weeklyInvocations": "↑${n} invocations this week",
+  "viewer.stats.weeklyRetrievals": "↑${n}/wk",
+  "viewer.stats.weeklyInvocations": "↑${n}/wk",
   "viewer.stats.totalEngrams": "Total engrams",
   "viewer.stats.totalEngramsTip":
     "Total = active + frozen + forgotten (all rows in main index). Restoring a forgotten/frozen item from trash increments active count but leaves total unchanged — the engram was already in the repository.",
@@ -1440,7 +1558,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.stats.statusDistribution": "Engrams · by status",
   "viewer.stats.synapseKindDistribution": "Synapses · by kind",
   "viewer.stats.totalSkills": "Total skills",
-  "viewer.stats.totalSkillsTip": "Procedural skill count; click to open the Skills tab",
+  "viewer.stats.totalSkillsTip":
+    "Procedural skill count; click to open the Skills tab",
   "viewer.stats.clickToViewSkills": "Click to view skills",
   "viewer.stats.skillAcquisitionDistribution": "Skills · by acquisition stage",
   "viewer.stats.skillRetentionDistribution": "Skills · by retention stage",
@@ -1460,6 +1579,13 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.status.accepted": "Accepted",
   "viewer.proposals.status.dismissed": "Dismissed",
   "viewer.proposals.status.all": "All",
+  "viewer.proposals.quarantined.title":
+    "Quarantined: ${n} insight proposal(s) from runs with open gaps",
+  "viewer.proposals.quarantined.hint":
+    "These proposals come from degraded (or still-repairing) contemplation runs — they are excluded from the default approval queue. Open the 'All' view to adjudicate them.",
+  "viewer.proposals.quarantined.provisional": "Repairing",
+  "viewer.proposals.quarantined.degraded": "Degraded",
+  "viewer.proposals.quarantined.unclosed": "Unclosed requirements:",
   "viewer.proposals.empty": "No ${status} proposals",
   "viewer.proposals.emptyHint":
     "The system observes candidate memories in the background; new proposals will appear here automatically.",
@@ -1480,7 +1606,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.rem.tagRefresh.to": "Refreshed tags",
   "viewer.proposals.rem.tagRefresh.accept": "Apply refresh",
   "viewer.proposals.rem.tagRefresh.drift": "Drift ${drift}",
-  "viewer.proposals.rem.tagRefresh.driftTip": "Content drift ${drift} — significant content change triggered re-extraction",
+  "viewer.proposals.rem.tagRefresh.driftTip":
+    "Content drift ${drift} — significant content change triggered re-extraction",
   "viewer.proposals.rem.band.veryHigh": "Very high confidence",
   "viewer.proposals.rem.band.high": "High confidence",
   "viewer.proposals.rem.band.medium": "Medium confidence",
@@ -1497,7 +1624,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.rem.applied": "Applied",
   "viewer.proposals.rem.kept": "Kept as-is",
   "viewer.proposals.rem.pattern.sourceCount": "from ${n} memories",
-  "viewer.proposals.rem.pattern.sourceTip": "Pattern abstracted from these memories",
+  "viewer.proposals.rem.pattern.sourceTip":
+    "Pattern abstracted from these memories",
   "viewer.proposals.rem.synapse.op.add": "➕ Connect",
   "viewer.proposals.rem.synapse.op.delete": "🗑️ Remove",
   "viewer.proposals.rem.synapse.op.retype": "🔄 Retype",
@@ -1520,6 +1648,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.sourceLine.external": "External file",
   "viewer.proposals.sourceLine.autoMemory": "auto-memory",
   "viewer.proposals.sourceLine.skill": "Skill proposal",
+  "viewer.proposals.sourceLine.remInsight": "Night-thinking insight",
+  "viewer.proposals.sourceLine.remPattern": "Pattern distillation",
+  "viewer.proposals.sourceLine.remSynapse": "Synapse suggestion",
+  "viewer.proposals.sourceLine.remTagRefresh": "Tag refresh",
+  "viewer.proposals.sourceLine.remVerification": "Liveness check",
   "viewer.proposals.skillBadge": "Skill",
   "viewer.proposals.skill.usage": "Usage",
   "viewer.proposals.skillIdLabel": "Skill ID",
@@ -1529,21 +1662,34 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.proposals.why.window": "Window",
   "viewer.proposals.why.necessity": "Why",
   "viewer.proposals.why.samples": "Sample quotes",
-  "viewer.proposals.why.necessity.conversation": "Similar theme recurred; ${n} independent samples passed the necessity check",
-  "viewer.proposals.why.necessity.fallback": "Similar content appeared multiple times",
-  "viewer.proposals.why.necessity.external": "A new untracked .md file was detected in the memory vault; content is pre-filled and ready to accept",
-  "viewer.proposals.why.necessity.skill": "An unregistered skill directory (SKILL.md) was detected under dataRoot; accepting creates a procedural-memory (skill) imprint.",
-  "viewer.proposals.why.necessity.autoMemory": "The host agent (Claude Code / OpenClaw) auto-wrote a system memory file; content is pre-filled and ready to accept",
-  "viewer.proposals.why.necessity.remPattern": "An abstract pattern distilled from multiple existing memories during REM sleep",
-  "viewer.proposals.why.necessity.remVerification": "A verification status change suggested by REM meta-cognitive evaluation",
-  "viewer.proposals.why.necessity.remTagRefresh": "REM detected this memory still carries a placeholder tag (imported/uncategorized) or its content has drifted; LLM re-extracted content-semantic tags pending approval",
+  "viewer.proposals.why.necessity.conversation":
+    "Similar theme recurred; ${n} independent samples passed the necessity check",
+  "viewer.proposals.why.necessity.fallback":
+    "Similar content appeared multiple times",
+  "viewer.proposals.why.necessity.external":
+    "A new untracked .md file was detected in the memory vault; content is pre-filled and ready to accept",
+  "viewer.proposals.why.necessity.skill":
+    "An unregistered skill directory (SKILL.md) was detected under dataRoot; accepting creates a procedural-memory (skill) imprint.",
+  "viewer.proposals.why.necessity.autoMemory":
+    "The host agent (Claude Code / OpenClaw) auto-wrote a system memory file; content is pre-filled and ready to accept",
+  "viewer.proposals.why.necessity.remPattern":
+    "An abstract pattern distilled from multiple existing memories during REM sleep",
+  "viewer.proposals.why.necessity.remVerification":
+    "A verification status change suggested by REM meta-cognitive evaluation",
+  "viewer.proposals.why.necessity.remInsight":
+    "An insight distilled from multiple memories by deep thought (integration/retrospective/inspiration), reviewed by an independent AI critic",
+  "viewer.proposals.why.necessity.remTagRefresh":
+    "REM detected this memory still carries a placeholder tag (imported/uncategorized) or its content has drifted; LLM re-extracted content-semantic tags pending approval",
   "viewer.proposals.why.sourceLabel.conversation": "Conversation cluster",
   "viewer.proposals.why.sourceLabel.skill": "Skill directory detection",
   "viewer.proposals.why.sourceLabel.external": "External file detected",
-  "viewer.proposals.why.sourceLabel.autoMemory": "auto-memory · Claude Code / OpenClaw host system memory",
+  "viewer.proposals.why.sourceLabel.autoMemory":
+    "auto-memory · Claude Code / OpenClaw host system memory",
   "viewer.proposals.why.sourceLabel.remPattern": "REM pattern synthesis",
-  "viewer.proposals.why.sourceLabel.remVerification": "REM meta-cognitive verification",
+  "viewer.proposals.why.sourceLabel.remVerification":
+    "REM meta-cognitive verification",
   "viewer.proposals.why.sourceLabel.remTagRefresh": "REM tag refresh",
+  "viewer.proposals.why.sourceLabel.remInsight": "Night-thinking deep thought",
   "viewer.proposals.why.window.within": "${n} occurrences within ${dur}",
   "viewer.proposals.why.window.minute": "min",
   "viewer.proposals.why.window.hour": "h",
@@ -1611,9 +1757,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Batch dismiss done: ${ok} succeeded, ${fail} failed",
   "viewer.proposals.batch.noPending":
     "No pending proposals in current view to batch-operate",
-  "viewer.proposals.batch.purgeDismissed": "Purge (${n})",
+  "viewer.proposals.batch.purgeDismissed": "Purge dismissed (${n})",
   "viewer.proposals.batch.purgeConfirm":
-    "Permanently delete ${n} dismissed proposals from disk?\n\nThis cannot be undone (audit log retained). Only status=dismissed proposals are affected; pending / accepted are untouched.",
+    "Purge ${n} dismissed proposals?\n\nPermanently deleted from disk, cannot be undone (audit log retained). Only dismissed proposals are affected; pending / accepted are untouched.",
   "viewer.proposals.batch.purgeToast": "Purged ${n} dismissed proposals",
   "viewer.proposals.batch.purgeFailed": "Purge failed: ${err}",
   "viewer.proposals.batch.purgeNoDismissed": "No dismissed proposals to purge",
@@ -1752,14 +1898,22 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.audit.actionLabel.skill_compose_remove": "Compose remove",
   "viewer.audit.actionLabel.skill_related_engram_add": "Link memory",
   "viewer.audit.actionLabel.skill_related_engram_remove": "Unlink memory",
-  "viewer.audit.actionTip.skill_create": "skill_create: create a new skill (procedural memory)",
-  "viewer.audit.actionTip.skill_update": "skill_update: update skill fields (initiation/termination/policy)",
-  "viewer.audit.actionTip.skill_delete": "skill_delete: delete skill sidecar imprint (SKILL.md untouched)",
-  "viewer.audit.actionTip.skill_invoke": "skill_invoke: record skill use; Rescorla-Wagner updates utility + retention",
-  "viewer.audit.actionTip.skill_compose_add": "skill_compose_add: add skill compose link (A into B's workflow)",
-  "viewer.audit.actionTip.skill_compose_remove": "skill_compose_remove: remove skill compose link",
-  "viewer.audit.actionTip.skill_related_engram_add": "skill_related_engram_add: link skill to engram (procedural ↔ declarative)",
-  "viewer.audit.actionTip.skill_related_engram_remove": "skill_related_engram_remove: remove skill-engram link",
+  "viewer.audit.actionTip.skill_create":
+    "skill_create: create a new skill (procedural memory)",
+  "viewer.audit.actionTip.skill_update":
+    "skill_update: update skill fields (initiation/termination/policy)",
+  "viewer.audit.actionTip.skill_delete":
+    "skill_delete: delete skill sidecar imprint (SKILL.md untouched)",
+  "viewer.audit.actionTip.skill_invoke":
+    "skill_invoke: record skill use; Rescorla-Wagner updates utility + retention",
+  "viewer.audit.actionTip.skill_compose_add":
+    "skill_compose_add: add skill compose link (A into B's workflow)",
+  "viewer.audit.actionTip.skill_compose_remove":
+    "skill_compose_remove: remove skill compose link",
+  "viewer.audit.actionTip.skill_related_engram_add":
+    "skill_related_engram_add: link skill to engram (procedural ↔ declarative)",
+  "viewer.audit.actionTip.skill_related_engram_remove":
+    "skill_related_engram_remove: remove skill-engram link",
   // audit pager (bottom paginator of audit timeline; mirrors engrams.pager).
   // Long-missing — UI used to show raw key strings. Added 2026-07.
   "viewer.audit.pager.prev": "« Prev",
@@ -1791,8 +1945,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.trash.closeBtn": "Close",
   "viewer.trash.restoreConfirm": "Restore ${id} to main index?",
   "viewer.trash.purgeBtn": "Purge",
-  "viewer.trash.purgeTip": "Permanently delete this file from trash — unrecoverable",
-  "viewer.trash.purgeConfirm": "Purge ${id}?\n\nThe file will be physically deleted from trash and cannot be recovered (unlike “purge all”, this deletes only this one item).",
+  "viewer.trash.purgeTip":
+    "Permanently delete this file from trash — unrecoverable",
+  "viewer.trash.purgeConfirm":
+    "Purge ${id}?\n\nThe file will be physically deleted from trash and cannot be recovered (unlike “purge all”, this deletes only this one item).",
   "viewer.trash.purgeFailed": "Purge failed: ${err}",
   "viewer.trash.restoreFailed": "Restore failed: ${err}",
   "viewer.trash.purgeAllScopeAll": "all items (across all partitions)",
@@ -1821,8 +1977,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.merges.auditDisabledHint":
     "Audit log is disabled; no merge data available.",
   "viewer.merges.title": "Merge stats · last ${days} days",
-  "viewer.merges.summaryLine": "last ${days} days · ${total} file merges · ${auto} auto-resolved by the merge driver (rate ${rate}) · ${esc} escalated to conflict markers",
-  "viewer.merges.mgConflicts": "${n} conflicts · per-field adjudication in the Audit tab",
+  "viewer.merges.summaryLine":
+    "last ${days} days · ${total} file merges · ${auto} auto-resolved by the merge driver (rate ${rate}) · ${esc} escalated to conflict markers",
+  "viewer.merges.mgConflicts":
+    "${n} conflicts · per-field adjudication in the Audit tab",
   "viewer.merges.mgShare": "share",
   "viewer.merges.kpi.totalMerges": "Total merges",
   "viewer.merges.kpi.autoResolved": "Auto-resolved",
@@ -1842,25 +2000,34 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Maintenance panel (viewer.maintenance.*) — plan A viewer tab =====
   "viewer.maintenance.loading": "Loading maintenance state",
   "viewer.maintenance.sleep.title": "Sleep report",
-  "viewer.maintenance.sleep.sub": "deep (decay & consolidation) + rem (metacognition) stages · runs automatically every night",
+  "viewer.maintenance.sleep.sub":
+    "deep (decay & consolidation) + rem (metacognition) stages · runs automatically every night",
   "viewer.maintenance.sleep.when": "Last run: ${t}",
   "viewer.maintenance.sleep.reinforce": "Reinforced (RPE)",
   "viewer.maintenance.sleep.decay": "Decayed (deep)",
   "viewer.maintenance.sleep.upgrade": "Verification upgrades (REM)",
   "viewer.maintenance.sleep.pattern": "Pattern distillation",
   "viewer.maintenance.sleep.archive": "Archived / forgotten",
-  "viewer.maintenance.sleep.upgradeSub": "rem metacognition · verification transitions",
-  "viewer.maintenance.sleep.reinforceSub": "RPE · positive feedback after retrieval",
-  "viewer.maintenance.sleep.decaySub": "deep · auto soft-demotion after 30d unused (no deletion)",
-  "viewer.maintenance.sleep.patternSub": "dream distillation · surfaces as proposals for approval",
+  "viewer.maintenance.sleep.upgradeSub":
+    "rem metacognition · verification transitions",
+  "viewer.maintenance.sleep.reinforceSub":
+    "RPE · positive feedback after retrieval",
+  "viewer.maintenance.sleep.decaySub":
+    "deep · auto soft-demotion after 30d unused (no deletion)",
+  "viewer.maintenance.sleep.patternSub":
+    "dream distillation · surfaces as proposals for approval",
   "viewer.maintenance.sleep.noise": "Noise rejected",
-  "viewer.maintenance.sleep.noiseSub": "proposal engine Layer 1/2 noise filter · audit counts in the same window",
+  "viewer.maintenance.sleep.noiseSub":
+    "proposal engine Layer 1/2 noise filter · audit counts in the same window",
   "viewer.maintenance.sleep.contradict": "Contradictions pending",
-  "viewer.maintenance.sleep.contradictSub": "contradicts synapse created · awaiting human adjudication",
+  "viewer.maintenance.sleep.contradictSub":
+    "contradicts synapse created · awaiting human adjudication",
   "viewer.maintenance.sleep.noiseItem": "${reason} · ${path}",
   "viewer.maintenance.sleep.contraItem": "contradicts ${by} · click to open",
-  "viewer.maintenance.sleep.empty": "The latest maintenance run produced no memory changes",
-  "viewer.maintenance.sleep.next": "Next maintenance: ${stage}, in about ${h} h",
+  "viewer.maintenance.sleep.empty":
+    "The latest maintenance run produced no memory changes",
+  "viewer.maintenance.sleep.next":
+    "Next maintenance: ${stage}, in about ${h} h",
   "viewer.maintenance.sleep.softening":
     "Rule: decay is a soft demotion — memories remain retrievable; only after several untouched cycles do they become trash candidates. Click an item to see the change details and source memory.",
   "viewer.maintenance.disabledHint":
@@ -1885,12 +2052,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition scoring, producing upgrade / refute / pattern proposals for approval",
-  "viewer.maintenance.stageSubtitle.deep": "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
+  "viewer.maintenance.stageSubtitle.deep":
+    "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
   "viewer.maintenance.stageSubtitle.light":
     "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
   "viewer.maintenance.stageTip.rem":
     "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract patterns from them; ③ run metacognition scoring. These outputs (upgrades / refutes / new patterns) are not written automatically — they appear as proposals on the Proposals page and take effect only after you approve them. Default 1-day cycle.",
-  "viewer.maintenance.stageTip.deep": "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
+  "viewer.maintenance.stageTip.deep":
+    "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
   "viewer.maintenance.stageTip.light":
     "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning.",
   "viewer.maintenance.dreamBadge": "dream sleep",
@@ -1906,9 +2075,9 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.deepAction.merged": "merged",
   "viewer.maintenance.modCard.viewEngram": "View memory detail",
   "viewer.maintenance.modCard.remUpgrade":
-    "This memory was evaluated during dream sleep (REM); its verification status rose from \"${before}\" to \"${after}\" — the system considers it more trustworthy.",
+    'This memory was evaluated during dream sleep (REM); its verification status rose from "${before}" to "${after}" — the system considers it more trustworthy.',
   "viewer.maintenance.modCard.remRefute":
-    "This memory was judged low-confidence during dream sleep (REM) and marked \"refuted\". It is kept but clearly flagged as unreliable.",
+    'This memory was judged low-confidence during dream sleep (REM) and marked "refuted". It is kept but clearly flagged as unreliable.',
   "viewer.maintenance.modCard.deepForgotten":
     "This memory was judged stale and forgotten during Deep (cleanup) after long disuse, lowering its retrieval priority.",
   "viewer.maintenance.modCard.deepArchived":
@@ -2004,13 +2173,15 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.modes.vitality": "By retrieval count",
   "viewer.graph.modes.conflict": "Contradiction highlight",
   "viewer.graph.modes.heat": "By retrieval recency",
-  "viewer.graph.modes.heatTitle": "Color by last-retrieved time: warm within a week, orange within a month, gray beyond",
+  "viewer.graph.modes.heatTitle":
+    "Color by last-retrieved time: warm within a week, orange within a month, gray beyond",
   "viewer.graph.legend.pickFilter": "click to filter",
   "viewer.graph.status.activeOnly": "Status: active only",
   "viewer.graph.status.all": "Status: incl. archived / superseded",
   "viewer.graph.status.contradictionsOnly": "Status: contradictions only",
   "viewer.graph.reading.title": "How to read",
-  "viewer.graph.reading.hint": "Node size = importance<br>dashed outline = memory cluster (auto-grouped related memories)",
+  "viewer.graph.reading.hint":
+    "Node size = importance<br>dashed outline = memory cluster (auto-grouped related memories)",
   "viewer.graph.countLine.items": "items",
   "viewer.graph.countLine.visible": "visible (importance ≥${imp})",
   "viewer.graph.countLine.clusters": "Louvain clusters",
@@ -2024,12 +2195,11 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.graph.insp.degrees": "In / out edges",
   "viewer.graph.insp.neighborhood": "1-hop · ${n} (flowing edges)",
   "viewer.graph.insp.noNeighbors": "No neighbors",
-  "viewer.graph.tools.hoverHl": "Neighbors",
-  "viewer.graph.tools.hoverHlTitle": "Highlight connected edges on hover",
   "viewer.graph.filter.impTitle": "Importance threshold",
   "viewer.graph.filter.visibleUnit": "visible",
   "viewer.graph.replay.title": "Time replay",
-  "viewer.graph.replay.sub": "Grow by creation time · combines with importance threshold",
+  "viewer.graph.replay.sub":
+    "Grow by creation time · combines with importance threshold",
   "viewer.graph.replay.full": "All · ${n} visible",
   "viewer.graph.replay.noData": "No createdAt data",
   "viewer.graph.night.title": "Toggle light/dark canvas",
@@ -2095,7 +2265,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "${fields} saved — restart ${host} to take effect",
   "viewer.config.runtimeHintPrefix": "(current: ",
   "viewer.config.runtimeDiffHint": "running: ${val}; save and restart to apply",
-  "viewer.config.saveBarHint": "writes the repo config.json; language / profile take effect after restart",
+  "viewer.config.saveBarHint":
+    "writes the repo config.json; language / profile take effect after restart",
   "viewer.config.runtimeHintSuffix": ")",
   "viewer.config.runtimeNotSet": "(not set)",
   "viewer.config.field.language": "Language",
@@ -2218,8 +2389,10 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Delete this synapse?\nThis action is irreversible.",
   "viewer.common.saveFailed": "Save failed: ${err}",
   "viewer.common.restoreBtn": "Restore",
-  "viewer.engram.restoreConfirm": "Restore this memory? This clears the forgotten lock and re-enters default retrieval.",
-  "viewer.skill.restoreConfirm": "Restore this skill? This resets the last-used time; retention stage returns to active.",
+  "viewer.engram.restoreConfirm":
+    "Restore this memory? This clears the forgotten lock and re-enters default retrieval.",
+  "viewer.skill.restoreConfirm":
+    "Restore this skill? This resets the last-used time; retention stage returns to active.",
   "viewer.common.deleteFailed": "Delete failed: ${err}",
   "viewer.common.unknown": "(unknown)",
   "viewer.common.langZh": "中文",
@@ -2286,13 +2459,13 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "<strong>refuted</strong>: marked as the losing side by contradiction_resolve; excluded from retrieval by default.",
   "viewer.help.tabsTitle": "Tabs",
   "viewer.help.tabStats":
-    "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, governance in the middle, health/merge/config/help collapsed into the bottom icon row.",
+    "<strong>Overview</strong> — core KPIs (engrams/synapses/skills/retrievals with weekly deltas) + 30-day memory pulse + memory activity feed (audit timeline, including teammates' actions synced via git) + right-column TOP cards (domain heat / retrieval hotspots / cooling memories / contributors; click a card to expand TOP 20). Top search box does full-text search. Navigation lives in the left sidebar: frequent entries on top, evolution in the middle, health/merge/config/help collapsed into the bottom icon row.",
   "viewer.help.tabEngrams":
     "<strong>Engrams</strong> — card/tree view of all engrams with tag/kind/status/visibility/freshness (this week / this month / dormant 30d-unused) filters. Cards carry kind/visibility/verification badges, a summary, creator, retrieval and synapse counts, and an importance trend glyph (▲ recently retrieved · ▼ dormant decay · ▬ steady); click to open detail (edit/delete/show synapses). Tree view is a single tree rooted at the library root, folder rows show cumulative counts and average importance; click a row to expand/collapse, with expand/collapse-all at the top.",
   "viewer.help.tabSkills":
     "<strong>Skills</strong> — procedural-memory cards: browse by acquisition stage (draft/compiled/tuned) and retention stage (active/aging/stale/forgotten); shows utility, invocation counts and compose links. Skill directories detected under dataRoot enter the proposals queue for approval first.",
   "viewer.help.tabGraph":
-    "<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind; functional filters (search / path / status / importance threshold / node coloring) live in the bar above the stage; Louvain hulls mark community structure; 🌙 toggles the night canvas; click a node to view its neighborhood (edges flow, non-neighbors fade; Esc returns). See \"Reading the Synapses (graph) tab\" above.",
+    '<strong>Graph</strong> — knowledge-graph visualization. Filter edges by family/kind, nodes by engram kind; functional filters (search / path / status / importance threshold / node coloring) live in the bar above the stage; Louvain hulls mark community structure; 🌙 toggles the night canvas; click a node to view its neighborhood (edges flow, non-neighbors fade; Esc returns). See "Reading the Synapses (graph) tab" above.',
   "viewer.help.tabProposals":
     "<strong>Proposals</strong> — candidate-memory approval queue. Sources: conversation clustering (topics mentioned ≥3 times), Claude Code auto-memory files, and untracked .md detected under dataRoot (e.g., files copied in by the user). Humans/LLMs accept (engram_accept_proposal) or dismiss (engram_dismiss_proposal).",
   "viewer.help.tabAudit":
@@ -2345,7 +2518,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Tool profiles =====
   "viewer.help.profilesTitle": "Tool profiles",
   "viewer.help.profilesBody":
-    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Counts come from <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal (12)</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (21, default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>), plus batch proposal triage (<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>). <strong>full (30)</strong>: all native tools except the experimental <code>skill_invoke</code> (P0 stub). Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
+    "<strong>Three profiles</strong> scale the LLM tool surface by use case. Per-tier counts live in <code>PROFILE_TOOL_COUNTS</code> in source (computed via <code>.size</code>, cannot drift). <strong>minimal</strong>: core read/write + proposal triage + <code>engram_sync</code> — chat agents that just recall and record. <strong>standard (default)</strong>: adds learning loop, contradiction resolution, self-healing (<code>engram_doctor</code>), progressive disclosure (<code>engram_list_paths</code>), LLM synthesis (<code>engram_synthesize</code>), and audit query (<code>engram_audit_query</code>), plus batch proposal triage (<code>engram_accept_proposals_by_source</code> / <code>engram_dismiss_proposals_by_filter</code>). <strong>full (all tools)</strong>: all native tools. Switch via env <code>CO_ENGRAM_TOOLS_PROFILE=minimal|standard|full</code>; invalid values warn and fall back to standard.",
 
   // ===== Save & sync =====
   "viewer.help.syncTitle": "Save and sync to remote",
@@ -2364,13 +2537,13 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.help.skill.conceptEngramVsSkill":
     "<strong>engram vs skill</strong>: engrams record static knowledge (facts, patterns, procedures); skills record callable dynamic capabilities (parameterized templates, inference chains). engrams are nouns; skills are verbs — when an agent needs to execute an action sequence, it calls <code>skill_invoke</code> with parameters; the skill returns execution results.",
   "viewer.help.skill.lifecycle":
-    "<strong>Lifecycle</strong>: <code>detection (proposal) → accept (persist) → invoke (use) → decay → forgotten</code>. <code>detection</code>: scan <code>SKILL.md</code> directories and generate candidate proposals. <code>accept</code>: create Skill entity with acquisitionStage=draft, retentionStage=active. <code>invoke</code>: record usage count, update utility via <strong>Rescorla-Wagner rule</strong> (up on success, down on failure). <code>decay</code>: light maintenance cycles recalculate retention; persistently low utility drops retention from active to aging/stale. <code>forgotten</code>: long-unused or extremely low utility skills auto-forget.",
+    "<strong>Lifecycle</strong>: <code>detection (proposal) → accept (persist) → invoke (use) → decay → forgotten</code>. <code>detection</code>: scan <code>SKILL.md</code> directories and generate candidate proposals. <code>accept</code>: create Skill entity with acquisitionStage=draft, retentionStage=active. <code>invoke</code>: record usage count, update utility via <strong>Rescorla-Wagner rule</strong> (up on success, down on failure). <code>decay</code>: light maintenance cycles recalculate retention, dropping active → aging/stale over time (never-used skills age from registration time). <code>forgotten</code>: long-unused skills auto-forget and leave the injected skill catalog; a single real use revives them (relearning).",
   "viewer.help.skill.acquisition":
     "<strong>Acquisition depth axis (acquisitionStage)</strong>: <code>draft (raw) → compiled (built) → tuned (refined)</code>. <code>draft</code>: newly accepted proposal, not yet fully validated. <code>compiled</code>: after a threshold of successful calls with stable high utility, enters compilation phase (ACT-R production compilation, from explicit reasoning to internalized pattern). <code>tuned</code>: long-term high-frequency usage with stable performance, manually or auto-optimized to expert level. Stage transitions are manual (or auto in future versions), reflecting the learning curve from 'conscious execution' to 'automatic'.",
   "viewer.help.skill.utility":
     "<strong>utility</strong>: 0-1 range, reflecting expected benefit of invoking the skill. Initial value 0.5. Each successful call (returning effective results) increases utility via Rescorla-Wagner; failures decrease it. High-utility skills are prioritized in同类 skill competition. Utility decays over Ebbinghaus curve — unused skills' utility automatically drops.",
   "viewer.help.skill.retention":
-    "<strong>retention</strong>: reflects memory strength for the skill, 4 levels: <code>active (strong)</code>: recently used frequently, high retention. <code>aging (weakening)</code>: starting to forget but still recallable. <code>stale (weak)</code>: low retention, may need relearning. <code>forgotten (gone)</code>: removed from default skill pool, needs manual reactivation.",
+    "<strong>retention</strong>: reflects memory strength for the skill, decaying over time along the forgetting curve (anchored to last use for used skills, or to registration time for never-used skills), 4 levels: <code>active (strong)</code>: recently used frequently, high retention. <code>aging (weakening)</code>: starting to forget but still recallable. <code>stale (weak)</code>: low retention, may need relearning. <code>forgotten (gone)</code>: removed from default skill pool; <strong>a single real use revives it automatically</strong> (relearning — the next agent trigger just calls and reports it), manual restore on the web UI also works.",
   "viewer.help.skill.composes":
     "<strong>composes (skill chaining)</strong>: skills can declare dependencies on other skills, forming <code>Skill Chaining</code>. For example, a 'deploy' skill may compose three sub-skills: 'test', 'build', 'deploy'. Calling the parent skill automatically invokes sub-skills in dependency order, enabling complex task decomposition and reuse. Compose relationships are declared via the <code>composes</code> field.",
   "viewer.help.skill.sidecar":
@@ -2450,13 +2623,18 @@ Invariant: relatedIds derived from synapses (both directions).`,
     'Pattern: a rule归纳duced from repeated observations; can predict future behavior. Example: "Build times get longer every Monday morning".',
   "tip.kind.procedure":
     'Procedure: a sequence of steps that reproduces a result when executed. Example: "Run pnpm check before release".',
-  "tip.acquisitionStage.draft": "Cognitive (draft): newly accepted, not yet validated. Maps to Fitts-Posner cognitive stage — high conscious load, error-prone.",
-  "tip.acquisitionStage.compiled": "Associative (compiled): validated through use, pattern stable. Maps to associative stage — fewer errors, more consistent.",
-  "tip.acquisitionStage.tuned": "Autonomous (tuned): thoroughly used + tuned, expert-level. Maps to autonomous stage — automatic, parallelizable.",
-  "tip.retentionStage.active": "Active: recently used, strong retention, high recall weight.",
+  "tip.acquisitionStage.draft":
+    "Cognitive (draft): newly accepted, not yet validated. Maps to Fitts-Posner cognitive stage — high conscious load, error-prone.",
+  "tip.acquisitionStage.compiled":
+    "Associative (compiled): validated through use, pattern stable. Maps to associative stage — fewer errors, more consistent.",
+  "tip.acquisitionStage.tuned":
+    "Autonomous (tuned): thoroughly used + tuned, expert-level. Maps to autonomous stage — automatic, parallelizable.",
+  "tip.retentionStage.active":
+    "Active: recently used, strong retention, high recall weight.",
   "tip.retentionStage.aging": "Aging: unused for a while, beginning to decay.",
   "tip.retentionStage.stale": "Stale: long unused, about to be forgotten.",
-  "tip.retentionStage.forgotten": "Forgotten: marked as forgotten, can be restored.",
+  "tip.retentionStage.forgotten":
+    "Forgotten: marked as forgotten, can be restored.",
   "tip.kind.hypothesis":
     'Hypothesis: an unverified guess; usable as a working hypothesis until counter-examples appear. Example: "Slow queries may stem from missing indexes".',
   "tip.status.active":
@@ -2570,10 +2748,14 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.skill.openDirCopy": "Copy path",
   "viewer.skill.openDirCopied": "Copied",
   "viewer.skill.openDirCopyFailed": "Copy failed",
-  "viewer.skill.openDirReason.no-desktop": "No desktop environment (SSH / container / headless) — can't launch the file manager. Copy the path below to locate it manually:",
-  "viewer.skill.openDirReason.spawn-failed": "File manager command not found. Copy the path below to locate it manually:",
-  "viewer.skill.openDirReason.dir-not-found": "This skill's directory no longer exists (may have been moved externally). Original path:",
-  "viewer.skill.openDirReason.fallback": "Could not open the directory. Copy the path below to locate it manually:",
+  "viewer.skill.openDirReason.no-desktop":
+    "No desktop environment (SSH / container / headless) — can't launch the file manager. Copy the path below to locate it manually:",
+  "viewer.skill.openDirReason.spawn-failed":
+    "File manager command not found. Copy the path below to locate it manually:",
+  "viewer.skill.openDirReason.dir-not-found":
+    "This skill's directory no longer exists (may have been moved externally). Original path:",
+  "viewer.skill.openDirReason.fallback":
+    "Could not open the directory. Copy the path below to locate it manually:",
   "skills.searchPlaceholder": "Search skill ID or source path",
   "skills.filter.acquisitionStage": "Acquisition Stage",
   "skills.filter.retentionStage": "Retention Stage",
@@ -2601,7 +2783,8 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "skills.compatibility": "Compatibility",
   "skills.sourceIcon.openclaw": "OpenClaw skill (declared in compatibility)",
   "skills.sourceIcon.claude": "Claude skill (declared in compatibility)",
-  "skills.sourceIcon.generic": "Generic skill (compatibility does not declare Claude/OpenClaw; cross-runtime)",
+  "skills.sourceIcon.generic":
+    "Generic skill (compatibility does not declare Claude/OpenClaw; cross-runtime)",
   "skills.composes.tip": "Number of composed sub-skills",
   "skills.composesInto": "composes into → ${first}",
   "skills.relatedEngrams": "Related engrams (procedural ↔ declarative)",

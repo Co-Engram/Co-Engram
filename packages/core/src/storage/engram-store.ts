@@ -592,30 +592,18 @@ function validateFrontmatter(
   }
 
   // === 未知字段(unknown_field)==
-  const knownFields = new Set<string>([
-    ...REQUIRED_FIELDS.map((f) => f.name),
-    "summary",
-    "contentHash",
-    "contentSize",
-    "slug",
-    "tags",
-    "forcedFreshness",
-    "verificationStatus",
-    "encodingContext",
-    "perspective",
-    "lastRetrievedAt",
-    "lastEffectiveAt",
-    "lastRetrievalScore",
-    "effectiveRetrievals",
-    "failedUses",
-    "evidenceCount",
-    "retrievalCount",
-    "__lang",
-    "__语言",
-  ]);
-  // 把 NUMERIC_FIELDS 和 ARRAY_FIELDS 的 key 也加入
-  for (const k of NUMERIC_FIELDS) knownFields.add(k);
-  for (const k of ARRAY_FIELDS) knownFields.add(k);
+  // 单一事实源:从 ENGRAM_FIELD_MAP.en 派生,而非独立硬编码清单。
+  // 历史教训(2026-08-16 loop r25):knownFields 曾是一份平行硬编码清单,与
+  // ENGRAM_FIELD_MAP 漂移——缺 updatedBy / visibility / sourceType / status
+  // 四个字段,导致 rem 管线写入的合法字段被 doctor 判为 Unknown field 删除,
+  // 两个维护子系统在字段层互相销毁产出(rem 写 → doctor 删 → rem 再写震荡)。
+  // 序列化(serializeEngramFile → localizeKeys)会写出的 key 就是校验必须
+  // 认识的 key:新字段只需在 ENGRAM_FIELD_MAP 添加一处,校验层自动跟随,
+  // 结构性杜绝三份清单(interface / FIELD_MAP / knownFields)漂移。
+  const knownFields = new Set<string>(Object.keys(ENGRAM_FIELD_MAP.en));
+  // 语言标记(serializeEngramFile attachLangMarker 注入,不在 FIELD_MAP 内)
+  knownFields.add("__lang");
+  knownFields.add("__语言");
 
   for (const key of Object.keys(fm)) {
     if (!knownFields.has(key)) {

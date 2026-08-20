@@ -73,6 +73,50 @@ describe("runDoctor frontmatter 自愈", () => {
     expect(fm.priority).toBeUndefined();
   });
 
+  // 回归(2026-08-16 loop r25):knownFields 曾缺 updatedBy/visibility/sourceType/status,
+  // rem 管线写入这些合法字段后被 doctor 判 unknown_field 删除(字段层震荡)。
+  // 修复后 knownFields 从 ENGRAM_FIELD_MAP.en 派生,这四个字段必须被认识且保留。
+  it("unknown_field 回归: rem 写入的 updatedBy/visibility/sourceType/status → 不判 unknown、不被删除", () => {
+    writeEngram(
+      tmpDir,
+      "rem-fields.md",
+      `id: ${VALID_ID}\ntitle: t\nkind: observation\ncreatedBy: tester\nupdatedBy: rem-tag-refresh\ncreatedAt: 2026-07-08T00:00:00.000Z\nupdatedAt: 2026-07-08T00:00:00.000Z\nvisibility: public\nsourceType: firsthand\nstatus: active`,
+    );
+    const parsed = parseEngramFile(
+      readFileSync(join(tmpDir, "rem-fields.md"), "utf8"),
+    );
+    expect(
+      parsed._validationIssues?.filter((i) => i.category === "unknown_field"),
+    ).toEqual([]);
+    repo.rebuildIndex();
+    const report = repo.runDoctor();
+    expect(
+      report.fixes.filter(
+        (f) => f.kind === "invalid_field_value" && /Unknown field/.test(f.message),
+      ),
+    ).toEqual([]);
+    const fm = readFrontmatter(tmpDir, "rem-fields.md");
+    expect(fm.updatedBy).toBe("rem-tag-refresh");
+    expect(fm.visibility).toBe("public");
+    expect(fm.sourceType).toBe("firsthand");
+    expect(fm.status).toBe("active");
+  });
+
+  it("unknown_field 回归(中文 label): 更新者/可见性 → 反映射后同样不判 unknown", () => {
+    writeFileSync(
+      join(tmpDir, "rem-fields-zh.md"),
+      `正文内容\n\n<!-- co-engram-meta:zh -->\n---\n标识: ${VALID_ID}\n标题: 中文标签用例\n类型: observation\n领域标签:\n  - co-engram\n创建者: tester\n更新者: rem-tag-refresh\n创建时间: 2026-07-08T00:00:00.000Z\n更新时间: 2026-07-08T00:00:00.000Z\n可见性: public\n__语言: zh\n---\n`,
+    );
+    const parsed = parseEngramFile(
+      readFileSync(join(tmpDir, "rem-fields-zh.md"), "utf8"),
+    );
+    expect(
+      parsed._validationIssues?.filter((i) => i.category === "unknown_field"),
+    ).toEqual([]);
+    expect(parsed.frontmatter.updatedBy).toBe("rem-tag-refresh");
+    expect(parsed.frontmatter.visibility).toBe("public");
+  });
+
   it("derived_mismatch: contentHash 不符 → 自动重算", () => {
     writeEngram(
       tmpDir,

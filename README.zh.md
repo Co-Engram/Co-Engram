@@ -75,7 +75,7 @@ openclaw gateway restart
 dsh plugin --profile <name> add @co-engram/dsh
 ```
 
-仅此一步——包内自带 `dsh.bundle` patch,插件自动激活为 profile 层,零手动配置。38 个工具以裸名注册（`engram_search`……）,并注入 `memory:co-engram` prompt 段,每次组装实时注入 signals（topTags／技能／目录概览）。通过进程锁与 Claude Code／OpenClaw 宿主共享同一数据仓。
+仅此一步——包内自带 `dsh.bundle` patch,插件自动激活为 profile 层,零手动配置。40 个工具以裸名注册（`engram_search`……）,并注入 `memory:co-engram` prompt 段,每次组装实时注入 signals（topTags／技能／目录概览）。通过进程锁与 Claude Code／OpenClaw 宿主共享同一数据仓。
 
 详细配置参见 [docs/host-dsh.zh-CN.md](./docs/host-dsh.zh-CN.md)。
 
@@ -266,11 +266,18 @@ unverified → plausible → probable → verified
 Light 与 Deep 两阶段**零干预**——引擎从 engram frontmatter 读取使用统计,应用数学模型(RPE、freshness 驱动的遗忘、Hebbian 可塑性),写回更新后的字段。**REM 阶段自动做分析,但升级/反驳/模式提炼/突触操作建议会以提案形式呈现在「记忆提案」页,由你审批采纳后才落盘**,避免系统未经确认就改动你的记忆。数学原理见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
 
 REM 采用**混合触发**——活动量优先、时间兜底:每轮 light 结束时,引擎累加自上次 REM 以来新增 engram 的 `importance`,达到 `maintenance.remActivityThreshold`(默认 `12`,约 20 条新记忆 × 0.6)即提前触发 REM,让批量新增的记忆在几分钟内得到综合,而不是等满一个间隔。防抖窗口 `maintenance.remMinIntervalMs`(默认 12 小时)保证两次昂贵的 REM 不连跑。设 `remActivityThreshold: 0` 可退回纯时间触发。
-#### REM 深度思考与夜思(2026-08,盲评校准后默认开启)
+#### REM 深度思考与沉思(2026-08,盲评校准后默认开启)
 
-事件信号成立时,REM 会额外运行**深度思考步骤**,含三个思维模式 —— *整合*(跨情境主题)、*复盘*(对失败记忆的 AAR 因果链)、*灵感*(刻意选远域做结构映射)—— 选材由记忆图上的扩散激活完成。每条草稿先过机械校验,再经**独立 critic** 评审,才成为 `rem-insight` 提案(每轮最多 5 条);纯时间兜底的 REM 整体跳过、零 LLM 调用。2026-08-16 盲评校准后默认开启(真洞察率 84-95%);设 `maintenance.remInsight.enabled: false` 可关闭。
+事件信号成立时,REM 会额外运行**深度思考步骤**,含三个思维模式 —— *整合*(跨情境主题)、*复盘*(对失败记忆的 AAR 因果链)、*灵感*(刻意选远域做结构映射)—— 选材由记忆图上的扩散激活完成。选材的种子活动权重纳入审计日志中的检索热度与外部编辑频率,各模式强度也按该模式历史洞察的采纳情况长期校准。每条草稿先过机械校验,再经**独立 critic** 评审,才成为 `rem-insight` 提案(每轮最多 5 条);纯时间兜底的 REM 整体跳过、零 LLM 调用。2026-08-16 盲评校准后默认开启(真洞察率 84-95%);设 `maintenance.remInsight.enabled: false` 可关闭。
 
-**夜思**是构建其上的核心差异化功能:在对话(`incubation_create`)、viewer「夜思实验室」页或 CLI 播种一个问题,Agent 每夜替你想一轮(也可立即触发),带完整梦境史回灌与重复检测。洞察以提案呈现 —— 计划、轨迹与外部调用完全透明,联网默认关闭(按条目开启),accept 洞察后有 resolve 仪式(「是否回答了你的问题?」)。Claude Code 端定时轮次以只读工具授权运行无头 `claude -p` L2 会话;详见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
+**沉思**是构建其上的核心差异化功能:提出一个问题 —— 在对话(`ponder_create`)、viewer「沉思」页或 CLI —— 系统围绕它做一次**全资源盘点式深度思考**:调用全部记忆图谱、行为日志、技能库、联网检索与宿主可用的 MCP 工具,本地记忆只读不写(记忆原文不出域),深思一次出一份报告。提问即深思(viewer/CLI 创建即自动执行;对话里也可以直接说「帮我沉思这个问题」),可能耗时较久,完成后报告自动呈现:以**回答**为主体,洞察以提案呈现(计划、轨迹、拒因与「依据」—— 实际读取的记忆/技能/日志/联网检索 —— 完全透明,审批后才落为记忆)。已答条目可「再思一次」(回灌全部过往深思史防重复);条目可随时删除(`ponder_delete`,已产出的提案与审计保留)。创建/执行/失败/删除均纳入审计;条目上限 50。深思启动时引擎先生成**思考计划**(需求拓扑 + 引擎生成的探测词,执行者逐字执行不得改写、只可追加不可删改),报告中的需求清单按计划核覆盖 —— 被删除或降级的计划项由引擎还原;全部探测皆空的需求由引擎亲证自动豁免。提交的答案另经独立 critic 做**主张审计**(无证据支撑的降级主张占比超过 30% 时洞察提案同样隔离)。报告中的资源需求清单由引擎用调用流水做**闭合校验**——自报「已读」但无真实调用会被退回修复,反复不闭合或超出修复预算(默认 6 轮)时本次深思以「降级收束」结束,其洞察提案进入隔离区、默认不进审批队列。定时与 viewer 异步任务执行只读授权的无头 agent 会话;详见 [docs/maintenance-engine.zh-CN.md](./docs/maintenance-engine.zh-CN.md)。
+
+##### 沉思节奏
+
+- **提问即深思**:提交后立即开始(viewer/CLI 自动起异步任务;对话入口 `ponder_create` + `ponder_run` 分步,agent 可能先与你确认问题)。深思可能耗时较久,可离开页面,完成后报告自动出现。
+- **一次一份报告**:回答由执行现场生产(agent 手握全部盘点上下文);洞察走机械校验 + 独立 critic 成提案;过程(计划/轨迹)与诊断(草稿去向、逐条拒因)折叠可查;「依据」按钮展示本轮实际读取的记忆、使用的技能与日志(记忆 id 过真实库校验,编造即剔)。
+- **再思与历史**:对已答条目「再思一次」回灌全部过往深思史重新盘点;历史深思按时间戳呈现。执行失败显式报错可重试(不静默降级);执行档位(L2/L1)记入审计。
+- **条目上限 50**:接近上限时页面预警;达限需先删除最老的已答条目(不做自动清理 —— 删除属用户裁决,已产出提案保留)。
 
 
 ### 访问 Web 查看器
@@ -460,7 +467,7 @@ flowchart TB
 |              | `contentHash`                         | 字符串              | 正文的 SHA-256;驱动搜索索引重建。                                                                                                       |
 |              | `contentSize`                         | 整数                | 正文字节数。                                                                                                                            |
 | **作者**     | `createdBy` / `createdAt`             | 字符串 / ISO 时间戳 | 原始作者与创建时间。                                                                                                                    |
-|              | `updatedBy` / `updatedAt`             | 字符串 / ISO 时间戳 | 最近修改者与时间。                                                                                                                      |
+|              | `updatedBy` / `updatedAt`             | 字符串 / ISO 时间戳 | 最近修改者与时间。署名由宿主 git 身份决定(`engram_update` 传入的 `updatedBy` 不生效,与 `createdBy` 同一原则)。                       |
 |              | `version`                             | 整数                | `engram_update` 时单调递增。                                                                                                            |
 | **价值**     | `importance`                          | 数值 `[0, 1]`       | 综合重要性;驱动排序与衰减。                                                                                                             |
 |              | `confidence`                          | 数值 `[0, 1]`       | 由 `sourceType` 派生初始值(`firsthand=0.8` / `secondhand=0.65` / `inferred=0.5`),随后随使用反馈动态调整:有效检索 +0.05、失败检索 −0.05、refute ×0.3、verify +0.2。 |
@@ -500,9 +507,9 @@ sourceType: firsthand
 status: active
 verificationStatus: unverified
 visibility: team
-createdBy: claude-code
+createdBy: 杨洋 10192021
 createdAt: 2026-06-21T10:30:00.000Z
-updatedBy: claude-code
+updatedBy: 杨洋 10192021
 updatedAt: 2026-06-21T11:45:00.000Z
 version: 3
 contentHash: sha256:2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae
