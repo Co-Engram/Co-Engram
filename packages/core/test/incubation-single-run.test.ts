@@ -119,6 +119,7 @@ describe("生命周期审计(run_start / run_done / delete)", () => {
         dupVetoed: 0,
         validateRejected: 0,
         criticRejected: 0,
+        criticUnparseable: 0,
         llmClientMissing: false,
       },
     });
@@ -154,6 +155,7 @@ describe("生命周期审计(run_start / run_done / delete)", () => {
       dupVetoed: 0,
       validateRejected: 0,
       criticRejected: 0,
+      criticUnparseable: 0,
       llmClientMissing: false,
     });
     expect(done!.metadata!.answerPreview).toBe("执行现场回答:方向收敛。");

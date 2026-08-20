@@ -1210,6 +1210,22 @@ export class Incubator {
     readonly repairRound: number;
     /** PDCA:超额被 deferred 的新缺口描述 */
     readonly deferredGaps: readonly string[];
+    /**
+     * 诊断摘要(2026-08-20:proposals=0 的可达归因)。此前 rejectReasons
+     * 只写审计,执行者拿到 proposals=0 无法区分「洞察质量不行」与
+     * 「critic LLM 层故障 / 全部复读作废」,只能翻 audit.jsonl(且查询
+     * 工具的 action enum 没登记 contemplation 事件,连翻都翻不到)。
+     */
+    readonly diagnosis: {
+      readonly drafts: number;
+      readonly dupVetoed: number;
+      readonly validateRejected: number;
+      readonly criticRejected: number;
+      /** critic LLM 输出不可解析(基础设施信号,非质量裁决) */
+      readonly criticUnparseable: number;
+      readonly llmClientMissing: boolean;
+      readonly rejectReasons?: readonly string[];
+    };
   }> {
     const entry = this.withStoreLock(() => {
       const entries = this.read();
@@ -1409,6 +1425,9 @@ export class Incubator {
     const threshold = DEFAULT_REM_INSIGHT.criticThreshold;
     let validateRejected = 0;
     let criticRejected = 0;
+    /** critic 输出不可解析(基础设施信号,与「低分」分开计量:
+     * 连续 unparseable 指向 LLM 层格式漂移而非洞察质量,归因口径不能混) */
+    let criticUnparseable = 0;
     /** 逐条拒因(title 前缀 + reason;诊断可达性:计数区分不了成因) */
     const rejectReasons: string[] = [];
     for (const d of survived) {
@@ -1443,10 +1462,19 @@ export class Incubator {
         d.mode,
         this.deps.repository.currentLanguage,
       );
-      if (!score || score.overall < threshold) {
+      if (!score) {
+        // unparseable ≠ 低分:fail-closed 拒绝出提案不变,但单独计数与标注,
+        // 让执行者从返回值就能区分「洞察不行」与「critic LLM 层故障」
+        criticUnparseable += 1;
+        rejectReasons.push(
+          `[critic-unparseable] ${d.title.slice(0, 40)}: critic LLM output could not be parsed (infrastructure signal, not a quality verdict)`,
+        );
+        continue;
+      }
+      if (score.overall < threshold) {
         criticRejected += 1;
         rejectReasons.push(
-          `[critic] ${d.title.slice(0, 40)}: ${score ? score.overall.toFixed(2) : "unparseable"} < ${threshold}`,
+          `[critic] ${d.title.slice(0, 40)}: ${score.overall.toFixed(2)} < ${threshold}`,
         );
         continue;
       }
@@ -1518,6 +1546,7 @@ export class Incubator {
       dupVetoed: vetoed,
       validateRejected,
       criticRejected,
+      criticUnparseable,
       llmClientMissing: !this.deps.llmClient,
       ...(rejectReasons.length ? { rejectReasons } : {}),
     };
@@ -1594,6 +1623,20 @@ export class Incubator {
       ...(answer ? { answer } : { answer: undefined }),
       ...(answerError ? { answerError } : { answerError: undefined }),
     };
+    /** 诊断摘要(返回值口径):rejectReasons 截断 10 条防返回值爆噪,
+     * 审计 diagnosis 里仍全量;其余字段与 timeline 的 diagnosis 同源 */
+    const diagnosisSummary = {
+      drafts: input.report.insights.length,
+      dupVetoed: vetoed,
+      validateRejected,
+      criticRejected,
+      criticUnparseable,
+      llmClientMissing: !this.deps.llmClient,
+      ...(rejectReasons.length
+        ? { rejectReasons: rejectReasons.slice(0, 10) }
+        : {}),
+    };
+
     // 写前重读合并(锁内临界区):report 中途有 await(critic/综合走 LLM),
     // 若仍基于开头快照整文件覆写,会回滚期间其他进程/用户的写;本条目轮中
     // 用户删除等裁决优先保留,其余字段(timeline/rounds 等)用本轮计算值。
@@ -1721,6 +1764,7 @@ export class Incubator {
         degraded: !!degradedFinal,
         repairRound: repairReports,
         deferredGaps: advanced.deferredThisRound,
+        diagnosis: diagnosisSummary,
       };
     }
     return {
@@ -1731,6 +1775,7 @@ export class Incubator {
       degraded: !!degradedFinal,
       repairRound: repairReports,
       deferredGaps: advanced.deferredThisRound,
+      diagnosis: diagnosisSummary,
     };
   }
 

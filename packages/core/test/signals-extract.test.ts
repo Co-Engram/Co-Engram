@@ -9,6 +9,7 @@ import {
   getThenImmediateSearchRule,
   userCorrectionRule,
   contradictsCreatedRule,
+  retrievalHitRule,
   DEFAULT_RULES,
   DEFAULT_WINDOW_SIZE,
   type SignalRule,
@@ -35,8 +36,8 @@ describe("常量", () => {
     expect(DEFAULT_WINDOW_SIZE).toBe(10);
   });
 
-  it("DEFAULT_RULES 包含 6 条规则", () => {
-    expect(DEFAULT_RULES.length).toBe(6);
+  it("DEFAULT_RULES 包含 7 条规则", () => {
+    expect(DEFAULT_RULES.length).toBe(7);
   });
 
   it("DEFAULT_RULES 各规则名唯一", () => {
@@ -463,5 +464,50 @@ describe("extractSignals 组合", () => {
     // engram c 收到负信号(contradicts)
     expect(byEngram.has("c")).toBe(true);
     expect(byEngram.get("c")!.some((w) => w < 0)).toBe(true);
+  });
+});
+
+// ============================================================
+// retrieval_hit(引用即反馈,2026-08-19 反馈自动化切片)
+// ============================================================
+describe("retrievalHitRule", () => {
+  it("批次内同一 engram 被 engram_search 命中 ≥3 次 → +0.6(强正,可达关窗阈值)", () => {
+    const events = [
+      makeEvent({ toolName: "engram_search", input: { query: "q1" }, retrievedEngramIds: ["a", "b"], at: 1000 }),
+      makeEvent({ toolName: "engram_search", input: { query: "q2" }, retrievedEngramIds: ["a"], at: 2000 }),
+      makeEvent({ toolName: "engram_search", input: { query: "q3" }, retrievedEngramIds: ["a"], at: 3000 }),
+    ];
+    const signals = retrievalHitRule.match(events);
+    const a = signals.find((s) => s.engramId === "a")!;
+    expect(a.weight).toBe(0.6);
+    expect(a.source).toBe("retrieval_hit");
+    expect(a.evidence).toMatchObject({ count: 3, strong: true });
+    // 1 次命中的 b → 弱正
+    expect(signals.find((s) => s.engramId === "b")!.weight).toBe(0.2);
+  });
+
+  it("命中 1-2 次 → +0.2(存在感,不单独关窗);与单次 get(+0.4)组合恰好达标 0.6", () => {
+    const events = [
+      makeEvent({ toolName: "engram_search", input: { query: "q1" }, retrievedEngramIds: ["a"], at: 1000 }),
+      makeEvent({ toolName: "engram_get", input: { id: "a" }, retrievedEngramIds: ["a"], at: 2000 }),
+    ];
+    // 组合净值(extract 全规则):retrieval_hit +0.2 与 get_no_further +0.4
+    const signals = extractSignals(events);
+    const aSum = signals
+      .filter((s) => s.engramId === "a")
+      .reduce((x, y) => x + y.weight, 0);
+    expect(aSum).toBeGreaterThanOrEqual(0.6);
+  });
+
+  it("非 search 事件与无命中 search 不产生信号", () => {
+    const events = [
+      makeEvent({ toolName: "engram_get", input: { id: "a" }, retrievedEngramIds: ["a"], at: 1000 }),
+      makeEvent({ toolName: "engram_search", input: { query: "empty" }, retrievedEngramIds: [], at: 2000 }),
+    ];
+    expect(retrievalHitRule.match(events)).toHaveLength(0);
+  });
+
+  it("已注册进 DEFAULT_RULES(修复 3081/0 断回路:可观测正信号与关窗阈值脱节)", () => {
+    expect(DEFAULT_RULES.map((r) => r.name)).toContain("retrieval_hit");
   });
 });

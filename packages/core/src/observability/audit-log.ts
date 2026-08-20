@@ -91,7 +91,21 @@ export type AuditAction =
   | "skill_compose_add"
   | "skill_compose_remove"
   | "skill_related_engram_add"
-  | "skill_related_engram_remove";
+  | "skill_related_engram_remove"
+  // 沉思生命周期(ponder_*;事件早已写入,但未登记进枚举,导致
+  // engram_audit_query 的 action 过滤查不到这些事件 —— 深思诊断不可达,
+  // 执行者只能直接 grep audit.jsonl。2026-08-20 补登记)
+  | "contemplation_create"
+  | "contemplation_delete"
+  | "contemplation_gap_check"
+  | "contemplation_orphan_reclaimed"
+  | "contemplation_plan_generated"
+  | "contemplation_recovered"
+  | "contemplation_run_cancel"
+  | "contemplation_run_done"
+  | "contemplation_run_fail"
+  | "contemplation_run_start"
+  | "contemplation_seed_fallback";
 
 /** 审计行为者 */
 export type AuditActor = "user" | "llm" | "system";

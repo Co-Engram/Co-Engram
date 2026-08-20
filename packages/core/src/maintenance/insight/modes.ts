@@ -282,7 +282,7 @@ A far-fetched analogy is worse than none: only produce an analogy when the mappi
 /** JSON 输出格式说明(所有模式共用;结构与 InsightDraft 对齐) */
 const OUTPUT_CONTRACT = `Return ONLY a JSON array (possibly empty) of insight drafts. Each element:
 {
-  "type": "theme" | "lesson" | "analogy" | "hypothesis",
+  "type": "theme" | "lesson" | "analogy" | "hypothesis" | "pattern",
   "title": string,
   "summary": string,
   "content": string (markdown, cites [id] of sources inline),
@@ -291,7 +291,7 @@ const OUTPUT_CONTRACT = `Return ONLY a JSON array (possibly empty) of insight dr
   "reason": string (why this is an insight, not a restatement),
   "aar": { "expected": string, "actual": string, "cause": string, "improvement": string }  // required for type=lesson only
 }
-Type selection: use "theme" for cross-context syntheses of shared structure; use "lesson" only with the four AAR fields; use "analogy" only across disjoint domains; use "hypothesis" only for causal explanations WITH explicit "if true observe X / if false observe Y" predictions (otherwise it will be discarded). No prose outside the JSON array.`;
+Type selection: use "theme" for cross-context syntheses of shared structure; use "lesson" only with the four AAR fields; use "analogy" only across disjoint domains; use "hypothesis" only for causal explanations WITH explicit "if true observe X / if false observe Y" predictions (otherwise it will be discarded); use "pattern" for a reusable structure or recurring regularity distilled from >=2 sources (same domain family is fine — the bar is reusability, not cross-contextuality). No prose outside the JSON array.`;
 
 /**
  * 模式 prompt。孵化条目存在时(Dormio 锚定):首行重复问题,携带完整梦境史,

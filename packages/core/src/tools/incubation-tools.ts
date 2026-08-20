@@ -272,11 +272,33 @@ export const incubationReportTool: Tool<
       readonly description: string;
       readonly necessity: string;
       readonly reason?: string;
+      /**
+       * evidence-mismatch 的自解释修复指引(2026-08-20):哪些 claimed id
+       * 未被观测、引擎观测到了哪些 id、合法证据锚点是什么、以及 ids 留空 +
+       * 本类型有调用的类型级闭合出口 —— 读它,不要猜。
+       */
+      readonly detail?: string;
     }>;
     /** PDCA:本次是否 degraded 终束(预算触顶;提案隔离,审批面置顶未闭合清单) */
     readonly degraded?: boolean;
     /** PDCA:本次 report 的修复轮序(主报告 = 0) */
     readonly repairRound?: number;
+    /**
+     * 诊断摘要(2026-08-20):proposals=0 的可达归因。dupVetoed=复读作废;
+     * validateRejected=机械校验拒;criticRejected=独立 critic 低分;
+     * criticUnparseable=critic LLM 输出不可解析(基础设施信号,非质量裁决);
+     * llmClientMissing=无 LLM 客户端(fail-closed,不出提案)。此前这些只写
+     * 审计,执行者拿到 proposals=0 只能盲猜或翻 audit.jsonl。
+     */
+    readonly diagnosis?: {
+      readonly drafts: number;
+      readonly dupVetoed: number;
+      readonly validateRejected: number;
+      readonly criticRejected: number;
+      readonly criticUnparseable: number;
+      readonly llmClientMissing: boolean;
+      readonly rejectReasons?: readonly string[];
+    };
     readonly nextAction?: string;
   }
 > = {
@@ -317,9 +339,11 @@ export const incubationReportTool: Tool<
               description: g.description,
               necessity: g.necessity,
               ...(g.reason ? { reason: g.reason } : {}),
+              ...(g.detail ? { detail: g.detail } : {}),
             })),
           }
         : {}),
+      diagnosis: r.diagnosis,
       ...(r.repairRound > 0 || r.degraded ? { repairRound: r.repairRound } : {}),
       ...(r.degraded ? { degraded: true } : {}),
       ...(r.entry.status === "repairing"

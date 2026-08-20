@@ -77,6 +77,19 @@ const AUDIT_ACTIONS = [
   "skill_compose_remove",
   "skill_related_engram_add",
   "skill_related_engram_remove",
+  // 沉思生命周期(2026-08-20 补登记:事件早已写入但枚举缺失,action 过滤
+  // 查不到,深思诊断只能 grep 文件 —— 与 AuditAction 保持同步)
+  "contemplation_create",
+  "contemplation_delete",
+  "contemplation_gap_check",
+  "contemplation_orphan_reclaimed",
+  "contemplation_plan_generated",
+  "contemplation_recovered",
+  "contemplation_run_cancel",
+  "contemplation_run_done",
+  "contemplation_run_fail",
+  "contemplation_run_start",
+  "contemplation_seed_fallback",
 ] as const satisfies readonly AuditAction[];
 
 export const EngramAuditQueryInputSchema = z

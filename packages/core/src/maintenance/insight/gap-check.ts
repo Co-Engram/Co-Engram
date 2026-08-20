@@ -119,6 +119,58 @@ export interface RequirementCheckResult {
  * - 零盘点拦截:流水零 engram 读调用(完全偏废)→ reject;
  * - 假闭合复核:closed + 可观测类型 → evidence.ids 逐个对流水,缺一即缺口。
  */
+/**
+ * evidence-mismatch 的自解释诊断(2026-08-20):拒绝必须自带修复所需的
+ * 全部信息——未观测到的 claimed id、引擎观测到的 id 集(截断)、合法证据
+ * 锚点、以及「ids 留空 + 本类型有调用」的类型级闭合出口。此前只有
+ * reason 标签,执行者只能盲猜(实测两次重报),违反快速失败原则。
+ */
+function mismatchDetail(
+  resourceType: import("./types.js").PonderResourceType,
+  missing: readonly string[],
+  readIds: ReadonlySet<string>,
+  callCount: number,
+): string {
+  const observed = [...readIds].slice(0, 8).join(", ");
+  const observedNote = readIds.size
+    ? `${observed}${readIds.size > 8 ? `, ...(${readIds.size} total)` : ""}`
+    : "(none)";
+  if (resourceType === "engrams") {
+    return (
+      `claimed evidence.ids not observed in this run's tool-call stream: [${missing.join(", ")}]. ` +
+      `Valid engram anchors are ids passed to engram_get or surfaced by engram_search hits; ` +
+      `engine observed these ids this run: ${observedNote} (${callCount} read call(s)). ` +
+      `Fix: cite only ids you actually read, OR leave evidence.ids empty — an empty list still closes ` +
+      `this item at type level when the engine observed at least one engram read call this run.`
+    );
+  }
+  return (
+    `claimed evidence.ids not observed in this run's tool-call stream: [${missing.join(", ")}]. ` +
+    `Skill evidence only counts co-engram imprint ids actually passed to skill_get / skill_invoke — ` +
+    `skill_list results and host-runtime skill names are NOT valid ids (host-skill calls are outside ` +
+    `the engine's observation surface; record them in the trace instead). ` +
+    `Engine observed these ids this run: ${observedNote} (${callCount} skill call(s)). ` +
+    `Fix: cite only imprint ids you actually read via skill_get, OR leave evidence.ids empty — an empty ` +
+    `list still closes this item at type level when the engine observed at least one skill call ` +
+    `(e.g. the skill_list inventory) this run.`
+  );
+}
+
+/** 类型级零调用的 mismatch 诊断:告知最低成本闭合路径(先调一次该类型工具) */
+function zeroCallDetail(resourceType: import("./types.js").PonderResourceType): string {
+  if (resourceType === "engrams") {
+    return "no engram read call observed this run — self-declared closure without any engram call is rejected. " +
+      "Run at least one engram_search / engram_get and re-report, or declare closed:false honestly.";
+  }
+  if (resourceType === "skills") {
+    return "no skill call observed this run — self-declared closure without any skill call is rejected. " +
+      "Run at least skill_list (the inventory itself counts at type level) and re-report, " +
+      "or declare closed:false honestly.";
+  }
+  // 防御:不可观测类型不走 mismatch 路径(上方 observable 分支已保证),兜底文案
+  return `no ${resourceType} evidence observed this run — declare closed:false honestly or close it with real usage.`;
+}
+
 export function checkRequirements(
   requirements: readonly PonderRequirement[] | undefined,
   evidence: EvidenceDigest,
@@ -204,6 +256,7 @@ export function checkRequirements(
             reopens: 0,
             reason: "evidence-mismatch",
             origin,
+            detail: mismatchDetail(r.resourceType, missing, readIds, callCount),
           });
           continue;
         }
@@ -218,6 +271,7 @@ export function checkRequirements(
           reopens: 0,
           reason: "evidence-mismatch",
           origin,
+          detail: zeroCallDetail(r.resourceType),
         });
         continue;
       }
