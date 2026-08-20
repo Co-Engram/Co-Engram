@@ -1046,10 +1046,10 @@ body = treeHost;
       for (const child of rootChildren) {
         inner += renderNode(child, 0);
       }
-      // 单一整体树的根节点(DEMO「团队记忆库」):一行汇总 + 统一缩进连线容器
+      // 单一整体树的根节点(DEMO「团队记忆库」):一行汇总 + 统一缩进连线容器。
+      // 根行不带 folder 图标:🗂 在无彩色 emoji 字体的环境回退为黑色单色符号(2026-08-20 去除)
       html += '<details class="tree-group tree-root" open>'
-        + '<summary><span class="tree-folder-icon">🗂</span> '
-        + '<span class="tree-dir-name root">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootName')) + '</span> '
+        + '<summary><span class="tree-dir-name root">' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.rootName')) + '</span> '
         + '<span class="tmeta">'
         + '<span class="tree-count"><b>' + totalEngrams + '</b> ' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.itemsUnit')) + '</span>'
         + '<span>' + domainCount + ' ' + CO_ENGRAM.escapeHtml(T.t('engrams.tree.domainsUnit')) + '</span>'
