@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed(2026-08-20 详情抽屉吸顶与配色:滚动后操作可达)
+
+- **印迹详情抽屉吸顶**(用户反馈:内容长,滚动后「打开目录/编辑/删除」与 ✕ 滚出视口):`.drawer` 改 flex 头体分离(✕ 固定不滚,覆盖全部 18 处 openDrawer 抽屉),`.edit-banner` 操作条 sticky 吸顶。首版白底与抽屉白底混淆(二次反馈),改 `--bg-deep` 纸面色 + `--border-strong` 底边 + 加强投影形成明确层次。验证:CDP 真实浏览器度量(scroll 变化 bannerTop 恒定、内容滚走、✕ 固定)+ 截图视觉验收两轮。public `0161dc7`/`c468e96`,gerrit 27344719/27344739。
+
+### Fixed(2026-08-20 总览 KPI 周增量恢复「周」语义)
+
+- **`↑N` 裸增量补回时间尺度**(用户反馈:「本周上升多少条」的「本周」含义不见了):`20f6185`(08-17 精简)把 zh 三键从「本周 ↑${n}」砍成「↑${n}」,en 同次保留 `/wk` —— zh 砍过头。修正为 `↑${n}/周`(与 en 后缀同构,不复发排版问题)。验证:`t('weeklyNew',{n:3})` → `↑3/周`;verify:i18n-dist 通过。public `147b2aa`,gerrit 27344764。
+
 ### Fixed(2026-08-20 提案来源细分:rem-insight 区分「沉思/夜思」,统一两族命名)
 
 - **来源标签「夜思深度思考」是拼接词,且无法区分入口**:rem-insight 在列表来源行(`sourceLine`)叫「夜思洞察」,在「为什么生成」详情面板(`why.sourceLabel`)却是拼接词「夜思深度思考」——既非夜思族命名也不属 REM 族(其余 REM 系均为「REM 模式提炼/元认知验证/标签刷新」)。且 rem-insight 实际有两个产生入口:沉思(用户发起 ponder)与夜思(条目每日调度),此前一律标「夜思」无法区分。修复:①incubator → proposal 链路透传 trigger(manual/scheduled),落 payload.insightTrigger(历史提案无此字段按夜思展示,向后兼容);②viewer 列表来源行与详情面板按 payload 区分展示「沉思洞察」/「夜思洞察」;③i18n 中英双补 `remInsightContemplation`。
