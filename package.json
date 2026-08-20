@@ -18,6 +18,7 @@
     "format": "pnpm exec prettier --write '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'",
     "format:check": "pnpm exec prettier --check '**/*.{ts,tsx,js,cjs,mjs,json,md,yaml,yml}'",
     "lint:finding-refs": "node scripts/lint-no-finding-refs.mjs",
+    "verify:repo-sync": "node scripts/check-repo-sync.mjs --private ${CO_ENGRAM_PRIVATE_REPO:-/home/10192021@zte.intra/AIOS/co-engram-private/co-engram}",
     "audit:defaults": "node scripts/audit-hardcoded-defaults.mjs",
     "verify:i18n-dist": "node scripts/verify-i18n-dist.mjs",
     "deploy:openclaw": "node scripts/deploy-co-engram.mjs",
