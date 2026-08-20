@@ -1265,16 +1265,21 @@ main:has(> section.tab-panel[data-tab="graph"].active) { max-width: none; }
   min-height: 0;
 }
 /* 详情操作条吸顶:engram 详情的「打开目录/编辑/删除」等按钮滚动后保持可达。
-   负 margin 拉通 body 左右 padding 形成通栏,不透明背景防内容透出。 */
+   负 margin 拉通 body 左右 padding 形成通栏,不透明背景防内容透出。
+   2026-08-20 用户反馈「吸顶框颜色和背景混淆」:banner 原用白(#fff)与抽屉
+   0.97 白底零区分,滚动内容同为白底文字 → 层次不清。改用纸面深色
+   --bg-deep(#F5F3ED,页面最底层同款)与内容白形成明确色阶,投影加强。 */
 .drawer .drawer-body > .edit-banner {
   position: sticky;
   top: -1.5rem;
   z-index: 6;
   margin: -1.5rem -1.75rem 1rem;
   padding: 1.5rem 1.75rem 0.85rem;
-  background: #fff;
-  border-bottom: 1px solid var(--border);
-  box-shadow: 0 6px 10px -8px rgba(45, 42, 38, 0.25);
+  background: var(--bg-deep);
+  border-bottom: 1px solid var(--border-strong);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 10px 16px -10px rgba(45, 42, 38, 0.35);
 }
 .drawer-close {
   position: static;
