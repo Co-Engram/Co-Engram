@@ -1066,10 +1066,20 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.contemplation.diagnosis.rejectReasons":
     "拒因明细（${n} 条，点开查看）",
   // 夜思 T10:机理简述 / 调度器状态 / 收束与排程 / 播种反馈 / 诊断人话化
-  "viewer.maintenance.insightStats.title": "洞察质量度量",
-  "viewer.maintenance.insightStats.total": "洞察提案 ${n} 条",
-  "viewer.maintenance.insightStats.acceptance": "采纳率 ${v}",
-  "viewer.maintenance.insightStats.laterUse": "后续使用率 ${v}",
+  "viewer.maintenance.insightStats.title": "提案质量反馈",
+  "viewer.maintenance.insightStats.sub":
+    "梦境模式提炼与沉思洞察两类自动提案的历史审批表现:它们都以「提案 → 人工裁决」落地,采纳率与后续使用率反映产出质量,置信度一致性反映机器评分与你的裁决是否合拍。",
+  "viewer.maintenance.insightStats.sampleHint": "样本:沉思洞察 ${n} · 梦境模式 ${m}。",
+  "viewer.maintenance.insightStats.accepted": "已采纳",
+  "viewer.maintenance.insightStats.dismissed": "已驳回",
+  "viewer.maintenance.insightStats.pending": "待审",
+  "viewer.maintenance.insightStats.acceptance": "采纳率",
+  "viewer.maintenance.insightStats.laterUse": "后续使用率",
+  "viewer.maintenance.insightStats.confidenceR": "置信度一致性 r",
+  "viewer.maintenance.insightStats.rFew": "已裁决 ${n} 条,样本尚少,置信度一致性暂不可解读。",
+  "viewer.maintenance.insightStats.rPos": "机器置信度与你的裁决方向一致(r=${v}):高分提案确实更容易被采纳。",
+  "viewer.maintenance.insightStats.rNeg": "警示:机器置信度高的提案反而更常被驳回(r=${v})——评分校准可能失真,建议复核驳回原因。",
+  "viewer.maintenance.insightStats.rNeutral": "机器置信度与你的裁决暂无明显相关(r=${v})。",
   "viewer.help.contemplationTitle": "沉思（Contemplation）",
   "viewer.help.contemplationDesc":
     "<strong>沉思</strong>：在「沉思」页提出一个问题，系统围绕它做一次<strong>全资源盘点式深度思考</strong>——调用全部记忆图谱、行为日志、技能库、联网检索与可用的 MCP 工具，记忆库全程只读、记忆原文不出域，深思一次出一份报告。",
@@ -1947,25 +1957,32 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   // ===== Maintenance 面板(viewer.maintenance.*) — 方案 A viewer tab =====
   "viewer.maintenance.loading": "加载维护状态中",
   "viewer.maintenance.sleep.title": "睡眠报告",
-  "viewer.maintenance.sleep.sub":
-    "deep(衰减整合)+ rem(元认知)两阶段 · 每晚自动运行",
+  "viewer.maintenance.sleep.sub": "上一轮维护窗口系统对记忆做的全部变更 · 按生产者分组",
   "viewer.maintenance.sleep.when": "最近一次:${t}",
-  "viewer.maintenance.sleep.reinforce": "强化(RPE)",
-  "viewer.maintenance.sleep.decay": "衰减(deep)",
-  "viewer.maintenance.sleep.upgrade": "验证升级(REM)",
+  "viewer.maintenance.sleep.reinforce": "强化",
+  "viewer.maintenance.sleep.upgrade": "验证升级",
   "viewer.maintenance.sleep.pattern": "模式提炼",
   "viewer.maintenance.sleep.archive": "归档/遗忘",
+  "viewer.maintenance.sleep.decayDeep": "整理降权",
+  "viewer.maintenance.sleep.decaySignal": "信号衰减",
+  "viewer.maintenance.sleep.group.rem": "🌙 REM · 元认知",
+  "viewer.maintenance.sleep.group.deep": "🧠 deep · 整理",
+  "viewer.maintenance.sleep.group.light": "⚡ light · 信号",
+  "viewer.maintenance.sleep.group.govern": "⚖ 治理 · 提案引擎/矛盾检测",
+  "viewer.maintenance.sleep.gsum.rem": "评估 ${a} · 聚类 ${c}",
+  "viewer.maintenance.sleep.gsum.deep": "合并 ${n}",
+  "viewer.maintenance.sleep.gsum.light": "处理信号 ${a} · RPE 更新 ${b}",
+  "viewer.maintenance.sleep.gsum.govern": "上轮 REM 周期内审计",
+  "viewer.maintenance.sleep.more": "等 ${n} 条",
   "viewer.maintenance.sleep.upgradeSub": "rem 元认知 · 验证状态跃迁",
   "viewer.maintenance.sleep.reinforceSub": "RPE · 取用后正向反馈",
-  "viewer.maintenance.sleep.decaySub":
-    "deep · 30 天未取用自动降权(软降权,不删除)",
+  "viewer.maintenance.sleep.decayDeepSub": "deep · 30 天未取用自动降权(软降权,不删除)",
+  "viewer.maintenance.sleep.decaySignalSub": "light RPE 负向反馈 · 取用失败或未被引用",
   "viewer.maintenance.sleep.patternSub": "梦境提炼 · 以提案呈现,审批后成为记忆",
   "viewer.maintenance.sleep.noise": "噪声驳回",
-  "viewer.maintenance.sleep.noiseSub":
-    "提案引擎 Layer 1/2 噪声过滤 · 同窗口审计计数",
+  "viewer.maintenance.sleep.noiseSub": "提案引擎 Layer 1/2 噪声过滤 · 同窗口审计计数",
   "viewer.maintenance.sleep.contradict": "矛盾送审",
-  "viewer.maintenance.sleep.contradictSub":
-    "contradicts 突触建立 · 等待人工裁决",
+  "viewer.maintenance.sleep.contradictSub": "contradicts 突触建立 · 等待人工裁决",
   "viewer.maintenance.sleep.noiseItem": "原因:${reason} · ${path}",
   "viewer.maintenance.sleep.contraItem": "与 ${by} 矛盾 · 点击查看",
   "viewer.maintenance.sleep.empty": "最近一轮维护没有产生记忆变更",
@@ -1975,7 +1992,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.disabledHint": "未启用维护服务或 dataRoot 不可用。",
   "viewer.maintenance.title": "梦境状态",
   "viewer.maintenance.intro":
-    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估(聚类相似记忆 + 抽象 pattern + 验证升降级)、🧠 deep 记忆整理、⚡ light 信号处理。下方显示每个阶段的运行时刻、产物效果与是否在周期内。",
+    "记忆梦境在后台按周期自动运行:🌙 REM 做记忆巩固与元认知评估、🧠 deep 记忆整理、⚡ light 信号处理。下方是各阶段的调度状态(运行时刻/健康度/下次运行);上一轮做了什么,见下方「睡眠报告」。",
   "viewer.maintenance.never": "从未运行",
   "viewer.maintenance.justNow": "刚刚",
   "viewer.maintenance.minutesAgo": "${n} 分钟前",
@@ -1993,8 +2010,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "梦睡眠阶段:聚类相似记忆 + 抽象综合 pattern + 元认知评分,产出升级/反驳/模式提案待审批",
-  "viewer.maintenance.stageSubtitle.deep":
-    "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
+  "viewer.maintenance.stageSubtitle.deep": "记忆整理:合并重复记忆 + 归档/遗忘陈旧 + 回收站清理",
   "viewer.maintenance.stageSubtitle.light":
     "信号处理:把工具调用行为流转化为记忆的强化/衰减(RPE 加性更新)",
   "viewer.maintenance.stageTip.rem":
@@ -2006,11 +2022,7 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.dreamBadge": "梦睡眠",
   "viewer.maintenance.dreamBadgeTip":
     "REM 是借用人类睡眠神经科学的隐喻:此阶段类似梦境记忆巩固,把白天散落的记忆痕迹重塑为长存的 pattern。",
-  "viewer.maintenance.remModifiedLabel": "上次 REM 修改",
-  "viewer.maintenance.lightNoSignal":
-    "本周期没有新的记忆使用信号,记忆无变化(Light 阶段把 agent 检索/使用记忆的行为转化为强化,没有新行为时记忆保持原样)",
   "viewer.maintenance.lightModifiedLabel": "RPE 强化",
-  "viewer.maintenance.deepModifiedLabel": "修改",
   "viewer.maintenance.deepAction.forgotten": "遗忘",
   "viewer.maintenance.deepAction.archived": "隐藏",
   "viewer.maintenance.deepAction.merged": "合并",
@@ -2027,8 +2039,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
     "这条记忆在 Deep(记忆整理)阶段被合并到另一条相似记忆(去重),内容并入目标记忆。",
   "viewer.maintenance.modCard.lightRpe":
     "这条记忆在 Light(信号处理)阶段因被检索/使用,获得 RPE 强化 ${delta}——被用到的记忆变得更强。",
-  "viewer.maintenance.patternLabel": "模式提炼",
-  "viewer.maintenance.remAction.evaluated": "评估",
   "viewer.maintenance.status.healthy": "周期内",
   "viewer.maintenance.status.soon": "即将到期",
   "viewer.maintenance.status.overdue": "已过期",
@@ -2043,7 +2053,6 @@ push 降级:hasRemote=false 时 push 阶段 skipped,不报错(支持纯本地仓
   "viewer.maintenance.progressBarTip": "周期进度:${pct}%(距下次触发 ${remain})",
   "viewer.maintenance.progressBarTipOverdue":
     "已过期 ${pct}% 周期(超期 ${remain})",
-  "viewer.maintenance.resultLabel": "上次产物",
   "viewer.maintenance.errorLabel": "上次错误",
 
   // ===== Graph 工具栏(viewer.graph.*) =====

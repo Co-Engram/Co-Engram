@@ -1835,7 +1835,6 @@ describe("GET /api/maintenance-state", () => {
       "viewer.maintenance.statusTip.never",
       "viewer.maintenance.progressBarTip",
       "viewer.maintenance.progressBarTipOverdue",
-      "viewer.maintenance.resultLabel",
       "viewer.maintenance.errorLabel",
     ] as const;
     for (const key of keys) {
@@ -1844,6 +1843,55 @@ describe("GET /api/maintenance-state", () => {
       expect(zh[key], `zh.${key} 误填成 key 本身`).not.toBe(key);
       expect(en[key], `en.${key} 误填成 key 本体`).not.toBe(key);
     }
+  });
+});
+
+// ============================================================
+// GET /api/insight-stats(提案质量反馈:rem-insight + rem-pattern 统一度量)
+// ============================================================
+
+describe("GET /api/insight-stats", () => {
+  it("统计 rem-insight 与 rem-pattern 两类提案,bySource 细分 + 置信度样本", async () => {
+    const ctx = makeCtx(tmpDir);
+    // 梦境模式提炼提案 ×2(remConfidence 0.9 / 0.4)+ 沉思洞察提案 ×1(criticScore 0.8)
+    expect(ctx.proposalEngine.proposePattern({
+      title: "pattern-a", content: "c", summary: "s",
+      confidence: 0.9, reason: "r",
+      sourceIds: ["engram-1", "engram-2"], domainTags: [],
+    })).toBe(true);
+    expect(ctx.proposalEngine.proposePattern({
+      title: "pattern-b", content: "c", summary: "s",
+      confidence: 0.4, reason: "r",
+      sourceIds: ["engram-3", "engram-4"], domainTags: [],
+    })).toBe(true);
+    expect(ctx.proposalEngine.proposeInsight({
+      mode: "cross", insightType: "t", title: "insight-a",
+      content: "c", summary: "s", domainTags: [],
+      sourceIds: ["engram-5"], criticScore: 0.8, criticRationale: "r",
+    })).toBe(true);
+    // 裁决:驳回一个 pattern 与一个 insight(已裁决样本才进置信度一致性)
+    const all = ctx.proposalEngine.listAll();
+    const patB = all.find(
+      (p) => p.source === "rem-pattern" && (p.payload as { remConfidence?: number }).remConfidence === 0.4,
+    );
+    const insA = all.find((p) => p.source === "rem-insight");
+    ctx.proposalEngine.dismiss(patB!.entityId, "test");
+    ctx.proposalEngine.dismiss(insA!.entityId, "test");
+
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/insight-stats");
+      const data = JSON.parse(res.body);
+      expect(data.enabled).toBe(true);
+      expect(data.bySource["rem-pattern"]).toMatchObject({ total: 2, dismissed: 1, pending: 1 });
+      expect(data.bySource["rem-insight"]).toMatchObject({ total: 1, dismissed: 1 });
+      expect(data.total).toBe(3);
+      expect(data.dismissed).toBe(2);
+      expect(data.pending).toBe(1);
+      // 两个 dismissed 各带置信度(pattern=remConfidence / insight=criticScore)
+      expect(data.confidenceSamples).toBe(2);
+      // 样本 <3 → 相关性不计算
+      expect(data.confidenceCorrelation).toBeNull();
+    });
   });
 });
 

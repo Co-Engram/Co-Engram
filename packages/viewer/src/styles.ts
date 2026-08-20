@@ -380,6 +380,8 @@ body {
 .ov-kpi-label { font-size: 0.72rem; color: var(--fg-dim); }
 .ov-kpi-sub { font-size: 0.68rem; color: var(--fg-dim); margin-top: 1px; }
 .ov-up { color: var(--accent); font-size: 0.7rem; font-weight: 600; }
+/* 纯展示 KPI 行(梦境 tab 提案质量反馈等):同款格子,去手型 —— 不可点,仅呈现 */
+.ov-kpi-row--static .ov-kpi { cursor: default; }
 .ov-pulse-h { font-size: 0.78rem; font-weight: 700; color: var(--fg-muted); border-top: 1px solid var(--border); margin-top: 0.8rem; padding-top: 0.7rem; margin-bottom: 0.5rem; display: flex; align-items: baseline; gap: 0.5rem; }
 .ov-pulse-h small { font-weight: 400; color: var(--fg-dim); font-size: 0.68rem; margin-left: auto; }
 .ov-pulse { display: flex; align-items: flex-end; gap: 3px; height: 50px; }
@@ -2706,12 +2708,23 @@ div.vis-tooltip {
 .slp-head .nm { text-align: center; }
 .slp-head .nm b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
 .slp-head .nm span { font-size: 0.68rem; color: var(--fg-dim); }
+/* 睡眠报告/质量反馈:汇总格按生产者分组(组序同梦境状态行序),格样式沿用 .nm */
+.slp-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.9rem 1.6rem; margin: 0.9rem 0 0.3rem; }
+.slp-group { min-width: 0; }
+.slp-ghead { font-size: 0.75rem; color: var(--fg-dim); margin-bottom: 0.3rem; }
+.slp-ghead b { color: var(--fg-muted); }
+.slp-ghead small { font-weight: 400; margin-left: 0.4rem; }
+.slp-group .nums { display: flex; gap: 1.2rem; flex-wrap: wrap; }
+.slp-group .nm { text-align: center; }
+.slp-group .nm b { display: block; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
+.slp-group .nm span { font-size: 0.68rem; color: var(--fg-dim); }
 .c-ac { color: var(--accent); }
 .c-rd { color: #BE3B3B; }
 .c-am { color: var(--accent-warm); }
 .c-pu { color: #7163C4; }
 .slp-h { font-size: 1.02rem; margin: 1.1rem 0 0.5rem; }
 .slp-h small { font-weight: 400; font-size: 0.72rem; color: var(--fg-dim); margin-left: 0.4rem; }
+.slp-h .slp-more { float: right; font-weight: 400; font-size: 0.72rem; color: var(--fg-dim); }
 .slp-card { padding: 0.6rem 0.9rem; margin-bottom: 0.45rem; }
 .slp-card .ct { display: flex; gap: 0.7rem; align-items: baseline; }
 .slp-card .delta { margin-left: auto; font-variant-numeric: tabular-nums; font-size: 0.78rem; }

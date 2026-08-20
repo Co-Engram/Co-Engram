@@ -5551,12 +5551,13 @@ window.CO_ENGRAM_MAINTENANCE = {
       return;
     }
     const insightHtml = CO_ENGRAM_MAINTENANCE.renderInsightStats(insightStats);
-    // 睡眠报告五格中的「噪声驳回/矛盾送审」(2026-08 补齐,DEMO g2-dream):
-    // 数据源 = 同一维护窗口的 audit 动作(noise_filtered/necessity_rejected/
-    // contradicted)—— 单独拉取,失败静默(报告其余部分不依赖)。
+    // 睡眠报告「噪声驳回/矛盾送审」两节的数据源 = 同一维护窗口的 audit 动作
+    // (noise_filtered/necessity_rejected/contradicted)—— 单独拉取,失败静默
+    // (报告其余部分不依赖)。
     const dreamAudit = await CO_ENGRAM_MAINTENANCE.fetchDreamAudit(payload);
-    // 2026-08 用户反馈:梦境状态(rem/deep/light 健康度/下次运行)上移到页首,
-    // 睡眠报告(五格 + 五节)随后,洞察质量度量沉底
+    // 三段正交(2026-08-19 重排):①梦境状态 = 调度维度(何时跑/健康度/下次
+    // 运行);②睡眠报告 = 产物维度(上一轮做了什么,明细唯一家,按生产者分组);
+    // ③提案质量反馈 = 质量维度(产出的提案历史审批表现)。同一数据不跨段重复。
     root.innerHTML = CO_ENGRAM_MAINTENANCE.renderHtml(payload.state, payload.intervals)
       + CO_ENGRAM_MAINTENANCE.renderSleepReport(payload.state, payload.intervals, dreamAudit)
       + insightHtml;
@@ -5597,9 +5598,11 @@ window.CO_ENGRAM_MAINTENANCE = {
     } catch (_) { return empty; }
   },
 
-  // 睡眠报告(DEMO g2-dream):deep(衰减整合)+ rem(元认知)两阶段说明、
-  // 五格汇总、验证升级/强化/衰减/模式提炼逐节卡片(点击开修改介绍卡片)、
-  // 下次维护时间 + 软降权规则说明。数据缺失的节显示空提示,不伪造计数。
+  // 段②睡眠报告(DEMO g2-dream 演进):产物维度 —— 上一轮维护窗口对记忆做的
+  // 全部变更,按生产者分组(🌙 REM 元认知 / 🧠 deep 整理 / ⚡ light 信号 /
+  // ⚖ 治理),组序与段①梦境状态行序对应;明细只在此呈现,状态行不重复。
+  // 衰减按生产者拆分(RPE 信号衰减 vs deep 整理降权),不混合两种机制。
+  // 数据缺失的节隐藏,不伪造计数。
   renderSleepReport(state, intervals, dreamAudit) {
     const T = CO_ENGRAM_T;
     dreamAudit = dreamAudit || { noise: [], contradicted: [] };
@@ -5607,38 +5610,23 @@ window.CO_ENGRAM_MAINTENANCE = {
     const ds = (s) => ((stages[s] && stages[s].lastResult && stages[s].lastResult.downstreamSummary) || {});
     const remDs = ds('rem'), lightDs = ds('light'), deepDs = ds('deep');
     const upgrades = (remDs.remModified || []).filter(m => m.action && m.action !== 'evaluated');
+    const patterns = remDs.patternProposals || [];
     const lightMods = lightDs.lightModified || [];
     const reinforces = lightMods.filter(m => typeof m.delta === 'number' && m.delta > 0);
-    const decays = lightMods.filter(m => typeof m.delta === 'number' && m.delta < 0).concat(remDs.lightModified ? [] : (deepDs.deepModified || []));
-    const patterns = remDs.patternProposals || [];
+    const lightDecays = lightMods.filter(m => typeof m.delta === 'number' && m.delta < 0);
+    const deepMods = deepDs.deepModified || [];
     const archivedN = (deepDs.archived || 0) + (deepDs.forgotten || 0);
+    const mergedN = deepDs.merged || 0;
     const remRun = stages.rem && stages.rem.lastRunAt ? new Date(stages.rem.lastRunAt) : null;
+    const auditedN = dreamAudit.noise.length + dreamAudit.contradicted.length;
 
-    // 下次维护:三 stage 中进度比例最高者(overdue 标红)
-    const now = Date.now();
-    let nextLine = '';
-    try {
-      const dues = ['light', 'deep', 'rem'].map(s => {
-        const st = stages[s] || {};
-        const iv = intervals[s] || 0;
-        const last = st.lastRunAt ? new Date(st.lastRunAt).getTime() : 0;
-        const ratio = iv > 0 && last ? (now - last) / iv : 2;
-        const remainMs = Math.max(0, iv - (now - last));
-        return { s, ratio, remainMs, has: !!st.lastRunAt };
-      }).sort((a, b) => b.ratio - a.ratio);
-      const d = dues[0];
-      const h = d && d.has ? Math.max(1, Math.round(d.remainMs / 3600000)) : null;
-      nextLine = T.t('viewer.maintenance.sleep.next', {
-        stage: T.t('viewer.maintenance.stage.' + (d ? d.s : 'light')),
-        h: h != null ? String(h) : '—',
-      });
-    } catch (e) { nextLine = ''; }
-
-    // 单条修改卡片:复用 rem-mod-item 机制(data 属性 → 修改介绍卡片)
+    // 单条修改卡片:复用 rem-mod-item 机制(data 属性 → 修改介绍卡片);
+    // deep 明细的 action 是 forgotten/archived/merged,与 rem 验证状态跃迁不同
     const modCard = (m, stage) => {
       const delta = typeof m.delta === 'number' ? ((m.delta >= 0 ? '+' : '') + m.delta.toFixed(2)) : '';
-      const actionTxt = m.action && m.action !== 'evaluated'
-        ? (T.enumLabel('verificationStatus', m.action) || m.action) : '';
+      const actionTxt = stage === 'deep'
+        ? (T.t('viewer.maintenance.deepAction.' + m.action) || m.action)
+        : (m.action && m.action !== 'evaluated' ? (T.enumLabel('verificationStatus', m.action) || m.action) : '');
       return '<div class="card slp-card">'
         + '<div class="ct"><span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(m.engramId) + '"'
         + ' data-stage="' + stage + '" data-action="' + CO_ENGRAM.escapeHtml(String(m.action ?? '')) + '"'
@@ -5650,45 +5638,77 @@ window.CO_ENGRAM_MAINTENANCE = {
         + (actionTxt ? '<span class="delta c-ac">→ ' + CO_ENGRAM.escapeHtml(actionTxt) + '</span>' : '')
         + '</div></div>';
     };
-    const section = (title, sub, cardsHtml, n) => n > 0
-      ? '<h2 class="slp-h">' + CO_ENGRAM.escapeHtml(title) + ' <small>' + CO_ENGRAM.escapeHtml(sub) + '</small></h2>' + cardsHtml
+    // 节:标题 + 副题 + 明细卡片;>10 条时折叠提示(不静默截断)
+    const section = (title, sub, cardsHtml, total) => total > 0
+      ? '<h2 class="slp-h">' + CO_ENGRAM.escapeHtml(title) + ' <small>' + CO_ENGRAM.escapeHtml(sub) + '</small>'
+        + (total > 10 ? '<span class="slp-more">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.more', { n: total - 10 })) + '</span>' : '')
+        + '</h2>' + cardsHtml
+      : '';
+    // 汇总格:一组 = 一个生产者;组头摘要只放格与节之外的运行计数
+    const groupHead = (gid, summary) =>
+      '<div class="slp-ghead"><b>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.group.' + gid)) + '</b>'
+      + (summary ? ' <small>' + CO_ENGRAM.escapeHtml(summary) + '</small>' : '') + '</div>';
+    const numCell = (v, cls, labelKey, sign) =>
+      '<div class="nm"><b class="' + cls + '">' + (sign || '') + v + '</b><span>'
+      + CO_ENGRAM.escapeHtml(T.t(labelKey)) + '</span></div>';
+    const gsumRem = (remDs.metacognitionApplied || remDs.metacognitionTotal || remDs.clustersScanned)
+      ? T.t('viewer.maintenance.sleep.gsum.rem', {
+          a: String(remDs.metacognitionApplied ?? remDs.metacognitionTotal ?? 0),
+          c: String(remDs.clustersScanned ?? 0) })
+      : '';
+    const gsumDeep = mergedN > 0 ? T.t('viewer.maintenance.sleep.gsum.deep', { n: String(mergedN) }) : '';
+    const gsumLight = (lightDs.signalsProcessed || lightDs.rpeUpdates)
+      ? T.t('viewer.maintenance.sleep.gsum.light', {
+          a: String(lightDs.signalsProcessed ?? 0),
+          b: String(lightDs.rpeUpdates ?? 0) })
       : '';
 
     const upgradesHtml = upgrades.slice(0, 10).map(m => modCard(m, 'rem')).join('');
-    const reinforcesHtml = reinforces.slice(0, 10).map(m => modCard(m, 'light')).join('');
-    const decaysHtml = decays.slice(0, 10).map(m => modCard(m, (m.action != null && lightMods.indexOf(m) < 0) ? 'deep' : 'light')).join('');
     const patternsHtml = patterns.slice(0, 10).map(p => {
       const srcId = (p.sourceIds && p.sourceIds[0]) || '';
       return '<div class="card slp-card"><div class="ct">'
         + '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(srcId) + '" data-stage="pattern" style="cursor:pointer;font-weight:600">🌙 ' + CO_ENGRAM.escapeHtml(p.title || (p.centroidExcerpt || '').slice(0, 40)) + '</span>'
         + '</div></div>';
     }).join('');
+    const deepDecaysHtml = deepMods.slice(0, 10).map(m => modCard(m, 'deep')).join('');
+    const reinforcesHtml = reinforces.slice(0, 10).map(m => modCard(m, 'light')).join('');
+    const lightDecaysHtml = lightDecays.slice(0, 10).map(m => modCard(m, 'light')).join('');
 
-    return '<div class="panel" style="padding:1.4rem 1.6rem;margin-bottom:1.2rem">'
-      + '<h1 style="font-size:1.5rem;margin:0 0 0.2rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.title')) + '</h1>'
-      + '<div class="kpi-sub" style="margin-bottom:0.9rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.sub')) + '</div>'
-      + '<div class="slp-head">'
-      + '<div class="when">' + (remRun
+    return '<div class="panel" style="margin-bottom:1.2rem">'
+      + '<div class="panel-header"><h2>☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.title')) + '</h2></div>'
+      + '<div class="panel-hint">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.sub')) + ' · '
+      + (remRun
         ? CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.when', { t: remRun.toLocaleString() }))
         : CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.never'))) + '</div>'
-      + '<div class="nums">'
-      + '<div class="nm"><b class="c-ac">+' + reinforces.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.reinforce')) + '</span></div>'
-      + '<div class="nm"><b class="c-rd">−' + (decays.length + archivedN) + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.decay')) + '</span></div>'
-      + '<div class="nm"><b class="c-ac">' + upgrades.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.upgrade')) + '</span></div>'
-      + '<div class="nm"><b class="c-am">' + dreamAudit.noise.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.noise')) + '</span></div>'
-      + '<div class="nm"><b class="c-rd">' + dreamAudit.contradicted.length + '</b><span>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradict')) + '</span></div>'
-      + '</div></div>'
+      + '<div class="slp-groups">'
+      + '<div class="slp-group">' + groupHead('rem', gsumRem) + '<div class="nums">'
+        + numCell(upgrades.length, 'c-ac', 'viewer.maintenance.sleep.upgrade')
+        + numCell(patterns.length, 'c-am', 'viewer.maintenance.sleep.pattern')
+        + '</div></div>'
+      + '<div class="slp-group">' + groupHead('deep', gsumDeep) + '<div class="nums">'
+        + numCell(deepMods.length, 'c-rd', 'viewer.maintenance.sleep.decayDeep', '−')
+        + numCell(archivedN, 'c-am', 'viewer.maintenance.sleep.archive')
+        + '</div></div>'
+      + '<div class="slp-group">' + groupHead('light', gsumLight) + '<div class="nums">'
+        + numCell(reinforces.length, 'c-ac', 'viewer.maintenance.sleep.reinforce', '+')
+        + numCell(lightDecays.length, 'c-rd', 'viewer.maintenance.sleep.decaySignal', '−')
+        + '</div></div>'
+      + '<div class="slp-group">' + groupHead('govern', auditedN ? T.t('viewer.maintenance.sleep.gsum.govern') : '') + '<div class="nums">'
+        + numCell(dreamAudit.noise.length, 'c-am', 'viewer.maintenance.sleep.noise')
+        + numCell(dreamAudit.contradicted.length, 'c-rd', 'viewer.maintenance.sleep.contradict')
+        + '</div></div>'
+      + '</div>'
+      // 明细节:组序与汇总格一致(rem → deep → light → 治理)
       + section(T.t('viewer.maintenance.sleep.upgrade'), T.t('viewer.maintenance.sleep.upgradeSub'), upgradesHtml, upgrades.length)
+      + section(T.t('viewer.maintenance.sleep.pattern'), T.t('viewer.maintenance.sleep.patternSub'), patternsHtml, patterns.length)
+      + section(T.t('viewer.maintenance.sleep.decayDeep'), T.t('viewer.maintenance.sleep.decayDeepSub'), deepDecaysHtml, deepMods.length + archivedN)
       + section(T.t('viewer.maintenance.sleep.reinforce'), T.t('viewer.maintenance.sleep.reinforceSub'), reinforcesHtml, reinforces.length)
-      + section(T.t('viewer.maintenance.sleep.decay'), T.t('viewer.maintenance.sleep.decaySub'), decaysHtml, decays.length + archivedN)
+      + section(T.t('viewer.maintenance.sleep.decaySignal'), T.t('viewer.maintenance.sleep.decaySignalSub'), lightDecaysHtml, lightDecays.length)
       + CO_ENGRAM_MAINTENANCE._renderNoiseSection(dreamAudit.noise)
       + CO_ENGRAM_MAINTENANCE._renderContradictSection(dreamAudit.contradicted)
-      // 模式提炼是本引擎真实产物(REM patternProposals),DEMO 五节之外保留
-      + section(T.t('viewer.maintenance.sleep.pattern'), T.t('viewer.maintenance.sleep.patternSub'), patternsHtml, patterns.length)
-      + ((upgrades.length + reinforces.length + decays.length + dreamAudit.noise.length + dreamAudit.contradicted.length + patterns.length) === 0
+      + ((upgrades.length + patterns.length + deepMods.length + archivedN + mergedN + reinforces.length + lightDecays.length + auditedN) === 0
         ? '<div class="empty" style="padding:1rem">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.empty')) + '</div>' : '')
       + '<div class="slp-foot" style="margin-top:1.1rem;padding-top:0.8rem;border-top:1px dashed var(--border);font-size:0.8rem;color:var(--fg-dim)">'
-      + (nextLine ? '<b>' + CO_ENGRAM.escapeHtml(nextLine) + '</b><br>' : '')
       + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.softening'))
       + '</div>'
       + '</div>';
@@ -5727,24 +5747,58 @@ window.CO_ENGRAM_MAINTENANCE = {
     return '<h2 class="slp-h">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradict')) + ' <small>' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.sleep.contradictSub')) + '</small></h2>' + cards;
   },
 
+  // 段③提案质量反馈:质量维度 —— 睡眠报告的模式提炼与沉思的洞察提案都以
+  // 「提案 → 人工审批」落地,本段回答「这些自动产出的提案质量怎么样」:
+  // 来源构成(洞察/模式)、人工裁决分布、采纳后的存活表现,以及置信度与
+  // 裁决的一致性(负相关 = 机器评分校准警示,自动给出解读)。
   renderInsightStats(st) {
     const T = CO_ENGRAM_T;
     if (!st || !st.enabled || !st.total) return '';
     const pct = (v) => (typeof v === 'number' ? (v * 100).toFixed(1) + '%' : '—');
-    return '<div class="panel" style="margin-bottom:1rem;padding:1rem 1.2rem">'
-      + '<h3 style="margin-top:0">💡 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.title')) + '</h3>'
-      + '<div class="card-meta" style="display:flex;flex-wrap:wrap;gap:.5rem">'
-      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.total', { n: st.total })) + '</span>'
-      + '<span class="chip">✅ ' + st.accepted + ' · ✗ ' + st.dismissed + ' · ⏳ ' + st.pending + '</span>'
-      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.acceptance', { v: pct(st.acceptanceRate) })) + '</span>'
-      + '<span class="chip">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.laterUse', { v: pct(st.laterUseRate) })) + '</span>'
-      + (typeof st.criticCorrelation === 'number' ? '<span class="chip" title="critic score vs human accept">critic r=' + st.criticCorrelation.toFixed(2) + '</span>' : '')
-      + '</div></div>';
+    const bs = st.bySource || {};
+    const insTotal = (bs['rem-insight'] || {}).total || 0;
+    const patTotal = (bs['rem-pattern'] || {}).total || 0;
+    const hasR = typeof st.confidenceCorrelation === 'number';
+    // 置信度一致性解读:样本 <5 不可解读;|r|≥0.3 给方向性结论(负相关为警示)
+    let rLine = '';
+    if (hasR) {
+      const n = typeof st.confidenceSamples === 'number' ? st.confidenceSamples : 0;
+      const r = st.confidenceCorrelation;
+      const key = n < 5 ? 'rFew' : (r >= 0.3 ? 'rPos' : (r <= -0.3 ? 'rNeg' : 'rNeutral'));
+      // 负相关警示用红(c-rd,与报告负向数字同语义);其余档保持中性小字
+      rLine = '<div class="kpi-sub' + (key === 'rNeg' ? ' c-rd' : '') + '" style="margin-top:0.4rem">'
+        + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.' + key, {
+          v: r.toFixed(2), n: String(n) })) + '</div>';
+    }
+    // 数值区与首页概览 KPI 同款(ov-kpi-row/ov-kpi:竖线分隔 + 大数字 + 小标签),
+    // --static 修饰去掉手型(纯展示不可点);采纳/驳回保留青绿/红语义色。
+    const cell = (value, label, colorCls, sub) => '<div class="ov-kpi">'
+      + '<div class="ov-kpi-value' + (colorCls ? ' ' + colorCls : '') + '">' + CO_ENGRAM.escapeHtml(value) + '</div>'
+      + '<div class="ov-kpi-label">' + CO_ENGRAM.escapeHtml(label) + '</div>'
+      + (sub ? '<div class="ov-kpi-sub">' + CO_ENGRAM.escapeHtml(sub) + '</div>' : '')
+      + '</div>';
+    return '<div class="panel" style="margin-bottom:1rem">'
+      + '<div class="panel-header"><h2>⚖ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.title')) + '</h2></div>'
+      + '<p class="panel-hint">' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.sub'))
+      + ' ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.insightStats.sampleHint', { n: String(insTotal), m: String(patTotal) })) + '</p>'
+      + '<div class="ov-kpi-row ov-kpi-row--static" style="margin-top:0.7rem">'
+      + cell(String(st.accepted), T.t('viewer.maintenance.insightStats.accepted'), 'c-ac')
+      + cell(String(st.dismissed), T.t('viewer.maintenance.insightStats.dismissed'), 'c-rd')
+      + cell(String(st.pending), T.t('viewer.maintenance.insightStats.pending'), '')
+      + cell(pct(st.acceptanceRate), T.t('viewer.maintenance.insightStats.acceptance'), '')
+      + cell(pct(st.laterUseRate), T.t('viewer.maintenance.insightStats.laterUse'), '')
+      + cell(hasR ? st.confidenceCorrelation.toFixed(2) : '—', T.t('viewer.maintenance.insightStats.confidenceR'), '',
+          hasR ? 'n=' + (st.confidenceSamples || 0) : '')
+      + '</div>'
+      + rLine
+      + '</div>';
   },
 
+  // 段①梦境状态:调度维度 —— 三阶段是否在周期内、下次何时跑、运行是否出错。
+  // 产物明细(修改了哪些记忆)一律在段②睡眠报告呈现,此处不重复(正交);
+  // Daily(每日衰减)不属于梦境(固定 importance×0.95,无变化),不展示。
   renderHtml(state, intervals) {
     const T = CO_ENGRAM_T;
-    // Daily(每日衰减)不属于梦境(固定 importance×0.95,无变化),不在此展示;engine 仍运行
     const STAGES = ['rem', 'deep', 'light'];
     const now = Date.now();
 
@@ -5806,7 +5860,6 @@ window.CO_ENGRAM_MAINTENANCE = {
       const kind = statusKind(stage, lastRunAt, interval);
       const statusLabel = T.t('viewer.maintenance.status.' + kind);
       const statusTipText = statusTip(stage, kind, lastRunAt, interval);
-      const lastResult = stageState ? stageState.lastResult : null;
       const lastError = stageState ? stageState.lastError : null;
       const icon = T.t('viewer.maintenance.stageIcon.' + stage);
       const subtitle = T.t('viewer.maintenance.stageSubtitle.' + stage);
@@ -5832,54 +5885,6 @@ window.CO_ENGRAM_MAINTENANCE = {
         progressBarTip = T.t('viewer.maintenance.statusTip.never');
       }
 
-      // 产物摘要:lastResult → 中文友好描述
-      // 数组(如 remModified)不在此显示——由专门列表渲染,避免 String() 成 [object Object]
-      var FIELD_LABELS = {
-        metacognitionApplied: '元认知修改', metacognitionTotal: '元认知评估',
-        signalsProcessed: '处理信号', rpeUpdates: 'RPE 更新', windowsClosed: '关闭窗口',
-        promptSignalsUpdated: '提示信号已更新', clustersScanned: '聚类扫描',
-        decayed: '衰减', archived: '归档', forgotten: '遗忘', merged: '合并',
-        skillsScanned: '技能扫描', skillsDecayed: '技能衰退',
-      };
-      function fmtStageField(k, v) {
-        if (k === 'stage' || k === 'at') return null; // 跳过技术字段(用户看不懂)
-        var label = FIELD_LABELS[k] || k;
-        if (typeof v === 'boolean') return v ? label : null;
-        return label + ' ' + v;
-      }
-      // Light 特判:计数全 0 时给友好说明(本周期无新信号),而不是一串看不懂的 0
-      var _ds = lastResult && lastResult.downstreamSummary;
-      var lightAllZero = stage === 'light' && _ds
-        && !(_ds.signalsProcessed > 0) && !(_ds.rpeUpdates > 0) && !(_ds.windowsClosed > 0)
-        && !(_ds.skillsDecayed > 0) && !(_ds.skillsScanned > 0);
-
-      const parts = [];
-      if (lightAllZero) {
-        parts.push(CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.lightNoSignal')));
-      } else if (lastResult) {
-        for (const k of Object.keys(lastResult)) {
-          const v = lastResult[k];
-          if (Array.isArray(v)) continue;
-          if (v !== null && typeof v === 'object') {
-            for (const sk of Object.keys(v)) {
-              if (Array.isArray(v[sk])) continue;
-              var sf = fmtStageField(sk, v[sk]);
-              if (sf) parts.push(CO_ENGRAM.escapeHtml(sf));
-            }
-          } else {
-            var f = fmtStageField(k, v);
-            if (f) parts.push(CO_ENGRAM.escapeHtml(f));
-          }
-        }
-      }
-      const summaryHtml = parts.length > 0
-        ? '<div class="kpi-sub" style="margin-top:0.4rem"><span style="opacity:0.6">' + T.t('viewer.maintenance.resultLabel') + ':</span> ' + parts.join(' · ') + '</div>'
-        : '';
-
-      const errorHtml = lastError
-        ? '<div class="kpi-sub" style="margin-top:0.3rem;color:#b8405a"><span style="opacity:0.7">' + T.t('viewer.maintenance.errorLabel') + ':</span> ⚠ ' + CO_ENGRAM.escapeHtml(lastError) + '</div>'
-        : '';
-
       // REM 加「梦睡眠」徽章(独特语义,需要明显视觉提示)
       const dreamBadge = stage === 'rem'
         ? ' <span class="dream-badge" title="' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadgeTip')) + '" style="cursor:help;border:1px solid var(--border-strong);padding:1px 6px;border-radius:8px;font-size:0.7rem;background:var(--accent-soft,rgba(94,234,212,0.15));color:var(--accent,#0F766E);margin-left:0.4rem">☾ ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.dreamBadge')) + '</span>'
@@ -5898,77 +5903,39 @@ window.CO_ENGRAM_MAINTENANCE = {
         + '<div class="bar-value" style="white-space:nowrap;text-align:right">' + relTime(lastRunAt) + '</div>'
         + '</div>';
 
+
       const barHtml = '<div class="bar-track" title="' + CO_ENGRAM.escapeHtml(progressBarTip) + '" style="margin-top:0.45rem;cursor:help"><div class="bar-fill" style="width:' + (elapsed ? pct(elapsed, interval) : 0) + '%"></div></div>';
 
-      // 各 stage 的「修改的记忆」列表(rem/light/deep 通用),可点击跳详情;数量限制防撑爆
-      var remModifiedHtml = '';
-      var modifiedItems = null;
-      var modifiedLabel = '';
-      var actionText = null;
-      if (stage === 'rem' && _ds && _ds.remModified && _ds.remModified.length > 0) {
-        modifiedItems = _ds.remModified;
-        modifiedLabel = T.t('viewer.maintenance.remModifiedLabel');
-        actionText = function(m) {
-          return m.action === 'evaluated'
-            ? T.t('viewer.maintenance.remAction.evaluated')
-            : (T.enumLabel('verificationStatus', m.action) || m.action);
-        };
-      } else if (stage === 'light' && _ds && _ds.lightModified && _ds.lightModified.length > 0) {
-        modifiedItems = _ds.lightModified;
-        modifiedLabel = T.t('viewer.maintenance.lightModifiedLabel');
-        actionText = function(m) {
-          return (m.delta >= 0 ? '+' : '') + Number(m.delta).toFixed(2);
-        };
-      } else if (stage === 'deep' && _ds && _ds.deepModified && _ds.deepModified.length > 0) {
-        modifiedItems = _ds.deepModified;
-        modifiedLabel = T.t('viewer.maintenance.deepModifiedLabel');
-        actionText = function(m) {
-          return T.t('viewer.maintenance.deepAction.' + m.action) || m.action;
-        };
-      }
-      if (modifiedItems) {
-        var MAX_REM_SHOW = 6; // 大量时防撑爆:最多显示 6 条,超出折叠为「等 N 条」
-        var shownRem = modifiedItems.slice(0, MAX_REM_SHOW);
-        remModifiedHtml = '<div class="kpi-sub" style="margin-top:0.4rem">' + CO_ENGRAM.escapeHtml(modifiedLabel) + ': ';
-        remModifiedHtml += shownRem.map(function(m) {
-          // 修改项携带完整 data 属性,点击打开「修改介绍卡片」(说明这次修改 + 链接记忆)
-          return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(m.engramId) + '"'
-            + ' data-stage="' + stage + '"'
-            + ' data-action="' + CO_ENGRAM.escapeHtml(String(m.action ?? '')) + '"'
-            + ' data-before="' + CO_ENGRAM.escapeHtml(String(m.before ?? '')) + '"'
-            + ' data-delta="' + (typeof m.delta === 'number' ? m.delta : '') + '"'
-            + ' data-to="' + CO_ENGRAM.escapeHtml(String(m.to ?? '')) + '"'
-            + ' style="cursor:pointer;color:var(--accent,#0F766E);text-decoration:underline">' + CO_ENGRAM.escapeHtml(actionText(m)) + ' · ' + CO_ENGRAM.escapeHtml(m.engramId.slice(-8)) + '</span>';
-        }).join('、');
-        if (modifiedItems.length > MAX_REM_SHOW) {
-          remModifiedHtml += ' <span style="opacity:0.6">等 ' + modifiedItems.length + ' 条</span>';
-        }
-        remModifiedHtml += '</div>';
-      }
-
-      // 模式提炼提案(dreaming,REM 另一半产出):补 metacognition 升级/反驳之外的类型
-      // 每项可点击 → 跳转「记忆提案」tab(那里有对应的 rem-pattern 提案可审批)
-      var patternHtml = '';
-      var patternProposals = lastResult && lastResult.downstreamSummary ? lastResult.downstreamSummary.patternProposals : null;
-      if (stage === 'rem' && patternProposals && patternProposals.length > 0) {
-        patternHtml = '<div class="kpi-sub" style="margin-top:0.3rem">🌙 ' + CO_ENGRAM.escapeHtml(T.t('viewer.maintenance.patternLabel')) + ': '
-          + patternProposals.map(function(p) {
-              // 点击 → 跳转到来源记忆(sourceIds[0]);data-stage=pattern 区分(app.ts 委托直跳 engram)
-              var srcId = (p.sourceIds && p.sourceIds[0]) ? p.sourceIds[0] : '';
-              return '<span class="rem-mod-item" data-engram-id="' + CO_ENGRAM.escapeHtml(srcId) + '" data-stage="pattern" style="cursor:pointer;color:var(--accent,#0F766E);text-decoration:underline" title="置信度 ' + p.confidence.toFixed(2) + ',源自 ' + p.sourceCount + ' 条记忆(点击查看来源记忆)">' + CO_ENGRAM.escapeHtml(p.title) + '</span>';
-            }).join('、')
-          + '</div>';
-      }
+      const errorHtml = lastError
+        ? '<div class="kpi-sub" style="margin-top:0.3rem;color:#b8405a"><span style="opacity:0.7">' + T.t('viewer.maintenance.errorLabel') + ':</span> ⚠ ' + CO_ENGRAM.escapeHtml(lastError) + '</div>'
+        : '';
 
       return '<div class="bar-row maintenance-row status-' + kind + '" style="display:block;padding:0.9rem 1rem;margin-bottom:0.6rem;border:1px solid var(--border,rgba(94,234,212,0.1));border-radius:8px">'
         + headerHtml
         + barHtml
-        + summaryHtml
-        + remModifiedHtml
-        + patternHtml
         + errorHtml
         + '</div>';
     }
+
+    // 下次维护:三 stage 中进度比例最高者(调度信息归段①;overdue 已由状态徽章表达)
+    let nextLine = '';
+    try {
+      const dues = STAGES.map(s => {
+        const st = (state.stages || {})[s] || {};
+        const iv = intervals[s] || 0;
+        const last = st.lastRunAt ? new Date(st.lastRunAt).getTime() : 0;
+        const ratio = iv > 0 && last ? (now - last) / iv : 2;
+        const remainMs = Math.max(0, iv - (now - last));
+        return { s, ratio, remainMs, has: !!st.lastRunAt };
+      }).sort((a, b) => b.ratio - a.ratio);
+      const d = dues[0];
+      const h = d && d.has ? Math.max(1, Math.round(d.remainMs / 3600000)) : null;
+      nextLine = T.t('viewer.maintenance.sleep.next', {
+        stage: T.t('viewer.maintenance.stage.' + (d ? d.s : 'light')),
+        h: h != null ? String(h) : '—',
+      });
+    } catch (e) { nextLine = ''; }
+
 
     let html = '<div class="panel">';
     html += '<div class="panel-header"><h2>' + T.t('viewer.maintenance.title') + '</h2></div>';
@@ -5978,6 +5945,10 @@ window.CO_ENGRAM_MAINTENANCE = {
       html += stageRow(stage);
     }
     html += '</div>';
+
+    if (nextLine) {
+      html += '<div class="kpi-sub" style="margin-top:0.9rem"><b>' + CO_ENGRAM.escapeHtml(nextLine) + '</b></div>';
+    }
 
     if (state.updatedAt) {
       html += '<div class="metadata" style="margin-top:1.2rem;font-size:0.85rem;color:var(--fg-muted)">';

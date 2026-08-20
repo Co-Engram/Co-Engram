@@ -1106,30 +1106,30 @@ async function routeApi(
     }
   }
 
-  // /api/insight-stats —— 洞察质量度量埋点(spec §九:采纳率/后续使用率/critic 一致性基线)
+  // /api/insight-stats —— 自动提案质量度量(采纳率/后续使用率/置信度一致性):
+  // 统计两类「自动产出、人工审批」提案 —— rem-insight(沉思洞察)与
+  // rem-pattern(梦境模式提炼)。置信度字段不同(criticScore vs remConfidence),
+  // 一致性统一为「机器置信度 vs 人工裁决」。
   if (path === "/api/insight-stats" && req.method === "GET") {
     if (!ctx.proposalEngine) {
       respondJson(res, 503, { enabled: false });
       return;
     }
-    const insights = ctx.proposalEngine
-      .listAll()
-      .filter((p) => p.source === "rem-insight");
-    let accepted = 0;
-    let dismissed = 0;
-    let pending = 0;
-    const criticScores: Array<{ accepted: boolean; score: number }> = [];
-    const usage: Array<{
-      engramId: string;
-      retrievalCount: number;
-      reinforcementScore: number;
-      failedUses: number;
-    }> = [];
-    for (const p of insights) {
+    const bySource: Record<string, { total: number; accepted: number; dismissed: number; pending: number }> = {
+      "rem-insight": { total: 0, accepted: 0, dismissed: 0, pending: 0 },
+      "rem-pattern": { total: 0, accepted: 0, dismissed: 0, pending: 0 },
+    };
+    const confidenceScores: Array<{ accepted: boolean; score: number }> = [];
+    const usage: Array<{ engramId: string; retrievalCount: number; reinforcementScore: number; failedUses: number }> = [];
+    for (const p of ctx.proposalEngine.listAll()) {
+      const bucket = p.source ? bySource[p.source] : undefined;
+      if (!bucket) continue;
+      bucket.total += 1;
+      const payload = p.payload as { criticScore?: number; remConfidence?: number } | undefined;
+      const score = p.source === "rem-pattern" ? payload?.remConfidence : payload?.criticScore;
       if (p.status === "accepted") {
-        accepted += 1;
-        const payload = p.payload as { criticScore?: number } | undefined;
-        criticScores.push({ accepted: true, score: payload?.criticScore ?? 0 });
+        bucket.accepted += 1;
+        if (typeof score === "number") confidenceScores.push({ accepted: true, score });
         if (p.acceptedEngramId) {
           try {
             const e = ctx.repository.readEngram(p.acceptedEngramId);
@@ -1144,48 +1144,44 @@ async function routeApi(
           }
         }
       } else if (p.status === "dismissed") {
-        dismissed += 1;
-        const payload = p.payload as { criticScore?: number } | undefined;
-        criticScores.push({
-          accepted: false,
-          score: payload?.criticScore ?? 0,
-        });
+        bucket.dismissed += 1;
+        if (typeof score === "number") confidenceScores.push({ accepted: false, score });
       } else {
-        pending += 1;
+        bucket.pending += 1;
       }
     }
-    // 后续使用率:accepted 洞察被检索/强化过的比例(存活期第三关不是死代码的度量)
-    const used = usage.filter(
-      (u) => u.retrievalCount > 0 || u.reinforcementScore > 0,
-    ).length;
-    // critic 一致性:critic 分与人工 accept 的 Pearson 相关(样本 ≥3 才有意义)
-    let criticCorrelation: number | null = null;
-    if (criticScores.length >= 3) {
-      const n = criticScores.length;
-      const xs = criticScores.map((c) => c.score);
-      const ys = criticScores.map((c): number => (c.accepted ? 1 : 0));
+    const accepted = bySource["rem-insight"]!.accepted + bySource["rem-pattern"]!.accepted;
+    const dismissed = bySource["rem-insight"]!.dismissed + bySource["rem-pattern"]!.dismissed;
+    const pending = bySource["rem-insight"]!.pending + bySource["rem-pattern"]!.pending;
+    // 后续使用率:accepted 提案被检索/强化过的比例(存活期第三关不是死代码的度量)
+    const used = usage.filter((u) => u.retrievalCount > 0 || u.reinforcementScore > 0).length;
+    // 置信度一致性:机器置信度与人工 accept 的 Pearson 相关(样本 ≥3 才有意义)
+    let confidenceCorrelation: number | null = null;
+    if (confidenceScores.length >= 3) {
+      const n = confidenceScores.length;
+      const xs = confidenceScores.map((c) => c.score);
+      const ys = confidenceScores.map((c): number => (c.accepted ? 1 : 0));
       const mx = xs.reduce((a, b) => a + b, 0) / n;
       const my = ys.reduce((a, b) => a + b, 0) / n;
-      let num = 0,
-        dx = 0,
-        dy = 0;
+      let num = 0, dx = 0, dy = 0;
       for (let i = 0; i < n; i++) {
         num += (xs[i]! - mx) * (ys[i]! - my);
         dx += (xs[i]! - mx) ** 2;
         dy += (ys[i]! - my) ** 2;
       }
-      criticCorrelation = dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : null;
+      confidenceCorrelation = dx > 0 && dy > 0 ? num / Math.sqrt(dx * dy) : null;
     }
     respondJson(res, 200, {
       enabled: true,
-      total: insights.length,
+      total: bySource["rem-insight"]!.total + bySource["rem-pattern"]!.total,
       accepted,
       dismissed,
       pending,
-      acceptanceRate:
-        accepted + dismissed > 0 ? accepted / (accepted + dismissed) : null,
+      acceptanceRate: accepted + dismissed > 0 ? accepted / (accepted + dismissed) : null,
       laterUseRate: accepted > 0 ? used / accepted : null,
-      criticCorrelation,
+      confidenceCorrelation,
+      confidenceSamples: confidenceScores.length,
+      bySource,
       usage,
     });
     return;

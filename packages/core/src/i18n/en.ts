@@ -1091,10 +1091,20 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.contemplation.diagnosis.rejectReasons":
     "Rejection reasons (${n}, click to view)",
   // Night-thinking T10: explainer / scheduler status / conclude & schedule / sown feedback / diagnosis
-  "viewer.maintenance.insightStats.title": "Insight quality metrics",
-  "viewer.maintenance.insightStats.total": "${n} insight proposals",
-  "viewer.maintenance.insightStats.acceptance": "Acceptance ${v}",
-  "viewer.maintenance.insightStats.laterUse": "Later-use ${v}",
+  "viewer.maintenance.insightStats.title": "Proposal quality feedback",
+  "viewer.maintenance.insightStats.sub":
+    "Historical approval performance of the two kinds of auto-generated proposals — dream pattern distillation and contemplation insights. Both land via proposal → human adjudication: acceptance and later-use rates reflect output quality; confidence alignment reflects whether machine scoring agrees with your rulings.",
+  "viewer.maintenance.insightStats.sampleHint": "Sample: ${n} contemplation insights · ${m} dream patterns.",
+  "viewer.maintenance.insightStats.accepted": "Accepted",
+  "viewer.maintenance.insightStats.dismissed": "Dismissed",
+  "viewer.maintenance.insightStats.pending": "Pending",
+  "viewer.maintenance.insightStats.acceptance": "Acceptance",
+  "viewer.maintenance.insightStats.laterUse": "Later-use",
+  "viewer.maintenance.insightStats.confidenceR": "Confidence alignment r",
+  "viewer.maintenance.insightStats.rFew": "${n} proposals ruled so far — sample still too small to read the alignment.",
+  "viewer.maintenance.insightStats.rPos": "Machine confidence agrees with your rulings (r=${v}): higher-scored proposals are indeed more likely to be accepted.",
+  "viewer.maintenance.insightStats.rNeg": "Warning: higher-scored proposals are dismissed more often (r=${v}) — score calibration may be off; review the dismissal reasons.",
+  "viewer.maintenance.insightStats.rNeutral": "No clear correlation between machine confidence and your rulings yet (r=${v}).",
   "viewer.help.contemplationTitle": "Contemplation",
   "viewer.help.contemplationDesc":
     "<strong>Contemplation</strong>: ask a question on the Contemplation page; the system does one <strong>full-resource-inventory deep think</strong> around it — the entire memory graph, behavioral logs, skill library, web research and available MCP tools; the memory repo stays read-only and raw memory content never leaves the machine, one report per run.",
@@ -2009,41 +2019,43 @@ Invariant: relatedIds derived from synapses (both directions).`,
   // ===== Maintenance panel (viewer.maintenance.*) — plan A viewer tab =====
   "viewer.maintenance.loading": "Loading maintenance state",
   "viewer.maintenance.sleep.title": "Sleep report",
-  "viewer.maintenance.sleep.sub":
-    "deep (decay & consolidation) + rem (metacognition) stages · runs automatically every night",
+  "viewer.maintenance.sleep.sub": "All memory changes in the last maintenance window · grouped by producer",
   "viewer.maintenance.sleep.when": "Last run: ${t}",
-  "viewer.maintenance.sleep.reinforce": "Reinforced (RPE)",
-  "viewer.maintenance.sleep.decay": "Decayed (deep)",
-  "viewer.maintenance.sleep.upgrade": "Verification upgrades (REM)",
+  "viewer.maintenance.sleep.reinforce": "Reinforced",
+  "viewer.maintenance.sleep.upgrade": "Verification upgrades",
   "viewer.maintenance.sleep.pattern": "Pattern distillation",
   "viewer.maintenance.sleep.archive": "Archived / forgotten",
-  "viewer.maintenance.sleep.upgradeSub":
-    "rem metacognition · verification transitions",
-  "viewer.maintenance.sleep.reinforceSub":
-    "RPE · positive feedback after retrieval",
-  "viewer.maintenance.sleep.decaySub":
-    "deep · auto soft-demotion after 30d unused (no deletion)",
-  "viewer.maintenance.sleep.patternSub":
-    "dream distillation · surfaces as proposals for approval",
+  "viewer.maintenance.sleep.decayDeep": "Cleanup demotions",
+  "viewer.maintenance.sleep.decaySignal": "Signal decay",
+  "viewer.maintenance.sleep.group.rem": "🌙 REM · metacognition",
+  "viewer.maintenance.sleep.group.deep": "🧠 deep · cleanup",
+  "viewer.maintenance.sleep.group.light": "⚡ light · signals",
+  "viewer.maintenance.sleep.group.govern": "⚖ Governance · proposal engine / contradiction detection",
+  "viewer.maintenance.sleep.gsum.rem": "evaluated ${a} · clusters ${c}",
+  "viewer.maintenance.sleep.gsum.deep": "merged ${n}",
+  "viewer.maintenance.sleep.gsum.light": "signals ${a} · RPE updates ${b}",
+  "viewer.maintenance.sleep.gsum.govern": "audited within last REM cycle",
+  "viewer.maintenance.sleep.more": "+${n} more",
+  "viewer.maintenance.sleep.upgradeSub": "rem metacognition · verification transitions",
+  "viewer.maintenance.sleep.reinforceSub": "RPE · positive feedback after retrieval",
+  "viewer.maintenance.sleep.decayDeepSub": "deep · auto soft-demotion after 30d unused (no deletion)",
+  "viewer.maintenance.sleep.decaySignalSub": "light RPE negative feedback · failed or unused retrievals",
+  "viewer.maintenance.sleep.patternSub": "dream distillation · surfaces as proposals for approval",
   "viewer.maintenance.sleep.noise": "Noise rejected",
-  "viewer.maintenance.sleep.noiseSub":
-    "proposal engine Layer 1/2 noise filter · audit counts in the same window",
+  "viewer.maintenance.sleep.noiseSub": "proposal engine Layer 1/2 noise filter · audit counts in the same window",
   "viewer.maintenance.sleep.contradict": "Contradictions pending",
-  "viewer.maintenance.sleep.contradictSub":
-    "contradicts synapse created · awaiting human adjudication",
+  "viewer.maintenance.sleep.contradictSub": "contradicts synapse created · awaiting human adjudication",
   "viewer.maintenance.sleep.noiseItem": "${reason} · ${path}",
   "viewer.maintenance.sleep.contraItem": "contradicts ${by} · click to open",
-  "viewer.maintenance.sleep.empty":
-    "The latest maintenance run produced no memory changes",
-  "viewer.maintenance.sleep.next":
-    "Next maintenance: ${stage}, in about ${h} h",
+  "viewer.maintenance.sleep.empty": "The latest maintenance run produced no memory changes",
+  "viewer.maintenance.sleep.next": "Next maintenance: ${stage}, in about ${h} h",
   "viewer.maintenance.sleep.softening":
     "Rule: decay is a soft demotion — memories remain retrievable; only after several untouched cycles do they become trash candidates. Click an item to see the change details and source memory.",
   "viewer.maintenance.disabledHint":
     "Maintenance service not enabled or dataRoot unavailable.",
   "viewer.maintenance.title": "Dream State",
   "viewer.maintenance.intro":
-    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition (clustering similar memories + abstracting patterns + verification upgrades), 🧠 deep memory cleanup, ⚡ light signal processing. Below shows each stage's last run time, artifacts, and cycle status.",
+    "Memory dreams run in the background on a schedule: 🌙 REM does memory consolidation and metacognition, 🧠 deep memory cleanup, ⚡ light signal processing. Below is each stage's scheduling state (last run / health / next run); see the Sleep report underneath for what the last round actually did.",
   "viewer.maintenance.never": "never run",
   "viewer.maintenance.justNow": "just now",
   "viewer.maintenance.minutesAgo": "${n} min ago",
@@ -2054,6 +2066,7 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.explainerBody":
     'REM is a low-frequency stage. Process restarts or holder switching can cause setInterval to never fire — the startup catch-up will immediately run overdue low-frequency stages. light/deep run frequently (5 min / 1 h), so setInterval naturally triggers them, and "never run" isn\'t abnormal. Status colors: green (healthy cycle), yellow (due soon), red (overdue, will catch up on next startup).',
   "viewer.maintenance.stage.rem": "REM (consolidation)",
+  "viewer.maintenance.stage.rem": "REM (consolidation)",
   "viewer.maintenance.stage.deep": "Deep (cleanup)",
   "viewer.maintenance.stage.light": "Light (signals)",
   "viewer.maintenance.stageIcon.rem": "🌙",
@@ -2061,32 +2074,26 @@ Invariant: relatedIds derived from synapses (both directions).`,
   "viewer.maintenance.stageIcon.light": "⚡",
   "viewer.maintenance.stageSubtitle.rem":
     "Dream-sleep stage: cluster similar memories + abstract patterns + metacognition scoring, producing upgrade / refute / pattern proposals for approval",
-  "viewer.maintenance.stageSubtitle.deep":
-    "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
+  "viewer.maintenance.stageSubtitle.deep": "Memory cleanup: merge duplicates + archive/forget stale + trash sweep",
   "viewer.maintenance.stageSubtitle.light":
     "Signal processing: turn tool-call behavior flow into engram reinforce/decay (RPE additive)",
   "viewer.maintenance.stageTip.rem":
     "REM (Rapid Eye Movement) mirrors human dream sleep. Three jobs: ① cluster similar engrams; ② abstract patterns from them; ③ run metacognition scoring. These outputs (upgrades / refutes / new patterns) are not written automatically — they appear as proposals on the Proposals page and take effect only after you approve them. Default 1-day cycle.",
-  "viewer.maintenance.stageTip.deep":
-    "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
+  "viewer.maintenance.stageTip.deep": "Deep stage: merge duplicates + freshness-driven archive/forget + trash sweep. Default 1h.",
   "viewer.maintenance.stageTip.light":
     "Light stage: drain tool-call event stream → extractSignals → applyRpeUpdate. High frequency (default 5 min), event-driven micro-tuning.",
   "viewer.maintenance.dreamBadge": "dream sleep",
   "viewer.maintenance.dreamBadgeTip":
     "REM borrows the human sleep-neuroscience metaphor: this stage acts like dream-state memory consolidation, reshaping scattered traces from the day into long-lived patterns.",
-  "viewer.maintenance.remModifiedLabel": "Last REM modified",
-  "viewer.maintenance.lightNoSignal":
-    "No new memory-usage signals this cycle, so memories are unchanged (Light turns retrieval/usage behavior into reinforcement; with no new behavior, memories stay as-is).",
   "viewer.maintenance.lightModifiedLabel": "RPE boosted",
-  "viewer.maintenance.deepModifiedLabel": "Modified",
   "viewer.maintenance.deepAction.forgotten": "forgotten",
   "viewer.maintenance.deepAction.archived": "archived",
   "viewer.maintenance.deepAction.merged": "merged",
   "viewer.maintenance.modCard.viewEngram": "View memory detail",
   "viewer.maintenance.modCard.remUpgrade":
-    'This memory was evaluated during dream sleep (REM); its verification status rose from "${before}" to "${after}" — the system considers it more trustworthy.',
+    "This memory was evaluated during dream sleep (REM); its verification status rose from \"${before}\" to \"${after}\" — the system considers it more trustworthy.",
   "viewer.maintenance.modCard.remRefute":
-    'This memory was judged low-confidence during dream sleep (REM) and marked "refuted". It is kept but clearly flagged as unreliable.',
+    "This memory was judged low-confidence during dream sleep (REM) and marked \"refuted\". It is kept but clearly flagged as unreliable.",
   "viewer.maintenance.modCard.deepForgotten":
     "This memory was judged stale and forgotten during Deep (cleanup) after long disuse, lowering its retrieval priority.",
   "viewer.maintenance.modCard.deepArchived":
@@ -2095,8 +2102,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "This memory was merged into a similar one during Deep (cleanup) to deduplicate; its content moved into the target memory.",
   "viewer.maintenance.modCard.lightRpe":
     "This memory gained an RPE boost of ${delta} during Light (signal processing) because it was retrieved/used — used memories grow stronger.",
-  "viewer.maintenance.patternLabel": "Pattern abstraction",
-  "viewer.maintenance.remAction.evaluated": "evaluated",
   "viewer.maintenance.status.healthy": "in cycle",
   "viewer.maintenance.status.soon": "due soon",
   "viewer.maintenance.status.overdue": "overdue",
@@ -2112,7 +2117,6 @@ Invariant: relatedIds derived from synapses (both directions).`,
     "Cycle progress: ${pct}% (${remain} to next trigger)",
   "viewer.maintenance.progressBarTipOverdue":
     "Overdue by ${pct}% of cycle (${remain} overdue)",
-  "viewer.maintenance.resultLabel": "Last artifacts",
   "viewer.maintenance.errorLabel": "Last error",
 
   // ===== Graph toolbar (viewer.graph.*) =====
