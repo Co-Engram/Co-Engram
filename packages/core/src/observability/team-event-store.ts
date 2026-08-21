@@ -62,7 +62,7 @@ export const SYNCED_TEAM_ACTIONS: ReadonlySet<AuditAction> = new Set([
   "skill_update",
 ]);
 
-/** metadata 白名单:feed 渲染(authorFor/excerptFor/去重 key)实际消费的键 */
+/** metadata 白名单:feed 渲染(authorFor/excerptFor/去重 key/技能动态标题)实际消费的键 */
 const METADATA_ALLOW_KEYS: ReadonlySet<string> = new Set([
   "updatedBy",
   "createdBy",
@@ -74,6 +74,9 @@ const METADATA_ALLOW_KEYS: ReadonlySet<string> = new Set([
   "target",
   "entityId",
   "synapseId",
+  // skill_create/skill_update 动态标题与去重键(2026-08-22:此前被投影掉,
+  // 跨机技能动态只能显示动作名「创建技能」,看不出是哪个技能)
+  "skillId",
 ]);
 
 /** 同步事件的字符串值截断长度(与 viewer feed excerptFor 的 80 字口径一致) */

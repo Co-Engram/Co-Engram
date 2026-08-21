@@ -289,6 +289,18 @@ CO_ENGRAM.openEngramDetail = function(id) {
   setTimeout(function() { CO_ENGRAM_ENGRAMS.open(id); }, 50);
 };
 
+// 打开技能详情抽屉(动态流技能条目标题共用):与 openEngramDetail 同构 ——
+// 切到 skills tab,等渲染后由 SKILLS 模块拉详情开抽屉;day-popup 随手关。
+CO_ENGRAM.openSkillDetail = function(skillId) {
+  try {
+    if (window.event && window.event.stopPropagation) window.event.stopPropagation();
+  } catch (_) { /* 非浏览器/无事件上下文时忽略 */ }
+  const pop = document.getElementById('day-popup');
+  if (pop) pop.remove();
+  CO_ENGRAM.showTab('skills');
+  setTimeout(function() { CO_ENGRAM_SKILLS.open(skillId); }, 50);
+};
+
 // 记忆动态渲染:按天分组 + 动作色点。只展示用户关心的动作子集,
 // 其余(retrieve_hit 高频噪声等)折叠在「其余 N 条」内,防淹没。
 // 动作族样式(DEMO g2-overview .eico:彩色图标方 + 动作名加粗):
@@ -379,7 +391,9 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     if (e.action === 'update'
       && !(e.metadata && e.metadata.changes && (e.metadata.changes.content || e.metadata.changes.contentTo))
       && e.metadata?.source !== 'external-edit') continue;
-    const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.ts));
+    // skill 事件按 skillId 合并(与 engram 按 engramId 同口径):同一技能反复
+    // skill_update 折成 ×N,多条 skill_create(幂等重建)静默合并
+    const key = e.engramId || (e.action + ':' + (e.metadata?.entityId || e.metadata?.synapseId || e.metadata?.skillId || e.ts));
     const prev = dedup.get(key);
     if (prev) prev.n++;
     else dedup.set(key, { entry: e, n: 1 });
@@ -404,11 +418,15 @@ CO_ENGRAM.renderFeed = function(root, entries) {
     }
     if (rendered >= MAX_ITEMS) { truncated = true; break; }
     rendered++;
-    const title = e.engramTitle || (e.metadata && e.metadata.title) || e.engramId || actionLabel(e.action);
+    // 技能动态标题(2026-08-22):skill_create/skill_update 无 engramId/engramTitle,
+    // 技能的标题即 skillId(skills tab 卡片/详情同名展示),从 metadata.skillId 取;
+    // 老跨机事件(白名单补齐前)无 skillId → 回退动作名
+    const skillId = (e.metadata && typeof e.metadata.skillId === 'string' && e.metadata.skillId) ? e.metadata.skillId : '';
+    const title = e.engramTitle || (e.metadata && e.metadata.title) || e.engramId || skillId || actionLabel(e.action);
     const excerpt = excerptFor(e);
     const kind = e.engramKind || (e.metadata && e.metadata.kind) || '';
     const kindLabel = kind ? (T.enumLabel('kind', kind) || kind) : '';
-    const canOpen = !!e.engramId && !!e.engramTitle;
+    const canOpen = (!!e.engramId && !!e.engramTitle) || !!skillId;
     html += '<div class="ov-feed-item ' + meta.cls + '">'
       + '<span class="ov-feed-ico">' + meta.icon + '</span>'
       + '<div class="ov-feed-body">'
@@ -416,10 +434,10 @@ CO_ENGRAM.renderFeed = function(root, entries) {
       // ×N 徽标只对 update 显示:同 id 多条 update 是反复编辑,合并展示合理;
       // 同 id 多条 create 多为 accept→dismiss→再提案的重建历史,展示「创建×5」
       // 会误导(用户实测反馈),静默合并。
-      + (n > 1 && e.action === 'update' ? ' <span class="ov-feed-times">×' + n + '</span>' : '')
+      + (n > 1 && (e.action === 'update' || e.action === 'skill_update') ? ' <span class="ov-feed-times">×' + n + '</span>' : '')
       + (e.metadata?.source === 'external-edit' ? ' <span class="ov-feed-ext">' + CO_ENGRAM.escapeHtml(T.t('viewer.stats.feedExternalTag')) + '</span>' : '')
       + ' ' + CO_ENGRAM.escapeHtml(authorFor(e)) + ' · ' + CO_ENGRAM.escapeHtml((e.ts || '').slice(11, 16)) + '</div>'
-      + '<div class="ov-feed-title"' + (canOpen ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : '') + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
+      + '<div class="ov-feed-title"' + ((e.engramId && e.engramTitle) ? ' onclick="CO_ENGRAM.openEngramDetail(\\'' + CO_ENGRAM.escapeHtml(e.engramId) + '\\')"' : (skillId ? ' onclick="CO_ENGRAM.openSkillDetail(\\'' + CO_ENGRAM.escapeHtml(skillId) + '\\')"' : '')) + '>' + CO_ENGRAM.escapeHtml(title) + '</div>'
       + (excerpt ? '<div class="ov-feed-excerpt">' + CO_ENGRAM.escapeHtml(excerpt) + '</div>' : '')
       + '<div class="ov-feed-chips">'
       + (kindLabel ? '<span class="chip kind-' + CO_ENGRAM.escapeHtml(kind) + ' kd-mini">' + CO_ENGRAM.escapeHtml(kindLabel) + '</span>' : '')
