@@ -264,6 +264,9 @@ describe("daemon e2e (serial)", () => {
   });
 
   describe("graceful shutdown", () => {
+    // timeout 20s:用例含 spawn + 50×100ms 轮询 + 500ms 收尾,单跑 ~4.3s,
+    // 全量并发负载下(与 core/viewer 并行)系统性超 vitest 默认 5s —— 两轮
+    // 全量回归均在此误红、单跑必绿,属测试上限过紧而非缺陷
     it("SIGTERM 触发 graceful shutdown:lockfile + socket 都被清理", async () => {
       const isolated = mkdtempSync(join(tmpdir(), "daemon-shutdown-"));
       try {
@@ -287,7 +290,7 @@ describe("daemon e2e (serial)", () => {
       } finally {
         try { rmSync(isolated, { recursive: true, force: true }); } catch { /* ignore */ }
       }
-    });
+    }, 20_000);
   });
 
   describe("in-process fallback (CO_ENGRAM_DAEMON=0)", () => {

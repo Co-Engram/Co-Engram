@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-21
+
 ### Fixed(2026-08-20 详情抽屉吸顶与配色:滚动后操作可达)
 
 - **印迹详情抽屉吸顶**(用户反馈:内容长,滚动后「打开目录/编辑/删除」与 ✕ 滚出视口):`.drawer` 改 flex 头体分离(✕ 固定不滚,覆盖全部 18 处 openDrawer 抽屉),`.edit-banner` 操作条 sticky 吸顶。首版白底与抽屉白底混淆(二次反馈),改 `--bg-deep` 纸面色 + `--border-strong` 底边 + 加强投影形成明确层次。验证:CDP 真实浏览器度量(scroll 变化 bannerTop 恒定、内容滚走、✕ 固定)+ 截图视觉验收两轮。public `0161dc7`/`c468e96`,gerrit 27344719/27344739。
