@@ -2,6 +2,7 @@
  * SkillRepository —— Skill CRUD over sidecar（对称 EngramRepository，但不接 SQLite/不接维护引擎）
  * @module @co-engram/core/skill
  */
+import { basename, dirname, isAbsolute, relative, sep } from "node:path";
 import { computeContentHash } from "../storage/hash.js";
 import { validationError, notFoundError } from "../tools/error-schema.js";
 import type {
@@ -23,6 +24,7 @@ import {
   deleteImprint,
   scanAllImprints,
 } from "./imprint.js";
+import { SKILL_MD_FILENAME } from "./skill-detector.js";
 
 export interface RecordUseInput {
   readonly success: boolean;
@@ -39,13 +41,14 @@ export class SkillRepository {
       });
     }
     const now = new Date().toISOString();
+    const sourcePath = normalizeSourcePath(this.dataRoot, input.sourcePath);
     const skill: Skill = {
       schemaVersion: 1,
       skillId: input.skillId,
-      sourcePath: input.sourcePath,
+      sourcePath,
       contentHash: computeSkillContentHash(
         input.skillId,
-        input.sourcePath,
+        sourcePath,
         input.initiationSet,
       ),
       initiationSet: input.initiationSet,
@@ -328,6 +331,33 @@ export class SkillRepository {
   private find(skillId: string): Skill | undefined {
     return scanAllImprints(this.dataRoot).find((s) => s.skillId === skillId);
   }
+}
+
+/**
+ * 归一化 sourcePath 为「技能根目录」形态(相对则相对 dataRoot,POSIX 分隔符)。
+ *
+ * 背景(2026-08-21 viewer reveal dir-not-found 修复):sourcePath 有两类写入方——
+ * skill-detector 采集(collectSkillDirs 契约:相对 dataRoot 的目录)与 skill_create
+ * 工具(调用方原样传入,实测出现绝对路径 + SKILL.md 文件级)。消费方(viewer reveal
+ * 的 join(rootPath, sourcePath)、writeImprint 的 safeJoinWithinRoot)按前者解析,
+ * 后者拼出 <dataRoot>/home/... 必然 miss。本函数在写入口统一语义:
+ *   1. 尾部为 SKILL.md(文件级)→ 取所在目录;
+ *   2. 绝对路径在 dataRoot 内 → 转相对(与 detector 同形态,sidecar 可写);
+ *   3. 绝对路径在 dataRoot 外 → 保留绝对(宿主本地技能是合法形态:imprint 走
+ *      fallback 通道,reveal 直接打开该绝对目录)。
+ */
+export function normalizeSourcePath(
+  dataRoot: string,
+  sourcePath: string,
+): string {
+  let p = sourcePath.trim();
+  if (p.length === 0) return p;
+  if (basename(p) === SKILL_MD_FILENAME) p = dirname(p);
+  const posix = p.split(sep).join("/");
+  if (!isAbsolute(p)) return posix;
+  const rel = relative(dataRoot, p).split(sep).join("/");
+  if (rel === "") return ".";
+  return rel.startsWith("..") ? posix : rel;
 }
 
 /**

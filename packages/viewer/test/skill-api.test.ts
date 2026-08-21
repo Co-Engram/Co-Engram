@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
@@ -498,5 +498,86 @@ describe("GET /api/stats with skill 维度", () => {
         forgotten: 0,
       });
     });
+  });
+});
+
+// ============================================================
+// POST /api/skills/:id/reveal —— sourcePath 多形态路径解析
+// (2026-08-21 修复:绝对路径/文件级 sourcePath 曾被 join(rootPath, ...) 拼成
+//  <root>/home/... 必然 dir-not-found;见 resolveSkillRevealDir)
+// ============================================================
+describe("POST /api/skills/:id/reveal", () => {
+  it("相对目录 sourcePath → join rootPath 后能定位(headless 下 reason=no-desktop 而非 dir-not-found)", async () => {
+    const ctx = makeCtx(tmpDir);
+    mkdirSync(join(tmpDir, "tools", "a"), { recursive: true });
+    ctx.skillRepository.createSkill({
+      skillId: "rel-skill",
+      sourcePath: "tools/a",
+      initiationSet: "触发",
+      createdBy: "tester",
+    });
+    await withViewer(ctx, undefined, async (port) => {
+      const res = await makeRequest(port, "/api/skills/rel-skill/reveal", { method: "POST" });
+      expect(res.status).toBe(200);
+      const data = JSON.parse(res.body);
+      expect(data.dir).toBe(join(tmpDir, "tools", "a"));
+      expect(data.reason).not.toBe("dir-not-found");
+    });
+  });
+
+  it("绝对目录 sourcePath(dataRoot 外宿主本地技能)→ 原样解析,不被 join 污染", async () => {
+    // dataRoot 外真实目录(模拟 ~/.claude/skills/ 下的本地技能)
+    const hostSkillDir = mkdtempSync(join(tmpdir(), "co-engram-host-skill-"));
+    try {
+      const ctx = makeCtx(tmpDir);
+      ctx.skillRepository.createSkill({
+        skillId: "host-local",
+        sourcePath: hostSkillDir,
+        initiationSet: "触发",
+        createdBy: "tester",
+      });
+      await withViewer(ctx, undefined, async (port) => {
+        const res = await makeRequest(port, "/api/skills/host-local/reveal", { method: "POST" });
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.dir).toBe(hostSkillDir);
+        expect(data.reason).not.toBe("dir-not-found");
+      });
+    } finally {
+      rmSync(hostSkillDir, { recursive: true, force: true });
+    }
+  });
+
+  it("存量脏数据(绝对路径 + SKILL.md 文件级)→ dirname 兜底定位到目录", async () => {
+    // 模拟 skill_create 修复前的历史 imprint:sourcePath 指向 SKILL.md 文件本身。
+    // 写入口已归一(createSkill),这里直改 fallback imprint 注入存量形态。
+    const hostSkillDir = mkdtempSync(join(tmpdir(), "co-engram-host-skill-"));
+    try {
+      const ctx = makeCtx(tmpDir);
+      ctx.skillRepository.createSkill({
+        skillId: "legacy-dirty",
+        sourcePath: hostSkillDir,
+        initiationSet: "触发",
+        createdBy: "tester",
+      });
+      // createSkill 归一后走 fallback 通道(dataRoot 外)。直改该文件还原脏形态。
+      const fbDir = join(tmpDir, "skill-imprints");
+      const fbFile = readdirSync(fbDir).find((f) => f.endsWith(".json"));
+      expect(fbFile).toBeDefined();
+      const abs = join(fbDir, fbFile!);
+      const imp = JSON.parse(readFileSync(abs, "utf8"));
+      imp.sourcePath = join(hostSkillDir, "SKILL.md");
+      writeFileSync(abs, JSON.stringify(imp, null, 2) + "\n", "utf8");
+
+      await withViewer(ctx, undefined, async (port) => {
+        const res = await makeRequest(port, "/api/skills/legacy-dirty/reveal", { method: "POST" });
+        expect(res.status).toBe(200);
+        const data = JSON.parse(res.body);
+        expect(data.dir).toBe(hostSkillDir);
+        expect(data.reason).not.toBe("dir-not-found");
+      });
+    } finally {
+      rmSync(hostSkillDir, { recursive: true, force: true });
+    }
   });
 });

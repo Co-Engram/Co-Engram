@@ -38,7 +38,7 @@ import {
 } from "node:http";
 import { spawn } from "node:child_process";
 import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   type AuditAction,
@@ -229,6 +229,22 @@ function safeReadEngram(
  * resolveDirectory)保证已过 path-traversal 校验。spawn 用数组参数不经 shell;
  * detached + unref 让 viewer 不阻塞、不等待文件管理器退出。
  */
+/**
+ * skill.sourcePath → reveal 用的目录绝对路径。
+ *
+ * sourcePath 两类写入形态(2026-08-21 修复):相对 dataRoot 的目录(skill-detector
+ * 契约,join rootPath)与绝对路径(skill_create 创建的宿主本地技能——core 写入口
+ * 已归一为目录,但存量 imprint 可能仍是 SKILL.md 文件级,dirname 兜底)。绝对路径
+ * 必须原样使用:path.join 不会因第二参数是绝对路径而重置,join(root, "/home/...")
+ * 会拼出 <root>/home/... 必然 miss(dir-not-found 的根因)。
+ */
+function resolveSkillRevealDir(rootPath: string, sourcePath: string): string {
+  const abs = isAbsolute(sourcePath)
+    ? sourcePath
+    : join(rootPath, sourcePath);
+  return basename(abs) === "SKILL.md" ? dirname(abs) : abs;
+}
+
 function revealDirectory(absoluteDir: string): {
   opened: boolean;
   reason?: string;
@@ -821,8 +837,9 @@ async function routeApi(
 
   // /api/skills/:id/reveal — 在系统文件管理器打开该 skill 所在目录
   //
-  // skill 目录 = dataRoot + skill.sourcePath(sourcePath 相对 dataRoot,由 skill-detector
-  // collectSkillDirs 生成)。复用 engram 的 revealDirectory + 同响应结构(opened/reason/
+  // skill 目录解析走 resolveSkillRevealDir:相对 dataRoot 的目录(detector 契约)join
+  // rootPath;绝对路径(skill_create 创建的宿主本地技能)原样使用;SKILL.md 文件级
+  // 存量取 dirname。复用 engram 的 revealDirectory + 同响应结构(opened/reason/
   // relativePath/dir),前端复用 engram 的降级 banner 文案模式。token 校验依赖上层
   // handleRequest(与 engram reveal 路由一致,路由内不重复)。
   const skillRevealMatch = /^\/api\/skills\/(.+)\/reveal$/.exec(path);
@@ -842,7 +859,7 @@ async function routeApi(
       respondJson(res, 404, { error: `Skill not found: ${skillId}` });
       return;
     }
-    const absDir = join(ctx.repository.rootPath, skill.sourcePath);
+    const absDir = resolveSkillRevealDir(ctx.repository.rootPath, skill.sourcePath);
     if (!existsSync(absDir)) {
       respondJson(res, 200, {
         opened: false,

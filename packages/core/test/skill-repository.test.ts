@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SkillRepository } from "../src/skill/skill-repository.js";
+import {
+  SkillRepository,
+  normalizeSourcePath,
+  computeSkillContentHash,
+} from "../src/skill/skill-repository.js";
 
 let root: string;
 let repo: SkillRepository;
@@ -132,5 +136,61 @@ describe("SkillRepository CRUD", () => {
 
   it("reactivateSkill 不存在 skillId 抛 NOT_FOUND", () => {
     expect(() => repo.reactivateSkill("nope")).toThrow(/not found|NOT_FOUND/);
+  });
+});
+
+// ============================================================
+// normalizeSourcePath —— sourcePath 写入口统一为「技能根目录」形态
+// (2026-08-21 修复 viewer reveal dir-not-found:skill_create 传入绝对路径 +
+// SKILL.md 文件级时,消费方 join(rootPath, sourcePath) 拼出 <root>/home/... 必然 miss)
+// ============================================================
+describe("normalizeSourcePath", () => {
+  it("相对目录原样(detector 契约形态)", () => {
+    expect(normalizeSourcePath(root, "tools/a")).toBe("tools/a");
+  });
+
+  it("相对 SKILL.md 文件级 → 相对目录", () => {
+    expect(normalizeSourcePath(root, "tools/a/SKILL.md")).toBe("tools/a");
+  });
+
+  it("dataRoot 内绝对目录 → 相对", () => {
+    expect(normalizeSourcePath(root, join(root, "tools", "a"))).toBe("tools/a");
+  });
+
+  it("dataRoot 内绝对 SKILL.md → 相对目录", () => {
+    expect(normalizeSourcePath(root, join(root, "tools", "a", "SKILL.md"))).toBe("tools/a");
+  });
+
+  it("dataRoot 外绝对目录 → 保留绝对(宿主本地技能合法形态)", () => {
+    expect(normalizeSourcePath(root, "/home/u/.claude/skills/a")).toBe("/home/u/.claude/skills/a");
+  });
+
+  it("dataRoot 外绝对 SKILL.md → dataRoot 外绝对目录", () => {
+    expect(normalizeSourcePath(root, "/home/u/.claude/skills/a/SKILL.md")).toBe(
+      "/home/u/.claude/skills/a",
+    );
+  });
+
+  it("dataRoot 本身 → '.'(detector 对根 skill 的约定)", () => {
+    expect(normalizeSourcePath(root, root)).toBe(".");
+  });
+
+  it("首尾空白剥除", () => {
+    expect(normalizeSourcePath(root, "  tools/a  ")).toBe("tools/a");
+  });
+});
+
+describe("createSkill sourcePath 归一化", () => {
+  it("绝对 SKILL.md 传入 → 存储为目录形态 + contentHash 按归一后计算", () => {
+    const s = repo.createSkill({
+      ...input,
+      skillId: "host-local",
+      sourcePath: "/home/u/.claude/skills/host-local/SKILL.md",
+    });
+    expect(s.sourcePath).toBe("/home/u/.claude/skills/host-local");
+    expect(s.contentHash).toBe(
+      computeSkillContentHash("host-local", "/home/u/.claude/skills/host-local", input.initiationSet),
+    );
+    expect(repo.readSkill("host-local").sourcePath).toBe("/home/u/.claude/skills/host-local");
   });
 });
