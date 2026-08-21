@@ -667,12 +667,20 @@ export class MaintenanceEngine {
               confidence: number;
               sourceIds?: readonly string[];
             }>;
+            clustersScanned?: number;
           }
         | undefined;
       const dreamProposals =
         dreamResult && Array.isArray(dreamResult.proposals)
           ? dreamResult.proposals
           : [];
+      // clustersScanned 提到顶层标量:dream 对象会被 extractReportSummary 丢弃
+      // (非标量非白名单数组),viewer「聚类 N」读的是 state.json 里的顶层标量 ——
+      // 不提取则该格永远显示 0(2026-08-21 核验发现)。
+      const clustersScanned =
+        dreamResult && typeof dreamResult.clustersScanned === "number"
+          ? dreamResult.clustersScanned
+          : 0;
       const patternProposals = dreamProposals.map((p) => ({
         title: p.title,
         confidence: p.confidence,
@@ -691,6 +699,7 @@ export class MaintenanceEngine {
           dream: dreamRecord,
           metacognitionApplied,
           metacognitionTotal: candidates.length,
+          clustersScanned,
           remModified,
           patternProposals,
           tagRefresh,

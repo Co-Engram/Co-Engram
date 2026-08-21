@@ -5622,8 +5622,13 @@ window.CO_ENGRAM_MAINTENANCE = {
     const reinforces = lightMods.filter(m => typeof m.delta === 'number' && m.delta > 0);
     const lightDecays = lightMods.filter(m => typeof m.delta === 'number' && m.delta < 0);
     const deepMods = deepDs.deepModified || [];
-    const archivedN = (deepDs.archived || 0) + (deepDs.forgotten || 0);
-    const mergedN = deepDs.merged || 0;
+    // deep 修改按 action 拆(dreaming 只产 merged/archived/forgotten 三种):
+    // 「合并整理」= 重复合并条目;「归档/遗忘」= 终态降级条目。旧实现读
+    // deepDs.archived/forgotten/merged 标量 —— engine 从不产出这些标量(计数
+    // 列表化进 deepModified),归档格恒 0、组头 merged 摘要恒空(2026-08-21 核验发现)。
+    const deepMerged = deepMods.filter(m => m.action === 'merged');
+    const archivedN = deepMods.filter(m => m.action === 'archived' || m.action === 'forgotten').length;
+    const mergedN = deepMerged.length;
     const remRun = stages.rem && stages.rem.lastRunAt ? new Date(stages.rem.lastRunAt) : null;
     const auditedN = dreamAudit.noise.length + dreamAudit.contradicted.length;
 
@@ -5693,7 +5698,7 @@ window.CO_ENGRAM_MAINTENANCE = {
         + numCell(patterns.length, 'c-am', 'viewer.maintenance.sleep.pattern')
         + '</div></div>'
       + '<div class="slp-group">' + groupHead('deep', gsumDeep) + '<div class="nums">'
-        + numCell(deepMods.length, 'c-rd', 'viewer.maintenance.sleep.decayDeep', '−')
+        + numCell(mergedN, 'c-ac', 'viewer.maintenance.sleep.decayDeep')
         + numCell(archivedN, 'c-am', 'viewer.maintenance.sleep.archive')
         + '</div></div>'
       + '<div class="slp-group">' + groupHead('light', gsumLight) + '<div class="nums">'
@@ -5708,7 +5713,7 @@ window.CO_ENGRAM_MAINTENANCE = {
       // 明细节:组序与汇总格一致(rem → deep → light → 治理)
       + section(T.t('viewer.maintenance.sleep.upgrade'), T.t('viewer.maintenance.sleep.upgradeSub'), upgradesHtml, upgrades.length)
       + section(T.t('viewer.maintenance.sleep.pattern'), T.t('viewer.maintenance.sleep.patternSub'), patternsHtml, patterns.length)
-      + section(T.t('viewer.maintenance.sleep.decayDeep'), T.t('viewer.maintenance.sleep.decayDeepSub'), deepDecaysHtml, deepMods.length + archivedN)
+      + section(T.t('viewer.maintenance.sleep.decayDeep'), T.t('viewer.maintenance.sleep.decayDeepSub'), deepDecaysHtml, deepMods.length)
       + section(T.t('viewer.maintenance.sleep.reinforce'), T.t('viewer.maintenance.sleep.reinforceSub'), reinforcesHtml, reinforces.length)
       + section(T.t('viewer.maintenance.sleep.decaySignal'), T.t('viewer.maintenance.sleep.decaySignalSub'), lightDecaysHtml, lightDecays.length)
       + CO_ENGRAM_MAINTENANCE._renderNoiseSection(dreamAudit.noise)
@@ -5924,7 +5929,10 @@ window.CO_ENGRAM_MAINTENANCE = {
         + '</div>';
     }
 
-    // 下次维护:三 stage 中进度比例最高者(调度信息归段①;overdue 已由状态徽章表达)
+    // 下次维护:未过期 stage 中进度比例最高者(调度信息归段①;overdue 由各行
+    // 状态徽章表达,不再进入「下次维护」)。旧实现取 ratio 最高者且 remainMs=0
+    // 被 max(1,·) 钳成 1 —— 任何阶段一过期就显示「约 1 小时后」,与已过期状态
+    // 直接矛盾(2026-08-21 核验发现);全部过期时如实显示「已过期待补跑」。
     let nextLine = '';
     try {
       const dues = STAGES.map(s => {
@@ -5934,13 +5942,22 @@ window.CO_ENGRAM_MAINTENANCE = {
         const ratio = iv > 0 && last ? (now - last) / iv : 2;
         const remainMs = Math.max(0, iv - (now - last));
         return { s, ratio, remainMs, has: !!st.lastRunAt };
-      }).sort((a, b) => b.ratio - a.ratio);
-      const d = dues[0];
-      const h = d && d.has ? Math.max(1, Math.round(d.remainMs / 3600000)) : null;
-      nextLine = T.t('viewer.maintenance.sleep.next', {
-        stage: T.t('viewer.maintenance.stage.' + (d ? d.s : 'light')),
-        h: h != null ? String(h) : '—',
-      });
+      }).sort((a, b) => b.ratio - a.ratio).filter(x => x.has);
+      const upcoming = dues.filter(x => x.ratio < 1);
+      const d = upcoming[0] || dues[0];
+      if (!d) {
+        nextLine = '';
+      } else if (d.ratio >= 1) {
+        nextLine = T.t('viewer.maintenance.sleep.nextOverdue', {
+          stage: T.t('viewer.maintenance.stage.' + d.s),
+        });
+      } else {
+        const h = Math.max(1, Math.round(d.remainMs / 3600000));
+        nextLine = T.t('viewer.maintenance.sleep.next', {
+          stage: T.t('viewer.maintenance.stage.' + d.s),
+          h: String(h),
+        });
+      }
     } catch (e) { nextLine = ''; }
 
 

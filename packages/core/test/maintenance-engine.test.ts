@@ -353,9 +353,14 @@ describe("MaintenanceEngine - runRem 集成", () => {
       dream: unknown;
       metacognitionApplied: number;
       metacognitionTotal: number;
+      clustersScanned: number;
     };
     expect(ds.metacognitionTotal).toBe(2);
     expect(ds.metacognitionApplied).toBeGreaterThanOrEqual(0);
+    // clustersScanned 必须以顶层标量落地(extractReportSummary 丢 dream 对象,
+    // viewer「聚类 N」读顶层标量;缺失则永远显示 0 —— 2026-08-21 修复回归锚)
+    expect(typeof ds.clustersScanned).toBe("number");
+    expect(ds.clustersScanned).toBeGreaterThanOrEqual(0);
   });
 
   it("runRem 空 repo → 0 engram,无错误", async () => {
