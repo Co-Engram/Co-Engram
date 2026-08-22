@@ -12,6 +12,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { engramSearchTool } from "../src/tools/engram-tools.js";
+import { wrapAllToolsWithSignalSink } from "../src/tools/wrapped.js";
+import { MemorySignalSink } from "../src/signals/file-sink.js";
 import type { ToolContext } from "../src/tools/tool.js";
 import type { SimpleSearchResult } from "../src/retrieval/orchestrator.js";
 
@@ -92,5 +94,20 @@ describe("engram_search 取用归因", () => {
     // 取用副作用为零
     expect(ctx._bumped).toEqual([]);
     expect(ctx._windows).toEqual([]);
+  });
+
+  it('attribution="contemplation":signalSink 行为日志照记(沉思足迹仍可溯,声明验证)', async () => {
+    // 归因只拦「取用副作用」(bump/观察窗);wrapped 层的工具调用流与归因无关,
+    // 沉思的检索在 signals.jsonl 仍完整记录 —— 用真实 wrapAllToolsWithSignalSink 验证
+    const sink = new MemorySignalSink();
+    const base = makeCtx("contemplation");
+    const ctx = { ...base, signalSink: sink } as unknown as ToolContext;
+    const [wrapped] = wrapAllToolsWithSignalSink([engramSearchTool]);
+    await wrapped!.execute(input, ctx);
+    await flush();
+    const events = sink.drain();
+    expect(events.length).toBe(1);
+    expect(events[0]!.toolName).toBe("engram_search");
+    expect(base._bumped).toEqual([]); // 同时确认副作用拦截未被 wrapped 层绕过
   });
 });

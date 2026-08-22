@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   READONLY_ALLOWED_TOOLS,
@@ -6,6 +10,7 @@ import {
   buildHeadlessPrompt,
   createHeadlessExecutor,
   parseHeadlessReport,
+  CONTEMPLATION_SESSION_ENV,
 } from "../src/maintenance/insight/headless-executor.js";
 import { buildProtocol } from "../src/maintenance/insight/night-thinking.js";
 import type { NightThinkingTask } from "../src/maintenance/insight/types.js";
@@ -49,6 +54,35 @@ describe("headless executor(受控联网 + 只读白名单 + web 申报面)", ()
     // 协议锚点替换:headless 无 ponder_report 工具,改交最终 JSON
     expect(prompt).toContain("you have no ponder_report tool");
   });
+
+  it("真实 defaultSpawn 给 headless 子进程注入沉思标记 env(取用归因链路起点)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "attr-spawn-"));
+    try {
+      const envOut = join(dir, "child-env.json");
+      const fakeClaude = join(dir, "fake-claude.cjs");
+      // 假 claude:把收到的 env 落盘后立即退出(非合法 report → execute 抛错,
+      // 本用例只验 env 传递,catch 掉解析错)
+      writeFileSync(
+        fakeClaude,
+        "#!/usr/bin/env node\n" +
+          `require("fs").writeFileSync(${JSON.stringify(envOut)}, JSON.stringify(process.env));\n` +
+          'process.stdout.write("done");\n',
+      );
+      spawnSync("chmod", ["+x", fakeClaude]);
+      const executor = createHeadlessExecutor({
+        claudeBin: fakeClaude,
+        // 关键:不注入 spawnFn,走真实 defaultSpawn
+      });
+      await executor.execute(task).catch(() => undefined);
+      const childEnv = JSON.parse(readFileSync(envOut, "utf-8")) as Record<
+        string,
+        string
+      >;
+      expect(childEnv[CONTEMPLATION_SESSION_ENV]).toBe("1");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("parseHeadlessReport 透传 resourcesUsed.web 申报面", () => {
     const raw = JSON.stringify({
