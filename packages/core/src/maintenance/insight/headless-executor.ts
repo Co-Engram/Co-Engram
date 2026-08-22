@@ -41,6 +41,16 @@ export const READONLY_ALLOWED_TOOLS: readonly string[] = [
   "WebFetch",
 ];
 
+/**
+ * 沉思 headless 会话的 env 标记键(2026-08-22):defaultSpawn 注入 "1",
+ * 会话内 claude 再 spawn 的 co-engram MCP server 子进程继承该值;宿主
+ * ToolContext 构造时读取并置 retrievalAttribution="contemplation" →
+ * engram_search 命中不计取用(冷却/hotness/effectiveness 只度量真实工作;
+ * 沉思协议强制多角度全图谱检索,计入会把全库 lastRetrievedAt 批量刷新)。
+ * 常量由 core 导出,spawn 点与三宿主读取点共用同一键名,防漂移。
+ */
+export const CONTEMPLATION_SESSION_ENV = "CO_ENGRAM_CONTEMPLATION_SESSION";
+
 export interface HeadlessExecutorOptions {
   /** claude 可执行文件(默认 "claude";测试注入 fake spawnFn) */
   readonly claudeBin?: string;
@@ -293,7 +303,9 @@ function defaultSpawn(
   }>((resolve, reject) => {
     child = spawn(cmd, args, {
       stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
+      // 沉思标记随 env 下传:headless 会话内的 co-engram MCP server 子进程
+      // 据此把本会话全部检索归因为内省盘点(见 CONTEMPLATION_SESSION_ENV)
+      env: { ...process.env, [CONTEMPLATION_SESSION_ENV]: "1" },
     });
     let stdout = "";
     let stderr = "";

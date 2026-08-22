@@ -45,6 +45,7 @@ import {
   collectSkillCatalog,
   type SkillCatalogEntry,
   Incubator,
+  CONTEMPLATION_SESSION_ENV,
 } from "@co-engram/core";
 import { createHeadlessExecutor } from "./night-thinking/headless-executor.js";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -417,6 +418,12 @@ export function createCoEngramMcpServer(config: CoEngramMcpServerConfig): {
     resolveCreatedBy: () => detectGitAuthor() ?? config.defaultCreatedBy,
     ...(config.llmClient ? { llmClient: config.llmClient } : {}),
     ...(incubator ? { incubator } : {}),
+    // 沉思取用归因(2026-08-22):headless executor spawn 注入的 env 标记 ——
+    // 本 MCP 实例若由沉思 L2 会话拉起,其检索是内省盘点而非真实工作取用,
+    // 不计 retrievalCount/lastRetrievedAt/观察窗(冷却榜与 hotness 语义保真)
+    ...(process.env[CONTEMPLATION_SESSION_ENV] === "1"
+      ? { retrievalAttribution: "contemplation" as const }
+      : {}),
   };
 
   // 启动恢复(2026-08-19):固化超时 in-flight 深思条目的 TTL 收束。

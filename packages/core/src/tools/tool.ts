@@ -126,6 +126,20 @@ export interface ToolContext {
    */
   readonly host?: "claude-code-mcp" | "openclaw-plugin" | string;
   /**
+   * 取用归因(2026-08-22):"contemplation" = 沉思(L2 headless)的内省盘点,
+   * 非真实工作取用。engram_search 命中时跳过 bumpRetrievalStats 与观察窗 ——
+   * 冷却榜(topCooling)/ 检索热度(hotness)/ effectiveness 只应度量记忆对
+   * 真实工作的有用性;沉思协议强制多角度全图谱检索,若计入取用会把全库
+   * lastRetrievedAt 批量刷新,冷却语义失效、有效率被 inconclusive 窗稀释。
+   * signals.jsonl 的工具调用流不受影响(沉思足迹在行为日志仍完整可溯)。
+   *
+   * 来源:headless executor spawn 时注入 CO_ENGRAM_CONTEMPLATION_SESSION=1,
+   * 宿主 ctx 构造读取该 env 注入本字段;现场 agent 模式(用户会话内执行)
+   * 与日常检索共用同一 MCP 实例,无法可靠区分,保持默认计入。
+   * 缺省 = "work"(向后兼容)。
+   */
+  readonly retrievalAttribution?: "work" | "contemplation";
+  /**
    * 沉思孵化器(可选)。ponder_* 工具用它执行沉思;
    * 宿主在 bootstrap 时注入(与 maintenance deps 共用同一实例)。
    * 未注入时 ponder_* 工具抛 CONFIG 错误(fail-loud)。

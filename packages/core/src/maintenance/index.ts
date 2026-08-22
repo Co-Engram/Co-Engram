@@ -31,6 +31,7 @@ export {
   buildHeadlessPrompt,
   parseHeadlessReport,
   READONLY_ALLOWED_TOOLS,
+  CONTEMPLATION_SESSION_ENV,
 } from "./insight/headless-executor.js";
 export type { HeadlessExecutorOptions } from "./insight/headless-executor.js";
 export { insightEntityId } from "../observability/proposal-engine.js";

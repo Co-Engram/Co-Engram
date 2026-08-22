@@ -684,6 +684,23 @@ export const engramSearchTool: Tool<
       kind: r.entry.kind,
     }));
     if (firedHits.length > 0) {
+      // 取用归因(2026-08-22):沉思内省盘点(retrievalAttribution="contemplation")
+      // 不计取用 —— 不 bump retrievalCount/lastRetrievedAt(冷却榜/hotness 只度量
+      // 真实工作取用),不开 effectiveness 观察窗(沉思探针无人 reinforce,只会
+      // 以 closed_by_timeout 稀释有效率)。signalSink 的工具调用流不受此影响。
+      if (ctx.retrievalAttribution === "contemplation") {
+        return {
+          results: results.map((r) => ({
+            id: r.id,
+            score: r.score,
+            title: r.entry.title,
+            kind: r.entry.kind,
+            domainTags: r.entry.domainTags,
+            matchReason: r.matchReason,
+          })),
+          total: results.length,
+        };
+      }
       const sessionId = ctx.sessionId;
       const query = parsed.query;
       const timestamp = new Date().toISOString();

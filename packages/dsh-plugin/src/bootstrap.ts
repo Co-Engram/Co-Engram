@@ -21,6 +21,7 @@ import {
   EffectivenessTracker,
   ProposalEngine,
   Incubator,
+  CONTEMPLATION_SESSION_ENV,
   DEFAULT_HASHER_EMBEDDER,
   DEFAULT_HASHER_SIMILARITY_THRESHOLD,
   DEFAULT_AUDIT_CONFIG,
@@ -208,6 +209,12 @@ export async function createDshRuntime(
       : {}),
     resolveCreatedBy: () => detectGitAuthor() ?? config.defaultCreatedBy,
     ...(incubator ? { incubator } : {}),
+    // 沉思取用归因(2026-08-22):headless executor spawn 注入的 env 标记 ——
+    // 本实例若由沉思 L2 会话拉起,其检索是内省盘点而非真实工作取用,
+    // 不计 retrievalCount/lastRetrievedAt/观察窗(冷却榜与 hotness 语义保真)
+    ...(process.env[CONTEMPLATION_SESSION_ENV] === "1"
+      ? { retrievalAttribution: "contemplation" as const }
+      : {}),
   };
 
   const language = config.language ?? "en";
